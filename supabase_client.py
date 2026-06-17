@@ -1,5 +1,6 @@
+# test change for first squash merge
 import os
-from supabase import create_client
+from supabase import create_client, Client
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,9 +8,12 @@ load_dotenv()
 url = os.getenv("SUPABASE_URL")
 key = os.getenv("SUPABASE_ANON_KEY")
 
-supabase = create_client(url, key)
+supabase: Client = create_client(url, key) # type: ignore
+print("✅ Connected to Supabase:", url)
 
-def create_user(email: str, display_name: str, avatar_url: str = None):
+type: ignore # type: ignore
+
+def create_user(email: str, display_name: str, avatar_url: str = None): # type: ignore
     data = {
         "email": email,
         "display_name": display_name,
@@ -127,7 +131,7 @@ def get_notes_for_lesson(user_id: str, lesson_id: str):
 # ACTIVITY LOG TABLE
 # -------------------------
 
-def log_action(user_id: str, action: str, metadata: dict = None):
+def log_action(user_id: str, action: str, metadata: dict = None): # type: ignore
     data = {
         "user_id": user_id,
         "action": action,
@@ -139,7 +143,7 @@ def log_action(user_id: str, action: str, metadata: dict = None):
 # AI SESSIONS TABLE
 # -------------------------
 
-def save_ai_session(user_id: str, prompt: str, response: str, tokens_used: int, metadata: dict = None):
+def save_ai_session(user_id: str, prompt: str, response: str, tokens_used: int, metadata: dict = None): # type: ignore
     data = {
         "user_id": user_id,
         "prompt": prompt,
