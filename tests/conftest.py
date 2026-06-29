@@ -161,18 +161,18 @@ def pytest_configure(config):
     fake_instance = fake_get_supabase()
 
     # replace the factory so future calls return the fake instance
-    sc.get_supabase = lambda: fake_instance
+    sc.get_supabase = lambda: fake_instance # type: ignore
 
     # replace the cached singleton if present (ensures import-time uses are covered)
     try:
-        sc._client_singleton = fake_instance
+        sc._client_singleton = fake_instance # type: ignore
         print(">>> conftest: set sc._client_singleton to fake_instance")
     except Exception as e:
         print(">>> conftest: could not set _client_singleton:", e)
 
     # replace the proxy/attribute so direct imports of `supabase` work immediately
     try:
-        sc.supabase = fake_instance
+        sc.supabase = fake_instance  # type: ignore
         print(">>> conftest: replaced sc.supabase with fake_instance")
     except Exception as e:
         print(">>> conftest: could not replace sc.supabase:", e)
