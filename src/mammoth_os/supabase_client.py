@@ -21,6 +21,8 @@ def _create_client():
         raise RuntimeError("Supabase environment variables not set")
     return create_client(url, key, options=ClientOptions())
 
+_client_singleton = None
+
 def get_supabase():
     global _client_singleton
     if _client_singleton is None:
