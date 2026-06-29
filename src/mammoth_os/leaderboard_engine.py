@@ -50,3 +50,25 @@ def add_xp(user_id: str, amount: int):
     except Exception:
         logger.warning("RPC failed, falling back to legacy XP update")
         return legacy_add_xp(user_id, amount)
+
+def sync_streak_and_xp(user_id: str):
+    """
+    Test helper: update streak, then XP.
+    """
+    from mammoth_os.streak_engine import update_streak
+    streak_result = update_streak(user_id)
+    xp_result = add_xp(user_id, 10)
+    return {"streak": streak_result, "xp": xp_result}
+
+def get_top_leaderboard(limit: int = 10):
+    """
+    Test helper: return top XP users.
+    """
+    supabase = get_supabase()
+    resp = supabase.schema("atlas").table("leaderboard").select("*").execute()
+    rows = getattr(resp, "data", []) or []
+
+    # Sort by XP descending
+    sorted_rows = sorted(rows, key=lambda r: r.get("xp", 0), reverse=True)
+    return sorted_rows[:limit]
+
