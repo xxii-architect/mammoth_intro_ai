@@ -1,0 +1,19 @@
+# Environment files
+.env
+.env.local
+.env.admin
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
