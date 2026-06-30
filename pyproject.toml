@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mammoth-os"
+version = "0.1.0"
+description = "Mammoth OS Maintenance Console"
+requires-python = ">=3.10"
+
+[project.scripts]
+mammoth = "cli.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
