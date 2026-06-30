@@ -17,3 +17,18 @@ Thumbs.db
 # IDE settings
 .vscode/
 .idea/
+
+# Logs and backups
+logs/
+*.log
+fail.log
+out.txt
+patch.diff
+migration_v2_*.log
+_pre_enterprise_backup/
+_pre_migration_snapshot_*/
+
+# Build artifacts
+*.egg-info/
+src/mammoth_os.egg-info/
+mammoth_os.egg-info/
