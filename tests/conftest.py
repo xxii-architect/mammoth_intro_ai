@@ -1,9 +1,17 @@
 # tests/conftest.py
+import os
 import sys
 import types
 import importlib
-import pytest
-from tests.support.fake_supabase import fake_get_supabase  # type: ignore
+import pytest  # type: ignore
+
+# Make the tests/ directory importable so "support.fake_supabase" works in CI
+_tests_dir = os.path.dirname(__file__)  # tests/
+if _tests_dir not in sys.path:
+    sys.path.insert(0, _tests_dir)
+
+# Import the fake factory from tests/support
+from support.fake_supabase import fake_get_supabase  # type: ignore
 
 # --- Immediate import-time patch (runs before test collection imports other modules) ---
 try:
@@ -14,17 +22,16 @@ except Exception:
 _fake_instance = fake_get_supabase()
 
 if sc is not None:
-    # Ensure the factory and module-level attributes return the fake immediately
     try:
-        sc.get_supabase = lambda: _fake_instance
+        sc.get_supabase = lambda: _fake_instance  # type: ignore
     except Exception:
         pass
     try:
-        sc._client_singleton = _fake_instance
+        sc._client_singleton = _fake_instance  # type: ignore
     except Exception:
         pass
     try:
-        sc.supabase = _fake_instance
+        sc.supabase = _fake_instance  # type: ignore
     except Exception:
         pass
 
@@ -36,7 +43,6 @@ for name, mod in list(sys.modules.items()):
     if not isinstance(mod, types.ModuleType):
         continue
 
-    # If module has attribute 'supabase', replace it
     if hasattr(mod, "supabase"):
         try:
             old = getattr(mod, "supabase")
@@ -45,7 +51,6 @@ for name, mod in list(sys.modules.items()):
         except Exception:
             pass
 
-    # If module imported get_supabase as a name, replace it too
     if hasattr(mod, "get_supabase"):
         try:
             old = getattr(mod, "get_supabase")
@@ -54,7 +59,6 @@ for name, mod in list(sys.modules.items()):
         except Exception:
             pass
 
-    # Defensive: replace common cached client names
     for attr in ("_client", "client", "_supabase_client", "_client_singleton"):
         if hasattr(mod, attr):
             try:
@@ -75,12 +79,11 @@ else:
 @pytest.fixture(scope="session", autouse=True)
 def patch_supabase_early():
     """Ensure fake supabase is installed and replace any late-loaded attributes."""
-    # Re-ensure the supabase_client module points to the fake (defensive)
     try:
         sc = importlib.import_module("mammoth_os.supabase_client")
-        sc.get_supabase = lambda: _fake_instance
-        sc._client_singleton = _fake_instance
-        sc.supabase = _fake_instance
+        sc.get_supabase = lambda: _fake_instance  # type: ignore
+        sc._client_singleton = _fake_instance  # type: ignore
+        sc.supabase = _fake_instance  # type: ignore
     except Exception:
         pass
 
