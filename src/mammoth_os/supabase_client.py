@@ -1,60 +1,80 @@
-# src/mammoth_os/supabase_client.py
-
 import os
-from dotenv import load_dotenv
-from supabase.client import create_client, ClientOptions
-from types import SimpleNamespace
-from postgrest import exceptions as postgrest_exceptions
+from supabase import create_client, Client
 
-load_dotenv()
+_supabase: Client | None = None
 
-# ---------------------------------------------------------------------------
-# Lazy client creation
-# ---------------------------------------------------------------------------
+def get_supabase() -> Client:
+    """
+    Global Supabase client accessor.
+    Creates the client once and reuses it.
+    """
+    global _supabase
+    if _supabase is not None:
+        return _supabase
 
-_client_singleton = None
-
-def _create_client():
     url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_ANON_KEY")
+    key = os.getenv("SUPABASE_KEY")
+
     if not url or not key:
         raise RuntimeError("Supabase environment variables not set")
-    return create_client(url, key, options=ClientOptions())
 
-_client_singleton = None
+    _supabase = create_client(url, key)
+    return _supabase
 
-def get_supabase():
-    global _client_singleton
-    if _client_singleton is None:
-        _client_singleton = _create_client()
-    return _client_singleton
 
-# ---------------------------------------------------------------------------
-# Backwards-compatible lazy proxy
-# ---------------------------------------------------------------------------
+# -----------------------------
+# LESSONS / MODULES
+# -----------------------------
 
-class _LazyProxy:
-    def __getattr__(self, name):
-        client = get_supabase()
-        return getattr(client, name)
+def get_lessons_for_module(module_id: str):
+    supabase = get_supabase()
+    resp = (
+        supabase
+        .schema("atlas")
+        .table("lessons")
+        .select("*")
+        .eq("module_id", module_id)
+        .execute()
+    )
+    return getattr(resp, "data", [])
 
-supabase = _LazyProxy()
 
-# ---------------------------------------------------------------------------
-# Safe helpers
-# ---------------------------------------------------------------------------
+# -----------------------------
+# USER PROFILE
+# -----------------------------
 
-def get_lessons_for_module(module_id: str) -> SimpleNamespace:
-    """
-    Always return an object with .data so tests don't break.
-    """
-    try:
-        client = get_supabase()
-        resp = client.table("lessons").select("*").eq("module_id", module_id).execute()
-        data = getattr(resp, "data", []) or []
-        return SimpleNamespace(data=data)
-    except Exception:
-        return SimpleNamespace(data=[])
+def get_user_profile(user_id: str):
+    supabase = get_supabase()
+    resp = (
+        supabase
+        .schema("atlas")
+        .table("profiles")
+        .select("*")
+        .eq("id", user_id)
+        .execute()
+    )
+    rows = getattr(resp, "data", [])
+    return rows[0] if rows else None
 
-def table(name: str):
-    return get_supabase().table(name)
+
+# -----------------------------
+# STREAK ENGINE SUPPORT
+# -----------------------------
+
+def rpc_update_streak(user_id: str):
+    supabase = get_supabase()
+    resp = supabase.rpc("update_streak", {"p_user_id": user_id}).execute()
+    return getattr(resp, "data", None)
+
+
+# -----------------------------
+# LEADERBOARD SUPPORT
+# -----------------------------
+
+def rpc_increment_user_xp(user_id: str, amount: int):
+    supabase = get_supabase()
+    resp = supabase.rpc(
+        "increment_user_xp",
+        {"p_user_id": user_id, "p_xp_increment": amount}
+    ).execute()
+    return getattr(resp, "data", None)

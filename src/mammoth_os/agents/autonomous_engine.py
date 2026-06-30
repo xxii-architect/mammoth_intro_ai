@@ -1,24 +1,55 @@
-from .base_agent import BaseAgent
+"""
+Mammoth OS — Autonomous Engine
+Central executor for agent-driven tasks.
+"""
 
-class AutonomousTaskEngine(BaseAgent):
-    name = "AutonomousTaskEngine"
-
-    def __init__(self, router):
-        super().__init__(router)
+from typing import Any, Dict
+from mammoth_os.agent_registry import create_agent
 
 
-    def execute_action(self, action_type: str, target: str, details: dict):
-        if action_type == "plan_task":
-            return self._plan_task(target, details)
+class AutonomousEngine:
+    """
+    High-level interface for running tasks through Mammoth OS agents.
+    """
 
-        if action_type == "route_subtasks":
-            return self._route_subtasks(target, details)
+    def __init__(self, user_id: str | None = None):
+        self.user_id = user_id
 
-        if action_type in ("delete_file", "modify_schema", "run_migration", "modify_rls", "use_api_key"):
-            return self._dangerous_op(action_type, target, details)
+    def run_task(
+        self,
+        agent_name: str,
+        payload: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Run a single task through the specified agent.
 
-        return {"status": "unknown_action", "action": action_type}
+        Args:
+            agent_name: Name of the agent in the registry.
+            payload: Dict of task parameters.
 
-    def _plan_task(self, target, details): ...
-    def _route_subtasks(self, target, details): ...
-    def _dangerous_op(self, action_type, target, details): ...
+        Returns:
+            Dict with standardized result:
+            {
+                "agent": str,
+                "ok": bool,
+                "data": Any,
+                "error": str | None
+            }
+        """
+        try:
+            agent = create_agent(agent_name, user_id=self.user_id)
+            result = agent.run(payload)
+
+            return {
+                "agent": agent_name,
+                "ok": True,
+                "data": result,
+                "error": None,
+            }
+        except Exception as e:
+            return {
+                "agent": agent_name,
+                "ok": False,
+                "data": None,
+                "error": str(e),
+            }

@@ -1,131 +1,107 @@
-# src/mammoth_os/agents/brand_voice_agent.py
+"""
+Mammoth OS — BrandVoiceAgent
+Applies the True XXII Supply brand voice: rugged, empowering, outdoors-minded,
+and grounded in the 'Plant the Seed' philosophy and survival aesthetic.
+"""
 
-import os
 from typing import Dict, Any
 
-from .base_agent import BaseAgent
 
-
-class BrandVoiceAgent(BaseAgent):
+class BrandVoiceAgent:
     """
-    BrandVoiceAgent (Stylish, confident, creative)
-    - Writes brand copy and taglines
-    - Generates creative content
-    - Overwrites brand files (approval-gated)
-    - Creates brand directories (approval-gated)
+    Rewrites or generates content in the True XXII Supply brand voice.
     """
 
-    name = "BrandVoiceAgent"
+    def __init__(self, user_id: str | None = None):
+        self.user_id = user_id
 
-    def __init__(self, router):
-        super().__init__(router)
+    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Expected payload:
+        {
+            "content": "text to rewrite",
+            "mode": "rewrite" | "tagline" | "caption",
+            "tone": "rugged" | "calm" | "motivational"
+        }
+        """
+        content = payload.get("content", "")
+        mode = payload.get("mode", "rewrite")
+        tone = payload.get("tone", "rugged")
 
-    def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
-        if action_type == "write_content":
-            return self._write_content(target, details)
-
-        if action_type == "generate_copy":
-            return self._generate_copy(target, details)
-
-        if action_type == "overwrite_brand_file":
-            return self._overwrite_brand_file(target, details)
-
-        if action_type == "create_brand_directory":
-            return self._create_brand_directory(target)
+        if mode == "tagline":
+            result = self._generate_tagline(content)
+        elif mode == "caption":
+            result = self._generate_caption(content, tone)
+        else:
+            result = self._rewrite(content, tone)
 
         return {
-            "status": "unknown_action",
-            "agent": self.name,
-            "action": action_type,
-            "target": target,
+            "agent": "brand_voice",
+            "mode": mode,
+            "tone": tone,
+            "input": content,
+            "output": result,
         }
 
-    # --- Core brand operations ---------------------------------------------
+    # ---------------------------------------------------------
+    # INTERNAL GENERATORS
+    # ---------------------------------------------------------
 
-    def _write_content(self, target: str, details: Dict[str, Any]):
+    def _rewrite(self, content: str, tone: str) -> str:
         """
-        Write new brand content.
-        details:
-            - content: str (required)
+        Rewrite content in the True XXII Supply brand voice.
         """
-        content = details.get("content")
-        if content is None:
-            return {"status": "error", "reason": "Missing 'content' in details"}
+        base = (
+            f"{content.strip()} "
+            f"Stay equipped. Stay aware. Keep moving forward."
+        )
 
-        dirpath = os.path.dirname(target)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
+        if tone == "motivational":
+            return (
+                f"{content.strip()} "
+                f"Every step you take plants a seed for tomorrow. "
+                f"Be equipped. Be skilled. Be ready."
+            )
 
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
+        if tone == "calm":
+            return (
+                f"{content.strip()} "
+                f"Slow down, breathe, and trust your training. "
+                f"Even small steps plant the seed."
+            )
 
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "write_content",
-            "target": target,
-        }
+        return (
+            f"{content.strip()} "
+            f"Don’t get caught running with scissors. "
+            f"Stand your ground. Build your skills. Feel more alive than ever."
+        )
 
-    def _generate_copy(self, target: str, details: Dict[str, Any]):
+    def _generate_tagline(self, theme: str) -> str:
         """
-        Generate brand copy or tagline.
-        For now: simple placeholder.
-        Later: integrate DeepSeek or your creative engine.
+        Generate a rugged tagline based on a theme.
         """
-        theme = details.get("theme", "True XXII Supply")
-        tagline = f"Be equipped. Be skilled. Be ready. — {theme}"
+        return (
+            f"{theme.strip().title()}. "
+            f"Be equipped. Be skilled. Be ready."
+        )
 
-        # Guard against empty dirname (e.g., target is "out.txt")
-        dirpath = os.path.dirname(target)
-        if dirpath:
-            os.makedirs(dirpath, exist_ok=True)
-
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(tagline)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "generate_copy",
-            "target": target,
-            "tagline": tagline,
-        }
-
-    def _overwrite_brand_file(self, target: str, details: Dict[str, Any]):
+    def _generate_caption(self, content: str, tone: str) -> str:
         """
-        Overwrite existing brand file.
-        Approval-gated by Cortex.
+        Generate a short caption for social posts.
         """
-        content = details.get("content")
-        if content is None:
-            return {"status": "error", "reason": "Missing 'content' in details"}
+        if tone == "motivational":
+            return (
+                f"{content.strip()} — Plant the seed today. "
+                f"Even the smallest habit grows into strength."
+            )
 
-        if not os.path.exists(target):
-            return {"status": "error", "reason": f"File not found: {target}"}
+        if tone == "calm":
+            return (
+                f"{content.strip()} — A quiet moment to reset. "
+                f"Preparation is peace."
+            )
 
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "overwrite_brand_file",
-            "target": target,
-        }
-
-    def _create_brand_directory(self, target: str):
-        """
-        Create a new brand directory.
-        Approval-gated by Cortex.
-        """
-        if os.path.exists(target):
-            return {"status": "exists", "target": target}
-
-        os.makedirs(target, exist_ok=True)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "create_brand_directory",
-            "target": target,
-        }
+        return (
+            f"{content.strip()} — Fire burning, music playing, "
+            f"and you’re exactly where you need to be."
+        )

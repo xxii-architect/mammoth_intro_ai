@@ -1,85 +1,93 @@
-# mammoth_os/agents/reflection_agent.py
+"""
+Mammoth OS — ReflectionAgent
+Generates structured learning reflections, mindset prompts, and personal growth insights.
+"""
 
-import os
 from typing import Dict, Any
+from datetime import datetime
 
-from .base_agent import BaseAgent
 
-
-class ReflectionAgent(BaseAgent):
+class ReflectionAgent:
     """
-    ReflectionAgent (Minimalist OS tone)
-    - Analyzes code
-    - Generates diagnostic reports
-    - Read-only operations (safe)
+    Produces reflective prompts and insights to reinforce learning.
     """
 
-    name = "ReflectionAgent"
+    def __init__(self, user_id: str | None = None):
+        self.user_id = user_id
 
-    def __init__(self, router):
-        super().__init__(router)
+    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Expected payload:
+        {
+            "topic": "Week 1",
+            "lesson_title": "Intro to AI",
+            "difficulty": "easy" | "medium" | "hard"
+        }
+        """
+        topic = payload.get("topic", "learning")
+        lesson_title = payload.get("lesson_title", None)
+        difficulty = payload.get("difficulty", "medium")
 
-
-    def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
-        if action_type == "analyze_code":
-            return self._analyze_code(target)
-
-        if action_type == "generate_report":
-            return self._generate_report(target)
+        prompt = self._generate_prompt(topic, lesson_title)
+        insight = self._generate_insight(topic, difficulty)
+        action = self._generate_action(topic)
 
         return {
-            "status": "unknown_action",
-            "agent": self.name,
-            "action": action_type,
-            "target": target,
+            "agent": "reflection",
+            "timestamp": datetime.utcnow().isoformat(),
+            "topic": topic,
+            "lesson_title": lesson_title,
+            "difficulty": difficulty,
+            "prompt": prompt,
+            "insight": insight,
+            "action": action,
         }
 
-    # --- Analysis operations ------------------------------------------------
+    # ---------------------------------------------------------
+    # INTERNAL GENERATORS
+    # ---------------------------------------------------------
 
-    def _analyze_code(self, target: str):
+    def _generate_prompt(self, topic: str, lesson_title: str | None) -> str:
         """
-        Analyze a code file.
-        For now: simple static analysis placeholder.
-        Later: integrate DeepSeek or your LLM analysis pipeline.
+        Reflection prompt — short, introspective, actionable.
         """
-        if not os.path.exists(target):
-            return {"status": "error", "reason": f"File not found: {target}"}
+        if lesson_title:
+            return (
+                f"Think back on '{lesson_title}'. What part of the lesson felt most "
+                f"surprising or unexpectedly clear once you saw it?"
+            )
 
-        with open(target, "r", encoding="utf-8") as f:
-            content = f.read()
+        return (
+            f"What is one thing about {topic} that feels less intimidating now "
+            f"than it did yesterday?"
+        )
 
-        line_count = len(content.splitlines())
-        char_count = len(content)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "analyze_code",
-            "target": target,
-            "metrics": {
-                "lines": line_count,
-                "characters": char_count,
-            },
-        }
-
-    def _generate_report(self, target: str):
+    def _generate_insight(self, topic: str, difficulty: str) -> str:
         """
-        Generate a diagnostic report.
-        For now: simple placeholder.
-        Later: integrate deeper analysis.
+        Provides a mindset insight based on difficulty.
         """
-        exists = os.path.exists(target)
+        if difficulty == "easy":
+            return (
+                f"Early wins in {topic} matter. They build confidence and momentum. "
+                f"Small victories compound faster than you expect."
+            )
 
-        report = {
-            "file_exists": exists,
-            "path": target,
-            "notes": "ReflectionAgent diagnostic report.",
-        }
+        if difficulty == "hard":
+            return (
+                f"Struggle is a signal, not a setback. Hard lessons in {topic} "
+                f"are where your long-term growth actually begins."
+            )
 
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "generate_report",
-            "target": target,
-            "report": report,
-        }
+        return (
+            f"Steady progress in {topic} is more important than perfect execution. "
+            f"Consistency beats intensity."
+        )
+
+    def _generate_action(self, topic: str) -> str:
+        """
+        Gives the user a small reflective action.
+        """
+        return (
+            f"Write one sentence that captures what {topic} taught you today. "
+            f"Keep it honest, simple, and grounded."
+        )

@@ -1,127 +1,119 @@
-# mammoth_os/agents/curriculum_agent.py
+"""
+Mammoth OS — Curriculum Engine
+Handles lesson retrieval, sequencing, completion, and agent-driven learning tasks.
+"""
 
-import os
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional
+from mammoth_os.supabase_client import get_supabase
+from mammoth_os.autonomous_engine import AutonomousEngine # type: ignore
+from mammoth_os.leaderboard_engine import sync_streak_and_xp # type: ignore
 
-from .base_agent import BaseAgent
 
-
-class CurriculumAgent(BaseAgent):
+class CurriculumEngine:
     """
-    CurriculumAgent (Rugged MammothOS survival aesthetic)
-    - Writes lesson/module files
-    - Generates curriculum content
-    - Creates directories (approval-gated)
-    - Overwrites files (approval-gated)
+    High-level learning engine for Mammoth OS.
     """
 
-    name = "CurriculumAgent"
+    def __init__(self, user_id: str):
+        self.user_id = user_id
+        self.engine = AutonomousEngine(user_id=user_id)
 
-    def __init__(self, router):
-        super().__init__(router)
+    # ---------------------------------------------------------
+    # MODULE + LESSON FETCHING
+    # ---------------------------------------------------------
 
+    def get_module(self, module_id: str) -> Optional[Dict[str, Any]]:
+        supabase = get_supabase()
+        resp = (
+            supabase
+            .schema("atlas")
+            .table("modules")
+            .select("*")
+            .eq("id", module_id)
+            .limit(1)
+            .execute()
+        )
+        rows = getattr(resp, "data", []) or []
+        return rows[0] if rows else None
 
-    def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
-        if action_type == "write_file":
-            return self._write_file(target, details)
+    def get_lessons(self, module_id: str) -> List[Dict[str, Any]]:
+        supabase = get_supabase()
+        resp = (
+            supabase
+            .schema("atlas")
+            .table("lessons")
+            .select("*")
+            .eq("module_id", module_id)
+            .order("order_index", ascending=True) # type: ignore
+            .execute()
+        )
+        return getattr(resp, "data", []) or []
 
-        if action_type == "generate_content":
-            return self._generate_content(target, details)
+    # ---------------------------------------------------------
+    # NEXT LESSON LOGIC
+    # ---------------------------------------------------------
 
-        if action_type == "create_directory":
-            return self._create_directory(target)
+    def get_next_lesson(self, module_id: str) -> Optional[Dict[str, Any]]:
+        lessons = self.get_lessons(module_id)
 
-        if action_type == "overwrite_file":
-            return self._overwrite_file(target, details)
+        supabase = get_supabase()
+        progress_resp = (
+            supabase
+            .schema("atlas")
+            .table("lesson_progress")
+            .select("lesson_id")
+            .eq("user_id", self.user_id)
+            .execute()
+        )
+        completed_ids = {row["lesson_id"] for row in getattr(progress_resp, "data", []) or []}
 
-        return {
-            "status": "unknown_action",
-            "agent": self.name,
-            "action": action_type,
-            "target": target,
-        }
+        for lesson in lessons:
+            if lesson["id"] not in completed_ids:
+                return lesson
 
-    # --- Core curriculum operations ----------------------------------------
+        return None  # module complete
 
-    def _write_file(self, target: str, details: Dict[str, Any]):
-        """
-        Write a new curriculum file.
-        details:
-            - content: str (required)
-        """
-        content = details.get("content")
-        if content is None:
-            return {"status": "error", "reason": "Missing 'content' in details"}
+    # ---------------------------------------------------------
+    # COMPLETE LESSON
+    # ---------------------------------------------------------
 
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+    def complete_lesson(self, lesson_id: str) -> Dict[str, Any]:
+        supabase = get_supabase()
 
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
+        # Mark lesson complete
+        supabase.schema("atlas").table("lesson_progress").upsert({
+            "user_id": self.user_id,
+            "lesson_id": lesson_id,
+        }).execute()
 
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "write_file",
-            "target": target,
-        }
-
-    def _generate_content(self, target: str, details: Dict[str, Any]):
-        """
-        Generate curriculum content.
-        For now: simple placeholder.
-        Later: call DeepSeek or your Curriculum Engine.
-        """
-        topic = details.get("topic", "Untitled Module")
-        generated = f"# {topic}\n\nGenerated by CurriculumAgent.\n"
-
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(generated)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "generate_content",
-            "target": target,
-            "generated": generated,
-        }
-
-    def _create_directory(self, target: str):
-        """
-        Create a new curriculum directory.
-        Approval-gated by Cortex.
-        """
-        if os.path.exists(target):
-            return {"status": "exists", "target": target}
-
-        os.makedirs(target, exist_ok=True)
+        # Award XP + update streak
+        xp_result = sync_streak_and_xp(self.user_id, xp_gain=25)
 
         return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "create_directory",
-            "target": target,
+            "lesson_id": lesson_id,
+            "xp": xp_result["xp"],
+            "rank": xp_result["rank"],
+            "streak": xp_result["streak"],
         }
 
-    def _overwrite_file(self, target: str, details: Dict[str, Any]):
+    # ---------------------------------------------------------
+    # RUN LESSON THROUGH AGENT
+    # ---------------------------------------------------------
+
+    def run_lesson(self, lesson: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Overwrite an existing curriculum file.
-        Approval-gated by Cortex.
-        """
-        content = details.get("content")
-        if content is None:
-            return {"status": "error", "reason": "Missing 'content' in details"}
-
-        if not os.path.exists(target):
-            return {"status": "error", "reason": f"File not found: {target}"}
-
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "overwrite_file",
-            "target": target,
+        Lessons specify which agent should handle them.
+        Example lesson structure:
+        {
+            "id": "...",
+            "module_id": "...",
+            "title": "...",
+            "content": "...",
+            "agent": "reflection",
+            "payload": {...}
         }
+        """
+        agent_name = lesson.get("agent", "reflection")
+        payload = lesson.get("payload", {"content": lesson.get("content")})
+
+        return self.engine.run_task(agent_name, payload)

@@ -1,100 +1,142 @@
-# mammoth_os/agents/market_intel_agent.py
+"""
+Mammoth OS — MarketIntelAgent
+Generates strategic industry insights, trend summaries, and actionable intel
+for AI engineering, software development, and technology markets.
+"""
 
-import os
 from typing import Dict, Any
-from .base_agent import BaseAgent
+from datetime import datetime
 
 
-class MarketIntelAgent(BaseAgent):
+class MarketIntelAgent:
     """
-    MarketIntelAgent
-    - Generates market insights
-    - Produces reports
-    - Reads data files (safe)
-    - Writes intel reports (approval-gated)
+    Produces structured market intelligence briefings.
+    Designed for Mammoth OS weekly intel drops.
     """
 
-    name = "MarketIntelAgent"
+    def __init__(self, user_id: str | None = None):
+        self.user_id = user_id
 
-    def __init__(self, router):
-        super().__init__(router)
+    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Expected payload:
+        {
+            "topic": "AI engineering",
+            "focus": "job market" | "tools" | "trends",
+            "depth": "quick" | "full"
+        }
+        """
+        topic = payload.get("topic", "technology")
+        focus = payload.get("focus", "trends")
+        depth = payload.get("depth", "quick")
 
-
-    def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
-        if action_type == "generate_insight":
-            return self._generate_insight(target, details)
-
-        if action_type == "write_report":
-            return self._write_report(target, details)
-
-        if action_type == "read_data":
-            return self._read_data(target)
+        summary = self._generate_summary(topic, focus)
+        signals = self._generate_signals(topic)
+        action = self._generate_action(topic, focus)
 
         return {
-            "status": "unknown_action",
-            "agent": self.name,
-            "action": action_type,
-            "target": target,
+            "agent": "market_intel",
+            "timestamp": datetime.utcnow().isoformat(),
+            "topic": topic,
+            "focus": focus,
+            "depth": depth,
+            "summary": summary,
+            "signals": signals,
+            "action": action,
         }
 
-    # --- Core intel operations ---------------------------------------------
+    # ---------------------------------------------------------
+    # INTERNAL GENERATORS
+    # ---------------------------------------------------------
 
-    def _generate_insight(self, target: str, details: Dict[str, Any]):
+    def _generate_summary(self, topic: str, focus: str) -> str:
         """
-        Generate a market insight.
-        Placeholder until connected to your intel engine.
+        High-level briefing summary.
         """
-        topic = details.get("topic", "General Market")
-        insight = f"Insight for {topic}: demand is steady, opportunities emerging."
+        if topic.lower() == "ai engineering":
+            if focus == "job market":
+                return (
+                    "AI engineering roles continue shifting toward multi-agent systems, "
+                    "model integration, and applied ML. Companies prioritize engineers "
+                    "who can build real products, not just model demos."
+                )
+            if focus == "tools":
+                return (
+                    "Tooling is consolidating around agent frameworks, vector databases, "
+                    "Supabase backends, and orchestration layers. Practical integration "
+                    "skills are outperforming pure research."
+                )
+            return (
+                "AI engineering is stabilizing into a mature discipline focused on "
+                "production reliability, agent autonomy, and real-world deployment."
+            )
 
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if topic.lower() == "software engineering":
+            return (
+                "Software engineering continues trending toward AI-assisted development, "
+                "full-stack autonomy, and cloud-native workflows. Practical builders "
+                "remain in high demand."
+            )
 
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(insight)
+        return (
+            f"The {topic} landscape shows steady movement with emphasis on practical "
+            f"skills, adaptability, and real-world deployment."
+        )
+
+    def _generate_signals(self, topic: str) -> Dict[str, str]:
+        """
+        Key market signals — short, punchy indicators.
+        """
+        if topic.lower() == "ai engineering":
+            return {
+                "skill_shift": "Multi-agent systems > standalone models",
+                "tooling": "Supabase + Python + orchestration layers",
+                "demand": "High for practical builders",
+                "trend": "Agent autonomy + production reliability",
+            }
+
+        if topic.lower() == "software engineering":
+            return {
+                "skill_shift": "AI-assisted coding becoming standard",
+                "tooling": "Cloud-native stacks + automation",
+                "demand": "Strong for full-stack generalists",
+                "trend": "AI copilots integrated into workflows",
+            }
 
         return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "generate_insight",
-            "target": target,
-            "insight": insight,
+            "skill_shift": "Practical experience valued over theory",
+            "tooling": "Consolidation around stable ecosystems",
+            "demand": "Steady",
+            "trend": "Incremental innovation",
         }
 
-    def _write_report(self, target: str, details: Dict[str, Any]):
+    def _generate_action(self, topic: str, focus: str) -> str:
         """
-        Write a market intelligence report.
-        Approval-gated by Cortex.
+        Actionable next step — something the user can do today.
         """
-        content = details.get("content")
-        if content is None:
-            return {"status": "error", "reason": "Missing 'content' in details"}
+        if topic.lower() == "ai engineering":
+            if focus == "job market":
+                return (
+                    "Build one small multi-agent workflow this week. "
+                    "Practical demos outperform resumes."
+                )
+            if focus == "tools":
+                return (
+                    "Integrate a Supabase backend with a Python agent. "
+                    "This is becoming a standard production pattern."
+                )
+            return (
+                "Document one real-world AI system you use daily. "
+                "Understanding deployed systems builds intuition."
+            )
 
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+        if topic.lower() == "software engineering":
+            return (
+                "Refactor one small project using AI-assisted tooling. "
+                "Modern workflows expect hybrid development."
+            )
 
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "write_report",
-            "target": target,
-        }
-
-    def _read_data(self, target: str):
-        """
-        Read a data file (safe, read-only).
-        """
-        if not os.path.exists(target):
-            return {"status": "error", "reason": f"File not found: {target}"}
-
-        with open(target, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "read_data",
-            "target": target,
-            "content_preview": content[:250],
-        }
+        return (
+            f"Identify one practical skill in {topic} you can apply immediately. "
+            f"Execution beats theory."
+        )

@@ -1,158 +1,186 @@
-# mammoth_os/agents/field_ops_agent.py
+"""
+Mammoth OS — FieldOpsAgent
+Generates hands-on field exercises, wildlife observations, terrain challenges,
+and practical survival tasks for Monday fieldwork and learning modules.
+"""
 
-import os
 from typing import Dict, Any
-from .base_agent import BaseAgent
 
 
-class FieldOpsAgent(BaseAgent):
+class FieldOpsAgent:
     """
-    FieldOpsAgent
-    - Handles field-day content (Monday ops)
-    - Wildlife notes, plant notes, terrain notes
-    - Generates field prompts
-    - Writes field logs (approval-gated)
-    - Safe read-only operations for reviewing logs
+    Produces rugged, outdoors-focused practice tasks.
+    Designed for True XXII Supply's fieldwork identity.
     """
 
-    name = "FieldOpsAgent"
+    def __init__(self, user_id: str | None = None):
+        self.user_id = user_id
 
-    def __init__(self, router):
-        super().__init__(router)
+    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Expected payload:
+        {
+            "topic": "navigation",
+            "environment": "forest",
+            "difficulty": "easy" | "medium" | "hard"
+        }
+        """
+        topic = payload.get("topic", "general fieldcraft")
+        environment = payload.get("environment", "outdoors")
+        difficulty = payload.get("difficulty", "easy")
 
-
-    def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
-        if action_type == "generate_field_prompt":
-            return self._generate_field_prompt(target, details)
-
-        if action_type == "write_field_log":
-            return self._write_field_log(target, details)
-
-        if action_type == "read_field_log":
-            return self._read_field_log(target)
-
-        if action_type == "generate_plant_note":
-            return self._generate_plant_note(target, details)
-
-        if action_type == "generate_wildlife_note":
-            return self._generate_wildlife_note(target, details)
+        mission = self._generate_mission(topic, environment, difficulty)
+        skill_focus = self._skill_focus(topic)
+        checklist = self._generate_checklist(topic, environment)
 
         return {
-            "status": "unknown_action",
-            "agent": self.name,
-            "action": action_type,
-            "target": target,
+            "agent": "field_ops",
+            "topic": topic,
+            "environment": environment,
+            "difficulty": difficulty,
+            "mission": mission,
+            "skill_focus": skill_focus,
+            "checklist": checklist,
         }
 
-    # --- Core operations ----------------------------------------------------
+    # ---------------------------------------------------------
+    # INTERNAL GENERATORS
+    # ---------------------------------------------------------
 
-    def _generate_field_prompt(self, target: str, details: Dict[str, Any]):
+    def _generate_mission(self, topic: str, environment: str, difficulty: str) -> str:
         """
-        Generate a Monday field-day prompt.
+        Creates a field mission based on topic + environment + difficulty.
         """
-        season = details.get("season", "summer")
-        prompt = (
-            f"Field Ops — {season.capitalize()} Run.\n"
-            "Capture 2–3 observations:\n"
-            "- A plant with a survival or medicinal angle\n"
-            "- A wildlife behavior or track\n"
-            "- A terrain feature that teaches a skill\n"
-            "Keep it rugged. Keep it real. Keep it True XXII."
+        base = f"Head into the {environment} and complete a {difficulty} {topic} exercise."
+
+        if topic.lower() == "navigation":
+            return (
+                f"{base} Choose a landmark, plot a bearing, and travel to it without "
+                f"checking your phone. Log obstacles and terrain changes."
+            )
+
+        if topic.lower() == "plant identification":
+            return (
+                f"{base} Locate three plants you can positively identify. "
+                f"Record leaf structure, scent, habitat, and any medicinal or survival uses."
+            )
+
+        if topic.lower() == "wildlife tracking":
+            return (
+                f"{base} Find fresh tracks or signs. Document gait, direction, "
+                f"feeding behavior, and any nearby water sources."
+            )
+
+        if topic.lower() == "firecraft":
+            return (
+                f"{base} Gather tinder, kindling, and fuel. Build a stable fire lay "
+                f"and note moisture levels, wind direction, and ignition success."
+            )
+
+        return (
+            f"{base} Perform a practical field task and record observations "
+            f"that relate to real-world survival or outdoors skills."
         )
 
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(prompt)
+    def _skill_focus(self, topic: str) -> str:
+        """
+        Provides the core skill being trained.
+        """
+        mapping = {
+            "navigation": "Situational awareness + bearing discipline",
+            "plant identification": "Pattern recognition + ecological literacy",
+            "wildlife tracking": "Movement analysis + environmental reading",
+            "firecraft": "Resource assessment + controlled ignition",
+        }
+        return mapping.get(topic.lower(), "General fieldcraft fundamentals")
+
+    def _generate_checklist(self, topic: str, environment: str) -> Dict[str, bool]:
+        """
+        Returns a simple checklist of field tasks.
+        """
+        if topic.lower() == "navigation":
+            return {
+                "selected_landmark": False,
+                "plotted_bearing": False,
+                "terrain_notes_recorded": False,
+                "distance_estimated": False,
+            }
+
+        if topic.lower() == "plant identification":
+            return {
+                "three_plants_found": False,
+                "leaf_structure_noted": False,
+                "habitat_logged": False,
+                "medicinal_value_checked": False,
+            }
+
+        if topic.lower() == "wildlife tracking":
+            return {
+                "tracks_found": False,
+                "direction_logged": False,
+                "behavior_inferred": False,
+                "water_sources_noted": False,
+            }
+
+        if topic.lower() == "firecraft":
+            return {
+                "tinder_collected": False,
+                "kindling_prepared": False,
+                "fire_lay_built": False,
+                "ignition_attempted": False,
+            }
 
         return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "generate_field_prompt",
-            "target": target,
-            "prompt": prompt,
+            "observation_made": False,
+            "notes_recorded": False,
+            "environment_assessed": False,
+        }
+"""
+Mammoth OS — Cortex Router
+Routes high-level intents to the appropriate agents via the AutonomousEngine.
+"""
+
+from typing import Any, Dict
+from mammoth_os.autonomous_engine import AutonomousEngine # type: ignore
+
+
+class CortexRouter:
+    """
+    Intent-based router for Mammoth OS.
+    """
+
+    def __init__(self, user_id: str | None = None):
+        self.engine = AutonomousEngine(user_id=user_id)
+
+    def route(self, intent: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Route an intent to the correct agent.
+
+        Args:
+            intent: High-level task type (e.g., 'plant_seed', 'field_ops').
+            payload: Dict of task parameters.
+
+        Returns:
+            AutonomousEngine result dict.
+        """
+        agent_name = self._map_intent_to_agent(intent)
+        return self.engine.run_task(agent_name, payload)
+
+    def _map_intent_to_agent(self, intent: str) -> str:
+        """
+        Map high-level intents to agent registry names.
+        """
+        intent_map = {
+            "plant_seed": "plant_the_seed",
+            "field_ops": "field_ops",
+            "market_intel": "market_intel",
+            "reflection": "reflection",
+            "brand_voice": "brand_voice",
+            "visual": "visual_engine",
+            "community": "community_engine",
         }
 
-    def _write_field_log(self, target: str, details: Dict[str, Any]):
-        """
-        Write a field log entry.
-        Approval-gated by Cortex.
-        """
-        entry = details.get("entry")
-        if entry is None:
-            return {"status": "error", "reason": "Missing 'entry' in details"}
+        if intent not in intent_map:
+            raise ValueError(f"Unknown intent: {intent}")
 
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "a", encoding="utf-8") as f:
-            f.write(entry + "\n")
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "write_field_log",
-            "target": target,
-        }
-
-    def _read_field_log(self, target: str):
-        """
-        Read field logs (safe, read-only).
-        """
-        if not os.path.exists(target):
-            return {"status": "error", "reason": f"File not found: {target}"}
-
-        with open(target, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "read_field_log",
-            "target": target,
-            "content_preview": content[:300],
-        }
-
-    def _generate_plant_note(self, target: str, details: Dict[str, Any]):
-        """
-        Generate a plant identification note.
-        """
-        plant = details.get("plant", "Unknown plant")
-        note = (
-            f"Plant Note — {plant}\n"
-            "Identify structure, leaves, scent, and habitat.\n"
-            "If medicinal: note traditional uses.\n"
-            "If survival-relevant: note fire, cordage, or first-aid value."
-        )
-
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(note)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "generate_plant_note",
-            "target": target,
-            "note": note,
-        }
-
-    def _generate_wildlife_note(self, target: str, details: Dict[str, Any]):
-        """
-        Generate a wildlife observation note.
-        """
-        animal = details.get("animal", "Unknown animal")
-        note = (
-            f"Wildlife Note — {animal}\n"
-            "Observe movement, tracks, feeding signs, and behavior.\n"
-            "Note any survival-relevant patterns (water sources, shelter, danger)."
-        )
-
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(note)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "generate_wildlife_note",
-            "target": target,
-            "note": note,
-        }
+        return intent_map[intent]

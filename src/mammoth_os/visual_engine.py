@@ -1,69 +1,122 @@
-# pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false, reportOptionalMemberAccess=false, reportOperatorIssue=false
-# visual_engine.py
-from rich.console import Console
-from rich.table import Table
-from rich.progress import Progress
-import plotext as plt
-supabase.client import create_client
-import os
-from dotenv import load_dotenv
+"""
+Mammoth OS — VisualEngineAgent
+Generates structured visual concepts, crayon‑sketch prompts, and brand‑aligned
+illustration descriptions for True XXII Supply and Mammoth OS.
+"""
 
-load_dotenv()
-url = os.getenv("SUPABASE_URL")
-key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-supabase: Client = create_client(url, key)  # type: ignore
-console = Console()
+from typing import Dict, Any
+from datetime import datetime
 
-def render_progress(user_id: str):
-    """Render progress dashboard for user."""
-    progress_data = (
-        supabase.schema("atlas")
-        .table("atlas_progress")
-        .select("*")
-        .eq("user_id", user_id)
-        .execute()
-    ).data or []
 
-    if not progress_data:
-        console.print("[bold red]⚠️ No progress data found.[/bold red]")
-        return
+class VisualEngineAgent:
+    """
+    Produces visual concepts in the True XXII Supply art style.
+    Includes crayon‑sketch aesthetic and compass‑rose brand signature.
+    """
 
-    table = Table(title=f"🦣 Mammoth OS Progress — {user_id}")
-    table.add_column("Lesson", style="cyan")
-    table.add_column("Status", style="green")
-    table.add_column("Last Accessed", style="yellow")
+    def __init__(self, user_id: str | None = None):
+        self.user_id = user_id
 
-    for row in progress_data:
-        table.add_row(row.get("lesson_id", "—"), row.get("status", "—"), str(row.get("last_accessed", "—"))) # type: ignore
+    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Expected payload:
+        {
+            "subject": "pine tree",
+            "style": "crayon" | "sketch" | "diagram",
+            "mood": "calm" | "rugged" | "bright",
+            "include_compass": True | False
+        }
+        """
+        subject = payload.get("subject", "outdoor scene")
+        style = payload.get("style", "crayon")
+        mood = payload.get("mood", "rugged")
+        include_compass = payload.get("include_compass", True)
 
-    console.print(table)
+        concept = self._generate_concept(subject, style, mood)
+        palette = self._generate_palette(mood)
+        compass = self._generate_compass() if include_compass else None
 
-    # Chart visualization
-    statuses = [row.get("status") for row in progress_data] # type: ignore
-    completed = statuses.count("completed")
-    in_progress = statuses.count("in_progress")
-    not_started = statuses.count("not_started")
+        return {
+            "agent": "visual_engine",
+            "timestamp": datetime.utcnow().isoformat(),
+            "subject": subject,
+            "style": style,
+            "mood": mood,
+            "concept": concept,
+            "palette": palette,
+            "compass_rose": compass,
+        }
 
-    plt.clear_plot() # type: ignore
-    plt.bar(["Completed", "In Progress", "Not Started"], [completed, in_progress, not_started])
-    plt.title("Lesson Completion Overview")
-    plt.show()
+    # ---------------------------------------------------------
+    # INTERNAL GENERATORS
+    # ---------------------------------------------------------
 
-def render_insight_summary(user_id: str):
-    """Render latest insight report."""
-    report = (
-        supabase.schema("atlas")
-        .table("insight_reports")
-        .select("*")
-        .eq("user_id", user_id)
-        .order("generated_at", desc=True)
-        .limit(1)
-        .execute()
-    ).data # type: ignore
+    def _generate_concept(self, subject: str, style: str, mood: str) -> str:
+        """
+        Creates the core visual description.
+        """
+        base = f"A {style}-style illustration of {subject}"
 
-    if not report:
-        console.print("[bold red]⚠️ No insight report found.[/bold red]")
-        return
+        if style == "crayon":
+            base += (
+                ", drawn with soft, uneven strokes and a hand‑made feel. "
+                "Edges are imperfect, giving it a warm, human texture."
+            )
+        elif style == "sketch":
+            base += (
+                ", rendered with quick pencil lines, light shading, and "
+                "a field‑journal aesthetic."
+            )
+        elif style == "diagram":
+            base += (
+                ", labeled cleanly with simple callouts, like a survival field guide."
+            )
 
-    report = report[0]
-    console.print(f"[bold cyan]{report['report_text']}[/bold cyan]") # type: ignore
+        if mood == "calm":
+            base += " The atmosphere feels quiet and peaceful."
+        elif mood == "bright":
+            base += " Colors feel energetic and optimistic."
+        else:
+            base += " The tone is rugged, outdoorsy, and grounded."
+
+        return base
+
+    def _generate_palette(self, mood: str) -> Dict[str, str]:
+        """
+        Suggests a color palette based on mood.
+        """
+        if mood == "calm":
+            return {
+                "primary": "soft pine green",
+                "secondary": "warm beige",
+                "accent": "muted sky blue",
+            }
+
+        if mood == "bright":
+            return {
+                "primary": "sunlit yellow",
+                "secondary": "vibrant orange",
+                "accent": "deep forest green",
+            }
+
+        return {
+            "primary": "charcoal gray",
+            "secondary": "earth brown",
+            "accent": "pine green",
+        }
+
+    def _generate_compass(self) -> Dict[str, Any]:
+        """
+        Generates the True XXII Supply compass‑rose brand signature.
+        """
+        return {
+            "style": "crayon",
+            "position": "top-right corner",
+            "design": {
+                "points": 4,
+                "north_label": "22",
+                "needle_direction": "up",
+                "line_weight": "thin",
+            },
+            "notes": "Matches True XXII Supply crayon-sketch brand watermark.",
+        }
