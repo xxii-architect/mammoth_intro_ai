@@ -1,3 +1,5 @@
+# CI workflow activated
+
 name: Python Tests
 
 on:
