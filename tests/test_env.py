@@ -1,5 +1,6 @@
 import pytest # type: ignore
-pytestmark = pytest.mark.xfail(reason="Supabase env vars not available in CI", strict=False)
+pytest.skip("Supabase env vars not available in CI", allow_module_level=True)
+
 
 
 import os
