@@ -1,5 +1,3 @@
-# mammoth_os/agents/coding_agent.py
-
 from typing import Dict, Any
 from .base_agent import BaseAgent
 
@@ -9,7 +7,7 @@ class CodingAgent(BaseAgent):
     CodingAgent
     -----------
     Parses natural-language coding instructions and generates unified diff patches
-    to modify the Mammoth OS codebase (add agents, update registry, etc.).
+    or structured responses for Mammoth OS (agents, registry, CLI commands).
     """
 
     name = "CodingAgent"
@@ -20,15 +18,36 @@ class CodingAgent(BaseAgent):
     def run(self, prompt: str) -> Dict[str, Any]:
         """
         Main entry point for CodingAgent.
-        Detects intent and returns either a patch or a simple intent description.
+        Detects intent and returns either a patch or a structured response.
         """
-        prompt_stripped = prompt.strip()
+        text = prompt.strip()
+        lower = text.lower()
 
-        # Simple pattern: "Create a new agent named X inside src/mammoth_os/agents."
-        if prompt_stripped.lower().startswith("create a new agent named"):
-            return self._handle_create_agent(prompt_stripped)
+        # --- Agent creation pattern ---
+        if lower.startswith("create a new agent named"):
+            return self._handle_create_agent(text)
 
-        # Fallback: just echo intent
+        # --- Registry update pattern ---
+        if "update the agent registry" in lower:
+            return self._handle_registry_update(text)
+
+        # --- CLI command: engine list ---
+        if lower == "mammoth engine list":
+            return self._handle_engine_list()
+
+        # --- CLI command: agent list ---
+        if lower == "mammoth agent list":
+            return self._handle_agent_list()
+
+        # --- CLI command: help ---
+        if lower == "mammoth help":
+            return self._handle_help()
+
+        # --- CLI command: version ---
+        if lower == "mammoth version":
+            return self._handle_version()
+
+        # Fallback
         return {
             "status": "intent",
             "agent": self.name,
@@ -36,12 +55,10 @@ class CodingAgent(BaseAgent):
             "message": "CodingAgent received the prompt but no known coding pattern matched."
         }
 
+    # -------------------------------------------------------------------------
+    # Agent creation
+    # -------------------------------------------------------------------------
     def _handle_create_agent(self, prompt: str) -> Dict[str, Any]:
-        """
-        Parse 'Create a new agent named X...' and generate a unified diff patch
-        for a new agent file and registry wiring.
-        """
-        # Very simple name extraction: assume "Create a new agent named X"
         parts = prompt.split("named", 1)
         if len(parts) < 2:
             agent_name = "NewAgent"
@@ -50,6 +67,7 @@ class CodingAgent(BaseAgent):
 
         class_name = f"{agent_name}Agent"
         module_name = f"{agent_name.lower()}_agent"
+        agent_key = agent_name.lower()
 
         agent_file_path = f"src/mammoth_os/agents/{module_name}.py"
 
@@ -87,7 +105,6 @@ class {class_name}(BaseAgent):
         }}
 """
 
-        # Minimal unified diff patch: new file + registry wiring
         patch = f"""diff --git a/{agent_file_path} b/{agent_file_path}
 new file mode 100644
 index 0000000..b1f3abc
@@ -102,7 +119,7 @@ diff --git a/src/mammoth_os/agent_registry.py b/src/mammoth_os/agent_registry.py
          from mammoth_os.agents.coding_agent import CodingAgent
          return CodingAgent(router)
 
-+    if agent_name == "{agent_name.lower()}":
++    if agent_name == "{agent_key}":
 +        from mammoth_os.agents.{module_name} import {class_name}
 +        return {class_name}(router)
 +
@@ -110,7 +127,7 @@ diff --git a/src/mammoth_os/agent_registry.py b/src/mammoth_os/agent_registry.py
      "coding": lambda prompt: load_agent("coding", router).run(prompt),
      "research": lambda prompt: load_agent("research", router).run(prompt),
      "curriculum": lambda prompt: load_agent("curriculum", router).run(prompt),
-+    "{agent_name.lower()}": lambda prompt: load_agent("{agent_name.lower()}", router).run(prompt),
++    "{agent_key}": lambda prompt: load_agent("{agent_key}", router).run(prompt),
  }}
 """
 
@@ -120,4 +137,62 @@ diff --git a/src/mammoth_os/agent_registry.py b/src/mammoth_os/agent_registry.py
             "prompt": prompt,
             "message": f"Generated unified diff patch to create {class_name} and wire it into the registry.",
             "patch": patch,
+        }
+
+    # -------------------------------------------------------------------------
+    # Registry update (simple echo for now)
+    # -------------------------------------------------------------------------
+    def _handle_registry_update(self, prompt: str) -> Dict[str, Any]:
+        return {
+            "status": "intent",
+            "agent": self.name,
+            "prompt": prompt,
+            "message": "Registry update requested. For now, use the agent-creation pattern to wire new agents."
+        }
+
+    # -------------------------------------------------------------------------
+    # CLI commands
+    # -------------------------------------------------------------------------
+    def _handle_engine_list(self) -> Dict[str, Any]:
+        engines = ["coding", "research", "curriculum", "schema_inspector", "field_ops"]
+        return {
+            "status": "cli",
+            "agent": self.name,
+            "command": "mammoth engine list",
+            "engines": engines,
+            "message": "Available inference engines."
+        }
+
+    def _handle_agent_list(self) -> Dict[str, Any]:
+        agents = [
+            "CodingAgent",
+            "ResearchAgent",
+            "CurriculumAgent",
+            "SchemaInspectorAgent",
+            "FieldOpsAgent",
+            "HouseKeepingAgentAgent",
+        ]
+        return {
+            "status": "cli",
+            "agent": self.name,
+            "command": "mammoth agent list",
+            "agents": agents,
+            "message": "Registered agents (static list for now)."
+        }
+
+    def _handle_help(self) -> Dict[str, Any]:
+        return {
+            "status": "cli",
+            "agent": self.name,
+            "command": "mammoth help",
+            "message": "Commands: mammoth engine list, mammoth agent list, mammoth help, mammoth version. Use 'set engine: coding' then natural-language instructions like 'Create a new agent named X...'."
+        }
+
+    def _handle_version(self) -> Dict[str, Any]:
+        return {
+            "status": "cli",
+            "agent": self.name,
+            "command": "mammoth version",
+            "version": "0.1.0-dev",
+            "message": "Mammoth OS development build."
         }
