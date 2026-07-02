@@ -1,17 +1,15 @@
 # mammoth_os/agents/coding_agent.py
 
-import os
 from typing import Dict, Any
-
 from .base_agent import BaseAgent
 
 
 class CodingAgent(BaseAgent):
     """
-    CodingAgent (Wednesday persona)
-    - Writes and refactors code
-    - Creates and deletes files (delete is approval-gated via Cortex)
-    - Can request schema-related actions (always high-risk)
+    CodingAgent
+    -----------
+    Parses natural-language coding instructions and generates unified diff patches
+    to modify the Mammoth OS codebase (add agents, update registry, etc.).
     """
 
     name = "CodingAgent"
@@ -19,139 +17,107 @@ class CodingAgent(BaseAgent):
     def __init__(self, router):
         super().__init__(router)
 
+    def run(self, prompt: str) -> Dict[str, Any]:
+        """
+        Main entry point for CodingAgent.
+        Detects intent and returns either a patch or a simple intent description.
+        """
+        prompt_stripped = prompt.strip()
+
+        # Simple pattern: "Create a new agent named X inside src/mammoth_os/agents."
+        if prompt_stripped.lower().startswith("create a new agent named"):
+            return self._handle_create_agent(prompt_stripped)
+
+        # Fallback: just echo intent
+        return {
+            "status": "intent",
+            "agent": self.name,
+            "prompt": prompt,
+            "message": "CodingAgent received the prompt but no known coding pattern matched."
+        }
+
+    def _handle_create_agent(self, prompt: str) -> Dict[str, Any]:
+        """
+        Parse 'Create a new agent named X...' and generate a unified diff patch
+        for a new agent file and registry wiring.
+        """
+        # Very simple name extraction: assume "Create a new agent named X"
+        parts = prompt.split("named", 1)
+        if len(parts) < 2:
+            agent_name = "NewAgent"
+        else:
+            agent_name = parts[1].strip().split()[0]
+
+        class_name = f"{agent_name}Agent"
+        module_name = f"{agent_name.lower()}_agent"
+
+        agent_file_path = f"src/mammoth_os/agents/{module_name}.py"
+
+        agent_file_content = f"""from typing import Dict, Any
+from .base_agent import BaseAgent
+
+
+class {class_name}(BaseAgent):
+    \"""
+    {class_name}
+    ------------
+    Auto-generated agent. Extend with specific logic as needed.
+    \"""
+
+    name = "{class_name}"
+
+    def __init__(self, router):
+        super().__init__(router)
+
+    def run(self, prompt: str) -> Dict[str, Any]:
+        return {{
+            "status": "intent",
+            "agent": self.name,
+            "prompt": prompt,
+            "message": "{class_name} received the prompt. Implement logic here."
+        }}
+
     def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
-        if action_type == "write_code":
-            return self._write_code(target, details)
-
-        if action_type == "refactor_code":
-            return self._refactor_code(target, details)
-
-        if action_type == "create_file":
-            return self._create_file(target, details)
-
-        if action_type == "delete_file":
-            return self._delete_file(target)
-
-        if action_type in ("modify_schema", "run_migration", "modify_rls"):
-            return self._schema_operation(action_type, target, details)
-
-        return {
-            "status": "unknown_action",
-            "agent": self.name,
-            "action": action_type,
-            "target": target,
-        }
-
-    # --- Core file/code operations -----------------------------------------
-
-    def _write_code(self, target: str, details: Dict[str, Any]):
-        """
-        Write or overwrite code in a file.
-        details:
-            - content: str (required)
-        """
-        content = details.get("content")
-        if content is None:
-            return {"status": "error", "reason": "Missing 'content' in details"}
-
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "write_code",
-            "target": target,
-        }
-
-    def _refactor_code(self, target: str, details: Dict[str, Any]):
-        """
-        Simple refactor placeholder.
-        For now: append a comment or transformation marker.
-        Later: call DeepSeek / LLM to perform real refactors.
-        """
-        if not os.path.exists(target):
-            return {"status": "error", "reason": f"File not found: {target}"}
-
-        transformation_note = details.get("note", "# Refactored by CodingAgent\n")
-
-        with open(target, "a", encoding="utf-8") as f:
-            f.write("\n" + transformation_note)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "refactor_code",
-            "target": target,
-        }
-
-    def _create_file(self, target: str, details: Dict[str, Any]):
-        """
-        Create a new file if it does not exist.
-        Optionally seed with content.
-        """
-        if os.path.exists(target):
-            return {"status": "exists", "target": target}
-
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-
-        content = details.get("content", "")
-        with open(target, "w", encoding="utf-8") as f:
-            f.write(content)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "create_file",
-            "target": target,
-        }
-
-    def _delete_file(self, target: str):
-        """
-        Delete a file.
-        This is high-risk and approval-gated by CortexRouter.
-        """
-        if not os.path.exists(target):
-            return {"status": "error", "reason": f"File not found: {target}"}
-
-        os.remove(target)
-
-        return {
-            "status": "ok",
-            "agent": self.name,
-            "action": "delete_file",
-            "target": target,
-        }
-
-    # --- Schema / migration operations -------------------------------------
-
-    def _schema_operation(self, action_type: str, target: str, details: Dict[str, Any]):
-        """
-        Placeholder for schema-related operations.
-        These are always high-risk and go through Cortex approval.
-        For now, we just return a structured intent.
-        Later, this will call your Supabase / migration tooling.
-        """
-        return {
+        return {{
             "status": "intent",
             "agent": self.name,
             "action": action_type,
             "target": target,
             "details": details,
-        }
-    
-    def run(self, prompt: str):
-        """
-        Main entry point for CodingAgent.
-        Accepts a natural-language prompt and returns a structured intent
-        describing what coding action should be taken.
-        """
+        }}
+"""
+
+        # Minimal unified diff patch: new file + registry wiring
+        patch = f"""diff --git a/{agent_file_path} b/{agent_file_path}
+new file mode 100644
+index 0000000..b1f3abc
+--- /dev/null
++++ b/{agent_file_path}
+@@ -0,0 +1,40 @@
+{agent_file_content}
+diff --git a/src/mammoth_os/agent_registry.py b/src/mammoth_os/agent_registry.py
+--- a/src/mammoth_os/agent_registry.py
++++ b/src/mammoth_os/agent_registry.py
+@@ -45,6 +45,12 @@ def load_agent(agent_name: str, router=None):
+         from mammoth_os.agents.coding_agent import CodingAgent
+         return CodingAgent(router)
+
++    if agent_name == "{agent_name.lower()}":
++        from mammoth_os.agents.{module_name} import {class_name}
++        return {class_name}(router)
++
+@@ -80,6 +86,7 @@ AGENTS = {{
+     "coding": lambda prompt: load_agent("coding", router).run(prompt),
+     "research": lambda prompt: load_agent("research", router).run(prompt),
+     "curriculum": lambda prompt: load_agent("curriculum", router).run(prompt),
++    "{agent_name.lower()}": lambda prompt: load_agent("{agent_name.lower()}", router).run(prompt),
+ }}
+"""
+
         return {
-            "status": "intent",
+            "status": "patch",
             "agent": self.name,
             "prompt": prompt,
-            "message": "CodingAgent received the prompt. Implement LLM-driven intent parsing here."
+            "message": f"Generated unified diff patch to create {class_name} and wire it into the registry.",
+            "patch": patch,
         }
-
