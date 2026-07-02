@@ -1,39 +1,36 @@
-# mammoth_os/agents/curriculum_agent.py
+# mammoth_os/agents/research_agent.py
 
 from typing import Dict, Any
 from .base_agent import BaseAgent
 
 
-class CurriculumAgent(BaseAgent):
+class ResearchAgent(BaseAgent):
     """
-    CurriculumAgent
-    ----------------
-    Generates structured curriculum tasks, lessons, and module plans.
-    This is a lightweight version that avoids missing dependencies
-    and ensures Mammoth OS can boot cleanly.
+    ResearchAgent
+    -------------
+    Lightweight research agent used by the Cortex router.
+    Provides structured responses for research-related prompts.
     """
 
-    name = "CurriculumAgent"
+    name = "ResearchAgent"
 
     def __init__(self, router):
         super().__init__(router)
 
     def run(self, prompt: str) -> Dict[str, Any]:
         """
-        Main entry point for CurriculumAgent.
-        Returns a structured curriculum intent.
+        Main entry point for ResearchAgent.
+        Returns a structured research intent for the router to handle.
         """
         return {
             "status": "intent",
             "agent": self.name,
             "prompt": prompt,
-            "message": "CurriculumAgent received the prompt. Implement full curriculum logic later."
+            "message": "ResearchAgent received the prompt. Implement deeper research logic later."
         }
 
+    # Optional: extend with specific research actions later
     def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
-        """
-        Placeholder action handler for curriculum operations.
-        """
         return {
             "status": "intent",
             "agent": self.name,

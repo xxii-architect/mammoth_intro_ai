@@ -1,0 +1,38 @@
+﻿--- a/index.html
++++ b/index.html
+@@ -1,0 +1,10 @@
+<!-- Lesson viewer -->
+<section id="lesson-panel" class="module-card">
+  <h3 id="lesson-title">Lesson Title</h3>
+  <div id="lesson-content">Lesson content will appear here.</div>
+  <div id="lesson-xp">XP: 0</div>
+  <button id="complete-lesson-btn">Complete</button>
+</section>
+
+--- a/app.js
++++ b/app.js
+@@
+/* Agent-generated wiring for lesson Complete button */
+document.addEventListener("DOMContentLoaded", () => {
+  const completeBtn = document.getElementById("complete-lesson-btn");
+  if (completeBtn) {
+    completeBtn.addEventListener("click", async () => {
+      try {
+        const lessonObj = getCurrentLessonObj();
+        localState.xp = (localState.xp || 0) + (lessonObj.xp || 0);
+        const advanced = advanceProgression();
+        if (!advanced) {
+          notify("ð You reached the end of the curriculum. Great work!");
+          await saveState();
+          return;
+        }
+        setCurrentLessonUI();
+        localState.streak = (localState.streak || 0) + 1;
+        await saveState();
+      } catch (e) {
+        console.error('Complete handler failed', e);
+      }
+    });
+  }
+});
+

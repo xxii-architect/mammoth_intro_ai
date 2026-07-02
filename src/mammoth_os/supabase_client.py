@@ -78,3 +78,9 @@ def rpc_increment_user_xp(user_id: str, amount: int):
         {"p_user_id": user_id, "p_xp_increment": amount}
     ).execute()
     return getattr(resp, "data", None)
+
+# ---------------------------------------------------------
+# Module-level Supabase client (required by Mammoth OS engines)
+# ---------------------------------------------------------
+
+supabase = get_supabase()

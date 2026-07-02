@@ -4,7 +4,8 @@ Routes high-level intents to the appropriate agents via the AutonomousEngine.
 """
 
 from typing import Any, Dict
-from mammoth_os.autonomous_engine import AutonomousEngine # type: ignore
+from mammoth_os.agents.autonomous_engine import AutonomousEngine
+from mammoth_os.agents.research_agent import ResearchAgent # type: ignore
 
 
 class CortexRouter:
@@ -41,6 +42,13 @@ class CortexRouter:
             "brand_voice": "brand_voice",
             "visual": "visual_engine",
             "community": "community_engine",
+
+            # 🆕 ResearchAgent intents
+            "research_curriculum": "research_agent",
+            "research_survival": "research_agent",
+            "research_plants": "research_agent",
+            "compare_gear": "research_agent",
+            "summarize": "research_agent",
         }
 
         if intent not in intent_map:

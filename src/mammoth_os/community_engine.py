@@ -1,7 +1,7 @@
 # pyright: reportUnknownArgumentType=false, reportUnknownMemberType=false, reportOptionalMemberAccess=false, reportOperatorIssue=false
 # community_engine.py
 
-from supabase import create_client, Client
+from supabase import create_client, Client # type: ignore
 from rich.console import Console
 from rich.table import Table
 import os

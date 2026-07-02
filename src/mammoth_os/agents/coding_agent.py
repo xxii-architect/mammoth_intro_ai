@@ -141,3 +141,17 @@ class CodingAgent(BaseAgent):
             "target": target,
             "details": details,
         }
+    
+    def run(self, prompt: str):
+        """
+        Main entry point for CodingAgent.
+        Accepts a natural-language prompt and returns a structured intent
+        describing what coding action should be taken.
+        """
+        return {
+            "status": "intent",
+            "agent": self.name,
+            "prompt": prompt,
+            "message": "CodingAgent received the prompt. Implement LLM-driven intent parsing here."
+        }
+

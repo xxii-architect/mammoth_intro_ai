@@ -16,18 +16,44 @@ class FieldOpsAgent:
     def __init__(self, user_id: str | None = None):
         self.user_id = user_id
 
-    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, prompt: str) -> Dict[str, Any]:
         """
-        Expected payload:
-        {
-            "topic": "navigation",
-            "environment": "forest",
-            "difficulty": "easy" | "medium" | "hard"
-        }
+        CLI now passes a raw string prompt, not a dict payload.
+        We parse the string lightly for keywords.
         """
-        topic = payload.get("topic", "general fieldcraft")
-        environment = payload.get("environment", "outdoors")
-        difficulty = payload.get("difficulty", "easy")
+
+        # Default values
+        topic = "general fieldcraft"
+        environment = "outdoors"
+        difficulty = "easy"
+
+        # Simple keyword parsing
+        p = prompt.lower()
+
+        if "navigation" in p:
+            topic = "navigation"
+        elif "plant" in p and "identification" in p:
+            topic = "plant identification"
+        elif "tracking" in p:
+            topic = "wildlife tracking"
+        elif "fire" in p or "firecraft" in p:
+            topic = "firecraft"
+
+        if "forest" in p:
+            environment = "forest"
+        elif "desert" in p:
+            environment = "desert"
+        elif "mountain" in p:
+            environment = "mountain"
+        elif "urban" in p:
+            environment = "urban"
+
+        if "hard" in p:
+            difficulty = "hard"
+        elif "medium" in p:
+            difficulty = "medium"
+        elif "easy" in p:
+            difficulty = "easy"
 
         mission = self._generate_mission(topic, environment, difficulty)
         skill_focus = self._skill_focus(topic)
@@ -48,9 +74,6 @@ class FieldOpsAgent:
     # ---------------------------------------------------------
 
     def _generate_mission(self, topic: str, environment: str, difficulty: str) -> str:
-        """
-        Creates a field mission based on topic + environment + difficulty.
-        """
         base = f"Head into the {environment} and complete a {difficulty} {topic} exercise."
 
         if topic.lower() == "navigation":
@@ -83,9 +106,6 @@ class FieldOpsAgent:
         )
 
     def _skill_focus(self, topic: str) -> str:
-        """
-        Provides the core skill being trained.
-        """
         mapping = {
             "navigation": "Situational awareness + bearing discipline",
             "plant identification": "Pattern recognition + ecological literacy",
@@ -95,9 +115,6 @@ class FieldOpsAgent:
         return mapping.get(topic.lower(), "General fieldcraft fundamentals")
 
     def _generate_checklist(self, topic: str, environment: str) -> Dict[str, bool]:
-        """
-        Returns a simple checklist of field tasks.
-        """
         if topic.lower() == "navigation":
             return {
                 "selected_landmark": False,
@@ -135,52 +152,3 @@ class FieldOpsAgent:
             "notes_recorded": False,
             "environment_assessed": False,
         }
-"""
-Mammoth OS — Cortex Router
-Routes high-level intents to the appropriate agents via the AutonomousEngine.
-"""
-
-from typing import Any, Dict
-from mammoth_os.autonomous_engine import AutonomousEngine # type: ignore
-
-
-class CortexRouter:
-    """
-    Intent-based router for Mammoth OS.
-    """
-
-    def __init__(self, user_id: str | None = None):
-        self.engine = AutonomousEngine(user_id=user_id)
-
-    def route(self, intent: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Route an intent to the correct agent.
-
-        Args:
-            intent: High-level task type (e.g., 'plant_seed', 'field_ops').
-            payload: Dict of task parameters.
-
-        Returns:
-            AutonomousEngine result dict.
-        """
-        agent_name = self._map_intent_to_agent(intent)
-        return self.engine.run_task(agent_name, payload)
-
-    def _map_intent_to_agent(self, intent: str) -> str:
-        """
-        Map high-level intents to agent registry names.
-        """
-        intent_map = {
-            "plant_seed": "plant_the_seed",
-            "field_ops": "field_ops",
-            "market_intel": "market_intel",
-            "reflection": "reflection",
-            "brand_voice": "brand_voice",
-            "visual": "visual_engine",
-            "community": "community_engine",
-        }
-
-        if intent not in intent_map:
-            raise ValueError(f"Unknown intent: {intent}")
-
-        return intent_map[intent]
