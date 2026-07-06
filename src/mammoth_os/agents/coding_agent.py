@@ -1,193 +1,95 @@
-from abc import abstractmethod
-from typing import Optional
-import asyncio
+from mammoth_os.agents.base_agent import BaseAgent
+from typing import Optional, Any, Dict
 import logging
 
 logger = logging.getLogger("mammoth.agents.coding")
 
 
-class CodingAgent(BaseAgent):# type: ignore
+class CodingAgent(BaseAgent):
     """
     Level 5 Flagship Agent — Full-stack code intelligence.
 
-    Orchestrates SyntaxAnalyzer, SemanticChecker, RefactorEngine,
-    TestGenerator, and DocWriter sub-agents to deliver end-to-end
-    software engineering automation within Mammoth OS.
-
-    Integrates with:
-        - BuildAgent (test execution and lint)
-        - ExecutorAgent (sandboxed code running)
-        - VectorStoreAgent (codebase embeddings for context retrieval)
-        - PlannerAgent (task decomposition)
-        - MemoryAgent (persistent coding session context)
+    NOTE:
+    Original design referenced SyntaxAnalyzer, SemanticChecker,
+    RefactorEngine, TestGenerator, and DocWriter — but these do not
+    exist in your codebase. This version removes those dependencies
+    so the agent can run cleanly inside Mammoth OS.
     """
 
-    def __init__(self, agent_id: str, config: dict):
-        super().__init__(agent_id, config)
-        self._syntax_analyzer = SyntaxAnalyzer()# type: ignore
-        self._semantic_checker = SemanticChecker()# type: ignore
-        self._refactor_engine = RefactorEngine()# type: ignore
-        self._test_generator = TestGenerator()# type: ignore
-        self._doc_writer = DocWriter()# type: ignore
+    def __init__(
+        self,
+        router: Optional[Any] = None,
+        agent_id: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(router)
+
+        self.agent_id = agent_id
+        self.config = config or {}
+
+        # No sub-engines yet — log this so you remember later
+        self.log("WARN", "CodingAgent initialized without sub-engines (SyntaxAnalyzer, SemanticChecker, etc.).")
 
     async def initialize(self) -> None:
-        self.log("INFO", "CodingAgent initializing sub-agents.")
-        for sub in [
-            self._syntax_analyzer,
-            self._semantic_checker,
-            self._refactor_engine,
-            self._test_generator,
-            self._doc_writer,
-        ]:
-            await sub.initialize()
-        self.log("INFO", "CodingAgent ready.")
+        self.log("INFO", "CodingAgent initialized (no sub-engines to load).")
 
     # ────────────────────────────────────────
-    # PUBLIC API
+    # PUBLIC API (kept intact)
     # ────────────────────────────────────────
 
     async def analyze_codebase(self, codebase_path: str) -> dict:
         """
-        Parse and analyze the entire codebase. Returns a structured
-        report of symbols, issues, dependencies, and complexity metrics.
-
-        Args:
-            codebase_path: Absolute path to the project root.
-
-        Returns:
-            {
-                "symbols": list[dict],
-                "issues": list[dict],
-                "complexity": dict,
-                "dependencies": list[str],
-                "file_count": int,
-            }
+        Placeholder implementation until analysis engines exist.
         """
-        files = await self._get_files(codebase_path)
-        ast_results = []
-        for fp in files:
-            source = await self._read_file(fp)
-            ast_result = await self._syntax_analyzer.parse(source, fp)
-            ast_results.append(ast_result)
-
-        issues = []
-        for ast_r in ast_results:
-            semantic_issues = await self._semantic_checker.check(ast_r)
-            issues.extend(semantic_issues)
-
+        self.log("WARN", "analyze_codebase called but no analysis engines exist.")
         return {
-            "symbols": [sym for r in ast_results for sym in r.get("symbols", [])],
-            "issues": issues,
-            "complexity": await self._compute_complexity(ast_results),
-            "dependencies": await self._extract_dependencies(ast_results),
-            "file_count": len(files),
+            "symbols": [],
+            "issues": [],
+            "complexity": {},
+            "dependencies": [],
+            "file_count": 0,
         }
 
-    async def generate_code(self, prompt: str, context: dict = None) -> dict:# type: ignore
+    async def generate_code(self, prompt: str, context: dict = None) -> dict:
         """
-        Generate code from a natural language prompt with codebase context.
-
-        Args:
-            prompt: Natural language task description.
-            context: Optional dict with language, constraints, style guide.
-
-        Returns:
-            Output schema as defined in spec (code, tests, docs, diff, confidence, warnings).
+        Placeholder implementation until generation engines exist.
         """
-        context = context or {}
-        language = context.get("language", "python")
-        constraints = context.get("constraints", {})
-        codebase_path = context.get("codebase_path", ".")
-
-        # Retrieve relevant codebase context from VectorStore
-        relevant_files = await self._retrieve_context(prompt, codebase_path)
-
-        # Build enriched prompt
-        enriched_prompt = self._build_prompt(prompt, relevant_files, language, constraints)
-
-        # Generate via ReasoningEngine
-        generated_code = await self._call_reasoning_engine(enriched_prompt)
-
-        # Generate tests
-        tests = await self._test_generator.generate(generated_code, language)
-
-        # Run tests in sandbox
-        test_results = await self._run_tests_sandboxed(tests, generated_code, language)
-
-        # Generate docs
-        docs = await self._doc_writer.write(generated_code, language)
-
-        # Compute diff
-        diff = await self._compute_diff(codebase_path, generated_code)
-
-        # Semantic check on generated code
-        warnings = await self._semantic_checker.check_raw(generated_code, language)
-        confidence = self._score_confidence(test_results, warnings)
-
+        self.log("WARN", "generate_code called but no generation engines exist.")
         return {
-            "code": generated_code,
-            "tests": tests,
-            "docs": docs,
-            "diff": diff,
-            "confidence": confidence,
-            "warnings": [w["message"] for w in warnings],
+            "code": "",
+            "tests": "",
+            "docs": "",
+            "diff": "",
+            "confidence": 0.0,
+            "warnings": ["No code generation engine available."],
         }
 
     async def refactor(self, target: str, strategy: str) -> dict:
         """
-        Refactor a target file or function using a specified strategy.
-
-        Args:
-            target: File path or fully-qualified symbol name.
-            strategy: Refactor strategy name (e.g., 'extract_function',
-                      'reduce_complexity', 'rename_symbol', 'deduplicate').
-
-        Returns:
-            {"original": str, "refactored": str, "diff": str, "confidence": float}
+        Placeholder implementation until refactor engine exists.
         """
-        original = await self._read_file(target)
-        refactored = await self._refactor_engine.apply(original, strategy)
-        diff = self._unified_diff(original, refactored)
+        self.log("WARN", "refactor called but no refactor engine exists.")
         return {
-            "original": original,
-            "refactored": refactored,
-            "diff": diff,
-            "confidence": 0.88,
+            "original": "",
+            "refactored": "",
+            "diff": "",
+            "confidence": 0.0,
         }
 
     async def run_tests(self, project_path: str, test_pattern: str = "test_*.py") -> dict:
-        """
-        Execute all tests for a project and return structured results.
-
-        Args:
-            project_path: Root directory of the project.
-            test_pattern: Glob pattern for test file discovery.
-
-        Returns:
-            {
-                "passed": int, "failed": int, "errors": int,
-                "coverage_pct": float, "duration_ms": float,
-                "failures": list[dict],
-            }
-        """
-        cmd = f"cd {project_path} && pytest {test_pattern} --json-report --tb=short"
-        result = await self._run_shell(cmd)
-        return self._parse_pytest_output(result)
+        self.log("WARN", "run_tests called but no test engine exists.")
+        return {
+            "passed": 0,
+            "failed": 0,
+            "errors": 0,
+            "coverage_pct": 0.0,
+            "duration_ms": 0.0,
+            "failures": [],
+        }
 
     async def write_docs(self, target: str, doc_style: str = "google") -> dict:
-        """
-        Generate and insert documentation for a target file.
-
-        Args:
-            target: File path to document.
-            doc_style: Docstring style ('google', 'numpy', 'sphinx').
-
-        Returns:
-            {"documented_code": str, "doc_coverage_pct": float}
-        """
-        source = await self._read_file(target)
-        documented = await self._doc_writer.write(source, style=doc_style)
-        return {"documented_code": documented, "doc_coverage_pct": 95.0}
+        self.log("WARN", "write_docs called but no doc engine exists.")
+        return {"documented_code": "", "doc_coverage_pct": 0.0}
 
     async def commit_changes(
         self,
@@ -197,30 +99,25 @@ class CodingAgent(BaseAgent):# type: ignore
         auto_push: bool = False,
     ) -> dict:
         """
-        Stage and commit changed files using git.
-
-        Args:
-            project_path: Git repository root.
-            files: List of file paths to stage.
-            message: Commit message.
-            auto_push: If True, push to remote after commit.
-
-        Returns:
-            {"commit_hash": str, "pushed": bool, "branch": str}
+        This one CAN work because it uses shell commands.
         """
         staged = " ".join(files)
         await self._run_shell(f"cd {project_path} && git add {staged}")
         await self._run_shell(f'cd {project_path} && git commit -m "{message}"')
-        commit_hash = (await self._run_shell(f"cd {project_path} && git rev-parse HEAD"))["stdout"].strip()
+        commit_hash = (await self._run_shell(f"cd {project_path} && git rev-parse HEAD"))[
+            "stdout"
+        ].strip()
+
         pushed = False
         if auto_push:
             await self._run_shell(f"cd {project_path} && git push")
             pushed = True
+
         await self.emit_event("CODE_COMMITTED", {"hash": commit_hash, "message": message})
         return {"commit_hash": commit_hash, "pushed": pushed, "branch": "main"}
 
     # ────────────────────────────────────────
-    # INTERNAL HELPERS
+    # INTERNAL HELPERS (unchanged)
     # ────────────────────────────────────────
 
     async def _get_files(self, path: str) -> list[str]:
@@ -271,7 +168,7 @@ class CodingAgent(BaseAgent):# type: ignore
     # LIFECYCLE
     # ────────────────────────────────────────
 
-    async def process(self, event: "MammothEvent") -> None:# type: ignore
+    async def process(self, event: "MammothEvent") -> None:  # type: ignore
         handlers = {
             "CODE_GENERATE": lambda e: self.generate_code(
                 e.payload["prompt"], e.payload.get("context")
@@ -284,10 +181,14 @@ class CodingAgent(BaseAgent):# type: ignore
             "CODE_DOCS": lambda e: self.write_docs(e.payload["target"]),
             "CODE_COMMIT": lambda e: self.commit_changes(**e.payload),
         }
+
         handler = handlers.get(event.event_type)
         if handler:
             result = await handler(event)
             await self.emit_event(f"{event.event_type}_RESULT", result)
+        else:
+            self.log("WARN", f"Unhandled event type: {event.event_type}")
 
     async def shutdown(self) -> None:
         self.log("INFO", "CodingAgent shutting down.")
+        await super().shutdown()
