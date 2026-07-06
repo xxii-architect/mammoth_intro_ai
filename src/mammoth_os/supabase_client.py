@@ -1,5 +1,5 @@
 import os
-from supabase import create_client, Client
+from supabase import create_client, Client # type: ignore
 
 _supabase: Client | None = None
 
@@ -30,7 +30,7 @@ def get_lessons_for_module(module_id: str):
     supabase = get_supabase()
     resp = (
         supabase
-        .schema("atlas")
+        .schema("atlas") # type: ignore
         .table("lessons")
         .select("*")
         .eq("module_id", module_id)
@@ -47,7 +47,7 @@ def get_user_profile(user_id: str):
     supabase = get_supabase()
     resp = (
         supabase
-        .schema("atlas")
+        .schema("atlas") # type: ignore
         .table("profiles")
         .select("*")
         .eq("id", user_id)
