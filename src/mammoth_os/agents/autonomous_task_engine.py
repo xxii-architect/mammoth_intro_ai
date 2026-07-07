@@ -16,6 +16,9 @@ class AutonomousTaskEngine(BaseAgent):
 
         if action_type == "delegate":
             return self._delegate(details)
+        
+        if action_type == "apply_patch":
+            return self.cortex.autonomous_engine.apply_patch(details)
 
         return {
             "status": "unknown_action",
