@@ -1,4 +1,4 @@
-from mammoth_os.agents.base_agent import BaseAgent
+from mammoth_os.agents.base_agent import BaseAgent# type: ignore
 from typing import Optional, Any, Dict
 import logging
 
@@ -50,7 +50,7 @@ class CodingAgent(BaseAgent):
             "file_count": 0,
         }
 
-    async def generate_code(self, prompt: str, context: dict = None) -> dict:
+    async def generate_code(self, prompt: str, context: dict = None) -> dict:# type: ignore
         """
         Placeholder implementation until generation engines exist.
         """

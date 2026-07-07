@@ -17,7 +17,7 @@ def get_user_streak(user_id: str) -> Optional[Dict[str, Any]]:
     supabase = get_supabase()
     resp = (
         supabase
-        .schema("atlas")
+        .schema("atlas") # type: ignore
         .table("leaderboard")
         .select("streak, last_active")
         .eq("user_id", user_id)

@@ -8,9 +8,9 @@ from pathlib import Path
 from mammoth_os.agents.brand_voice_agent import BrandVoiceAgent
 
 def test_generate_copy_writes_file(tmp_path):
-    agent = BrandVoiceAgent(router=None)
+    agent = BrandVoiceAgent(router=None)# type: ignore
     target = tmp_path / "out.txt"
-    res = agent._generate_copy(str(target), {"theme": "TestTheme"})
+    res = agent._generate_copy(str(target), {"theme": "TestTheme"})# type: ignore
     assert isinstance(res, dict)
     assert res.get("status") == "ok"
     assert target.exists()
