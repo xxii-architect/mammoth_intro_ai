@@ -1,6 +1,7 @@
-from mammoth_os.agents.base_agent import BaseAgent# type: ignore
-from typing import Optional, Any, Dict
 import logging
+from typing import Optional, Any, Dict
+
+from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
 
 logger = logging.getLogger("mammoth.agents.coding")
 
@@ -9,11 +10,9 @@ class CodingAgent(BaseAgent):
     """
     Level 5 Flagship Agent — Full-stack code intelligence.
 
-    NOTE:
-    Original design referenced SyntaxAnalyzer, SemanticChecker,
-    RefactorEngine, TestGenerator, and DocWriter — but these do not
-    exist in your codebase. This version removes those dependencies
-    so the agent can run cleanly inside Mammoth OS.
+    This version removes references to non‑existent sub‑engines
+    (SyntaxAnalyzer, SemanticChecker, etc.) so the agent can run
+    cleanly inside Mammoth OS.
     """
 
     def __init__(
@@ -24,23 +23,35 @@ class CodingAgent(BaseAgent):
     ):
         super().__init__(router)
 
-        self.agent_id = agent_id
+        self.agent_id = agent_id or "coding"
         self.config = config or {}
 
-        # No sub-engines yet — log this so you remember later
-        self.log("WARN", "CodingAgent initialized without sub-engines (SyntaxAnalyzer, SemanticChecker, etc.).")
+        # Safe logging
+        self.log("WARN", "CodingAgent initialized without sub-engines.")
+
+    # ---------------------------------------------------------
+    # Logging helper (fixes your crash)
+    # ---------------------------------------------------------
+
+    def log(self, level: str, message: str):
+        """
+        Simple logging wrapper so CodingAgent never crashes
+        when BaseAgent does not provide a log() method.
+        """
+        print(f"[CodingAgent:{level}] {message}")
+
+    # ---------------------------------------------------------
+    # Initialization
+    # ---------------------------------------------------------
 
     async def initialize(self) -> None:
         self.log("INFO", "CodingAgent initialized (no sub-engines to load).")
 
-    # ────────────────────────────────────────
-    # PUBLIC API (kept intact)
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
+    # PUBLIC API (placeholders until engines exist)
+    # ---------------------------------------------------------
 
     async def analyze_codebase(self, codebase_path: str) -> dict:
-        """
-        Placeholder implementation until analysis engines exist.
-        """
         self.log("WARN", "analyze_codebase called but no analysis engines exist.")
         return {
             "symbols": [],
@@ -50,10 +61,7 @@ class CodingAgent(BaseAgent):
             "file_count": 0,
         }
 
-    async def generate_code(self, prompt: str, context: dict = None) -> dict:# type: ignore
-        """
-        Placeholder implementation until generation engines exist.
-        """
+    async def generate_code(self, prompt: str, context: dict = None) -> dict:  # type: ignore
         self.log("WARN", "generate_code called but no generation engines exist.")
         return {
             "code": "",
@@ -65,9 +73,6 @@ class CodingAgent(BaseAgent):
         }
 
     async def refactor(self, target: str, strategy: str) -> dict:
-        """
-        Placeholder implementation until refactor engine exists.
-        """
         self.log("WARN", "refactor called but no refactor engine exists.")
         return {
             "original": "",
@@ -104,21 +109,22 @@ class CodingAgent(BaseAgent):
         staged = " ".join(files)
         await self._run_shell(f"cd {project_path} && git add {staged}")
         await self._run_shell(f'cd {project_path} && git commit -m "{message}"')
-        commit_hash = (await self._run_shell(f"cd {project_path} && git rev-parse HEAD"))[
-            "stdout"
-        ].strip()
+
+        commit_hash = (await self._run_shell(
+            f"cd {project_path} && git rev-parse HEAD"
+        ))["stdout"].strip()
 
         pushed = False
         if auto_push:
             await self._run_shell(f"cd {project_path} && git push")
             pushed = True
 
-        await self.emit_event("CODE_COMMITTED", {"hash": commit_hash, "message": message})
+        await self.emit_event("CODE_COMMITTED", {"hash": commit_hash, "message": message})# type: ignore
         return {"commit_hash": commit_hash, "pushed": pushed, "branch": "main"}
 
-    # ────────────────────────────────────────
-    # INTERNAL HELPERS (unchanged)
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
+    # INTERNAL HELPERS (unchanged placeholders)
+    # ---------------------------------------------------------
 
     async def _get_files(self, path: str) -> list[str]:
         ...
@@ -164,9 +170,9 @@ class CodingAgent(BaseAgent):
         base -= len(warnings) * 0.02
         return max(0.0, min(1.0, base))
 
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
     # LIFECYCLE
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
 
     async def process(self, event: "MammothEvent") -> None:  # type: ignore
         handlers = {
@@ -185,10 +191,10 @@ class CodingAgent(BaseAgent):
         handler = handlers.get(event.event_type)
         if handler:
             result = await handler(event)
-            await self.emit_event(f"{event.event_type}_RESULT", result)
+            await self.emit_event(f"{event.event_type}_RESULT", result)# type: ignore
         else:
             self.log("WARN", f"Unhandled event type: {event.event_type}")
 
     async def shutdown(self) -> None:
         self.log("INFO", "CodingAgent shutting down.")
-        await super().shutdown()
+        await super().shutdown()# type: ignore

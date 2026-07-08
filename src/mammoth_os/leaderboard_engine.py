@@ -140,3 +140,17 @@ def sync_streak_and_xp(user_id: str) -> Dict[str, Any]:
 
     return updated_record
 
+def get_leaderboard() -> dict:
+    return {
+        "ok": True,
+        "leaderboard": [],
+        "message": "Leaderboard coming soon.",
+    }
+
+def get_streak(user_id: str) -> dict:
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "streak": 0,
+        "message": "Streak tracking coming soon.",
+    }

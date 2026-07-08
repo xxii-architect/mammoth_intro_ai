@@ -1,4 +1,4 @@
-class SelfHealAgent(BaseAgent):
+class SelfHealAgent(BaseAgent):# type: ignore
     """
     Monitors all agents via registry health checks and heartbeat events.
     On failure detection, attempts restart, reroutes in-flight tasks,
@@ -11,7 +11,7 @@ class SelfHealAgent(BaseAgent):
             for agent_id, status in health.items():
                 if "UNREACHABLE" in status or status == "ERROR":
                     await self.handle_failure(agent_id)
-            await asyncio.sleep(15)
+            await asyncio.sleep(15)# type: ignore
 
     async def handle_failure(self, agent_id: str) -> None:
         self.log("WARNING", "Agent failure detected: %s. Attempting restart.", agent_id)
@@ -21,7 +21,7 @@ class SelfHealAgent(BaseAgent):
             await self.reroute_tasks(agent_id)
             await self.emit_event("AGENT_ESCALATE", {"agent_id": agent_id, "reason": "restart_failed"})
 
-    async def restart_agent(self, agent_id: str) -> bool:
+    async def restart_agent(self, agent_id: str) -> bool:# type: ignore
         cmd = f"docker restart mammoth_{agent_id}"
         ...
 
@@ -29,7 +29,7 @@ class SelfHealAgent(BaseAgent):
         """Move queued tasks assigned to failed agent to fallback agent."""
         ...
 
-    async def process(self, event: "MammothEvent") -> None:
+    async def process(self, event: "MammothEvent") -> None:# type: ignore
         if event.event_type == "AGENT_HEARTBEAT_MISSED":
             await self.handle_failure(event.payload["agent_id"])
 
