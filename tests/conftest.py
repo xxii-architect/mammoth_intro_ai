@@ -91,7 +91,7 @@ def patch_supabase_early():
     try:
         sc = importlib.import_module("mammoth_os.supabase_client")
 
-        sc.supabase = # type: ignore
+        sc.supabase = _fake_instance# type: ignore
         sc._supabase = _fake_instance# type: ignore
         sc.get_supabase = lambda: _fake_instance# type: ignore
         sc.require_supabase = lambda: _fake_instance# type: ignore
