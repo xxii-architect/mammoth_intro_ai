@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 from typing import Optional, Any, Dict
 
@@ -14,6 +16,127 @@ class CodingAgent(BaseAgent):
     (SyntaxAnalyzer, SemanticChecker, etc.) so the agent can run
     cleanly inside Mammoth OS.
     """
+    
+        # ---------------------------------------------------------
+    # HYBRID ROUTING: Natural-language entrypoint
+    # ---------------------------------------------------------
+
+    def run(self, prompt: str) -> str:
+        """
+        Hybrid natural-language router for CodingAgent.
+        - Fast keyword routing for obvious cases
+        - LLM reasoning for ambiguous cases
+        - Pretty formatted output for Mammoth CLI
+        """
+
+        prompt_lower = prompt.lower()
+
+        # ─────────────────────────────────────────────
+        # 1. Keyword Routing (fast path)
+        # ─────────────────────────────────────────────
+
+        if "refactor" in prompt_lower:
+            target = "unknown"
+            strategy = "default"
+            result = asyncio.run(self.refactor(target, strategy))
+            return (
+                "🧠 Refactor (keyword routed)\n"
+                f"Refactored:\n{result.get('refactored','')}\n\n"
+                f"Diff:\n{result.get('diff','')}\n\n"
+                f"Confidence: {result.get('confidence',0.0):.2f}"
+            )
+
+        if "analyze" in prompt_lower or "analysis" in prompt_lower:
+            path = "."
+            result = asyncio.run(self.analyze_codebase(path))
+            return (
+                "🧠 Codebase Analysis (keyword routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "test" in prompt_lower:
+            result = asyncio.run(self.run_tests(project_path="."))
+            return (
+                "🧪 Test Results (keyword routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "docs" in prompt_lower or "documentation" in prompt_lower:
+            result = asyncio.run(self.write_docs(target="unknown"))
+            return (
+                "📘 Documentation (keyword routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "commit" in prompt_lower:
+            return (
+                "🧷 Code Commit requires interactive mode.\n"
+                "Use: code commit:\n"
+            )
+
+        # ─────────────────────────────────────────────
+        # 2. LLM Routing (intelligent fallback)
+        # ─────────────────────────────────────────────
+
+        try:
+            decision = asyncio.run(
+                self._call_reasoning_engine(
+                    f"Decide which CodingAgent tool should handle this prompt:\n\n{prompt}\n\n"
+                    "Options: generate_code, refactor, analyze_codebase, run_tests, write_docs.\n"
+                    "Return ONLY the tool name."
+                )
+            )
+        except Exception:
+            decision = "generate_code"  # safe fallback
+
+        decision = decision.strip().lower()
+
+        # ─────────────────────────────────────────────
+        # 3. Execute chosen tool
+        # ─────────────────────────────────────────────
+
+        if "refactor" in decision:
+            result = asyncio.run(self.refactor("unknown", "default"))
+            return (
+                "🧠 Refactor (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "analyze" in decision:
+            result = asyncio.run(self.analyze_codebase("."))
+            return (
+                "🧠 Codebase Analysis (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "test" in decision:
+            result = asyncio.run(self.run_tests("."))
+            return (
+                "🧪 Test Results (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "docs" in decision:
+            result = asyncio.run(self.write_docs("unknown"))
+            return (
+                "📘 Documentation (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        # ─────────────────────────────────────────────
+        # 4. Default: generate code
+        # ─────────────────────────────────────────────
+
+        result = asyncio.run(self.generate_code(prompt, context={}))
+        return (
+            "🧠 Code Generation (LLM routed)\n"
+            f"Code:\n{result.get('code','')}\n\n"
+            f"Tests:\n{result.get('tests','')}\n\n"
+            f"Docs:\n{result.get('docs','')}\n\n"
+            f"Confidence: {result.get('confidence',0.0):.2f}\n"
+            f"Warnings: {result.get('warnings',[])}"
+        )
+
 
     def __init__(
         self,
