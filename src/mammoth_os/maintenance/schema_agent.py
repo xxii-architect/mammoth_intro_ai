@@ -1,28 +1,50 @@
-from typing import List, Dict, Any
-from mammoth_os.supabase_client import supabase
+# mammoth_os/maintenance/schema_agent.py
+# Mammoth OS — Schema inspection utilities
+
+from __future__ import annotations
+from typing import Dict, Any
+
+from mammoth_os.supabase_client import get_supabase
 
 
-def describe_schema(schema: str = "atlas") -> List[Dict[str, Any]]:
+def describe_schema(schema: str) -> Dict[str, Any]:
     """
-    Returns a list of tables + basic info for the given schema.
-    Non-destructive, read-only.
+    Describe a Supabase schema in a CLI-safe way.
+    Returns a structured error when Supabase is not configured.
     """
-    query = """
-    SELECT table_name
-    FROM information_schema.tables
-    WHERE table_schema = %s
-    ORDER BY table_name;
-    """
-    # Supabase doesn't expose raw SQL directly via Python client,
-    # so for now we just query known tables/views.
-    # Later we can move this to a SQL function.
-    result = (
-        supabase
-        .schema(schema)
-        .from_("community_stats")
-        .select("*")
-        .limit(1)
-        .execute()
-    )
+    client = get_supabase()
 
-    return [{"schema": schema, "table": "community_stats", "sample": result.data}]
+    if client is None:
+        # CLI / local mode fallback
+        return {
+            "error": "Supabase client not initialized",
+            "schema": schema,
+            "details": "No SUPABASE_URL / SUPABASE_KEY set. Running in local/CLI mode.",
+        }
+
+    try:
+        # This assumes the Supabase client supports .schema(schema)
+        schema_obj = client.schema(schema)  # type: ignore
+
+        # Try to introspect tables if available
+        info: Dict[str, Any] = {
+            "schema": schema,
+            "tables": [],
+        }
+
+        # Some clients expose a list of tables; if not, we just return the schema name
+        if hasattr(schema_obj, "list_tables"):
+            try:
+                tables = schema_obj.list_tables()  # type: ignore
+                info["tables"] = tables or []
+            except Exception as exc:
+                info["tables_error"] = str(exc)
+
+        return info
+
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "schema": schema,
+            "details": "Supabase schema introspection failed.",
+        }

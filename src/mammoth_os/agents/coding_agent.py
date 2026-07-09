@@ -1,6 +1,9 @@
-from mammoth_os.agents.base_agent import BaseAgent# type: ignore
-from typing import Optional, Any, Dict
+import asyncio
+import json
 import logging
+from typing import Optional, Any, Dict
+
+from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
 
 logger = logging.getLogger("mammoth.agents.coding")
 
@@ -9,12 +12,131 @@ class CodingAgent(BaseAgent):
     """
     Level 5 Flagship Agent — Full-stack code intelligence.
 
-    NOTE:
-    Original design referenced SyntaxAnalyzer, SemanticChecker,
-    RefactorEngine, TestGenerator, and DocWriter — but these do not
-    exist in your codebase. This version removes those dependencies
-    so the agent can run cleanly inside Mammoth OS.
+    This version removes references to non‑existent sub‑engines
+    (SyntaxAnalyzer, SemanticChecker, etc.) so the agent can run
+    cleanly inside Mammoth OS.
     """
+    
+        # ---------------------------------------------------------
+    # HYBRID ROUTING: Natural-language entrypoint
+    # ---------------------------------------------------------
+
+    def run(self, prompt: str) -> str:
+        """
+        Hybrid natural-language router for CodingAgent.
+        - Fast keyword routing for obvious cases
+        - LLM reasoning for ambiguous cases
+        - Pretty formatted output for Mammoth CLI
+        """
+
+        prompt_lower = prompt.lower()
+
+        # ─────────────────────────────────────────────
+        # 1. Keyword Routing (fast path)
+        # ─────────────────────────────────────────────
+
+        if "refactor" in prompt_lower:
+            target = "unknown"
+            strategy = "default"
+            result = asyncio.run(self.refactor(target, strategy))
+            return (
+                "🧠 Refactor (keyword routed)\n"
+                f"Refactored:\n{result.get('refactored','')}\n\n"
+                f"Diff:\n{result.get('diff','')}\n\n"
+                f"Confidence: {result.get('confidence',0.0):.2f}"
+            )
+
+        if "analyze" in prompt_lower or "analysis" in prompt_lower:
+            path = "."
+            result = asyncio.run(self.analyze_codebase(path))
+            return (
+                "🧠 Codebase Analysis (keyword routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "test" in prompt_lower:
+            result = asyncio.run(self.run_tests(project_path="."))
+            return (
+                "🧪 Test Results (keyword routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "docs" in prompt_lower or "documentation" in prompt_lower:
+            result = asyncio.run(self.write_docs(target="unknown"))
+            return (
+                "📘 Documentation (keyword routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "commit" in prompt_lower:
+            return (
+                "🧷 Code Commit requires interactive mode.\n"
+                "Use: code commit:\n"
+            )
+
+        # ─────────────────────────────────────────────
+        # 2. LLM Routing (intelligent fallback)
+        # ─────────────────────────────────────────────
+
+        try:
+            decision = asyncio.run(
+                self._call_reasoning_engine(
+                    f"Decide which CodingAgent tool should handle this prompt:\n\n{prompt}\n\n"
+                    "Options: generate_code, refactor, analyze_codebase, run_tests, write_docs.\n"
+                    "Return ONLY the tool name."
+                )
+            )
+        except Exception:
+            decision = "generate_code"  # safe fallback
+
+        decision = decision.strip().lower()
+
+        # ─────────────────────────────────────────────
+        # 3. Execute chosen tool
+        # ─────────────────────────────────────────────
+
+        if "refactor" in decision:
+            result = asyncio.run(self.refactor("unknown", "default"))
+            return (
+                "🧠 Refactor (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "analyze" in decision:
+            result = asyncio.run(self.analyze_codebase("."))
+            return (
+                "🧠 Codebase Analysis (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "test" in decision:
+            result = asyncio.run(self.run_tests("."))
+            return (
+                "🧪 Test Results (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        if "docs" in decision:
+            result = asyncio.run(self.write_docs("unknown"))
+            return (
+                "📘 Documentation (LLM routed)\n"
+                f"{json.dumps(result, indent=2)}"
+            )
+
+        # ─────────────────────────────────────────────
+        # 4. Default: generate code
+        # ─────────────────────────────────────────────
+
+        result = asyncio.run(self.generate_code(prompt, context={}))
+        return (
+            "🧠 Code Generation (LLM routed)\n"
+            f"Code:\n{result.get('code','')}\n\n"
+            f"Tests:\n{result.get('tests','')}\n\n"
+            f"Docs:\n{result.get('docs','')}\n\n"
+            f"Confidence: {result.get('confidence',0.0):.2f}\n"
+            f"Warnings: {result.get('warnings',[])}"
+        )
+
 
     def __init__(
         self,
@@ -24,23 +146,35 @@ class CodingAgent(BaseAgent):
     ):
         super().__init__(router)
 
-        self.agent_id = agent_id
+        self.agent_id = agent_id or "coding"
         self.config = config or {}
 
-        # No sub-engines yet — log this so you remember later
-        self.log("WARN", "CodingAgent initialized without sub-engines (SyntaxAnalyzer, SemanticChecker, etc.).")
+        # Safe logging
+        self.log("WARN", "CodingAgent initialized without sub-engines.")
+
+    # ---------------------------------------------------------
+    # Logging helper (fixes your crash)
+    # ---------------------------------------------------------
+
+    def log(self, level: str, message: str):
+        """
+        Simple logging wrapper so CodingAgent never crashes
+        when BaseAgent does not provide a log() method.
+        """
+        print(f"[CodingAgent:{level}] {message}")
+
+    # ---------------------------------------------------------
+    # Initialization
+    # ---------------------------------------------------------
 
     async def initialize(self) -> None:
         self.log("INFO", "CodingAgent initialized (no sub-engines to load).")
 
-    # ────────────────────────────────────────
-    # PUBLIC API (kept intact)
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
+    # PUBLIC API (placeholders until engines exist)
+    # ---------------------------------------------------------
 
     async def analyze_codebase(self, codebase_path: str) -> dict:
-        """
-        Placeholder implementation until analysis engines exist.
-        """
         self.log("WARN", "analyze_codebase called but no analysis engines exist.")
         return {
             "symbols": [],
@@ -50,10 +184,7 @@ class CodingAgent(BaseAgent):
             "file_count": 0,
         }
 
-    async def generate_code(self, prompt: str, context: dict = None) -> dict:# type: ignore
-        """
-        Placeholder implementation until generation engines exist.
-        """
+    async def generate_code(self, prompt: str, context: dict = None) -> dict:  # type: ignore
         self.log("WARN", "generate_code called but no generation engines exist.")
         return {
             "code": "",
@@ -65,9 +196,6 @@ class CodingAgent(BaseAgent):
         }
 
     async def refactor(self, target: str, strategy: str) -> dict:
-        """
-        Placeholder implementation until refactor engine exists.
-        """
         self.log("WARN", "refactor called but no refactor engine exists.")
         return {
             "original": "",
@@ -104,21 +232,22 @@ class CodingAgent(BaseAgent):
         staged = " ".join(files)
         await self._run_shell(f"cd {project_path} && git add {staged}")
         await self._run_shell(f'cd {project_path} && git commit -m "{message}"')
-        commit_hash = (await self._run_shell(f"cd {project_path} && git rev-parse HEAD"))[
-            "stdout"
-        ].strip()
+
+        commit_hash = (await self._run_shell(
+            f"cd {project_path} && git rev-parse HEAD"
+        ))["stdout"].strip()
 
         pushed = False
         if auto_push:
             await self._run_shell(f"cd {project_path} && git push")
             pushed = True
 
-        await self.emit_event("CODE_COMMITTED", {"hash": commit_hash, "message": message})
+        await self.emit_event("CODE_COMMITTED", {"hash": commit_hash, "message": message})# type: ignore
         return {"commit_hash": commit_hash, "pushed": pushed, "branch": "main"}
 
-    # ────────────────────────────────────────
-    # INTERNAL HELPERS (unchanged)
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
+    # INTERNAL HELPERS (unchanged placeholders)
+    # ---------------------------------------------------------
 
     async def _get_files(self, path: str) -> list[str]:
         ...
@@ -164,9 +293,9 @@ class CodingAgent(BaseAgent):
         base -= len(warnings) * 0.02
         return max(0.0, min(1.0, base))
 
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
     # LIFECYCLE
-    # ────────────────────────────────────────
+    # ---------------------------------------------------------
 
     async def process(self, event: "MammothEvent") -> None:  # type: ignore
         handlers = {
@@ -185,10 +314,10 @@ class CodingAgent(BaseAgent):
         handler = handlers.get(event.event_type)
         if handler:
             result = await handler(event)
-            await self.emit_event(f"{event.event_type}_RESULT", result)
+            await self.emit_event(f"{event.event_type}_RESULT", result)# type: ignore
         else:
             self.log("WARN", f"Unhandled event type: {event.event_type}")
 
     async def shutdown(self) -> None:
         self.log("INFO", "CodingAgent shutting down.")
-        await super().shutdown()
+        await super().shutdown()# type: ignore

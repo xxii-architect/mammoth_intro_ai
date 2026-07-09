@@ -3,7 +3,7 @@
 from typing import Any, Dict
 from mammoth_os.core_types import ApprovalResult
 
-def simple_console_approval(request_or_agent: Any, maybe_step: Dict[str, Any] = None, maybe_router: Any = None):
+def simple_console_approval(request_or_agent: Any, maybe_step: Dict[str, Any] = None, maybe_router: Any = None): # type: ignore
     """
     Flexible approval handler for development:
     - If called with an ActionRequest, it prints a short summary and prompts.

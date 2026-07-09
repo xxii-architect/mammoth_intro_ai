@@ -23,12 +23,12 @@ try:
     sc = importlib.import_module("mammoth_os.supabase_client")
 
     # Force module-level client
-    sc.supabase = _fake_instance
-    sc._supabase = _fake_instance
+    sc.supabase = _fake_instance# type: ignore
+    sc._supabase = _fake_instance# type: ignore
 
     # Force factory functions
-    sc.get_supabase = lambda: _fake_instance
-    sc.require_supabase = lambda: _fake_instance
+    sc.get_supabase = lambda: _fake_instance# type: ignore
+    sc.require_supabase = lambda: _fake_instance# type: ignore
 
     # Reload to ensure future imports see patched values
     importlib.reload(sc)
@@ -91,10 +91,10 @@ def patch_supabase_early():
     try:
         sc = importlib.import_module("mammoth_os.supabase_client")
 
-        sc.supabase = _fake_instance
-        sc._supabase = _fake_instance
-        sc.get_supabase = lambda: _fake_instance
-        sc.require_supabase = lambda: _fake_instance
+        sc.supabase = _fake_instance# type: ignore
+        sc._supabase = _fake_instance# type: ignore
+        sc.get_supabase = lambda: _fake_instance# type: ignore
+        sc.require_supabase = lambda: _fake_instance# type: ignore
 
         importlib.reload(sc)
 
