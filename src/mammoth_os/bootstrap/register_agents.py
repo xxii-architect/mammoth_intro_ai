@@ -8,7 +8,8 @@ import asyncio
 import datetime
 import logging
 
-from mammoth_os.agent_registry import AgentManifest, agent_registry, AgentStatus
+from mammoth_os.registry.agent_registry import agent_registry
+from mammoth_os.registry.agent_manifest import AgentManifest, AgentStatus
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -178,7 +179,7 @@ async def bootstrap_agents() -> None:
 
     logger.info("🦣 Bootstrapping Mammoth OS agents...")
     for manifest in manifests:
-        await agent_registry.register(manifest)
+        await agent_registry.register(manifest) # type: ignore
         logger.info(
             "Registered agent: %s (%s) level=%d capabilities=%s",
             manifest.agent_id,

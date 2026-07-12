@@ -4,7 +4,7 @@ import sys
 import asyncio
 
 # Core registries
-from mammoth_os.agent_registry import agent_registry
+from mammoth_os.registry.agent_registry import agent_registry
 from mammoth_os.engine_registry import EngineRegistry
 
 # Maintenance tools

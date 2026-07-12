@@ -1,4 +1,4 @@
-# main.py
+# main.py — Mammoth OS CLI
 # Python 3.11+ required
 
 import os
@@ -18,11 +18,10 @@ from supabase import create_client, Client  # type: ignore
 from supabase.client import ClientOptions
 
 # ──────────────────────────────────────────────────────────────
-# Environment
+# Environment Setup
 # ──────────────────────────────────────────────────────────────
 
 load_dotenv()
-
 console = Console()
 
 session = requests.Session()
@@ -46,7 +45,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY, ClientOptions())
 CURRENT_AGENT = "field_ops"
 
 # ──────────────────────────────────────────────────────────────
-# Fallback Agents (only used if registry import fails)
+# Fallback Agents (used only if registry import fails)
 # ──────────────────────────────────────────────────────────────
 
 def fallback_coding_agent(prompt: str) -> str:
@@ -61,7 +60,7 @@ FALLBACK_AGENTS = {
 }
 
 # ──────────────────────────────────────────────────────────────
-# Load Agents from Registry
+# Agent Registry Loader
 # ──────────────────────────────────────────────────────────────
 
 def load_agents() -> Dict[str, Callable[[str], Any]]:
@@ -92,17 +91,17 @@ def load_system_prompt() -> str:
             .execute()
         )
         if result.data and "prompt" in result.data[0]:
-            console.print("[cyan][Startup] Loaded system prompt from Supabase.[/cyan]")
+            console.print("[cyan]✓ Loaded system prompt from Supabase.[/cyan]")
             return result.data[0]["prompt"]
     except Exception as e:
         console.print(f"[bold red]⚠️ Supabase system_prompt load failed:[/bold red] {e}")
 
     fallback_path = Path("system_prompt.txt")
     if fallback_path.exists():
-        console.print("[cyan][Startup] Loaded system prompt from local file.[/cyan]")
+        console.print("[cyan]✓ Loaded system prompt from local file.[/cyan]")
         return fallback_path.read_text(encoding="utf8")
 
-    console.print("[yellow][Startup] Using built-in default system prompt.[/yellow]")
+    console.print("[yellow]⚠️ Using built-in default system prompt.[/yellow]")
     return (
         "You are the Mammoth OS Agent — the core intelligence of a learning "
         "operating system. You speak with clarity, confidence, and purpose."
@@ -128,6 +127,7 @@ def recall_context(limit: int = 5) -> str:
     sessions = result.data or []
     if not sessions:
         return "No previous context found."
+
     return "\n".join([f"{row['agent']}: {row['response']}" for row in sessions])
 
 # ──────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ def run_agent(agents: Dict[str, Callable[[str], Any]], agent_name: str, prompt: 
     return handler(prompt)
 
 # ──────────────────────────────────────────────────────────────
-# CodingAgent Helpers (Hybrid routing commands)
+# Coding Agent Handlers
 # ──────────────────────────────────────────────────────────────
 
 def handle_code_generate(prompt: str) -> None:
@@ -199,16 +199,17 @@ def handle_code_generate(prompt: str) -> None:
         console.print(f"[bold red]❌ CodingAgent.generate_code error:[/bold red] {e}")
         return
 
-    console.print(Text("\n🧠 Code Generation Result\n", style="bold cyan"))
+    console.print(Text("\n🧠 Code Generation Result", style="bold cyan"))
     console.print(Text(result.get("code", "") or "// no code generated", style="green"))
-    console.print(Text("\n🧪 Tests:\n", style="bold magenta"))
+    console.print(Text("\n🧪 Tests", style="bold magenta"))
     console.print(Text(result.get("tests", "") or "// no tests generated", style="yellow"))
-    console.print(Text("\n📘 Docs:\n", style="bold blue"))
+    console.print(Text("\n📘 Docs", style="bold blue"))
     console.print(Text(result.get("docs", "") or "// no docs generated", style="cyan"))
     console.print(Text(f"\nConfidence: {result.get('confidence', 0.0):.2f}", style="bold green"))
+
     warnings = result.get("warnings", [])
     if warnings:
-        console.print(Text("\n⚠️ Warnings:\n", style="bold yellow"))
+        console.print(Text("\n⚠️ Warnings", style="bold yellow"))
         for w in warnings:
             console.print(Text(f"- {w}", style="yellow"))
 
@@ -234,7 +235,7 @@ def handle_code_analyze(prompt: str) -> None:
         console.print(f"[bold red]❌ CodingAgent.analyze_codebase error:[/bold red] {e}")
         return
 
-    console.print(Text("\n🧠 Codebase Analysis\n", style="bold cyan"))
+    console.print(Text("\n🧠 Codebase Analysis", style="bold cyan"))
     console.print(Text(json.dumps(result, indent=2), style="green"))
 
 def handle_code_refactor(prompt: str) -> None:
@@ -264,9 +265,9 @@ def handle_code_refactor(prompt: str) -> None:
         console.print(f"[bold red]❌ CodingAgent.refactor error:[/bold red] {e}")
         return
 
-    console.print(Text("\n🧠 Refactor Result\n", style="bold cyan"))
+    console.print(Text("\n🧠 Refactor Result", style="bold cyan"))
     console.print(Text(result.get("refactored", "") or "// no refactor output", style="green"))
-    console.print(Text("\nDiff:\n", style="bold magenta"))
+    console.print(Text("\nDiff", style="bold magenta"))
     console.print(Text(result.get("diff", "") or "// no diff", style="yellow"))
     console.print(Text(f"\nConfidence: {result.get('confidence', 0.0):.2f}", style="bold green"))
 
@@ -292,7 +293,7 @@ def handle_code_docs(prompt: str) -> None:
         console.print(f"[bold red]❌ CodingAgent.write_docs error:[/bold red] {e}")
         return
 
-    console.print(Text("\n📘 Documentation Result\n", style="bold cyan"))
+    console.print(Text("\n📘 Documentation Result", style="bold cyan"))
     console.print(Text(result.get("documented_code", "") or "// no docs generated", style="green"))
     console.print(Text(f"\nDoc coverage: {result.get('doc_coverage_pct', 0.0):.2f}%", style="bold blue"))
 
@@ -306,7 +307,7 @@ def handle_code_commit(prompt: str) -> None:
         console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
         return
 
-    console.print(Text("\n🧷 Code Commit Helper\n", style="bold cyan"))
+    console.print(Text("\n🧷 Code Commit Helper", style="bold cyan"))
     project_path = input("Project path: ").strip()
     files_raw = input("Files (comma-separated): ").strip()
     message = input("Commit message: ").strip()
@@ -333,158 +334,11 @@ def handle_code_commit(prompt: str) -> None:
         console.print(f"[bold red]❌ CodingAgent.commit_changes error:[/bold red] {e}")
         return
 
-    console.print(Text("\n✅ Commit Result\n", style="bold green"))
+    console.print(Text("\n✅ Commit Result", style="bold green"))
     console.print(Text(f"Hash: {result.get('commit_hash', '')}", style="green"))
     console.print(Text(f"Pushed: {result.get('pushed', False)}", style="green"))
     console.print(Text(f"Branch: {result.get('branch', 'main')}", style="green"))
-    
-    def handle_code_generate(prompt: str) -> None:
-    try:# type: ignore
-        from mammoth_os.agents.coding_agent import CodingAgent  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
-        return
 
-    code_prompt = prompt.split("code generate:", 1)[1].strip()
-    if not code_prompt:
-        console.print("[bold red]❌ Missing prompt after 'code generate:'[/bold red]")
-        return
-
-    agent = CodingAgent(router=None)
-    try:
-        result = asyncio.run(agent.generate_code(code_prompt, context={}))  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent.generate_code error:[/bold red] {e}")
-        return
-
-    console.print(Text("\n🧠 Code Generation Result\n", style="bold cyan"))
-    console.print(Text(result.get("code", "") or "// no code generated", style="green"))
-    console.print(Text("\n🧪 Tests:\n", style="bold magenta"))
-    console.print(Text(result.get("tests", "") or "// no tests generated", style="yellow"))
-    console.print(Text("\n📘 Docs:\n", style="bold blue"))
-    console.print(Text(result.get("docs", "") or "// no docs generated", style="cyan"))
-    console.print(Text(f"\nConfidence: {result.get('confidence', 0.0):.2f}", style="bold green"))
-
-    warnings = result.get("warnings", [])
-    if warnings:
-        console.print(Text("\n⚠️ Warnings:\n", style="bold yellow"))
-        for w in warnings:
-            console.print(Text(f"- {w}", style="yellow"))
-    
-    def handle_code_analyze(prompt: str) -> None:
-    try:# type: ignore
-        from mammoth_os.agents.coding_agent import CodingAgent  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
-        return
-
-    path = prompt.split("code analyze:", 1)[1].strip()
-    if not path:
-        console.print("[bold red]❌ Missing path after 'code analyze:'[/bold red]")
-        return
-
-    agent = CodingAgent(router=None)
-    try:
-        result = asyncio.run(agent.analyze_codebase(path))  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent.analyze_codebase error:[/bold red] {e}")
-        return
-
-    console.print(Text("\n🧠 Codebase Analysis\n", style="bold cyan"))
-    console.print(Text(json.dumps(result, indent=2), style="green"))
-    
-    def handle_code_refactor(prompt: str) -> None:
-    try:# type: ignore
-        from mammoth_os.agents.coding_agent import CodingAgent  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
-        return
-
-    payload = prompt.split("code refactor:", 1)[1].strip()
-    if "|" not in payload:
-        console.print("[bold red]❌ Use: code refactor: <target> | <strategy>[/bold red]")
-        return
-
-    target, strategy = [p.strip() for p in payload.split("|", 1)]
-    if not target or not strategy:
-        console.print("[bold red]❌ Both target and strategy are required.[/bold red]")
-        return
-
-    agent = CodingAgent(router=None)
-    try:
-        result = asyncio.run(agent.refactor(target, strategy))  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent.refactor error:[/bold red] {e}")
-        return
-
-    console.print(Text("\n🧠 Refactor Result\n", style="bold cyan"))
-    console.print(Text(result.get("refactored", "") or "// no refactor output", style="green"))
-    console.print(Text("\nDiff:\n", style="bold magenta"))
-    console.print(Text(result.get("diff", "") or "// no diff", style="yellow"))
-    console.print(Text(f"\nConfidence: {result.get('confidence', 0.0):.2f}", style="bold green"))
-    
-    def handle_code_docs(prompt: str) -> None:
-    try:# type: ignore
-        from mammoth_os.agents.coding_agent import CodingAgent  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
-        return
-
-    target = prompt.split("code docs:", 1)[1].strip()
-    if not target:
-        console.print("[bold red]❌ Missing target after 'code docs:'[/bold red]")
-        return
-
-    agent = CodingAgent(router=None)
-    try:
-        result = asyncio.run(agent.write_docs(target))  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent.write_docs error:[/bold red] {e}")
-        return
-
-    console.print(Text("\n📘 Documentation Result\n", style="bold cyan"))
-    console.print(Text(result.get("documented_code", "") or "// no docs generated", style="green"))
-    console.print(Text(f"\nDoc coverage: {result.get('doc_coverage_pct', 0.0):.2f}%", style="bold blue"))
-    
-    def handle_code_commit(prompt: str) -> None:
-    try:# type: ignore
-        from mammoth_os.agents.coding_agent import CodingAgent  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
-        return
-
-    console.print(Text("\n🧷 Code Commit Helper\n", style="bold cyan"))
-    project_path = input("Project path: ").strip()
-    files_raw = input("Files (comma-separated): ").strip()
-    message = input("Commit message: ").strip()
-    auto_push_raw = input("Auto-push? (y/N): ").strip().lower()
-
-    if not project_path or not files_raw or not message:
-        console.print("[bold red]❌ project_path, files, and message are required.[/bold red]")
-        return
-
-    files = [f.strip() for f in files_raw.split(",") if f.strip()]
-    auto_push = auto_push_raw in ("y", "yes")
-
-    agent = CodingAgent(router=None)
-    try:
-        result = asyncio.run(
-            agent.commit_changes(
-                project_path=project_path,
-                files=files,
-                message=message,
-                auto_push=auto_push,
-            )
-        )  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent.commit_changes error:[/bold red] {e}")
-        return
-
-    console.print(Text("\n✅ Commit Result\n", style="bold green"))
-    console.print(Text(f"Hash: {result.get('commit_hash', '')}", style="green"))
-    console.print(Text(f"Pushed: {result.get('pushed', False)}", style="green"))
-    console.print(Text(f"Branch: {result.get('branch', 'main')}", style="green"))
-    
 # ──────────────────────────────────────────────────────────────
 # CLI Loop
 # ──────────────────────────────────────────────────────────────
@@ -504,6 +358,7 @@ def mammoth_cli(system_prompt: str) -> None:
         if prompt.lower() == "exit":
             break
 
+        # Coding Commands
         if prompt.lower().startswith("code generate:"):
             handle_code_generate(prompt)
             continue
@@ -527,7 +382,7 @@ def mammoth_cli(system_prompt: str) -> None:
         # Health
         if prompt.lower() == "health":
             results = health_check()
-            console.print(Text("\n🦣 Mammoth OS Health Check\n", style="bold cyan"))
+            console.print(Text("\n🦣 Mammoth OS Health Check", style="bold cyan"))
             for k, v in results.items():
                 console.print(f"[yellow]{k}[/yellow]: [green]{v}[/green]")
             continue
@@ -535,7 +390,7 @@ def mammoth_cli(system_prompt: str) -> None:
         # Recall
         if prompt.lower() == "recall":
             context = recall_context()
-            console.print(Text("\nRecalled Context:\n", style="bold cyan"))
+            console.print(Text("\nRecalled Context", style="bold cyan"))
             console.print(Text(context, style="green"))
             continue
 
@@ -549,7 +404,7 @@ def mammoth_cli(system_prompt: str) -> None:
                 )
                 continue
             CURRENT_AGENT = new_agent
-            console.print(f"[bold green]✅ Agent switched to '{CURRENT_AGENT}'.[/bold green]")
+            console.print(f"[bold green]✓ Agent switched to '{CURRENT_AGENT}'.[/bold green]")
             continue
 
         # View agent
@@ -561,7 +416,7 @@ def mammoth_cli(system_prompt: str) -> None:
 
         # Help
         if prompt.lower() == "help":
-            console.print("[bold magenta]🦣 Mammoth OS CLI Commands:[/bold magenta]")
+            console.print("[bold magenta]🦣 Mammoth OS CLI Commands[/bold magenta]")
             commands = [
                 ("set agent:", "<coding|field_ops>"),
                 ("view agent", ""),
@@ -585,7 +440,7 @@ def mammoth_cli(system_prompt: str) -> None:
             console.print(f"[bold red]⚠️ Agent execution error:[/bold red] {e}")
             continue
 
-        console.print(Text("\nResponse:\n", style="bold cyan"))
+        console.print(Text("\nResponse", style="bold cyan"))
         if isinstance(agent_response, dict):
             console.print(Text(json.dumps(agent_response, indent=2), style="green"))
         else:

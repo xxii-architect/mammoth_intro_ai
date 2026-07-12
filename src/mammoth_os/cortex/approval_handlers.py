@@ -2,6 +2,9 @@
 
 from typing import Any, Dict
 from mammoth_os.core_types import ApprovalResult
+from mammoth_os.registry.agent_registry import agent_registry
+from mammoth_os.registry.agent_manifest import AgentManifest, AgentStatus
+
 
 def simple_console_approval(request_or_agent: Any, maybe_step: Dict[str, Any] = None, maybe_router: Any = None): # type: ignore
     """

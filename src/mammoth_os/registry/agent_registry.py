@@ -1,49 +1,19 @@
 # mammoth_os/registry/agent_registry.py
 # Mammoth OS — Unified Agent Registry
-# Preserves lazy-loading for instantiation.
-# Adds AgentManifest tracking, health checks, and status management.
+# Tracks agent manifests, health, and lazy-loading.
 
 from __future__ import annotations
 
 import asyncio
 import datetime
 import logging
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Callable, Dict, Optional
 
 from mammoth_os.cortex.router import CortexRouter
+from mammoth_os.registry.agent_manifest import AgentManifest, AgentStatus  # correct import
 
 logger = logging.getLogger("mammoth.registry.agents")
 router = CortexRouter()
-
-
-# ─────────────────────────────────────────────
-# MANIFEST LAYER  (new — metadata & health)
-# ─────────────────────────────────────────────
-
-class AgentStatus(str, Enum):
-    ACTIVE   = "ACTIVE"
-    IDLE     = "IDLE"
-    ERROR    = "ERROR"
-    LOADING  = "LOADING"
-    SHUTDOWN = "SHUTDOWN"
-
-
-@dataclass
-class AgentManifest:
-    """Describes a registered agent within Mammoth OS."""
-    agent_id:       str
-    name:           str
-    version:        str
-    capabilities:   list[str]
-    status:         AgentStatus
-    level:          int
-    dependencies:   list[str]
-    endpoint:       str
-    registered_at:  datetime.datetime = field(default_factory=datetime.datetime.utcnow)
-    last_heartbeat: datetime.datetime = field(default_factory=datetime.datetime.utcnow)
-    metadata:       dict[str, Any]    = field(default_factory=dict)
 
 
 class AgentRegistry:
@@ -64,7 +34,12 @@ class AgentRegistry:
             self._agents[manifest.agent_id] = manifest
             if self._db:
                 await self._db.upsert_agent(manifest)
-            logger.info("Registered: %s v%s (level %d)", manifest.agent_id, manifest.version, manifest.level)
+            logger.info(
+                "Registered: %s v%s (level %d)",
+                manifest.agent_id,
+                manifest.version,
+                manifest.level,
+            )
             return True
 
     async def deregister(self, agent_id: str) -> bool:
@@ -83,14 +58,17 @@ class AgentRegistry:
 
     async def list_agents(
         self,
-        level:      Optional[int]         = None,
-        status:     Optional[AgentStatus] = None,
-        capability: Optional[str]         = None,
+        level: Optional[int] = None,
+        status: Optional[AgentStatus] = None,
+        capability: Optional[str] = None,
     ) -> list[AgentManifest]:
         agents = list(self._agents.values())
-        if level      is not None: agents = [a for a in agents if a.level == level]
-        if status     is not None: agents = [a for a in agents if a.status == status]
-        if capability is not None: agents = [a for a in agents if capability in a.capabilities]
+        if level is not None:
+            agents = [a for a in agents if a.level == level]
+        if status is not None:
+            agents = [a for a in agents if a.status == status]
+        if capability is not None:
+            agents = [a for a in agents if capability in a.capabilities]
         return agents
 
     async def update_heartbeat(self, agent_id: str) -> None:
@@ -100,7 +78,8 @@ class AgentRegistry:
 
     async def health_check_all(self) -> dict[str, str]:
         """Ping every registered agent's /health endpoint."""
-        import aiohttp # type: ignore
+        import aiohttp  # type: ignore
+
         results = {}
         async with aiohttp.ClientSession() as session:
             for agent_id, manifest in self._agents.items():
@@ -124,7 +103,7 @@ agent_registry = AgentRegistry()
 
 
 # ─────────────────────────────────────────────
-# INSTANCE LOADER  (your existing code, unchanged)
+# INSTANCE LOADER
 # ─────────────────────────────────────────────
 
 def load_agent(agent_name: str, router=None):
@@ -142,7 +121,7 @@ def load_agent(agent_name: str, router=None):
 
     if agent_name == "market_intel":
         from mammoth_os.agents.market_intel_agent import MarketIntelAgent
-        return MarketIntelAgent()
+        return MarketIntelAgent(router)
 
     if agent_name == "reflection":
         from mammoth_os.agents.reflection_agent import ReflectionAgent
@@ -153,7 +132,7 @@ def load_agent(agent_name: str, router=None):
         return BrandVoiceAgent()
 
     if agent_name == "visual_engine":
-        from mammoth_os.agents.visual_engine_agent import VisualEngineAgent  # type: ignore
+        from mammoth_os.agents.visual_engine_agent import VisualEngineAgent# type: ignore
         return VisualEngineAgent()
 
     if agent_name == "community_engine":
@@ -162,11 +141,11 @@ def load_agent(agent_name: str, router=None):
 
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
-        return ResearchAgent()  # type: ignore
+        return ResearchAgent(router)
 
     if agent_name == "coding":
         from mammoth_os.agents.coding_agent import CodingAgent
-        return CodingAgent(router) # type: ignore
+        return CodingAgent(router)
 
     if agent_name == "custodial":
         from mammoth_os.agents.custodial_agent import CustodialAgent
@@ -174,20 +153,25 @@ def load_agent(agent_name: str, router=None):
 
     raise ValueError(f"Unknown agent '{agent_name}'")
 
-
 # ─────────────────────────────────────────────
-# PUBLIC CALL INTERFACE  (your existing lambdas, fixed)
+# PUBLIC CALL INTERFACE
 # ─────────────────────────────────────────────
 
-AGENTS: Dict[str, Callable[[str], str]] = {
-    "plant_the_seed":  lambda prompt: load_agent("plant_the_seed").run(prompt),       # type: ignore
-    "field_ops":       lambda prompt: load_agent("field_ops").run(prompt),             # type: ignore
-    "market_intel":    lambda prompt: load_agent("market_intel").run(prompt),          # type: ignore
-    "reflection":      lambda prompt: load_agent("reflection").run(prompt),            # type: ignore
-    "brand_voice":     lambda prompt: load_agent("brand_voice").run(prompt),           # type: ignore
-    "visual_engine":   lambda prompt: load_agent("visual_engine").run(prompt),         # type: ignore
-    "community_engine":lambda prompt: load_agent("community_engine").run(prompt),      # type: ignore
-    "research":        lambda prompt: load_agent("research").run(prompt),              # type: ignore
-    "coding":          lambda prompt: load_agent("coding", router).run(prompt),        # type: ignore
-    "custodial":       lambda prompt: load_agent("custodial", router).run(prompt),     # type: ignore
+from typing import Protocol, Any, Dict
+
+class AgentCallable(Protocol):
+    def __call__(self, prompt: Any) -> Any: ...
+
+AGENTS: Dict[str, AgentCallable] = {
+    "plant_the_seed":  lambda prompt: load_agent("plant_the_seed").run(prompt),
+    "field_ops":       lambda prompt: load_agent("field_ops").run(prompt),
+    "market_intel":    lambda prompt: load_agent("market_intel").run(prompt),
+    "reflection":      lambda prompt: load_agent("reflection").run(prompt),
+    "brand_voice":     lambda prompt: load_agent("brand_voice").run(prompt),
+    "visual_engine":   lambda prompt: load_agent("visual_engine").run(prompt),
+    "community_engine":lambda prompt: load_agent("community_engine").run(prompt),
+    "research":        lambda prompt: load_agent("research").run(prompt),
+    "coding":          lambda prompt: load_agent("coding", router).run(prompt),
+    "custodial":       lambda prompt: load_agent("custodial", router).run(prompt),
 }
+
