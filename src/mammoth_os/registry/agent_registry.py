@@ -1,16 +1,12 @@
-# mammoth_os/registry/agent_registry.py
-# Mammoth OS — Unified Agent Registry
-# Tracks agent manifests, health, and lazy-loading.
-
 from __future__ import annotations
 
 import asyncio
 import datetime
 import logging
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional, Protocol
 
 from mammoth_os.cortex.router import CortexRouter
-from mammoth_os.registry.agent_manifest import AgentManifest, AgentStatus  # correct import
+from mammoth_os.registry.agent_manifest import AgentManifest, AgentStatus
 
 logger = logging.getLogger("mammoth.registry.agents")
 router = CortexRouter()
@@ -23,7 +19,7 @@ class AgentRegistry:
     Instantiation is still handled by load_agent() below.
     """
 
-    def __init__(self, db_client=None):
+    def __init__(self, db_client: Optional[Any] = None) -> None:
         self._agents: dict[str, AgentManifest] = {}
         self._db = db_client
         self._lock = asyncio.Lock()
@@ -77,14 +73,18 @@ class AgentRegistry:
                 self._agents[agent_id].last_heartbeat = datetime.datetime.utcnow()
 
     async def health_check_all(self) -> dict[str, str]:
-        """Ping every registered agent's /health endpoint."""
+        """
+        Ping every registered agent's /health endpoint.
+        """
         import aiohttp  # type: ignore
 
-        results = {}
+        results: dict[str, str] = {}
         async with aiohttp.ClientSession() as session:
             for agent_id, manifest in self._agents.items():
                 try:
-                    async with session.get(f"{manifest.endpoint}/health", timeout=5) as resp:
+                    async with session.get(
+                        f"{manifest.endpoint}/health", timeout=5
+                    ) as resp:
                         if resp.status == 200:
                             manifest.status = AgentStatus.ACTIVE
                             manifest.last_heartbeat = datetime.datetime.utcnow()
@@ -102,11 +102,8 @@ class AgentRegistry:
 agent_registry = AgentRegistry()
 
 
-# ─────────────────────────────────────────────
 # INSTANCE LOADER
-# ─────────────────────────────────────────────
-
-def load_agent(agent_name: str, router=None):
+def load_agent(agent_name: str, router: Optional[CortexRouter] = None) -> Any:
     """
     Dynamically import and instantiate an agent only when needed.
     Avoids circular imports and startup crashes.
@@ -121,7 +118,7 @@ def load_agent(agent_name: str, router=None):
 
     if agent_name == "market_intel":
         from mammoth_os.agents.market_intel_agent import MarketIntelAgent
-        return MarketIntelAgent(router)
+        return MarketIntelAgent(router)# type: ignore
 
     if agent_name == "reflection":
         from mammoth_os.agents.reflection_agent import ReflectionAgent
@@ -153,25 +150,22 @@ def load_agent(agent_name: str, router=None):
 
     raise ValueError(f"Unknown agent '{agent_name}'")
 
-# ─────────────────────────────────────────────
+
 # PUBLIC CALL INTERFACE
-# ─────────────────────────────────────────────
-
-from typing import Protocol, Any, Dict
-
 class AgentCallable(Protocol):
-    def __call__(self, prompt: Any) -> Any: ...
+    def call(self, prompt: Any) -> Any:
+        ...
+
 
 AGENTS: Dict[str, AgentCallable] = {
-    "plant_the_seed":  lambda prompt: load_agent("plant_the_seed").run(prompt),
-    "field_ops":       lambda prompt: load_agent("field_ops").run(prompt),
-    "market_intel":    lambda prompt: load_agent("market_intel").run(prompt),
-    "reflection":      lambda prompt: load_agent("reflection").run(prompt),
-    "brand_voice":     lambda prompt: load_agent("brand_voice").run(prompt),
-    "visual_engine":   lambda prompt: load_agent("visual_engine").run(prompt),
-    "community_engine":lambda prompt: load_agent("community_engine").run(prompt),
-    "research":        lambda prompt: load_agent("research").run(prompt),
-    "coding":          lambda prompt: load_agent("coding", router).run(prompt),
-    "custodial":       lambda prompt: load_agent("custodial", router).run(prompt),
+    "plant_the_seed": lambda prompt: load_agent("plant_the_seed").run(prompt),# type: ignore
+    "field_ops": lambda prompt: load_agent("field_ops").run(prompt),
+    "market_intel": lambda prompt: load_agent("market_intel").run(prompt),
+    "reflection": lambda prompt: load_agent("reflection").run(prompt),
+    "brand_voice": lambda prompt: load_agent("brand_voice").run(prompt),
+    "visual_engine": lambda prompt: load_agent("visual_engine").run(prompt),# type: ignore
+    "community_engine": lambda prompt: load_agent("community_engine").run(prompt),
+    "research": lambda prompt: load_agent("research", router).run(prompt),
+    "coding": lambda prompt: load_agent("coding", router).run(prompt),
+    "custodial": lambda prompt: load_agent("custodial", router).run(prompt),
 }
-

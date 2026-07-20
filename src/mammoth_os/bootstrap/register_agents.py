@@ -171,6 +171,8 @@ def build_core_manifests() -> list[AgentManifest]:
 # ─────────────────────────────────────────────
 
 async def bootstrap_agents() -> None:
+    
+
     """
     Register all core agents with the AgentRegistry.
     Safe to call at Mammoth OS startup.
