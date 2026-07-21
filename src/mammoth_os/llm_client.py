@@ -11,15 +11,18 @@ class LLMClient:
         raise NotImplementedError()
 
 
+from .llm_parsing import extract_code_and_files
+
+
 def extract_code_from_text(text: str) -> str:
-    import re
-    if not text:
-        return ""
-    m = re.search(r"```(?:[\w+-]*)\n([\s\S]*?)```", text)
-    if m:
-        return m.group(1).strip()
-    # fallback: look for '```' with no language or the entire response
-    return text.strip()
+    parsed = extract_code_and_files(text)
+    # Prefer 'code' if available; if structured files present, return concatenated files
+    if "code" in parsed and parsed.get("code"):
+        return parsed.get("code")
+    if "files" in parsed and isinstance(parsed.get("files"), dict):
+        # Concatenate files into one string for initial consumption
+        return "\n\n".join([f"# FILE: {n}\n{c}" for n, c in parsed["files"].items()])
+    return ""
 
 
 def get_llm_client(config: Dict[str, Any] | None = None):
