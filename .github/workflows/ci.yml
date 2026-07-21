@@ -36,16 +36,47 @@ jobs:
         shell: bash
 
   docker-tests-linux:
-    if: matrix.os == 'ubuntu-latest' || github.event_name == 'push'
     runs-on: ubuntu-latest
     needs: tests
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify Docker and run docker-based tests
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: 3.11
+
+      - name: Install dependencies
         run: |
-          docker --version || true
-          # Run a simple python -c to exercise sandbox_runner Docker path
-          python -c "import os, sys; print('sanity')"
+          python -m pip install --upgrade pip
+          pip install pytest
+        shell: bash
+
+      - name: Ensure Docker is available
+        run: |
+          docker --version
+          docker info
+        shell: bash
+
+      - name: Run SandboxRunner docker test
+        env:
+          PYTHONPATH: src
+        run: |
+          python - <<'PY'
+import json
+from mammoth_os.sandbox_runner import run_code
+# small project with a single test file
+project = {'test_math.py': 'def test_dummy():\n    assert 1+1==2\n'}
+# test script runs pytest on local files
+test_script = "import pytest, sys; sys.exit(pytest.main(['-q']))"
+res = run_code(code='', test_script=test_script, timeout=120, memory_limit_mb=256, project_files=project)
+print(json.dumps(res))
+# Validate that the Docker path was used and tests passed
+if res.get('method') != 'docker':
+    print('Docker not used by sandbox_runner; got method:', res.get('method'))
+    raise SystemExit(2)
+if not res.get('passed'):
+    raise SystemExit(1)
+PY
         shell: bash
