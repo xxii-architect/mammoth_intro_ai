@@ -89,7 +89,7 @@ jobs:
         env:
           PYTHONPATH: src
         run: |
-          python - <<'PY'
+          python - <<PY
 import json
 from mammoth_os.sandbox_runner import run_code
 # small project with a single test file
