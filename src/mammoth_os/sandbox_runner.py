@@ -30,36 +30,52 @@ class SandboxRunner:
         test_script: str,
         timeout: int = 30,
         memory_limit_mb: int = 256,
+        project_files: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
         """Run `code` and `test_script` in an isolated environment.
+
+        project_files: optional mapping of relative_path -> file_content to write into the workspace.
 
         Returns a dict with keys: passed (bool), stdout, stderr, returncode, duration_ms, method
         """
         start = time.time()
         if self._docker_available():
-            result = self._run_in_docker(code, test_script, timeout, memory_limit_mb)
+            result = self._run_in_docker(code, test_script, timeout, memory_limit_mb, project_files)
             result["method"] = "docker"
             result["duration_ms"] = int((time.time() - start) * 1000)
             return result
         else:
-            result = self._run_in_subprocess(code, test_script, timeout)
+            result = self._run_in_subprocess(code, test_script, timeout, project_files)
             result["method"] = "subprocess"
             result["duration_ms"] = int((time.time() - start) * 1000)
             return result
 
-    def _run_in_subprocess(self, code: str, test_script: str, timeout: int) -> Dict[str, Any]:
-        with tempfile.TemporaryDirectory() as tmp:
+    def _run_in_subprocess(self, code: str, test_script: str, timeout: int, project_files: Dict[str, str] | None = None) -> Dict[str, Any]:
+        tmp = tempfile.mkdtemp()
+        try:
+            # write project files if provided
+            if project_files:
+                for rel, content in project_files.items():
+                    dest = os.path.join(tmp, rel)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with open(dest, "w", encoding="utf-8") as f:
+                        f.write(content)
+
             code_path = os.path.join(tmp, "code.py")
             test_path = os.path.join(tmp, "test_runner.py")
-            with open(code_path, "w", encoding="utf-8") as f:
-                f.write(code)
+            # Only write code.py if non-empty to avoid shadowing stdlib modules like 'code'
+            if code and code.strip():
+                with open(code_path, "w", encoding="utf-8") as f:
+                    f.write(code)
             with open(test_path, "w", encoding="utf-8") as f:
                 f.write(test_script)
 
             # Run test runner using system python
             try:
+                import sys
+                python_exec = sys.executable or (shutil.which("python") or "python")
                 proc = subprocess.run(
-                    [shutil.which("python") or "python", test_path],
+                    [python_exec, "-c", test_script],
                     cwd=tmp,
                     capture_output=True,
                     text=True,
@@ -67,6 +83,8 @@ class SandboxRunner:
                 )
                 stdout = proc.stdout
                 stderr = proc.stderr
+                # Small sleep to allow subprocesses to release handles on Windows
+                time.sleep(0.1)
                 return {
                     "passed": proc.returncode == 0,
                     "stdout": stdout,
@@ -74,21 +92,44 @@ class SandboxRunner:
                     "returncode": proc.returncode,
                 }
             except subprocess.TimeoutExpired as te:
-                return {"passed": False, "stdout": "", "stderr": f"timeout: {te}", "returncode": -1}
+                # include partial output for debugging
+                out = getattr(te, 'output', '') or getattr(te, 'stdout', '') or ''
+                err = getattr(te, 'stderr', '') or ''
+                return {"passed": False, "stdout": out, "stderr": f"timeout: {te}; stdout={out!r}; stderr={err!r}", "returncode": -1}
             except Exception as exc:
                 return {"passed": False, "stdout": "", "stderr": str(exc), "returncode": -2}
+        finally:
+            # Best-effort cleanup with retries for Windows file-handle races
+            for _ in range(8):
+                try:
+                    shutil.rmtree(tmp)
+                    break
+                except Exception:
+                    time.sleep(0.1)
+                    continue
 
-    def _run_in_docker(self, code: str, test_script: str, timeout: int, memory_limit_mb: int) -> Dict[str, Any]:
+    def _run_in_docker(self, code: str, test_script: str, timeout: int, memory_limit_mb: int, project_files: Dict[str, str] | None = None) -> Dict[str, Any]:
         # Create a temp dir and write files
-        with tempfile.TemporaryDirectory() as tmp:
+        tmp = tempfile.mkdtemp()
+        try:
+            # write project files if provided
+            if project_files:
+                for rel, content in project_files.items():
+                    dest = os.path.join(tmp, rel)
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with open(dest, "w", encoding="utf-8") as f:
+                        f.write(content)
+
             code_path = os.path.join(tmp, "code.py")
             test_path = os.path.join(tmp, "test_runner.py")
-            with open(code_path, "w", encoding="utf-8") as f:
-                f.write(code)
+            # Only write code.py if non-empty to avoid shadowing stdlib modules like 'code'
+            if code and code.strip():
+                with open(code_path, "w", encoding="utf-8") as f:
+                    f.write(code)
             with open(test_path, "w", encoding="utf-8") as f:
                 f.write(test_script)
 
-            # Build docker run command
+            # Build docker run command with security hardening
             mem_limit = f"{memory_limit_mb}m"
             cmd = [
                 "docker",
@@ -96,8 +137,16 @@ class SandboxRunner:
                 "--rm",
                 "--network",
                 "none",
+                "--user",
+                "1000:1000",
+                "--security-opt",
+                "no-new-privileges",
+                "--cap-drop",
+                "ALL",
+                "--read-only",
                 "-v",
-                f"{tmp}:/workspace",
+                # Mount workspace as writable volume despite read-only root
+                f"{tmp}:/workspace:rw",
                 "-w",
                 "/workspace",
                 "--memory",
@@ -105,12 +154,13 @@ class SandboxRunner:
                 self.docker_image,
                 "bash",
                 "-lc",
-                # Ensure pytest is available only if requested; here run test script directly
-                f"{shutil.which('python') or 'python'} test_runner.py",
+                # Run the test runner using the container's python
+                "python" + " test_runner.py",
             ]
 
             try:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+                time.sleep(0.1)
                 return {
                     "passed": proc.returncode == 0,
                     "stdout": proc.stdout,
@@ -118,12 +168,22 @@ class SandboxRunner:
                     "returncode": proc.returncode,
                 }
             except subprocess.TimeoutExpired as te:
-                return {"passed": False, "stdout": "", "stderr": f"timeout: {te}", "returncode": -1}
+                out = getattr(te, 'output', '') or getattr(te, 'stdout', '') or ''
+                err = getattr(te, 'stderr', '') or ''
+                return {"passed": False, "stdout": out, "stderr": f"timeout: {te}; stdout={out!r}; stderr={err!r}", "returncode": -1}
             except Exception as exc:
                 return {"passed": False, "stdout": "", "stderr": str(exc), "returncode": -2}
+        finally:
+            for _ in range(8):
+                try:
+                    shutil.rmtree(tmp)
+                    break
+                except Exception:
+                    time.sleep(0.1)
+                    continue
 
 
 # Convenience function
-def run_code(code: str, test_script: str, timeout: int = 30, memory_limit_mb: int = 256) -> Dict[str, Any]:
+def run_code(code: str, test_script: str, timeout: int = 30, memory_limit_mb: int = 256, project_files: Dict[str, str] | None = None) -> Dict[str, Any]:
     runner = SandboxRunner()
-    return runner.run_code(code, test_script, timeout=timeout, memory_limit_mb=memory_limit_mb)
+    return runner.run_code(code, test_script, timeout=timeout, memory_limit_mb=memory_limit_mb, project_files=project_files)
