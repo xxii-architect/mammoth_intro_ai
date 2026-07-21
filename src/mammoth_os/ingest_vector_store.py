@@ -32,6 +32,15 @@ def chunk_text(text: str, size: int = CHUNK_SIZE) -> List[str]:
 async def ingest_paths(root: Path, paths: List[Path], collection: str = "repo"):
     client = get_llm_client()
     vs = VectorStoreAgent(router=None)
+    try:
+        await vs.initialize()
+    except Exception:
+        # If initialization fails, continue with a best-effort in-memory store
+        pass
+
+    # Ensure a backing store exists in case initialize didn't set one
+    if not hasattr(vs, "_collections"):
+        vs._collections = {}
 
     for p in paths:
         try:
@@ -51,7 +60,7 @@ async def ingest_paths(root: Path, paths: List[Path], collection: str = "repo"):
                 # Fallback deterministic vector (hash-based) for testing without API
                 vec = [float((hash(chunk) % 1000) / 1000.0) for _ in range(1536)]
             doc_id = f"{rel}:{i}"
-            vs.upsert(collection, doc_id, vec, metadata)
+            await vs.upsert(collection, doc_id, vec, metadata)
     print(f"Ingested {len(paths)} files into collection '{collection}'")
 
 
