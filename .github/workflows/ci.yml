@@ -131,9 +131,8 @@ out = res.get('stdout', '') or ''
 if '---RUNTIME-INFO-START---' not in out or ('Seccomp' not in out and 'CapEff' not in out):
     print('Runtime info missing or seccomp/capability fields not present')
     raise SystemExit(3)
-PY
+          PY
         shell: bash
-
       - name: Upload runtime info artifact
         if: always()
         uses: actions/upload-artifact@v4
