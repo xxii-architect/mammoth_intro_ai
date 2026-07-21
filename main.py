@@ -1,4 +1,4 @@
-# main.py
+# main.py — Mammoth OS CLI
 # Python 3.11+ required
 
 import os
@@ -535,7 +535,7 @@ def mammoth_cli(system_prompt: str) -> None:
         # Recall
         if prompt.lower() == "recall":
             context = recall_context()
-            console.print(Text("\nRecalled Context:\n", style="bold cyan"))
+            console.print(Text("\nRecalled Context", style="bold cyan"))
             console.print(Text(context, style="green"))
             continue
 

@@ -1,3 +1,5 @@
+from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
+
 class VectorStoreAgent(BaseAgent):# type: ignore
     """
     Manages embedding storage and semantic search using pgvector.
