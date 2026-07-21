@@ -119,3 +119,26 @@ PY
         with:
           name: sandbox-runtime-info
           path: runtime_info.txt
+
+      - name: Run CI seccomp tuner
+        if: always()
+        run: |
+          python .github/scripts/ci_seccomp_tuner.py --runtime runtime_info.txt --stderr runtime_error.txt --out diagnostics || true
+        shell: bash
+
+      - name: Upload diagnostics artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: seccomp-diagnostics
+          path: diagnostics
+
+      - name: Attempt to create PR with suggested tweaks
+        if: always() && env.CREATE_PR == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Authenticate gh (uses GITHUB_TOKEN provided by runner)
+          echo $GITHUB_TOKEN | gh auth login --with-token || true
+          python .github/scripts/apply_suggestion_and_create_pr.py || true
+        shell: bash
