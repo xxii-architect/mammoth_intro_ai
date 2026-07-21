@@ -177,14 +177,26 @@ class CodingAgent(BaseAgent):
     # ---------------------------------------------------------
 
     async def analyze_codebase(self, codebase_path: str) -> dict:
-        self.log("WARN", "analyze_codebase called but no analysis engines exist.")
-        return {
-            "symbols": [],
-            "issues": [],
-            "complexity": {},
-            "dependencies": [],
-            "file_count": 0,
-        }
+        """Run lightweight static analysis over a codebase and return metrics.
+
+        Uses src/mammoth_os/analysis/code_inspector.py for best-effort metrics.
+        """
+        try:
+            from mammoth_os.analysis.code_inspector import analyze_codebase as inspector
+            metrics = inspector(codebase_path)
+            return {
+                "summary": {
+                    "files": metrics.get("file_count", 0),
+                    "lines": metrics.get("total_lines", 0),
+                    "functions": metrics.get("functions", 0),
+                    "classes": metrics.get("classes", 0),
+                },
+                "todos": metrics.get("todos", []),
+                "files": metrics.get("files", {}),
+            }
+        except Exception as exc:
+            self.log("ERROR", f"analyze_codebase failed: {exc}")
+            return {"error": str(exc)}
 
     async def _retrieve_context(self, query: str, collection: str = "default") -> list:
         """Retrieve context snippets from the local VectorStoreAgent using the LLM embedding for the query.
@@ -279,13 +291,40 @@ class CodingAgent(BaseAgent):
             }
 
     async def refactor(self, target: str, strategy: str) -> dict:
-        self.log("WARN", "refactor called but no refactor engine exists.")
-        return {
-            "original": "",
-            "refactored": "",
-            "diff": "",
-            "confidence": 0.0,
-        }
+        """Refactor target file or code using the LLM adapter as a helper.
+
+        target may be a path relative to a project root or raw code. If the file
+        exists on disk, it will be read and sent to the LLM for refactoring.
+        """
+        try:
+            # read file if it exists
+            src = None
+            import os
+            if os.path.exists(target):
+                try:
+                    with open(target, 'r', encoding='utf-8') as fh:
+                        src = fh.read()
+                except Exception:
+                    src = None
+
+            if src is None:
+                # treat target as raw code
+                src = target
+
+            client = get_llm_client()
+            prompt = f"Refactor the following Python code to improve readability, reduce complexity, and add minimal comments. Preserve behavior.\n\n{src}"
+            raw = await client.generate(prompt, max_tokens=1500, temperature=0.2)
+            refactored = extract_code_from_text(raw)
+            diff = self._unified_diff(src, refactored)
+            return {
+                "original": src,
+                "refactored": refactored,
+                "diff": diff,
+                "confidence": 0.5,
+            }
+        except Exception as exc:
+            self.log("ERROR", f"refactor failed: {exc}")
+            return {"original": "", "refactored": "", "diff": "", "confidence": 0.0, "error": str(exc)}
 
     async def run_tests(self, project_path: str, test_pattern: str = "test_*.py") -> dict:
         """Run tests for a project path inside the sandbox runner.
