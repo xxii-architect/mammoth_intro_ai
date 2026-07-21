@@ -1,1 +1,25 @@
-{}
+{
+  "defaultAction": "SCMP_ACT_ERRNO",
+  "archMap": [
+    { "architecture": "SCMP_ARCH_X86_64", "subArchitectures": ["SCMP_ARCH_X86", "SCMP_ARCH_X32"] }
+  ],
+  "syscalls": [
+    {
+      "names": [
+        "read","write","exit","exit_group","futex","nanosleep","clock_gettime",
+        "rt_sigreturn","rt_sigaction","rt_sigprocmask","set_tid_address","set_robust_list",
+        "prlimit64","sched_getaffinity","clone","fork","vfork","execve",
+        "open","openat","close","brk","mmap","mprotect","munmap","access","faccessat",
+        "stat","fstat","lseek","ioctl","pread64","pwrite64","readv","writev","pipe","dup",
+        "dup2","dup3","getcwd","chdir","getdents64","mkdir","rmdir","unlink","unlinkat",
+        "rename","renameat","symlink","symlinkat","link","linkat","truncate","ftruncate",
+        "getpid","getppid","getuid","geteuid","getgid","getegid","setuid","setgid",
+        "setpgid","setsid","getrlimit","getrusage","sysinfo","uname","getrandom","gettimeofday",
+        "recvfrom","recvmsg","sendto","sendmsg","socket","bind","connect","listen","accept",
+        "accept4","getsockname","getpeername","shutdown","setsockopt","getsockopt","epoll_create1",
+        "epoll_ctl","epoll_wait","poll","select","sendfile"
+      ],
+      "action": "SCMP_ACT_ALLOW"
+    }
+  ]
+}
