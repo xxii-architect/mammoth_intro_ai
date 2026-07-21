@@ -41,8 +41,8 @@ class AgentManifest:
     level:          int
     dependencies:   list[str]
     endpoint:       str
-    registered_at:  datetime.datetime = field(default_factory=datetime.datetime.utcnow)
-    last_heartbeat: datetime.datetime = field(default_factory=datetime.datetime.utcnow)
+    registered_at:  datetime.datetime = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+    last_heartbeat: datetime.datetime = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
     metadata:       dict[str, Any]    = field(default_factory=dict)
 
 
@@ -96,7 +96,7 @@ class AgentRegistry:
     async def update_heartbeat(self, agent_id: str) -> None:
         async with self._lock:
             if agent_id in self._agents:
-                self._agents[agent_id].last_heartbeat = datetime.datetime.utcnow()
+                self._agents[agent_id].last_heartbeat = datetime.datetime.now(datetime.timezone.utc)
 
     async def health_check_all(self) -> dict[str, str]:
         """Ping every registered agent's /health endpoint."""
@@ -108,7 +108,7 @@ class AgentRegistry:
                     async with session.get(f"{manifest.endpoint}/health", timeout=5) as resp:
                         if resp.status == 200:
                             manifest.status = AgentStatus.ACTIVE
-                            manifest.last_heartbeat = datetime.datetime.utcnow()
+                            manifest.last_heartbeat = datetime.datetime.now(datetime.timezone.utc)
                             results[agent_id] = "ACTIVE"
                         else:
                             manifest.status = AgentStatus.ERROR
