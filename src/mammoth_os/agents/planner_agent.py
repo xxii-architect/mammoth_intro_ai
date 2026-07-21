@@ -27,8 +27,44 @@ class PlannerAgent(BaseAgent):# type: ignore
         }
 
     async def _decompose_to_tasks(self, goal: str, constraints: dict) -> list[dict]:
-        """Use ReasoningAgent to decompose goal into ordered task list."""
-        ...
+        """Decompose a goal into an ordered task list.
+
+        If `constraints` contains a 'curriculum' dict (as produced by
+        CurriculumAgent), convert modules and lessons into discrete tasks.
+        Otherwise, return a single fallback task representing the goal.
+        """
+        import uuid
+
+        curriculum = None
+        if constraints and isinstance(constraints, dict):
+            curriculum = constraints.get("curriculum")
+
+        tasks: list[dict] = []
+        if curriculum and isinstance(curriculum, dict):
+            prev_task_id = None
+            for module in curriculum.get("modules", []):
+                module_id = module.get("module_id")
+                for lesson in module.get("lessons", []):
+                    task_id = lesson.get("lesson_id") or str(uuid.uuid4())
+                    task = {
+                        "task_id": task_id,
+                        "agent": "tutor",  # suggested consumer agent
+                        "input": {"module_id": module_id, "lesson": lesson},
+                        "depends_on": [prev_task_id] if prev_task_id else [],
+                    }
+                    tasks.append(task)
+                    prev_task_id = task_id
+            return tasks
+
+        # Fallback: single high-level task
+        return [
+            {
+                "task_id": str(uuid.uuid4()),
+                "agent": "curriculum",
+                "input": {"goal": goal},
+                "depends_on": [],
+            }
+        ]
 
     async def validate_plan(self, plan: dict) -> bool:
         """Check the plan DAG for cycles and missing agent dependencies."""
