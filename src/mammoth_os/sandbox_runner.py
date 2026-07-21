@@ -182,6 +182,7 @@ class SandboxRunner:
                 # Create a non-root runner user if possible and execute the test runner as that user.
                 # We avoid failing if user creation tools are missing; we attempt several fallbacks.
                 (
+                    "echo '---RUNTIME-INFO-START---'; cat /proc/self/status 2>/dev/null || true; echo '---RUNTIME-INFO-END---'; "
                     "groupadd -g 1000 runner || true; "
                     "useradd -m -u 1000 -g runner runner || true; "
                     "chown -R 1000:1000 /workspace || true; "

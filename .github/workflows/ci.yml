@@ -102,5 +102,10 @@ if res.get('method') != 'docker':
     raise SystemExit(2)
 if not res.get('passed'):
     raise SystemExit(1)
+# Verify runtime info presence in stdout
+out = res.get('stdout', '') or ''
+if '---RUNTIME-INFO-START---' not in out or 'Seccomp' not in out and 'CapEff' not in out:
+    print('Runtime info missing or seccomp/capability fields not present')
+    raise SystemExit(3)
 PY
         shell: bash
