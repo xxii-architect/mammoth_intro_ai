@@ -52,12 +52,31 @@ jobs:
           mypy src || true
         shell: bash
 
-      - name: Run tests (with coverage)
+      - name: Run tests (Linux with coverage)
+        if: runner.os != 'Windows'
         env:
           PYTHONPATH: src
         run: |
-          python -m pytest --cov=src --cov-report=xml -q
+          python -m pytest --junitxml=pytest.xml --cov=src --cov-report=xml -q | tee test.log
         shell: bash
+
+      - name: Run tests (Windows with coverage)
+        if: runner.os == 'Windows'
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m pytest --junitxml=pytest.xml --cov=src --cov-report=xml -q | Tee-Object -FilePath test.log
+        shell: pwsh
+
+      - name: Upload pytest artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-artifacts
+          path: |
+            pytest.xml
+            test.log
+            coverage.xml
 
   docker-tests-linux:
     runs-on: ubuntu-latest
