@@ -14,6 +14,8 @@ import shutil
 import subprocess
 import tempfile
 import time
+import json
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 
@@ -32,6 +34,8 @@ class SandboxRunner:
         memory_limit_mb: int = 256,
         project_files: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
+        """Run code and emit telemetry for each sandbox run."""
+
         """Run `code` and `test_script` in an isolated environment.
 
         project_files: optional mapping of relative_path -> file_content to write into the workspace.
@@ -43,12 +47,18 @@ class SandboxRunner:
             result = self._run_in_docker(code, test_script, timeout, memory_limit_mb, project_files)
             result["method"] = "docker"
             result["duration_ms"] = int((time.time() - start) * 1000)
-            return result
         else:
             result = self._run_in_subprocess(code, test_script, timeout, project_files)
             result["method"] = "subprocess"
             result["duration_ms"] = int((time.time() - start) * 1000)
-            return result
+
+        # Emit telemetry asynchronously best-effort (do not raise on failure)
+        try:
+            self._emit_telemetry(result, memory_limit_mb, project_files)
+        except Exception:
+            pass
+
+        return result
 
     def _run_in_subprocess(self, code: str, test_script: str, timeout: int, project_files: Dict[str, str] | None = None) -> Dict[str, Any]:
         tmp = tempfile.mkdtemp()
@@ -181,6 +191,34 @@ class SandboxRunner:
                 except Exception:
                     time.sleep(0.1)
                     continue
+
+    def _emit_telemetry(self, result: Dict[str, Any], memory_limit_mb: int, project_files: Dict[str, str] | None):
+        """Append telemetry about the sandbox run to .mammoth/sandbox_runs.jsonl in the repo root.
+        This is best-effort and should never raise to callers.
+        """
+        try:
+            # Determine repo root relative to this file: ../../
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            mammoth_dir = os.path.join(repo_root, ".mammoth")
+            os.makedirs(mammoth_dir, exist_ok=True)
+            out_path = os.path.join(mammoth_dir, "sandbox_runs.jsonl")
+
+            event = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "method": result.get("method"),
+                "duration_ms": int(result.get("duration_ms", 0)),
+                "returncode": int(result.get("returncode", -1)),
+                "memory_limit_mb": int(memory_limit_mb or 0),
+                "passed": bool(result.get("passed")),
+                "stdout_len": len(result.get("stdout", "") or ""),
+                "stderr_len": len(result.get("stderr", "") or ""),
+                "file_count": len(project_files) if project_files else 0,
+            }
+            with open(out_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception:
+            # swallow any telemetry errors
+            return
 
 
 # Convenience function
