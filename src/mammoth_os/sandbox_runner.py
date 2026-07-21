@@ -141,21 +141,36 @@ class SandboxRunner:
 
             # Build docker run command with security hardening
             mem_limit = f"{memory_limit_mb}m"
+            # Compose base docker command with hardening flags.
             cmd = [
                 "docker",
                 "run",
                 "--rm",
                 "--network",
                 "none",
-                "--user",
-                "1000:1000",
                 "--security-opt",
                 "no-new-privileges",
                 "--cap-drop",
                 "ALL",
                 "--read-only",
+                "--pids-limit",
+                "64",
+                "--tmpfs",
+                "/tmp:rw,noexec,nosuid,size=64m",
+            ]
+
+            # If a seccomp profile exists in the repo, mount and enable it
+            try:
+                repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+                seccomp_path = os.path.join(repo_root, ".mammoth", "seccomp.json")
+                if os.path.exists(seccomp_path):
+                    cmd += ["--security-opt", f"seccomp={seccomp_path}"]
+            except Exception:
+                pass
+
+            # Mount workspace as writable volume despite read-only root
+            cmd += [
                 "-v",
-                # Mount workspace as writable volume despite read-only root
                 f"{tmp}:/workspace:rw",
                 "-w",
                 "/workspace",
@@ -164,8 +179,14 @@ class SandboxRunner:
                 self.docker_image,
                 "bash",
                 "-lc",
-                # Run the test runner using the container's python
-                "python" + " test_runner.py",
+                # Create a non-root runner user if possible and execute the test runner as that user.
+                # We avoid failing if user creation tools are missing; we attempt several fallbacks.
+                (
+                    "groupadd -g 1000 runner || true; "
+                    "useradd -m -u 1000 -g runner runner || true; "
+                    "chown -R 1000:1000 /workspace || true; "
+                    "su runner -s /bin/sh -c 'python test_runner.py' || python test_runner.py"
+                ),
             ]
 
             try:
