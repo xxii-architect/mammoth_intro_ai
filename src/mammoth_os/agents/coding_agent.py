@@ -186,13 +186,45 @@ class CodingAgent(BaseAgent):
             "file_count": 0,
         }
 
+    async def _retrieve_context(self, query: str, collection: str = "default") -> list:
+        """Retrieve context snippets from the local VectorStoreAgent using the LLM embedding for the query.
+
+        Returns a list of dicts with keys: id, text, metadata, score
+        """
+        snippets = []
+        try:
+            # Build embedding for the query
+            client = get_llm_client()
+            embed = await client.embed([query])
+            vec = embed[0]
+
+            # Instantiate VectorStoreAgent directly (lightweight)
+            try:
+                from mammoth_os.agents.vector_store_agent import VectorStoreAgent
+                v = VectorStoreAgent(router=None)
+                await v.initialize()
+                results = await v.search(collection, vec, top_k=5)
+                for r in results:
+                    # r contains score and stored doc info
+                    snippets.append({
+                        "id": r.get("id"),
+                        "text": r.get("metadata", {}).get("text") or r.get("vector") or "",
+                        "metadata": r.get("metadata", {}),
+                        "score": r.get("score"),
+                    })
+            except Exception:
+                # If vector store not available or empty, return empty list
+                return []
+        except Exception:
+            return []
+
+        return snippets
+
     async def generate_code(self, prompt: str, context: dict = None) -> dict:  # type: ignore
         """Generate code, tests and docs for a natural-language prompt.
 
-        This initial implementation calls the configured LLM client (OpenAIAdapter by
-        default) and extracts the first fenced code block as the primary result.
-        More advanced behaviors (multi-file outputs, test generation, sandbox runs)
-        will be implemented in follow-up phases.
+        This implementation builds a prompt using a template and augments it
+        with contextual snippets retrieved from the vector store.
         """
         client = None
         try:
@@ -208,9 +240,23 @@ class CodingAgent(BaseAgent):
                 "warnings": [f"LLM client unavailable: {exc}"],
             }
 
+        # Retrieve context snippets (best-effort)
+        context_snippets = []
+        try:
+            context_snippets = await self._retrieve_context(prompt, collection=(context or {}).get("collection", "default"))
+        except Exception:
+            context_snippets = []
+
+        # Build a prompt using the template library
+        try:
+            from mammoth_os.prompt_templates import build_code_gen_prompt
+            llm_prompt = build_code_gen_prompt(prompt, context_snippets)
+        except Exception:
+            llm_prompt = prompt
+
         try:
             # Basic generation call — allow config-based overrides later
-            raw = await client.generate(prompt, max_tokens=1500, temperature=0.2)
+            raw = await client.generate(llm_prompt, max_tokens=1500, temperature=0.2)
             code = extract_code_from_text(raw)
 
             return {
