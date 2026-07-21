@@ -1,26 +1,23 @@
-# mammoth_os/registry/agent_registry.py
-# Mammoth OS — Unified Agent Registry
-# Preserves lazy-loading for instantiation.
-# Adds AgentManifest tracking, health checks, and status management.
+"""
+Mammoth OS — Agent Registry
+Central lookup table for all autonomous agents.
+"""
 
-from __future__ import annotations
+from typing import Dict, Type, Any
 
-import asyncio
-import datetime
-import logging
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, Callable, Dict, Optional
-
-from mammoth_os.cortex.router import CortexRouter
-
-logger = logging.getLogger("mammoth.registry.agents")
-router = CortexRouter()
+# Import agents
+from mammoth_os.agents.plant_the_seed_agent import PlantTheSeedAgent
+from mammoth_os.agents.field_ops_agent import FieldOpsAgent
+from mammoth_os.agents.market_intel_agent import MarketIntelAgent
+from mammoth_os.agents.reflection_agent import ReflectionAgent
+from mammoth_os.agents.brand_voice_agent import BrandVoiceAgent
+from mammoth_os.agents.visual_engine_agent import VisualEngineAgent # type: ignore
+from mammoth_os.agents.community_engine_agent import CommunityEngineAgent # type: ignore
 
 
-# ─────────────────────────────────────────────
-# MANIFEST LAYER  (new — metadata & health)
-# ─────────────────────────────────────────────
+# ----------------------------------------
+# REGISTRY
+# ----------------------------------------
 
 class AgentStatus(str, Enum):
     ACTIVE   = "ACTIVE"
@@ -191,3 +188,36 @@ AGENTS: Dict[str, Callable[[str], str]] = {
     "coding":          lambda prompt: load_agent("coding", router).run(prompt),        # type: ignore
     "custodial":       lambda prompt: load_agent("custodial", router).run(prompt),     # type: ignore
 }
+
+
+# ----------------------------------------
+# LOOKUP
+# ----------------------------------------
+
+def get_agent(agent_name: str):
+    """
+    Return an agent class by name.
+    Raises KeyError if not found.
+    """
+    if agent_name not in AGENT_REGISTRY:
+        raise KeyError(f"Agent '{agent_name}' is not registered.")
+    return AGENT_REGISTRY[agent_name]
+
+
+def list_agents() -> Dict[str, Type[Any]]:
+    """
+    Return the full agent registry.
+    """
+    return AGENT_REGISTRY.copy()
+
+
+# ----------------------------------------
+# INSTANTIATION
+# ----------------------------------------
+
+def create_agent(agent_name: str, **kwargs):
+    """
+    Instantiate an agent with optional kwargs.
+    """
+    agent_cls = get_agent(agent_name)
+    return agent_cls(**kwargs)
