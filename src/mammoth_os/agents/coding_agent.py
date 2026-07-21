@@ -4,6 +4,8 @@ import logging
 from typing import Optional, Any, Dict
 
 from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
+from mammoth_os.llm_client import get_llm_client, extract_code_from_text  # type: ignore
+
 
 logger = logging.getLogger("mammoth.agents.coding")
 
@@ -185,15 +187,50 @@ class CodingAgent(BaseAgent):
         }
 
     async def generate_code(self, prompt: str, context: dict = None) -> dict:  # type: ignore
-        self.log("WARN", "generate_code called but no generation engines exist.")
-        return {
-            "code": "",
-            "tests": "",
-            "docs": "",
-            "diff": "",
-            "confidence": 0.0,
-            "warnings": ["No code generation engine available."],
-        }
+        """Generate code, tests and docs for a natural-language prompt.
+
+        This initial implementation calls the configured LLM client (OpenAIAdapter by
+        default) and extracts the first fenced code block as the primary result.
+        More advanced behaviors (multi-file outputs, test generation, sandbox runs)
+        will be implemented in follow-up phases.
+        """
+        client = None
+        try:
+            client = get_llm_client()
+        except Exception as exc:
+            self.log("ERROR", f"LLM client initialization failed: {exc}")
+            return {
+                "code": "",
+                "tests": "",
+                "docs": "",
+                "diff": "",
+                "confidence": 0.0,
+                "warnings": [f"LLM client unavailable: {exc}"],
+            }
+
+        try:
+            # Basic generation call — allow config-based overrides later
+            raw = await client.generate(prompt, max_tokens=1500, temperature=0.2)
+            code = extract_code_from_text(raw)
+
+            return {
+                "code": code,
+                "tests": "",
+                "docs": "",
+                "diff": "",
+                "confidence": 0.6,
+                "warnings": [],
+            }
+        except Exception as exc:
+            self.log("ERROR", f"generate_code failed: {exc}")
+            return {
+                "code": "",
+                "tests": "",
+                "docs": "",
+                "diff": "",
+                "confidence": 0.0,
+                "warnings": [str(exc)],
+            }
 
     async def refactor(self, target: str, strategy: str) -> dict:
         self.log("WARN", "refactor called but no refactor engine exists.")
