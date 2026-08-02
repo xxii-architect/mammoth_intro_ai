@@ -26,9 +26,14 @@ class TutorAgent(BaseAgent):
         os.makedirs(self.storage_path, exist_ok=True)
         self.progress_file = os.path.join(self.storage_path, 'progress.json')
 
-        # Optional Supabase persistence (disabled by default)
+        # Optional Supabase persistence (disabled by default).
+        # Accepts SUPABASE_KEY or the standard SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY.
         self.supabase_url = os.environ.get('SUPABASE_URL')
-        self.supabase_key = os.environ.get('SUPABASE_KEY')
+        self.supabase_key = (
+            os.environ.get('SUPABASE_SERVICE_ROLE_KEY')  # preferred — bypasses RLS
+            or os.environ.get('SUPABASE_KEY')
+            or os.environ.get('SUPABASE_ANON_KEY')
+        )
         self.supabase = None
         if self.supabase_url and self.supabase_key:
             try:
@@ -243,3 +248,4 @@ class TutorAgent(BaseAgent):
             return 'decrease'
 
         return 'same'
+
