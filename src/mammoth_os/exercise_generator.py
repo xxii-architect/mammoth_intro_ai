@@ -34,8 +34,8 @@ def generate_exercises_for_lesson(lesson: Dict[str, Any], count: int = 1) -> Lis
         # Expected test: a conservative template that the student must satisfy.
         # Use a simple numeric example when possible based on 'Practice problem' phrase
         test_lines = []
-        # If lesson objectives contain the word 'add' or 'sum' produce an add test
-        obj_text = " ".join(objectives).lower()
+        # If lesson objectives or title contain the word 'add' or 'sum' produce an add test
+        obj_text = " ".join(objectives + [base_title]).lower()
         if 'add' in obj_text or 'sum' in obj_text:
             test_lines.append("from solution import solution\ndef test_solution_add():\n    assert solution(2,3) == 5")
         else:
