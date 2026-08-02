@@ -24,6 +24,11 @@ class SandboxRunner:
         self.docker_image = docker_image
 
     def _docker_available(self) -> bool:
+        # Docker may be installed but unusable in some environments (WSL kernel issues).
+        # Respect an environment override to force subprocess fallback for development or broken kernels.
+        force = os.environ.get('FORCE_SUBPROCESS_FALLBACK') or os.environ.get('SANDBOX_RUNNER_MODE')
+        if force and (force == '1' or str(force).lower() == 'subprocess'):
+            return False
         return shutil.which("docker") is not None
 
     def run_code(
@@ -80,12 +85,12 @@ class SandboxRunner:
             with open(test_path, "w", encoding="utf-8") as f:
                 f.write(test_script)
 
-            # Run test runner using system python
+            # Run test runner using system python by executing the written test_runner.py file
             try:
                 import sys
                 python_exec = sys.executable or (shutil.which("python") or "python")
                 proc = subprocess.run(
-                    [python_exec, "-c", test_script],
+                    [python_exec, test_path],
                     cwd=tmp,
                     capture_output=True,
                     text=True,
@@ -107,7 +112,8 @@ class SandboxRunner:
                 err = getattr(te, 'stderr', '') or ''
                 return {"passed": False, "stdout": out, "stderr": f"timeout: {te}; stdout={out!r}; stderr={err!r}", "returncode": -1}
             except Exception as exc:
-                return {"passed": False, "stdout": "", "stderr": str(exc), "returncode": -2}
+                # Return exception details for easier debugging while keeping shape stable
+                return {"passed": False, "stdout": "", "stderr": f"exception: {type(exc).__name__}: {exc}", "returncode": -2}
         finally:
             # Best-effort cleanup with retries for Windows file-handle races
             for _ in range(8):

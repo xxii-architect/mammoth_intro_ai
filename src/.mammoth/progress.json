@@ -1,0 +1,24 @@
+[
+  {
+    "user_id": "user1",
+    "curriculum_id": "cur1",
+    "lesson_id": "lesson1",
+    "timestamp": "2026-07-21T04:52:53.351493Z",
+    "result": {
+      "passed": true,
+      "stdout": "ok",
+      "stderr": ""
+    }
+  },
+  {
+    "user_id": "user1",
+    "curriculum_id": "cur1",
+    "lesson_id": "lesson1",
+    "timestamp": "2026-07-21T04:55:42.642314Z",
+    "result": {
+      "passed": true,
+      "stdout": "ok",
+      "stderr": ""
+    }
+  }
+]
