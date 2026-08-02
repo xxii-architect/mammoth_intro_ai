@@ -17,7 +17,8 @@
         "setpgid","setsid","getrlimit","getrusage","sysinfo","uname","getrandom","gettimeofday",
         "recvfrom","recvmsg","sendto","sendmsg","socket","bind","connect","listen","accept",
         "accept4","getsockname","getpeername","shutdown","setsockopt","getsockopt","epoll_create1",
-        "epoll_ctl","epoll_wait","poll","select","sendfile"
+        "epoll_ctl","epoll_wait","poll","select","sendfile",
+        "madvise","mremap"
       ],
       "action": "SCMP_ACT_ALLOW"
     }
