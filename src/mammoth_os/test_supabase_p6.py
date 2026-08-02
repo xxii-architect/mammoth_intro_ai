@@ -166,6 +166,11 @@ def test_tutor_agent_writes_existing_schema_tables_to_supabase():
     assert "atlas_progress" in atlas_tables
     assert "adaptive_metrics" in atlas_tables
     assert "community_stats" in atlas_tables
+    adaptive_calls = atlas_tables["adaptive_metrics"].calls
+    inserts = [c for c in adaptive_calls if c[0] == "insert"]
+    assert inserts, "adaptive_metrics insert was not called"
+    metric_payload = inserts[-1][1]
+    assert metric_payload["difficulty_level"] in {"easy", "medium", "hard"}
 
 
 def test_tutor_agent_supabase_insert_failure_does_not_crash():

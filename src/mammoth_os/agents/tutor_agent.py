@@ -278,13 +278,17 @@ class TutorAgent(BaseAgent):
         # 4. atlas.adaptive_metrics — record performance for adaptive engine
         try:
             performance_score = 1.0 if passed else max(0.0, 1.0 - (current_attempt - 1) * 0.15)
+            difficulty_level = self._to_metric_difficulty(
+                passed=passed,
+                current_attempt=current_attempt,
+            )
             # duration_ms → PostgreSQL interval string e.g. "1234 milliseconds"
             interval_str = f"{duration_ms} milliseconds" if duration_ms else None
             metrics_record = {
                 "user_id": user_uuid,
                 "lesson_id": lesson_id if self._is_uuid(lesson_id) else None,
                 "performance_score": round(performance_score, 3),
-                "difficulty_level": error_fingerprint,
+                "difficulty_level": difficulty_level,
             }
             if interval_str:
                 metrics_record["completion_time"] = interval_str
@@ -327,6 +331,15 @@ class TutorAgent(BaseAgent):
             r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
             str(value), re.IGNORECASE,
         ))
+
+    @staticmethod
+    def _to_metric_difficulty(passed: bool, current_attempt: int) -> str:
+        """Map adaptive outcome to atlas.adaptive_metrics difficulty enum."""
+        if passed and current_attempt <= 2:
+            return "hard"
+        if not passed and current_attempt >= 3:
+            return "easy"
+        return "medium"
 
     def _fingerprint_error(self, result: Dict[str, Any]) -> str:
         """Map test output to coarse error categories for adaptive tutoring."""
