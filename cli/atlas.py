@@ -12,8 +12,12 @@ Usage (after `pip install -e .` or via PYTHONPATH=src):
 """
 import argparse
 import asyncio
+import json
 import os
+import re
 import sys
+import urllib.parse
+import urllib.request
 
 # Ensure UTF-8 output on Windows terminals
 if hasattr(sys.stdout, "reconfigure"):
@@ -38,10 +42,92 @@ def _load_session():
     """Load the persisted ATLASSession (or a fresh idle one)."""
     try:
         from mammoth_os.atlas_session import ATLASSession
-        return ATLASSession.load_state(_SESSION_STATE_FILE)
+        session = ATLASSession.load_state(_SESSION_STATE_FILE)
+        _ensure_user_id(session)
+        return session
     except Exception as exc:
         print(f"❌ Could not load ATLASSession: {exc}", file=sys.stderr)
         sys.exit(1)
+
+
+def _is_uuid(value: str) -> bool:
+    return bool(re.match(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        str(value or ""),
+        re.IGNORECASE,
+    ))
+
+
+def _resolve_user_id_from_supabase() -> str | None:
+    """Resolve ATLAS user UUID from public.profiles using Supabase REST API.
+
+    Uses SUPABASE_URL + SUPABASE_ANON_KEY (or service role key fallback).
+    Optional ATLAS_USER_EMAIL narrows lookup to a specific profile email.
+    """
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+    supabase_key = (
+        os.environ.get("SUPABASE_ANON_KEY", "").strip()
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+    )
+    if not supabase_url or not supabase_key:
+        return None
+
+    email = os.environ.get("ATLAS_USER_EMAIL", "").strip()
+    query_parts = ["select=id,email,full_name,role", "limit=1"]
+    if email:
+        query_parts.append(f"email=eq.{urllib.parse.quote(email, safe='')}")
+    else:
+        query_parts.append("order=created_at.desc")
+    query = "&".join(query_parts)
+    url = f"{supabase_url.rstrip('/')}/rest/v1/profiles?{query}"
+
+    req = urllib.request.Request(
+        url,
+        headers={
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            body = resp.read().decode("utf-8")
+        rows = json.loads(body)
+    except Exception:
+        return None
+
+    if not isinstance(rows, list) or not rows:
+        return None
+    resolved = str(rows[0].get("id", "")).strip()
+    if not _is_uuid(resolved):
+        return None
+
+    os.environ["ATLAS_USER_ID"] = resolved
+    return resolved
+
+
+def _ensure_user_id(session=None) -> str:
+    """Ensure we have a stable ATLAS user id, auto-resolving if needed."""
+    env_user = os.environ.get("ATLAS_USER_ID", "").strip()
+    if _is_uuid(env_user):
+        if session is not None:
+            session.user_id = env_user
+        return env_user
+
+    if session is not None and _is_uuid(getattr(session, "user_id", "")):
+        return session.user_id
+
+    resolved = _resolve_user_id_from_supabase()
+    if resolved:
+        if session is not None:
+            session.user_id = resolved
+        return resolved
+
+    fallback = env_user or _DEFAULT_USER
+    if session is not None:
+        session.user_id = fallback
+    return fallback
 
 
 def _save_session(session) -> None:
@@ -68,7 +154,7 @@ def cmd_atlas_lesson(args) -> None:
         sys.exit(1)
 
     from mammoth_os.atlas_session import ATLASSession
-    session = ATLASSession(user_id=_DEFAULT_USER)
+    session = ATLASSession(user_id=_ensure_user_id())
 
     print(f"\n🐘 ATLAS — Starting lesson on: {topic!r}")
     _divider()

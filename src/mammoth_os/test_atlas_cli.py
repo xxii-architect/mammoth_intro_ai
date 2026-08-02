@@ -266,3 +266,48 @@ def test_build_parser_has_atlas():
     args = parser.parse_args(["atlas", "reset"])
     assert hasattr(args, "func")
     assert args.func == atlas_cli.cmd_atlas_reset
+
+
+class _FakeUrlResp:
+    def __init__(self, payload: str):
+        self._payload = payload.encode("utf-8")
+
+    def read(self):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+def test_resolve_user_id_from_supabase(monkeypatch):
+    monkeypatch.delenv("ATLAS_USER_ID", raising=False)
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    payload = '[{"id":"11111111-1111-1111-1111-111111111111","email":"a@b.com"}]'
+    monkeypatch.setattr(
+        atlas_cli.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _FakeUrlResp(payload),
+    )
+
+    resolved = atlas_cli._resolve_user_id_from_supabase()
+    assert resolved == "11111111-1111-1111-1111-111111111111"
+    assert os.environ.get("ATLAS_USER_ID") == resolved
+
+
+def test_load_session_auto_sets_resolved_user_id(monkeypatch, isolated_session):
+    monkeypatch.delenv("ATLAS_USER_ID", raising=False)
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    payload = '[{"id":"22222222-2222-2222-2222-222222222222","email":"a@b.com"}]'
+    monkeypatch.setattr(
+        atlas_cli.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _FakeUrlResp(payload),
+    )
+
+    session = atlas_cli._load_session()
+    assert session.user_id == "22222222-2222-2222-2222-222222222222"
