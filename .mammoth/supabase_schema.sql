@@ -1,9 +1,9 @@
 -- MammothOS ATLAS — Supabase Schema Supplement
--- The primary atlas schema tables (atlas_lessons, atlas_progress,
--- adaptive_metrics, community_stats, atlas_sel_checkins, insight_reports,
--- leaderboard) already exist in the `atlas` schema.
+-- Safe to re-run: uses IF NOT EXISTS for tables/indexes and
+-- DROP POLICY IF EXISTS before each CREATE POLICY (Postgres has no
+-- "CREATE POLICY IF NOT EXISTS" syntax).
 --
--- This file adds only the tables that are NOT yet in the atlas schema:
+-- Tables managed here:
 --   mammoth.ai_sessions — log every CodingAgent LLM call
 --   atlas.sessions      — one row per ATLAS CLI/API learning session
 --   atlas.exercises     — generated exercises per session/lesson
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS mammoth.ai_sessions (
 
 ALTER TABLE mammoth.ai_sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Service role full access to ai_sessions" ON mammoth.ai_sessions;
 CREATE POLICY "Service role full access to ai_sessions"
     ON mammoth.ai_sessions
     FOR ALL
@@ -50,10 +51,13 @@ CREATE TABLE IF NOT EXISTS atlas.sessions (
 
 ALTER TABLE atlas.sessions ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users access own sessions" ON atlas.sessions;
 CREATE POLICY "Users access own sessions"
     ON atlas.sessions
     FOR ALL
     USING (user_id = auth.uid());
+
+GRANT SELECT, INSERT, UPDATE ON atlas.sessions TO service_role;
 
 
 -- ─────────────────────────────────────────────────────────────────────────
@@ -73,6 +77,7 @@ CREATE TABLE IF NOT EXISTS atlas.exercises (
 
 ALTER TABLE atlas.exercises ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users access exercises via session" ON atlas.exercises;
 CREATE POLICY "Users access exercises via session"
     ON atlas.exercises
     FOR ALL
@@ -81,6 +86,8 @@ CREATE POLICY "Users access exercises via session"
             SELECT id FROM atlas.sessions WHERE user_id = auth.uid()
         )
     );
+
+GRANT SELECT, INSERT ON atlas.exercises TO service_role;
 
 
 -- ─────────────────────────────────────────────────────────────────────────
