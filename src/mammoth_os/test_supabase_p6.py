@@ -24,9 +24,10 @@ def test_supabase_schema_has_tables():
         os.path.dirname(__file__), "..", "..", ".mammoth", "supabase_schema.sql"
     )
     sql = open(schema_path, encoding="utf-8").read()
-    for table in ("sessions", "exercises", "progress"):
-        assert f"CREATE TABLE IF NOT EXISTS public.{table}" in sql, \
+    for table in ("sessions", "exercises"):
+        assert f"CREATE TABLE IF NOT EXISTS atlas.{table}" in sql, \
             f"Missing table: {table}"
+    assert "CREATE OR REPLACE FUNCTION atlas.award_xp" in sql
 
 
 def test_supabase_schema_has_rls():
@@ -77,22 +78,61 @@ def test_tutor_agent_supabase_none_without_env():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _make_supabase_mock():
-    """Return a mock Supabase client whose .table().insert().execute() chain works."""
-    execute_mock = MagicMock(return_value=MagicMock(data=[{"id": "mock-id"}]))
-    insert_mock = MagicMock()
-    insert_mock.execute = execute_mock
-    table_mock = MagicMock()
-    table_mock.insert = MagicMock(return_value=insert_mock)
-    client = MagicMock()
-    client.table = MagicMock(return_value=table_mock)
-    return client, table_mock, insert_mock
+    """Return a mock Supabase client supporting schema().table() chains."""
+    class _Op:
+        def __init__(self, data=None):
+            self.data = data if data is not None else [{"id": "mock-id"}]
+
+        def execute(self):
+            return MagicMock(data=self.data)
+
+        def eq(self, *_args, **_kwargs):
+            return self
+
+        def limit(self, *_args, **_kwargs):
+            return self
+
+    class _Table:
+        def __init__(self):
+            self.calls = []
+
+        def insert(self, payload):
+            self.calls.append(("insert", payload))
+            return _Op()
+
+        def upsert(self, payload, on_conflict=None):
+            self.calls.append(("upsert", payload, on_conflict))
+            return _Op()
+
+        def select(self, _columns):
+            self.calls.append(("select", _columns))
+            return _Op(data=[])
+
+    class _SchemaClient:
+        def __init__(self):
+            self.tables = {}
+
+        def table(self, name):
+            self.tables.setdefault(name, _Table())
+            return self.tables[name]
+
+    class _Client:
+        def __init__(self):
+            self.schemas = {}
+
+        def schema(self, name):
+            self.schemas.setdefault(name, _SchemaClient())
+            return self.schemas[name]
+
+    client = _Client()
+    return client
 
 
-def test_tutor_agent_inserts_progress_to_supabase():
-    """When supabase client exists, accept_submission should call table('progress').insert()."""
+def test_tutor_agent_writes_existing_schema_tables_to_supabase():
+    """When supabase client exists, TutorAgent should write to mammoth+atlas tables."""
     from mammoth_os.agents.tutor_agent import TutorAgent
 
-    sb_client, table_mock, insert_mock = _make_supabase_mock()
+    sb_client = _make_supabase_mock()
 
     sandbox_result = {
         "passed": True,
@@ -112,16 +152,20 @@ def test_tutor_agent_inserts_progress_to_supabase():
 
         result = asyncio.run(
             agent.accept_submission(
-                user_id="u1",
+                user_id="11111111-1111-1111-1111-111111111111",
                 curriculum_id="curr1",
-                lesson_id="lesson1",
+                lesson_id="22222222-2222-2222-2222-222222222222",
                 files={"solution.py": "def add(a, b): return a + b"},
             )
         )
 
-    # Verify Supabase insert was attempted
-    sb_client.table.assert_called_with("progress")
-    insert_mock.execute.assert_called_once()
+    mammoth_tables = sb_client.schemas["mammoth"].tables
+    atlas_tables = sb_client.schemas["atlas"].tables
+    assert "progress" in mammoth_tables
+    assert "activity_log" in mammoth_tables
+    assert "atlas_progress" in atlas_tables
+    assert "adaptive_metrics" in atlas_tables
+    assert "community_stats" in atlas_tables
 
 
 def test_tutor_agent_supabase_insert_failure_does_not_crash():
@@ -129,7 +173,7 @@ def test_tutor_agent_supabase_insert_failure_does_not_crash():
     from mammoth_os.agents.tutor_agent import TutorAgent
 
     bad_client = MagicMock()
-    bad_client.table.side_effect = RuntimeError("Supabase connection error")
+    bad_client.schema.side_effect = RuntimeError("Supabase connection error")
 
     sandbox_result = {
         "passed": False,
@@ -150,9 +194,9 @@ def test_tutor_agent_supabase_insert_failure_does_not_crash():
         # Should not raise
         result = asyncio.run(
             agent.accept_submission(
-                user_id="u2",
+                user_id="11111111-1111-1111-1111-111111111111",
                 curriculum_id="c",
-                lesson_id="l",
+                lesson_id="22222222-2222-2222-2222-222222222222",
                 files={"solution.py": "x = 1"},
             )
         )
@@ -160,3 +204,34 @@ def test_tutor_agent_supabase_insert_failure_does_not_crash():
     # Result dict should still be present and contain result sub-key
     assert "result" in result
     assert isinstance(result["result"], dict)
+
+
+def test_tutor_agent_skips_supabase_for_non_uuid_user():
+    from mammoth_os.agents.tutor_agent import TutorAgent
+
+    sb_client = _make_supabase_mock()
+    sandbox_result = {
+        "passed": True,
+        "stdout": "OK",
+        "stderr": "",
+        "returncode": 0,
+        "method": "subprocess",
+        "duration_ms": 42,
+    }
+
+    with patch("mammoth_os.agents.tutor_agent.CodingAgent") as MockCodingAgent:
+        mock_coding = MockCodingAgent.return_value
+        mock_coding.run_tests = AsyncMock(return_value=sandbox_result)
+        agent = TutorAgent()
+        agent.supabase = sb_client
+        result = asyncio.run(
+            agent.accept_submission(
+                user_id="cli_user",
+                curriculum_id="curr1",
+                lesson_id="lesson1",
+                files={"solution.py": "def add(a, b): return a + b"},
+            )
+        )
+
+    assert "result" in result
+    assert sb_client.schemas == {}

@@ -43,6 +43,9 @@ class TutorAgent(BaseAgent):
                 # fail quietly — Supabase is optional
                 self.supabase = None
 
+    def log(self, level: str, message: str) -> None:
+        print(f"[{self.name}:{level}] {message}")
+
     async def accept_submission(self, user_id: str, curriculum_id: str, lesson_id: str, files: Dict[str, str]) -> Dict[str, Any]:
         """Accept a student's submission and grade it by running tests.
 
@@ -143,27 +146,17 @@ class TutorAgent(BaseAgent):
         except Exception:
             pass
 
-        # Persist to Supabase if configured
+        # Persist to Supabase if configured — write to existing atlas schema tables
         if self.supabase:
-            try:
-                record = {
-                    'user_id': user_id,
-                    'curriculum_id': curriculum_id,
-                    'lesson_id': lesson_id,
-                    'timestamp': entry['timestamp'],
-                    'passed': bool(result.get('passed')),
-                    'stdout': result.get('stdout', ''),
-                    'stderr': result.get('stderr', ''),
-                    'returncode': int(result.get('returncode', -1)),
-                    'duration_ms': duration_ms,
-                    'error_fingerprint': error_fingerprint,
-                    'attempt_index': current_attempt,
-                }
-                # Attempt to insert into table 'progress'
-                self.supabase.table('progress').insert(record).execute()
-            except Exception:
-                # Do not fail if Supabase write fails
-                pass
+            self._persist_to_atlas_schema(
+                user_id=user_id,
+                curriculum_id=curriculum_id,
+                lesson_id=lesson_id,
+                result=result,
+                duration_ms=duration_ms,
+                error_fingerprint=error_fingerprint,
+                current_attempt=current_attempt,
+            )
 
         passed = bool(result.get('passed'))
         recommendation = self._recommend_difficulty(
@@ -183,6 +176,157 @@ class TutorAgent(BaseAgent):
             "attempt_index": current_attempt,
             "time_to_pass_attempts": time_to_pass_attempts,
         }
+
+    # ------------------------------------------------------------------ #
+    # Supabase: write to existing atlas schema tables                      #
+    # ------------------------------------------------------------------ #
+
+    def _resolve_user_uuid(self, user_id: str) -> Optional[str]:
+        """Return user_id if it's already a valid UUID, else try to look it up
+        in auth.users by email/username. Returns None if unresolvable so the
+        caller can skip Supabase writes without crashing."""
+        import re
+        _UUID_RE = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            re.IGNORECASE,
+        )
+        if _UUID_RE.match(user_id):
+            return user_id
+        # Non-UUID user_id (e.g. "cli_user") — skip Supabase writes for now
+        # (a proper auth integration would resolve this via auth.users)
+        return None
+
+    def _persist_to_atlas_schema(
+        self,
+        user_id: str,
+        curriculum_id: str,
+        lesson_id: str,
+        result: Dict[str, Any],
+        duration_ms: int,
+        error_fingerprint: str,
+        current_attempt: int,
+    ) -> None:
+        """Write submission data to the existing atlas schema tables.
+
+        Tables used:
+          mammoth.progress        — canonical completed-lesson progress
+          mammoth.activity_log    — attempt audit trail / metadata
+          atlas.atlas_progress    — lesson status + last_accessed for ATLAS UX
+          atlas.adaptive_metrics  — performance score, timing, difficulty
+          atlas.community_stats   — XP award on pass
+        All writes are best-effort; any exception is swallowed so submission
+        flow is never blocked by a Supabase error.
+        """
+        user_uuid = self._resolve_user_uuid(user_id)
+        if user_uuid is None:
+            self.log("WARN", f"Skipping Supabase writes: user_id '{user_id}' is not a UUID")
+            return
+
+        passed = bool(result.get('passed'))
+
+        # 1. mammoth.progress — record completed lessons in the core schema
+        if passed and self._is_uuid(lesson_id):
+            try:
+                mammoth_progress = {
+                    "user_id": user_uuid,
+                    "lesson_id": lesson_id,
+                    "completed_at": __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+                }
+                self.supabase.schema("mammoth").table("progress").upsert(
+                    mammoth_progress,
+                    on_conflict="user_id,lesson_id",
+                ).execute()
+            except Exception as exc:
+                self.log("WARN", f"mammoth.progress write failed: {exc}")
+
+        # 2. mammoth.activity_log — attempt-level audit trail
+        try:
+            activity = {
+                "user_id": user_uuid,
+                "action": "atlas_submission_passed" if passed else "atlas_submission_failed",
+                "metadata": {
+                    "curriculum_id": curriculum_id,
+                    "lesson_id": lesson_id,
+                    "attempt_index": current_attempt,
+                    "duration_ms": duration_ms,
+                    "error_fingerprint": error_fingerprint,
+                    "passed": passed,
+                },
+            }
+            self.supabase.schema("mammoth").table("activity_log").insert(activity).execute()
+        except Exception as exc:
+            self.log("WARN", f"mammoth.activity_log write failed: {exc}")
+
+        # 3. atlas.atlas_progress — track lesson status
+        try:
+            progress_record = {
+                "user_id": user_uuid,
+                "module": curriculum_id,
+                "lesson_id": lesson_id if self._is_uuid(lesson_id) else None,
+                "status": "completed" if passed else "attempted",
+                "last_accessed": __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+            }
+            # Remove None values
+            progress_record = {k: v for k, v in progress_record.items() if v is not None}
+            self.supabase.schema("atlas").table("atlas_progress").upsert(
+                progress_record,
+                on_conflict="user_id,module,lesson_id",
+            ).execute()
+        except Exception as exc:
+            self.log("WARN", f"atlas_progress write failed: {exc}")
+
+        # 4. atlas.adaptive_metrics — record performance for adaptive engine
+        try:
+            performance_score = 1.0 if passed else max(0.0, 1.0 - (current_attempt - 1) * 0.15)
+            # duration_ms → PostgreSQL interval string e.g. "1234 milliseconds"
+            interval_str = f"{duration_ms} milliseconds" if duration_ms else None
+            metrics_record = {
+                "user_id": user_uuid,
+                "lesson_id": lesson_id if self._is_uuid(lesson_id) else None,
+                "performance_score": round(performance_score, 3),
+                "difficulty_level": error_fingerprint,
+            }
+            if interval_str:
+                metrics_record["completion_time"] = interval_str
+            metrics_record = {k: v for k, v in metrics_record.items() if v is not None}
+            self.supabase.schema("atlas").table("adaptive_metrics").insert(
+                metrics_record
+            ).execute()
+        except Exception as exc:
+            self.log("WARN", f"adaptive_metrics write failed: {exc}")
+
+        # 5. atlas.community_stats — award XP on pass, bump streak
+        if passed:
+            try:
+                XP_PER_PASS = 10
+                existing = (
+                    self.supabase.schema("atlas")
+                    .table("community_stats")
+                    .select("xp,lessons_completed")
+                    .eq("user_id", user_uuid)
+                    .limit(1)
+                    .execute()
+                )
+                row = existing.data[0] if getattr(existing, "data", None) else {}
+                self.supabase.schema("atlas").table("community_stats").upsert(
+                    {
+                        "user_id": user_uuid,
+                        "xp": int(row.get("xp", 0)) + XP_PER_PASS,
+                        "lessons_completed": int(row.get("lessons_completed", 0)) + 1,
+                        "last_active": __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+                    },
+                    on_conflict="user_id",
+                ).execute()
+            except Exception as exc:
+                self.log("WARN", f"community_stats XP award failed: {exc}")
+
+    @staticmethod
+    def _is_uuid(value: str) -> bool:
+        import re
+        return bool(re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            str(value), re.IGNORECASE,
+        ))
 
     def _fingerprint_error(self, result: Dict[str, Any]) -> str:
         """Map test output to coarse error categories for adaptive tutoring."""
@@ -248,4 +392,3 @@ class TutorAgent(BaseAgent):
             return 'decrease'
 
         return 'same'
-

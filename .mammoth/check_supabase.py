@@ -26,35 +26,29 @@ except ImportError:
 
 sb = create_client(url, key)
 
-# 1. Verify tables exist
-for table in ("sessions", "exercises", "progress"):
+# 1. Verify schema objects exist
+checks = [
+    ("mammoth", "users"),
+    ("mammoth", "progress"),
+    ("mammoth", "activity_log"),
+    ("atlas", "atlas_progress"),
+    ("atlas", "adaptive_metrics"),
+    ("atlas", "community_stats"),
+    ("atlas", "sessions"),
+    ("atlas", "exercises"),
+]
+for schema_name, table in checks:
     try:
-        r = sb.table(table).select("id").limit(1).execute()
-        print(f"OK  table '{table}' accessible (rows returned: {len(r.data)})")
+        r = sb.schema(schema_name).table(table).select("*").limit(1).execute()
+        print(f"OK  {schema_name}.{table} accessible (rows returned: {len(r.data)})")
     except Exception as e:
-        print(f"FAIL table '{table}': {e}")
+        print(f"FAIL {schema_name}.{table}: {e}")
         sys.exit(1)
 
-# 2. Insert a test progress row and clean it up
-try:
-    ins = sb.table("progress").insert({
-        "user_id": "_smoke_test",
-        "curriculum_id": "test",
-        "lesson_id": "test",
-        "passed": True,
-        "stdout": "OK",
-        "stderr": "",
-        "duration_ms": 1,
-        "error_fingerprint": "passed",
-        "attempt_index": 0,
-    }).execute()
-    row_id = ins.data[0]["id"]
-    print(f"OK  insert progress row: {row_id}")
-    sb.table("progress").delete().eq("id", row_id).execute()
-    print("OK  cleanup smoke row")
-except Exception as e:
-    print(f"FAIL insert/delete: {e}")
-    sys.exit(1)
+# 2. Confirm TutorAgent can initialize with current env
+test_user_id = os.environ.get("ATLAS_USER_ID", "")
+if not test_user_id:
+    print("WARN ATLAS_USER_ID not set; live submission write test will be skipped")
 
 # 3. Wiring via TutorAgent
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
