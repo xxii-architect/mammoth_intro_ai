@@ -2,6 +2,16 @@ import argparse
 import json
 import sys
 import asyncio
+import os
+
+# Load .env file from repo root so OPENAI_API_KEY, SUPABASE_URL, etc. are
+# available without manually setting env vars in each terminal session.
+try:
+    from dotenv import load_dotenv
+    _env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+    load_dotenv(dotenv_path=_env_path, override=False)
+except ImportError:
+    pass  # python-dotenv not installed — env vars must be set manually
 
 # Core registries
 from mammoth_os.agent_registry import agent_registry

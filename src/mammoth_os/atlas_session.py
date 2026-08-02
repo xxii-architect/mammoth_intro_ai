@@ -340,10 +340,9 @@ class ATLASSession:
         if tests:
             files["test_generated.py"] = tests
 
-        if self.current_exercise is not None:
-            expected_test = self.current_exercise.get("expected_test", "")
-            if expected_test and "test_solution.py" not in files:
-                files["test_solution.py"] = expected_test
+        # NOTE: Do NOT inject the current exercise's expected_test here.
+        # generate_and_test is a freeform code-gen workflow; the exercise
+        # expected_test is only for atlas submit (the lesson submission path).
 
         tutor = TutorAgent()
         curriculum_id = self._curriculum_id if hasattr(self, "_curriculum_id") and self._curriculum_id else "codegen"

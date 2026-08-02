@@ -4,11 +4,36 @@
 -- leaderboard) already exist in the `atlas` schema.
 --
 -- This file adds only the tables that are NOT yet in the atlas schema:
---   atlas.sessions   — one row per ATLAS CLI/API learning session
---   atlas.exercises  — generated exercises per session/lesson
+--   mammoth.ai_sessions — log every CodingAgent LLM call
+--   atlas.sessions      — one row per ATLAS CLI/API learning session
+--   atlas.exercises     — generated exercises per session/lesson
 --
 -- Run this in Supabase SQL Editor: project > SQL Editor > New Query
 -- ─────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────
+-- mammoth.ai_sessions — log CodingAgent LLM calls (from atlas code generate)
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS mammoth.ai_sessions (
+    id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID        REFERENCES auth.users(id) ON DELETE SET NULL,
+    prompt       TEXT        NOT NULL,
+    response     TEXT,
+    tokens_used  INTEGER,
+    metadata     JSONB,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE mammoth.ai_sessions ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Service role full access to ai_sessions"
+    ON mammoth.ai_sessions
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+GRANT SELECT, INSERT ON mammoth.ai_sessions TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- atlas.sessions — track individual ATLAS learning sessions

@@ -263,7 +263,7 @@ class TutorAgent(BaseAgent):
                 "user_id": user_uuid,
                 "module": curriculum_id,
                 "lesson_id": lesson_id if self._is_uuid(lesson_id) else None,
-                "status": "completed" if passed else "attempted",
+                "status": "completed" if passed else "in_progress",
                 "last_accessed": __import__('datetime').datetime.utcnow().isoformat() + 'Z',
             }
             # Remove None values

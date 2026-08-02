@@ -14,14 +14,22 @@ User request:
 Context snippets (most relevant first, may be empty):
 {context}
 
+IMPORTANT: Name your main function exactly `solution` so the test runner can import it.
+
 Return exactly three fenced blocks in this order (no other text):
 
 ```python
-# implementation here
+# implementation here — main function MUST be named `solution`
+def solution(*args, **kwargs):
+    ...
 ```
 
 ```pytest
-# pytest test functions; import from the implementation module
+# pytest test functions — import solution from solution module
+from solution import solution
+
+def test_example():
+    ...
 ```
 
 ```docs
