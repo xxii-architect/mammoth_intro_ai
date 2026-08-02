@@ -296,6 +296,73 @@ class ATLASSession:
         }
 
     # ------------------------------------------------------------------
+    # CodingAgent: generate → run → hint feedback loop
+    # ------------------------------------------------------------------
+
+    async def generate_and_test(
+        self,
+        prompt: str,
+        context: dict | None = None,
+    ) -> dict:
+        """Ask CodingAgent to generate code for *prompt*, run its tests, return a hint.
+
+        Returns a dict with:
+            code   (str)  generated implementation
+            tests  (str)  generated pytest tests
+            docs   (str)  generated docstring/example
+            passed (bool) whether the generated tests passed
+            hint   (str)  human-readable feedback
+            result (dict) raw sandbox result
+        """
+        from mammoth_os.agents.coding_agent import CodingAgent
+
+        coder = CodingAgent()
+        gen = await coder.generate_code(prompt, context=context or {})
+
+        code = gen.get("code", "")
+        tests = gen.get("tests", "")
+        docs = gen.get("docs", "")
+
+        if not code:
+            return {
+                "code": code, "tests": tests, "docs": docs,
+                "passed": False,
+                "hint": "💡 CodingAgent produced no code. Try a more specific prompt.",
+                "result": {},
+            }
+
+        files: dict = {"solution.py": code}
+        if tests:
+            files["test_generated.py"] = tests
+
+        if self.current_exercise is not None:
+            expected_test = self.current_exercise.get("expected_test", "")
+            if expected_test and "test_solution.py" not in files:
+                files["test_solution.py"] = expected_test
+
+        tutor = TutorAgent()
+        curriculum_id = self._curriculum_id if hasattr(self, "_curriculum_id") and self._curriculum_id else "codegen"
+        lesson_id = self._lesson_id if hasattr(self, "_lesson_id") and self._lesson_id else "codegen"
+        submission_result = await tutor.accept_submission(
+            user_id=self.user_id,
+            curriculum_id=curriculum_id,
+            lesson_id=lesson_id,
+            files=files,
+        )
+        raw = submission_result.get("result", {})
+        passed = bool(raw.get("passed"))
+        hint = self._generate_hint(passed, raw, self.current_exercise or {})
+
+        return {
+            "code": code,
+            "tests": tests,
+            "docs": docs,
+            "passed": passed,
+            "hint": hint,
+            "result": raw,
+        }
+
+    # ------------------------------------------------------------------
     # State persistence — save/load to JSON so CLI calls share state
     # ------------------------------------------------------------------
 
@@ -335,3 +402,4 @@ class ATLASSession:
             return session
         except Exception:
             return cls()
+

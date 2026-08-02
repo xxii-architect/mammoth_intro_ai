@@ -255,6 +255,137 @@ def cmd_atlas_reset(args) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# atlas code — CodingAgent generate → test → hint loop
+# ─────────────────────────────────────────────────────────────────────────────
+
+def cmd_atlas_code_generate(args) -> None:
+    """Generate code for a prompt, run its tests, and show a hint."""
+    prompt = " ".join(args.prompt)
+    if not prompt.strip():
+        print("❌ Provide a prompt, e.g.:")
+        print('   python -m cli.main atlas code generate "write a function that reverses a string"')
+        sys.exit(1)
+
+    session = _load_session()
+
+    print("\n🐘 ATLAS — CodingAgent: generate → test → hint")
+    _divider()
+    print(f"📝 Prompt : {prompt}")
+    _divider()
+
+    try:
+        result = asyncio.run(session.generate_and_test(prompt))
+    except Exception as exc:
+        print(f"❌ generate_and_test failed: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    # Show generated code
+    code = result.get("code", "")
+    tests = result.get("tests", "")
+    docs = result.get("docs", "")
+
+    if code:
+        print("\n💻 Generated code:\n")
+        for line in code.splitlines():
+            print(f"    {line}")
+    else:
+        print("⚠️  No code was generated.")
+
+    if tests:
+        print("\n🧪 Generated tests:\n")
+        for line in tests.splitlines():
+            print(f"    {line}")
+
+    if docs:
+        print(f"\n📄 Docs/example:\n    {docs}")
+
+    _divider()
+    passed = result.get("passed", False)
+    if passed:
+        print("\n✅ Tests PASSED")
+    else:
+        print("\n❌ Tests FAILED")
+        raw = result.get("result", {})
+        stderr = (raw.get("stderr") or "").strip()
+        if stderr:
+            print(f"\n  stderr: {stderr[:600]}")
+
+    print(f"\n💡 {result.get('hint', '')}")
+    _divider()
+
+    if not args.no_save:
+        _save_session(session)
+
+
+def cmd_atlas_code_refactor(args) -> None:
+    """Refactor a Python file using the CodingAgent LLM prompt."""
+    from pathlib import Path
+    path = Path(args.file)
+    if not path.exists():
+        print(f"❌ File not found: {path}")
+        sys.exit(1)
+
+    original = path.read_text(encoding="utf-8")
+    print(f"\n🐘 ATLAS — CodingAgent: refactor {path.name}")
+    _divider()
+
+    async def _do_refactor() -> str:
+        from mammoth_os.agents.coding_agent import CodingAgent
+        from mammoth_os.prompt_templates import build_refactor_prompt
+        try:
+            from mammoth_os.llm_clients import get_llm_client
+            client = get_llm_client()
+            prompt = build_refactor_prompt(original)
+            raw = await client.generate(prompt, max_tokens=1800, temperature=0.2)
+            import re
+            m = re.search(r"```python\s*\n([\s\S]*?)```", raw)
+            return m.group(1).strip() if m else raw.strip()
+        except Exception as exc:
+            return f"# refactor unavailable: {exc}\n{original}"
+
+    refactored = asyncio.run(_do_refactor())
+    print("\n🔧 Refactored code:\n")
+    for line in refactored.splitlines():
+        print(f"    {line}")
+    _divider()
+
+    if args.inplace:
+        path.write_text(refactored, encoding="utf-8")
+        print(f"\n✅ Wrote refactored code back to {path}")
+    else:
+        out = Path(args.output) if args.output else path.with_suffix(".refactored.py")
+        out.write_text(refactored, encoding="utf-8")
+        print(f"\n✅ Refactored code written to {out}")
+
+
+def cmd_atlas_code_explain(args) -> None:
+    """Ask the CodingAgent to explain a Python file to a learner."""
+    from pathlib import Path
+    path = Path(args.file)
+    if not path.exists():
+        print(f"❌ File not found: {path}")
+        sys.exit(1)
+
+    code = path.read_text(encoding="utf-8")
+    print(f"\n🐘 ATLAS — CodingAgent: explain {path.name}")
+    _divider()
+
+    async def _do_explain() -> str:
+        from mammoth_os.prompt_templates import build_explain_prompt
+        try:
+            from mammoth_os.llm_clients import get_llm_client
+            client = get_llm_client()
+            prompt = build_explain_prompt(code)
+            return await client.generate(prompt, max_tokens=400, temperature=0.3)
+        except Exception as exc:
+            return f"(explanation unavailable: {exc})"
+
+    explanation = asyncio.run(_do_explain())
+    print(f"\n📖 {explanation.strip()}\n")
+    _divider()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Parser builder — called from cli/main.py
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -298,5 +429,27 @@ def build_atlas_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentPars
     # atlas reset
     p_reset = atlas_sub.add_parser("reset", help="Clear the current ATLAS session")
     p_reset.set_defaults(func=cmd_atlas_reset)
+
+    # atlas code — CodingAgent generate / refactor / explain
+    p_code = atlas_sub.add_parser("code", help="CodingAgent: generate, refactor, or explain code")
+    code_sub = p_code.add_subparsers(dest="code_command", required=True)
+
+    # atlas code generate <prompt...>
+    p_gen = code_sub.add_parser("generate", help="Generate code from a natural-language prompt and run its tests")
+    p_gen.add_argument("prompt", nargs="+", help="Natural-language description of what to code")
+    p_gen.add_argument("--no-save", dest="no_save", action="store_true", help="Do not save session state after generation")
+    p_gen.set_defaults(func=cmd_atlas_code_generate)
+
+    # atlas code refactor <file>
+    p_ref = code_sub.add_parser("refactor", help="Refactor a Python file using the CodingAgent LLM")
+    p_ref.add_argument("file", help="Path to the Python file to refactor")
+    p_ref.add_argument("--inplace", action="store_true", help="Overwrite the original file")
+    p_ref.add_argument("--output", default=None, metavar="FILE", help="Write refactored output to this path")
+    p_ref.set_defaults(func=cmd_atlas_code_refactor)
+
+    # atlas code explain <file>
+    p_exp = code_sub.add_parser("explain", help="Ask the CodingAgent to explain a Python file")
+    p_exp.add_argument("file", help="Path to the Python file to explain")
+    p_exp.set_defaults(func=cmd_atlas_code_explain)
 
     return p_atlas

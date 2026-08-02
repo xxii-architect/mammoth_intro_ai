@@ -233,21 +233,20 @@ class CodingAgent(BaseAgent):
         return snippets
 
     async def generate_code(self, prompt: str, context: dict = None) -> dict:  # type: ignore
-        """Generate code, tests and docs for a natural-language prompt.
+        """Generate code, tests, and docs for a natural-language prompt.
 
-        This implementation builds a prompt using a template and augments it
-        with contextual snippets retrieved from the vector store.
+        Uses the MammothOS-context prompt template which asks the LLM to return
+        three labelled blocks: ``python`` (implementation), ``pytest`` (tests),
+        and ``docs``.  The structured response is parsed by
+        ``parse_structured_code_response`` so callers always receive populated
+        code / tests / docs keys.
         """
-        client = None
         try:
             client = get_llm_client()
         except Exception as exc:
             self.log("ERROR", f"LLM client initialization failed: {exc}")
             return {
-                "code": "",
-                "tests": "",
-                "docs": "",
-                "diff": "",
+                "code": "", "tests": "", "docs": "", "diff": "",
                 "confidence": 0.0,
                 "warnings": [f"LLM client unavailable: {exc}"],
             }
@@ -255,37 +254,35 @@ class CodingAgent(BaseAgent):
         # Retrieve context snippets (best-effort)
         context_snippets = []
         try:
-            context_snippets = await self._retrieve_context(prompt, collection=(context or {}).get("collection", "default"))
+            context_snippets = await self._retrieve_context(
+                prompt,
+                collection=(context or {}).get("collection", "default"),
+            )
         except Exception:
             context_snippets = []
 
-        # Build a prompt using the template library
+        # Build structured MammothOS prompt
+        from mammoth_os.prompt_templates import build_code_gen_prompt, parse_structured_code_response
         try:
-            from mammoth_os.prompt_templates import build_code_gen_prompt
             llm_prompt = build_code_gen_prompt(prompt, context_snippets)
         except Exception:
             llm_prompt = prompt
 
         try:
-            # Basic generation call — allow config-based overrides later
-            raw = await client.generate(llm_prompt, max_tokens=1500, temperature=0.2)
-            code = extract_code_from_text(raw)
-
+            raw = await client.generate(llm_prompt, max_tokens=1800, temperature=0.2)
+            parsed = parse_structured_code_response(raw)
             return {
-                "code": code,
-                "tests": "",
-                "docs": "",
+                "code": parsed.get("code", ""),
+                "tests": parsed.get("tests", ""),
+                "docs": parsed.get("docs", ""),
                 "diff": "",
-                "confidence": 0.6,
-                "warnings": [],
+                "confidence": 0.7 if parsed.get("code") else 0.0,
+                "warnings": [] if parsed.get("code") else ["LLM returned no code block"],
             }
         except Exception as exc:
             self.log("ERROR", f"generate_code failed: {exc}")
             return {
-                "code": "",
-                "tests": "",
-                "docs": "",
-                "diff": "",
+                "code": "", "tests": "", "docs": "", "diff": "",
                 "confidence": 0.0,
                 "warnings": [str(exc)],
             }
@@ -562,3 +559,4 @@ sys.exit(failed)
     async def shutdown(self) -> None:
         self.log("INFO", "CodingAgent shutting down.")
         await super().shutdown()# type: ignore
+
