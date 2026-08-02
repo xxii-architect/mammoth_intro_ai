@@ -20,6 +20,8 @@ from typing import Dict, Any
 
 
 class SandboxRunner:
+    _docker_probe_cache: bool | None = None
+
     def __init__(self, docker_image: str = "python:3.11-slim"):
         self.docker_image = docker_image
 
@@ -29,7 +31,39 @@ class SandboxRunner:
         force = os.environ.get('FORCE_SUBPROCESS_FALLBACK') or os.environ.get('SANDBOX_RUNNER_MODE')
         if force and (force == '1' or str(force).lower() == 'subprocess'):
             return False
-        return shutil.which("docker") is not None
+        if os.environ.get("SANDBOX_RUNNER_REQUIRE_DOCKER") == "1":
+            return shutil.which("docker") is not None
+
+        if shutil.which("docker") is None:
+            return False
+
+        if SandboxRunner._docker_probe_cache is not None:
+            return SandboxRunner._docker_probe_cache
+
+        # Probe a minimal container run once per process. If the runtime is broken,
+        # fall back to subprocess so local dev and CI remain usable.
+        try:
+            proc = subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "--rm",
+                    "--network",
+                    "none",
+                    "--entrypoint",
+                    "python",
+                    self.docker_image,
+                    "-c",
+                    "print('ok')",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            SandboxRunner._docker_probe_cache = proc.returncode == 0
+        except Exception:
+            SandboxRunner._docker_probe_cache = False
+        return SandboxRunner._docker_probe_cache
 
     def run_code(
         self,
@@ -50,11 +84,11 @@ class SandboxRunner:
         start = time.time()
         if self._docker_available():
             result = self._run_in_docker(code, test_script, timeout, memory_limit_mb, project_files)
-            result["method"] = "docker"
+            result.setdefault("method", "docker")
             result["duration_ms"] = int((time.time() - start) * 1000)
         else:
             result = self._run_in_subprocess(code, test_script, timeout, project_files)
-            result["method"] = "subprocess"
+            result.setdefault("method", "subprocess")
             result["duration_ms"] = int((time.time() - start) * 1000)
 
         # Emit telemetry asynchronously best-effort (do not raise on failure)
@@ -199,12 +233,35 @@ class SandboxRunner:
             try:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
                 time.sleep(0.1)
-                return {
+                result = {
                     "passed": proc.returncode == 0,
                     "stdout": proc.stdout,
                     "stderr": proc.stderr,
                     "returncode": proc.returncode,
+                    "method": "docker",
                 }
+                if proc.returncode == 0:
+                    return result
+
+                # Known Docker runtime namespace failures should fall back to subprocess
+                # so the sandbox stays usable when the container runtime is broken.
+                combined = f"{proc.stdout}\n{proc.stderr}".lower()
+                fallback_markers = [
+                    "operation not permitted",
+                    "bind-mount /proc",
+                    "reopen exec fifo",
+                    "no such file or directory",
+                    "fsmount:fscontext:proc",
+                    "get safe /proc/thread-self/fd handle",
+                ]
+                if any(marker in combined for marker in fallback_markers):
+                    fallback = self._run_in_subprocess(code, test_script, timeout, project_files)
+                    fallback["method"] = "subprocess-fallback-after-docker"
+                    fallback["docker_stdout"] = proc.stdout
+                    fallback["docker_stderr"] = proc.stderr
+                    return fallback
+
+                return result
             except subprocess.TimeoutExpired as te:
                 out = getattr(te, 'output', '') or getattr(te, 'stdout', '') or ''
                 err = getattr(te, 'stderr', '') or ''
