@@ -168,6 +168,29 @@ def test_generate_code_handles_llm_error():
     assert any("LLM timeout" in w for w in result["warnings"])
 
 
+def test_generate_code_logs_ai_session_for_atlas_generate():
+    """atlas.code.generate should trigger ai_sessions logging."""
+    from mammoth_os.agents.coding_agent import CodingAgent
+
+    llm_raw = """```python\ndef add(a,b): return a+b\n```"""
+    mock_client = AsyncMock()
+    mock_client.generate = AsyncMock(return_value=llm_raw)
+
+    with patch("mammoth_os.agents.coding_agent.get_llm_client", return_value=mock_client), \
+         patch.object(CodingAgent, "_retrieve_context", new=AsyncMock(return_value=[])), \
+         patch.object(CodingAgent, "_write_ai_session") as mock_write:
+        agent = CodingAgent()
+        asyncio.run(agent.generate_code(
+            "write add",
+            context={"source": "atlas.code.generate", "user_id": "11111111-1111-1111-1111-111111111111"},
+        ))
+
+    assert mock_write.call_count == 1
+    kwargs = mock_write.call_args.kwargs
+    assert kwargs["ok"] is True
+    assert kwargs["context"]["source"] == "atlas.code.generate"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ATLASSession.generate_and_test tests
 # ─────────────────────────────────────────────────────────────────────────────
@@ -214,6 +237,31 @@ def test_generate_and_test_no_code():
     assert result["passed"] is False
     assert result["code"] == ""
     assert "no code" in result["hint"].lower() or "specific" in result["hint"].lower()
+
+
+def test_generate_and_test_sets_default_logging_context():
+    """ATLASSession.generate_and_test should pass source/user context to CodingAgent."""
+    from mammoth_os.atlas_session import ATLASSession
+
+    mock_gen = AsyncMock(return_value={
+        "code": "def solution(): return 1",
+        "tests": "",
+        "docs": "",
+        "diff": "",
+        "confidence": 0.7,
+        "warnings": [],
+    })
+    mock_submit = AsyncMock(return_value={"result": {"passed": True, "stdout": "", "stderr": ""}})
+
+    with patch("mammoth_os.agents.coding_agent.CodingAgent.generate_code", new=mock_gen), \
+         patch("mammoth_os.atlas_session.TutorAgent") as MockTutor:
+        MockTutor.return_value.accept_submission = mock_submit
+        session = ATLASSession(user_id="11111111-1111-1111-1111-111111111111")
+        asyncio.run(session.generate_and_test("write solution"))
+
+    ctx = mock_gen.await_args.kwargs["context"]
+    assert ctx["source"] == "atlas.code.generate"
+    assert ctx["user_id"] == "11111111-1111-1111-1111-111111111111"
 
 
 # ─────────────────────────────────────────────────────────────────────────────

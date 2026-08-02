@@ -1,6 +1,9 @@
 import asyncio
 import json
 import logging
+import os
+import re
+import urllib.request
 from typing import Optional, Any, Dict
 
 from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
@@ -268,9 +271,18 @@ class CodingAgent(BaseAgent):
         except Exception:
             llm_prompt = prompt
 
+        context = context or {}
+
         try:
             raw = await client.generate(llm_prompt, max_tokens=1800, temperature=0.2)
             parsed = parse_structured_code_response(raw)
+            if str(context.get("source", "")).strip().lower() == "atlas.code.generate":
+                self._write_ai_session(
+                    prompt=prompt,
+                    response=raw,
+                    context=context,
+                    ok=True,
+                )
             return {
                 "code": parsed.get("code", ""),
                 "tests": parsed.get("tests", ""),
@@ -281,11 +293,76 @@ class CodingAgent(BaseAgent):
             }
         except Exception as exc:
             self.log("ERROR", f"generate_code failed: {exc}")
+            if str(context.get("source", "")).strip().lower() == "atlas.code.generate":
+                self._write_ai_session(
+                    prompt=prompt,
+                    response=f"ERROR: {exc}",
+                    context=context,
+                    ok=False,
+                )
             return {
                 "code": "", "tests": "", "docs": "", "diff": "",
                 "confidence": 0.0,
                 "warnings": [str(exc)],
             }
+
+    @staticmethod
+    def _is_uuid(value: str) -> bool:
+        return bool(re.match(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            str(value or ""),
+            re.IGNORECASE,
+        ))
+
+    def _write_ai_session(self, prompt: str, response: Any, context: Dict[str, Any], ok: bool) -> None:
+        """Best-effort write of code-generation sessions to mammoth.ai_sessions."""
+        supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+        supabase_key = (
+            os.environ.get("SUPABASE_ANON_KEY", "").strip()
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+            or os.environ.get("SUPABASE_KEY", "").strip()
+        )
+        if not supabase_url or not supabase_key:
+            return
+
+        response_text = response if isinstance(response, str) else json.dumps(response, ensure_ascii=False)
+        user_id = str(context.get("user_id", "")).strip()
+
+        payload: Dict[str, Any] = {
+            "prompt": prompt,
+            "response": response_text,
+            "metadata": {
+                "source": context.get("source"),
+                "curriculum_id": context.get("curriculum_id"),
+                "lesson_id": context.get("lesson_id"),
+                "ok": ok,
+            },
+        }
+        tokens_used = context.get("tokens_used")
+        if isinstance(tokens_used, int):
+            payload["tokens_used"] = tokens_used
+        if self._is_uuid(user_id):
+            payload["user_id"] = user_id
+
+        url = f"{supabase_url.rstrip('/')}/rest/v1/ai_sessions"
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "apikey": supabase_key,
+                "Authorization": f"Bearer {supabase_key}",
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+                "Accept-Profile": "mammoth",
+                "Prefer": "return=minimal",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=8):
+                return
+        except Exception as exc:
+            self.log("WARN", f"ai_sessions write failed: {exc}")
 
     async def refactor(self, target: str, strategy: str) -> dict:
         """Refactor target file or code using the LLM adapter as a helper.
@@ -559,4 +636,3 @@ sys.exit(failed)
     async def shutdown(self) -> None:
         self.log("INFO", "CodingAgent shutting down.")
         await super().shutdown()# type: ignore
-

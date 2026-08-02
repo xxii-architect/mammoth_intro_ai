@@ -317,7 +317,12 @@ class ATLASSession:
         from mammoth_os.agents.coding_agent import CodingAgent
 
         coder = CodingAgent()
-        gen = await coder.generate_code(prompt, context=context or {})
+        context_data = dict(context or {})
+        context_data.setdefault("source", "atlas.code.generate")
+        context_data.setdefault("user_id", self.user_id)
+        context_data.setdefault("curriculum_id", self._curriculum_id)
+        context_data.setdefault("lesson_id", self._lesson_id)
+        gen = await coder.generate_code(prompt, context=context_data)
 
         code = gen.get("code", "")
         tests = gen.get("tests", "")
@@ -402,4 +407,3 @@ class ATLASSession:
             return session
         except Exception:
             return cls()
-

@@ -360,7 +360,15 @@ def cmd_atlas_code_generate(args) -> None:
     _divider()
 
     try:
-        result = asyncio.run(session.generate_and_test(prompt))
+        result = asyncio.run(session.generate_and_test(
+            prompt,
+            context={
+                "source": "atlas.code.generate",
+                "user_id": session.user_id,
+                "curriculum_id": getattr(session, "_curriculum_id", None),
+                "lesson_id": getattr(session, "_lesson_id", None),
+            },
+        ))
     except Exception as exc:
         print(f"❌ generate_and_test failed: {exc}", file=sys.stderr)
         sys.exit(1)
