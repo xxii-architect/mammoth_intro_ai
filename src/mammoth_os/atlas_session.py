@@ -58,6 +58,9 @@ class ATLASSession:
         module_idx: int = 0,
         lesson_idx: int = 0,
         exercise_count: int = 1,
+        use_llm: bool | None = None,
+        difficulty: str = "beginner",
+        learner_context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         """Generate a curriculum from *topic* and return the first exercise.
 
@@ -66,6 +69,9 @@ class ATLASSession:
             module_idx:     Which module to pick (default: first = 0).
             lesson_idx:     Which lesson within that module (default: first = 0).
             exercise_count: How many exercises to generate (default: 1).
+            use_llm:        Enable personalized LLM generation for exercises.
+            difficulty:     Difficulty hint for LLM generation (beginner/intermediate/advanced).
+            learner_context: Optional learner profile, strengths, weaknesses, and goals.
 
         Returns a dict with keys:
             exercise_id, title, prompt, starter_files, expected_test,
@@ -93,7 +99,13 @@ class ATLASSession:
         self._lesson_id = lesson["lesson_id"]
 
         # 3. Generate exercises
-        exercises = generate_exercises_for_lesson(lesson, count=exercise_count)
+        exercises = generate_exercises_for_lesson(
+            lesson,
+            count=exercise_count,
+            use_llm=use_llm,
+            difficulty=difficulty,
+            learner_context=learner_context,
+        )
         self.current_exercise = exercises[0]
 
         return {

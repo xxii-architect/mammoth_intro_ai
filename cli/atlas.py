@@ -78,6 +78,8 @@ def cmd_atlas_lesson(args) -> None:
             topic,
             module_idx=args.module,
             lesson_idx=args.lesson,
+            use_llm=getattr(args, "llm", False),
+            difficulty=getattr(args, "difficulty", "beginner"),
         )
     except Exception as exc:
         print(f"❌ Failed to generate lesson: {exc}", file=sys.stderr)
@@ -269,6 +271,8 @@ def build_atlas_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentPars
     p_lesson.add_argument("topic", nargs="+", help="Topic to learn, e.g. Python for loops")
     p_lesson.add_argument("--module", type=int, default=0, metavar="N", help="Module index (default: 0)")
     p_lesson.add_argument("--lesson", type=int, default=0, metavar="N", help="Lesson index within module (default: 0)")
+    p_lesson.add_argument("--difficulty", default="beginner", choices=["beginner", "intermediate", "advanced"], help="Exercise difficulty level")
+    p_lesson.add_argument("--llm", action="store_true", help="Use LLM-powered personalized exercise generation")
     p_lesson.set_defaults(func=cmd_atlas_lesson)
 
     # atlas status
