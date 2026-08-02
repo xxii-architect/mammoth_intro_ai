@@ -277,6 +277,49 @@ class ATLASSession:
             "curriculum_title": self.curriculum.get("title"),
             "lesson_title": (self.current_lesson or {}).get("title"),
             "exercise_title": (self.current_exercise or {}).get("title"),
+            "exercise_prompt": (self.current_exercise or {}).get("prompt"),
+            "starter_files": (self.current_exercise or {}).get("starter_files", {}),
             "curriculum_id": self._curriculum_id,
             "lesson_id": self._lesson_id,
         }
+
+    # ------------------------------------------------------------------
+    # State persistence — save/load to JSON so CLI calls share state
+    # ------------------------------------------------------------------
+
+    def save_state(self, path: str) -> None:
+        """Persist session state to a JSON file."""
+        import json, os
+        state = {
+            "user_id": self.user_id,
+            "curriculum": self.curriculum,
+            "current_lesson": self.current_lesson,
+            "current_exercise": self.current_exercise,
+            "_curriculum_id": self._curriculum_id,
+            "_lesson_id": self._lesson_id,
+        }
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, indent=2)
+
+    @classmethod
+    def load_state(cls, path: str) -> "ATLASSession":
+        """Restore a session from a previously saved JSON file.
+
+        Returns an idle ATLASSession if the file does not exist.
+        """
+        import json, os
+        if not os.path.exists(path):
+            return cls()
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                state = json.load(fh)
+            session = cls(user_id=state.get("user_id", "default_user"))
+            session.curriculum = state.get("curriculum")
+            session.current_lesson = state.get("current_lesson")
+            session.current_exercise = state.get("current_exercise")
+            session._curriculum_id = state.get("_curriculum_id")
+            session._lesson_id = state.get("_lesson_id")
+            return session
+        except Exception:
+            return cls()

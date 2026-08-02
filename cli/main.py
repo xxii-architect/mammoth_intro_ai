@@ -11,6 +11,9 @@ from mammoth_os.engine_registry import EngineRegistry
 from mammoth_os.maintenance.diagnostics import run_system_check
 from mammoth_os.maintenance.schema_agent import describe_schema
 
+# ATLAS CLI commands
+from cli.atlas import build_atlas_parser
+
 DEFAULT_TEST_USER = "d6c16bc9-fc2a-4efd-8d9e-a95fb6baa448"
 
 
@@ -160,13 +163,19 @@ def build_parser():
     p_schema = sub.add_parser("schema-describe", help="Describe core schema")
     p_schema.set_defaults(func=cmd_schema_describe)
 
+    # ATLAS tutor bot
+    build_atlas_parser(sub)
+
     return parser
 
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
-    args.func(args)
+    if hasattr(args, "func"):
+        args.func(args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":
