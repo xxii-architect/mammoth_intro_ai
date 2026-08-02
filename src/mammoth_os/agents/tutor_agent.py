@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import time
 from typing import Dict, Any, Optional, List
 
 from .base_agent import BaseAgent
@@ -47,6 +48,7 @@ class TutorAgent(BaseAgent):
         # Write files to a temp directory and call run_tests on that path
         import tempfile
         tmpdir = tempfile.mkdtemp()
+        started = time.perf_counter()
         try:
             for rel, content in files.items():
                 dest = os.path.join(tmpdir, rel)
@@ -56,16 +58,31 @@ class TutorAgent(BaseAgent):
 
             # Run tests (CodingAgent.run_tests is async)
             result = await coding.run_tests(tmpdir)
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            error_fingerprint = self._fingerprint_error(result)
 
             # Persist progress locally and to Supabase (if configured)
-            recommendation = self._record_progress(user_id, curriculum_id, lesson_id, result)
+            progress = self._record_progress(
+                user_id,
+                curriculum_id,
+                lesson_id,
+                result,
+                duration_ms=duration_ms,
+                error_fingerprint=error_fingerprint,
+            )
 
             return {
                 "user_id": user_id,
                 "curriculum_id": curriculum_id,
                 "lesson_id": lesson_id,
                 "result": result,
-                "recommendation": recommendation,
+                "recommendation": progress["recommendation"],
+                "adaptive_signals": {
+                    "attempt_index": progress["attempt_index"],
+                    "time_to_pass_attempts": progress["time_to_pass_attempts"],
+                    "duration_ms": duration_ms,
+                    "error_fingerprint": error_fingerprint,
+                },
             }
         finally:
             # best-effort cleanup
@@ -75,10 +92,18 @@ class TutorAgent(BaseAgent):
             except Exception:
                 pass
 
-    def _record_progress(self, user_id: str, curriculum_id: str, lesson_id: str, result: Dict[str, Any]) -> str:
+    def _record_progress(
+        self,
+        user_id: str,
+        curriculum_id: str,
+        lesson_id: str,
+        result: Dict[str, Any],
+        duration_ms: int,
+        error_fingerprint: str,
+    ) -> Dict[str, Any]:
         """Record progress locally and optionally to Supabase.
 
-        Returns a simple difficulty recommendation: 'increase', 'decrease', or 'same'.
+        Returns adaptive output containing recommendation and progress signals.
         """
         entry = {
             "user_id": user_id,
@@ -86,6 +111,8 @@ class TutorAgent(BaseAgent):
             "lesson_id": lesson_id,
             "timestamp": __import__('datetime').datetime.utcnow().isoformat() + 'Z',
             "result": result,
+            "duration_ms": duration_ms,
+            "error_fingerprint": error_fingerprint,
         }
         data: List[Dict[str, Any]] = []
         if os.path.exists(self.progress_file):
@@ -95,10 +122,13 @@ class TutorAgent(BaseAgent):
             except Exception:
                 data = []
 
-        # compute attempts for this user+lesson
-        attempts = sum(1 for d in data if d.get('user_id') == user_id and d.get('lesson_id') == lesson_id)
-        # attempts is previous attempts count; current attempt is attempts+1
-        current_attempt = attempts + 1
+        # compute prior attempts for this user+lesson
+        prior_attempts = [
+            d for d in data
+            if d.get('user_id') == user_id and d.get('lesson_id') == lesson_id
+        ]
+        current_attempt = len(prior_attempts) + 1
+        entry["attempt_index"] = current_attempt
         data.append(entry)
 
         # Write back
@@ -120,6 +150,9 @@ class TutorAgent(BaseAgent):
                     'stdout': result.get('stdout', ''),
                     'stderr': result.get('stderr', ''),
                     'returncode': int(result.get('returncode', -1)),
+                    'duration_ms': duration_ms,
+                    'error_fingerprint': error_fingerprint,
+                    'attempt_index': current_attempt,
                 }
                 # Attempt to insert into table 'progress'
                 self.supabase.table('progress').insert(record).execute()
@@ -127,15 +160,86 @@ class TutorAgent(BaseAgent):
                 # Do not fail if Supabase write fails
                 pass
 
-        # Simple adaptive heuristics:
-        # - If passed on first attempt -> increase difficulty
-        # - If failed for two or more attempts -> decrease difficulty
-        # - Otherwise -> same
-        recommendation = 'same'
         passed = bool(result.get('passed'))
-        if passed and current_attempt == 1:
-            recommendation = 'increase'
-        elif (not passed) and current_attempt >= 2:
-            recommendation = 'decrease'
+        recommendation = self._recommend_difficulty(
+            passed=passed,
+            current_attempt=current_attempt,
+            duration_ms=duration_ms,
+            error_fingerprint=error_fingerprint,
+            prior_attempts=prior_attempts,
+        )
 
-        return recommendation
+        time_to_pass_attempts: Optional[int] = None
+        if passed:
+            time_to_pass_attempts = self._attempts_since_last_success(prior_attempts) + 1
+
+        return {
+            "recommendation": recommendation,
+            "attempt_index": current_attempt,
+            "time_to_pass_attempts": time_to_pass_attempts,
+        }
+
+    def _fingerprint_error(self, result: Dict[str, Any]) -> str:
+        """Map test output to coarse error categories for adaptive tutoring."""
+        if bool(result.get('passed')):
+            return 'passed'
+        text = f"{result.get('stdout', '')}\n{result.get('stderr', '')}".lower()
+        if 'syntaxerror' in text:
+            return 'syntax_error'
+        if 'indentationerror' in text:
+            return 'indentation_error'
+        if 'modulenotfounderror' in text or 'importerror' in text:
+            return 'import_error'
+        if 'assertionerror' in text or 'assert ' in text:
+            return 'assertion_error'
+        if 'typeerror' in text:
+            return 'type_error'
+        if 'nameerror' in text:
+            return 'name_error'
+        if 'timeout' in text:
+            return 'timeout'
+        if 'notimplementederror' in text:
+            return 'not_implemented'
+        return 'unknown_failure'
+
+    def _attempts_since_last_success(self, prior_attempts: List[Dict[str, Any]]) -> int:
+        """Count attempts after the most recent pass (or all attempts if never passed)."""
+        count = 0
+        for attempt in reversed(prior_attempts):
+            if bool((attempt.get('result') or {}).get('passed')):
+                break
+            count += 1
+        return count
+
+    def _recommend_difficulty(
+        self,
+        passed: bool,
+        current_attempt: int,
+        duration_ms: int,
+        error_fingerprint: str,
+        prior_attempts: List[Dict[str, Any]],
+    ) -> str:
+        """Heuristic recommendation using attempts, timing, and repeated error patterns."""
+        if passed:
+            attempts_since_last_success = self._attempts_since_last_success(prior_attempts) + 1
+            # Fast pass with few retries indicates readiness for harder material.
+            if attempts_since_last_success == 1 and duration_ms <= 60_000:
+                return 'increase'
+            if attempts_since_last_success <= 2 and duration_ms <= 120_000:
+                return 'increase'
+            return 'same'
+
+        # Repeated failures with same fingerprint suggests cognitive overload.
+        recent = prior_attempts[-2:]
+        repeated_same_error = (
+            len(recent) >= 1
+            and all((r.get('error_fingerprint') == error_fingerprint) for r in recent)
+        )
+        if repeated_same_error and current_attempt >= 2:
+            return 'decrease'
+
+        # Multiple failures in a row, especially structural errors, should reduce difficulty.
+        if current_attempt >= 3 and error_fingerprint in {'syntax_error', 'indentation_error', 'type_error', 'timeout'}:
+            return 'decrease'
+
+        return 'same'
