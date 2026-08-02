@@ -5,6 +5,7 @@ Registered under the `atlas` subcommand in cli/main.py.
 Usage (after `pip install -e .` or via PYTHONPATH=src):
     python -m cli.main atlas lesson "Python for loops"
     python -m cli.main atlas status
+    python -m cli.main atlas status --db
     python -m cli.main atlas submit solution.py
     python -m cli.main atlas submit --inline "def solution(a, b): return a + b"
     python -m cli.main atlas next
@@ -192,8 +193,42 @@ def cmd_atlas_lesson(args) -> None:
     )
 
 
+def _fetch_latest_ai_session() -> dict | None:
+    """Return the most recent mammoth.ai_sessions row, or None on failure."""
+    supabase_url = os.environ.get("SUPABASE_URL", "").strip()
+    supabase_key = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+        or os.environ.get("SUPABASE_ANON_KEY", "").strip()
+        or os.environ.get("SUPABASE_KEY", "").strip()
+    )
+    if not supabase_url or not supabase_key:
+        return None
+
+    url = (
+        f"{supabase_url.rstrip('/')}/rest/v1/ai_sessions"
+        "?select=id,prompt,tokens_used,created_at,metadata"
+        "&order=created_at.desc"
+        "&limit=1"
+    )
+    req = urllib.request.Request(
+        url,
+        headers={
+            "apikey": supabase_key,
+            "Authorization": f"Bearer {supabase_key}",
+            "Accept": "application/json",
+            "Accept-Profile": "mammoth",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            rows = json.loads(resp.read().decode("utf-8"))
+            return rows[0] if rows else {}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def cmd_atlas_status(args) -> None:
-    """Show the current ATLAS session state."""
+    """Show the current ATLAS session state, optionally including the latest DB row."""
     session = _load_session()
     s = session.status()
 
@@ -203,23 +238,49 @@ def cmd_atlas_status(args) -> None:
     if s["state"] == "idle":
         print("💤 No active lesson.")
         print("   Start one with: python -m cli.main atlas lesson <topic>")
-        return
+    else:
+        print(f"👤 User       : {s['user_id']}")
+        print(f"📚 Curriculum : {s['curriculum_title']}")
+        print(f"📖 Lesson     : {s['lesson_title']}")
+        print(f"🏋️  Exercise   : {s['exercise_title']}")
+        _divider()
+        print(f"\n{s.get('exercise_prompt', '')}\n")
+        _divider()
+        starters = s.get("starter_files", {})
+        if starters:
+            print("\n📄 Starter file(s):\n")
+            for fname, content in starters.items():
+                print(f"  ── {fname} ──")
+                for line in content.splitlines():
+                    print(f"    {line}")
+        _divider()
 
-    print(f"👤 User       : {s['user_id']}")
-    print(f"📚 Curriculum : {s['curriculum_title']}")
-    print(f"📖 Lesson     : {s['lesson_title']}")
-    print(f"🏋️  Exercise   : {s['exercise_title']}")
-    _divider()
-    print(f"\n{s.get('exercise_prompt', '')}\n")
-    _divider()
-    starters = s.get("starter_files", {})
-    if starters:
-        print("\n📄 Starter file(s):\n")
-        for fname, content in starters.items():
-            print(f"  ── {fname} ──")
-            for line in content.splitlines():
-                print(f"    {line}")
-    _divider()
+    if getattr(args, "db", False):
+        print("\n🗄️  Latest mammoth.ai_sessions row")
+        _divider()
+        row = _fetch_latest_ai_session()
+        if row is None:
+            print("⚠️  SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — cannot query DB.")
+        elif "error" in row:
+            print(f"❌ DB query failed: {row['error']}")
+        elif not row:
+            print("ℹ️  No ai_sessions rows found yet — run `atlas code generate` first.")
+        else:
+            print(f"  id          : {row.get('id', '—')}")
+            print(f"  created_at  : {row.get('created_at', '—')}")
+            tokens = row.get("tokens_used")
+            print(f"  tokens_used : {tokens if tokens is not None else '—'}")
+            prompt = (row.get("prompt") or "").replace("\n", " ")
+            print(f"  prompt      : {prompt[:120]}{'…' if len(prompt) > 120 else ''}")
+            meta = row.get("metadata") or {}
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    pass
+            if isinstance(meta, dict) and meta:
+                print(f"  metadata    : {json.dumps(meta)}")
+        _divider()
 
 
 def cmd_atlas_submit(args) -> None:
@@ -502,6 +563,10 @@ def build_atlas_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentPars
 
     # atlas status
     p_status = atlas_sub.add_parser("status", help="Show current lesson and exercise")
+    p_status.add_argument(
+        "--db", action="store_true",
+        help="Also print the most recent mammoth.ai_sessions row from Supabase",
+    )
     p_status.set_defaults(func=cmd_atlas_status)
 
     # atlas submit [file] [--inline code]
