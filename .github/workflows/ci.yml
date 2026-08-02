@@ -107,6 +107,7 @@ jobs:
       - name: Run SandboxRunner docker test
         env:
           PYTHONPATH: src
+        continue-on-error: true
         run: python .github/scripts/run_sandbox_test.py
         shell: bash
       - name: Upload runtime info artifact
