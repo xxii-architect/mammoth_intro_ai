@@ -52,6 +52,17 @@ _OLLAMA_ADAPTER_NAMES = {
 }
 
 
+def _is_ollama_model_hint(model_name: str) -> bool:
+    """Return True when a model string clearly refers to a local Ollama model."""
+    name = (model_name or "").strip().lower()
+    if not name:
+        return False
+    if name in MODEL_ALIASES or name in MODEL_ALIASES.values():
+        return True
+    # Most Ollama tags include a ":" version suffix (e.g., hermes3:8b).
+    return ":" in name
+
+
 def get_llm_client(config: Dict[str, Any] | None = None):
     """Return the best available LLM client.
 
@@ -80,6 +91,11 @@ def get_llm_client(config: Dict[str, Any] | None = None):
             cfg = {**cfg, "model": adapter_name}
         return OllamaAdapter(config=cfg)
 
+    # 2b. Model hint implies Ollama (even when OPENAI_API_KEY is present).
+    requested_model = str(cfg.get("model", "")).strip()
+    if _is_ollama_model_hint(requested_model):
+        return OllamaAdapter(config=cfg)
+
     # 3. Explicit OpenAI
     if adapter_name == "openai":
         try:
@@ -101,4 +117,3 @@ def get_llm_client(config: Dict[str, Any] | None = None):
 
     # 6. Nothing available — use deterministic local adapter
     return LocalAdapter(config=cfg)
-
