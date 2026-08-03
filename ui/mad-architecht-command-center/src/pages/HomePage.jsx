@@ -29,6 +29,14 @@ const quickCmds = [
   'git status',
 ]
 
+const bootSequence = [
+  'BIOS: MammothOS kernel loaded',
+  'ATLAS runtime: initialized',
+  'LLM bridge: adapter routing online',
+  'Telemetry buses: synchronized',
+  'Command center: ready',
+]
+
 export default function HomePage() {
   const [status, setStatus] = useState(null)
   const [health, setHealth] = useState(null)
@@ -149,6 +157,18 @@ export default function HomePage() {
             <div style={{ width: 8, height: 8, borderRadius: '50%', background: a.dot, flexShrink: 0 }} />
             <span style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', flex: 1 }}>{a.msg}</span>
             <span style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', whiteSpace: 'nowrap' }}>{a.time}</span>
+          </div>
+        ))}
+      </div>
+
+      <p style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--txt-sec)', margin: '20px 0 12px' }}>
+        Boot Sequence
+      </p>
+      <div className="glass-card-solid" style={{ padding: '10px 16px' }}>
+        {bootSequence.map((line, i) => (
+          <div key={line} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', flexShrink: 0 }} />
+            <span style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>{line}</span>
           </div>
         ))}
       </div>

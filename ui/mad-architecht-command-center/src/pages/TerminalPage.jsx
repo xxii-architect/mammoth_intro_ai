@@ -12,8 +12,14 @@ const QUICK_ACTIONS = [
   { label: 'npm Build',     cmd: 'npm run build',                Icon: Hammer,       color: '#eab308' },
 ]
 
+const BOOT_LINES = [
+  { text: '[BOOT] MammothOS Terminal initializing...', type: 'stdout' },
+  { text: '[BOOT] Loading command allow-list + runtime bridge...', type: 'stdout' },
+  { text: '[BOOT] Attempting WebSocket handshake (/ws/terminal)...', type: 'stdout' },
+]
+
 export default function TerminalPage() {
-  const [lines, setLines]       = useState([{ text: 'MammothOS Terminal — WebSocket connected.', type: 'stdout' }])
+  const [lines, setLines]       = useState(BOOT_LINES)
   const [input, setInput]       = useState('')
   const [connected, setConnected] = useState(false)
   const [httpMode, setHttpMode] = useState(false)

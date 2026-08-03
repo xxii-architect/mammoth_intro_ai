@@ -731,27 +731,18 @@ async def terminal_exec(body: Dict[str, Any]):
     cmd = str(body.get("cmd", "")).strip()
     if not cmd:
         return {"stdout": "", "stderr": "No command provided.", "exit_code": 1}
-
-    resolved, run_cwd = _normalize_terminal_command(cmd)
-    env = _make_env()
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "powershell", "-NoProfile", "-NonInteractive", "-Command", resolved,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(run_cwd),
-            env=env,
-        )
-        stdout_raw, stderr_raw = await asyncio.wait_for(proc.communicate(), timeout=60)
+    if not _is_allowed(cmd):
         return {
-            "stdout": stdout_raw.decode(errors="replace"),
-            "stderr": stderr_raw.decode(errors="replace"),
-            "exit_code": proc.returncode,
+            "stdout": "",
+            "stderr": f"Not in allow-list: {cmd}\nAllowed prefixes: {', '.join(sorted(ALLOW_PREFIXES))}",
+            "exit_code": 1,
         }
-    except asyncio.TimeoutError:
-        return {"stdout": "", "stderr": "Command timed out (60s)", "exit_code": 1}
-    except Exception as e:
-        return {"stdout": "", "stderr": str(e), "exit_code": 1}
+    result = await _execute_terminal_command(cmd)
+    return {
+        "stdout": result["stdout"],
+        "stderr": result["stderr"],
+        "exit_code": result["exit_code"],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -840,6 +831,47 @@ def _normalize_terminal_command(cmd: str) -> tuple:
     return normalized, run_cwd
 
 
+async def _execute_terminal_command(cmd: str, timeout: int = 60) -> Dict[str, Any]:
+    resolved, run_cwd = _normalize_terminal_command(cmd)
+    env = _make_env()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "powershell",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            resolved,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(run_cwd),
+            env=env,
+        )
+        stdout_raw, stderr_raw = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return {
+            "stdout": stdout_raw.decode(errors="replace"),
+            "stderr": stderr_raw.decode(errors="replace"),
+            "exit_code": int(proc.returncode or 0),
+            "resolved": resolved,
+            "cwd": str(run_cwd),
+        }
+    except asyncio.TimeoutError:
+        return {
+            "stdout": "",
+            "stderr": f"Command timed out ({timeout}s)",
+            "exit_code": 1,
+            "resolved": resolved,
+            "cwd": str(run_cwd),
+        }
+    except Exception as e:
+        return {
+            "stdout": "",
+            "stderr": f"{type(e).__name__}: {e!r}",
+            "exit_code": 1,
+            "resolved": resolved,
+            "cwd": str(run_cwd),
+        }
+
+
 @app.websocket("/ws/terminal")
 async def terminal_ws(ws: WebSocket):
     await ws.accept()
@@ -857,43 +889,18 @@ async def terminal_ws(ws: WebSocket):
                 await ws.send_json({"line": f"[exit 1]", "type": "exit", "code": 1})
                 continue
 
-            resolved, run_cwd = _normalize_terminal_command(cmd)
-            env = _make_env()
-
             await ws.send_json({"line": f"$ {cmd}", "type": "cmd"})
-
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    "powershell",
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    resolved,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                    cwd=str(run_cwd),
-                    env=env,
-                )
-
-                async def _stream(reader, stype):
-                    while True:
-                        line_bytes = await reader.readline()
-                        if not line_bytes:
-                            break
-                        text = line_bytes.decode(errors="replace").rstrip("\r\n")
-                        if text:
-                            await ws.send_json({"line": text, "type": stype})
-
-                await asyncio.gather(
-                    _stream(proc.stdout, "stdout"),
-                    _stream(proc.stderr, "stderr"),
-                )
-                code = await proc.wait()
-                await ws.send_json({"line": f"[exit {code}]", "type": "exit", "code": code})
-
-            except Exception as exc:
-                await ws.send_json({"line": f"Error running command: {exc}", "type": "stderr"})
-                await ws.send_json({"line": "[exit 1]", "type": "exit", "code": 1})
+            result = await _execute_terminal_command(cmd)
+            await ws.send_json({"line": f"[cwd] {result['cwd']}", "type": "stdout"})
+            if result.get("stdout"):
+                for line in result["stdout"].splitlines():
+                    if line.strip():
+                        await ws.send_json({"line": line, "type": "stdout"})
+            if result.get("stderr"):
+                for line in result["stderr"].splitlines():
+                    if line.strip():
+                        await ws.send_json({"line": line, "type": "stderr"})
+            await ws.send_json({"line": f"[exit {result['exit_code']}]", "type": "exit", "code": result["exit_code"]})
 
     except WebSocketDisconnect:
         pass
