@@ -16,11 +16,16 @@ Open http://localhost:5173 to preview the app.
 
 ### Agent Console
 - Select an agent and run prompts against the live backend.
+- Use **Run Smoke Test** to execute a one-click health sweep across core agents.
+- Review pass/fail, runtime status, latency, and output preview in
+  **Agent Smoke Test** results.
 - Turn on **Preview first** to queue coding-agent file changes instead of
   applying them immediately.
 - Review queued edits in **Pending Approvals**.
 - Approve a change to apply it.
 - Use **Rollback Snapshots** to restore approved edits.
+- Use **Run History** to replay recent prompts with their original
+  agent + intent selection.
 
 ### Coding shortcuts
 When `coding_agent` is selected, shortcut templates are available for:

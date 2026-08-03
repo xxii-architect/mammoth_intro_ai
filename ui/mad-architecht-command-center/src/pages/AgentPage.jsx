@@ -33,6 +33,16 @@ const AGENT_TO_INTENT = {
   custodial_agent:      'summarize',
 }
 
+const SMOKE_TESTS = [
+  { agent_id: 'plant_the_seed_agent', intent: 'plant_seed', prompt: 'Smoke test: confirm plant seed agent is online in one sentence.' },
+  { agent_id: 'field_ops_agent', intent: 'field_ops', prompt: 'Smoke test: return a one-line field operation checklist.' },
+  { agent_id: 'market_intel_agent', intent: 'market_intel', prompt: 'Smoke test: provide one market signal in one sentence.' },
+  { agent_id: 'reflection_agent', intent: 'reflection', prompt: 'Smoke test: provide a one-sentence reflection prompt.' },
+  { agent_id: 'brand_voice_agent', intent: 'brand_voice', prompt: 'Smoke test: provide one sentence in brand voice.' },
+  { agent_id: 'research_agent', intent: 'research_curriculum', prompt: 'Smoke test: summarize one curriculum tip in one sentence.' },
+  { agent_id: 'coding_agent', intent: 'summarize', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
+]
+
 export default function AgentPage() {
   const [agents, setAgents] = useState([])
   const [selectedAgent, setSelected] = useState('')
@@ -56,6 +66,8 @@ export default function AgentPage() {
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
+  const [smokeRunning, setSmokeRunning] = useState(false)
+  const [smokeResults, setSmokeResults] = useState([])
 
   const refreshAgents = async () => {
     try {
@@ -194,6 +206,61 @@ export default function AgentPage() {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots()])
     }
+
+    const runSmokeTests = async () => {
+      if (smokeRunning || running) return
+      setSmokeRunning(true)
+      setSmokeResults([])
+      const collected = []
+
+      for (const spec of SMOKE_TESTS) {
+        const startedAt = performance.now()
+        try {
+          const res = await api('/run', {
+            method: 'POST',
+            body: {
+              intent: spec.intent,
+              payload: { prompt: spec.prompt },
+              temperature: 0.2,
+              agent_id: spec.agent_id,
+              approval_mode: false,
+            },
+          })
+          const elapsedMs = Math.round(performance.now() - startedAt)
+          const nestedStatus = res?.result?.status || ''
+          const pass = res?.status === 'ok' && nestedStatus !== 'error'
+          const rawPreview = res?.result?.output ?? res?.result?.preview ?? res?.error ?? ''
+          const preview = typeof rawPreview === 'string' ? rawPreview : JSON.stringify(rawPreview)
+          const item = {
+            id: `${spec.agent_id}-${Date.now()}`,
+            agent_id: spec.agent_id,
+            intent: spec.intent,
+            status: pass ? 'pass' : 'fail',
+            runtime_status: nestedStatus || res?.status || 'unknown',
+            duration_ms: elapsedMs,
+            preview: preview.slice(0, 140),
+          }
+          collected.push(item)
+          setSmokeResults([...collected])
+        } catch (e) {
+          const elapsedMs = Math.round(performance.now() - startedAt)
+          const item = {
+            id: `${spec.agent_id}-${Date.now()}`,
+            agent_id: spec.agent_id,
+            intent: spec.intent,
+            status: 'fail',
+            runtime_status: 'request_error',
+            duration_ms: elapsedMs,
+            preview: (e?.message || 'Request failed').slice(0, 140),
+          }
+          collected.push(item)
+          setSmokeResults([...collected])
+        }
+      }
+
+      setSmokeRunning(false)
+      await Promise.all([refreshAgents(), refreshTimeline()])
+    }
   }
 
   return (
@@ -285,10 +352,17 @@ export default function AgentPage() {
               </div>
             )}
 
-            <button onClick={run} disabled={running}
-              style={{ background: 'var(--photon)', color: '#050608', fontWeight: 700, fontSize: '0.85rem', padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: running ? 0.7 : 1 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={run} disabled={running || smokeRunning}
+              style={{ background: 'var(--photon)', color: '#050608', fontWeight: 700, fontSize: '0.85rem', padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: (running || smokeRunning) ? 0.7 : 1 }}>
               <Play size={14} /> {running ? 'Running…' : 'Run Agent'}
             </button>
+            <button onClick={runSmokeTests} disabled={smokeRunning || running}
+              style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--txt-pri)', fontWeight: 600, fontSize: '0.78rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: (running || smokeRunning) ? 0.7 : 1 }}>
+              {smokeRunning ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <CheckCircle size={13} />}
+              {smokeRunning ? `Smoke Test ${smokeResults.length}/${SMOKE_TESTS.length}` : `Run Smoke Test (${SMOKE_TESTS.length})`}
+            </button>
+            </div>
           </div>
 
           <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 400, overflowY: 'auto' }}>
@@ -378,6 +452,26 @@ export default function AgentPage() {
               onReplay={replayHistoryEntry}
               onClear={clearRunHistory}
             />
+
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Agent Smoke Test</p>
+              {smokeResults.length ? smokeResults.map(item => (
+                <div key={item.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.73rem' }}>{item.agent_id}</span>
+                    <span style={{ fontSize: '0.66rem', textTransform: 'uppercase', color: item.status === 'pass' ? '#22c55e' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.69rem', marginTop: 4 }}>
+                    {item.intent} • {item.runtime_status} • {item.duration_ms}ms
+                  </div>
+                  <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
+                    {item.preview}
+                  </div>
+                </div>
+              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No smoke test run yet.</div>}
+            </div>
 
             <div style={{ marginTop: 16 }}>
               <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Task Queue</p>
