@@ -179,7 +179,7 @@ except Exception as _e:
     _engine_registry_err = str(_e)
 
 try:
-    from mammoth_os.agent_registry import agent_registry
+    from mammoth_os.agent_registry import agent_registry, AgentStatus
     _agent_registry_ok = True
 except Exception as _e:
     _agent_registry_ok = False
@@ -377,9 +377,21 @@ async def get_models():
 
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
-    intent      = body.get("intent", "")
-    payload     = body.get("payload", {})
+    intent = str(body.get("intent", "")).strip()
+    payload = body.get("payload", {})
     temperature = body.get("temperature", 0.7)
+    requested_agent_id = str(body.get("agent_id", "")).strip()
+    tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
+
+    manifest = None
+    if _agent_registry_ok and tracked_agent_id:
+        try:
+            manifest = await agent_registry.get_agent(tracked_agent_id)
+            if manifest:
+                manifest.status = AgentStatus.ACTIVE
+                manifest.last_heartbeat = datetime.now(timezone.utc)
+        except Exception:
+            manifest = None
 
     try:
         from mammoth_os.cortex.router import CortexRouter
@@ -387,9 +399,30 @@ async def run_agent(body: Dict[str, Any]):
         result = await asyncio.get_event_loop().run_in_executor(
             None, lambda: router.route(intent, payload)
         )
-        return {"status": "ok", "result": result, "intent": intent}
+
+        if manifest:
+            manifest.status = AgentStatus.IDLE
+            manifest.last_heartbeat = datetime.now(timezone.utc)
+
+        return {
+            "status": "ok",
+            "result": result,
+            "intent": intent,
+            "agent_id": tracked_agent_id,
+            "temperature": temperature,
+        }
     except Exception as e:
-        return {"status": "error", "error": str(e), "intent": intent}
+        if manifest:
+            manifest.status = AgentStatus.ERROR
+            manifest.last_heartbeat = datetime.now(timezone.utc)
+            manifest.metadata["last_error"] = str(e)
+
+        return {
+            "status": "error",
+            "error": str(e),
+            "intent": intent,
+            "agent_id": tracked_agent_id,
+        }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -904,3 +937,4 @@ async def terminal_ws(ws: WebSocket):
 
     except WebSocketDisconnect:
         pass
+

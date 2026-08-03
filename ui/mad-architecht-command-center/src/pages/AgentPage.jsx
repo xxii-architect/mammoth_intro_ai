@@ -28,7 +28,7 @@ export default function AgentPage() {
     try {
       const res = await api('/run', {
         method: 'POST',
-        body: { intent, payload: { prompt }, temperature },
+        body: { intent, payload: { prompt }, temperature, agent_id: selectedAgent },
       })
       setOutput(JSON.stringify(res, null, 2))
     } catch (e) {
@@ -53,7 +53,7 @@ export default function AgentPage() {
                 <label style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Agent</label>
                 <select className="filter-select" value={selectedAgent} onChange={e => setSelected(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.82rem' }}>
                   {agents.length ? agents.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({a.status})</option>
+                    <option key={a.id} value={a.id}>{a.name} ({running && a.id === selectedAgent ? 'ACTIVE' : a.status})</option>
                   )) : <option>Loading agents…</option>}
                 </select>
               </div>
@@ -148,7 +148,7 @@ export default function AgentPage() {
                 {agents.slice(0, 6).map(a => (
                   <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: '0.78rem' }}>
                     <span style={{ color: 'var(--txt-pri)' }}>{a.name}</span>
-                    <span style={{ color: a.status === 'ACTIVE' ? '#22c55e' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.7rem' }}>{a.status}</span>
+                    <span style={{ color: ((running && a.id === selectedAgent) || a.status === 'ACTIVE') ? '#22c55e' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.7rem' }}>{running && a.id === selectedAgent ? 'ACTIVE' : a.status}</span>
                   </div>
                 ))}
               </div>
@@ -159,3 +159,5 @@ export default function AgentPage() {
     </div>
   )
 }
+
+
