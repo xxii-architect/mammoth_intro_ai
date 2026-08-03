@@ -381,7 +381,9 @@ async def run_agent(body: Dict[str, Any]):
     payload = body.get("payload", {})
     temperature = body.get("temperature", 0.7)
     requested_agent_id = str(body.get("agent_id", "")).strip()
-    tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
+    # Intent mapping takes priority — the CortexRouter picks the real agent.
+    # UI dropdown selection is a hint only; ignore it for status tracking.
+    tracked_agent_id = _agent_id_from_intent(intent) or requested_agent_id
 
     manifest = None
     if _agent_registry_ok and tracked_agent_id:
@@ -937,4 +939,5 @@ async def terminal_ws(ws: WebSocket):
 
     except WebSocketDisconnect:
         pass
+
 

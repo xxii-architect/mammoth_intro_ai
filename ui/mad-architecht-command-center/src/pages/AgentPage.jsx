@@ -2,7 +2,23 @@ import { useState, useEffect } from 'react'
 import { Bot, Play, Info, ChevronRight } from 'lucide-react'
 import { api } from '../api/client'
 
-const INTENTS = ['plant_seed', 'field_ops', 'research_curriculum', 'market_intel', 'compare_gear', 'summarize']
+const INTENTS = [
+  'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
+  'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'summarize',
+]
+
+const INTENT_TO_AGENT = {
+  plant_seed:            'plant_the_seed_agent',
+  field_ops:             'field_ops_agent',
+  market_intel:          'market_intel_agent',
+  reflection:            'reflection_agent',
+  brand_voice:           'brand_voice_agent',
+  research_curriculum:   'research_agent',
+  research_survival:     'research_agent',
+  research_plants:       'research_agent',
+  compare_gear:          'research_agent',
+  summarize:             'research_agent',
+}
 
 export default function AgentPage() {
   const [agents, setAgents]         = useState([])
@@ -159,5 +175,6 @@ export default function AgentPage() {
     </div>
   )
 }
+
 
 
