@@ -8,39 +8,57 @@ const INTENTS = [
 ]
 
 const INTENT_TO_AGENT = {
-  plant_seed:            'plant_the_seed_agent',
-  field_ops:             'field_ops_agent',
-  market_intel:          'market_intel_agent',
-  reflection:            'reflection_agent',
-  brand_voice:           'brand_voice_agent',
-  research_curriculum:   'research_agent',
-  research_survival:     'research_agent',
-  research_plants:       'research_agent',
-  compare_gear:          'research_agent',
-  summarize:             'research_agent',
+  plant_seed:          'plant_the_seed_agent',
+  field_ops:           'field_ops_agent',
+  market_intel:        'market_intel_agent',
+  reflection:          'reflection_agent',
+  brand_voice:         'brand_voice_agent',
+  research_curriculum: 'research_agent',
+  research_survival:   'research_agent',
+  research_plants:     'research_agent',
+  compare_gear:        'research_agent',
+  summarize:           'research_agent',
 }
 
 export default function AgentPage() {
-  const [agents, setAgents]         = useState([])
+  const [agents, setAgents] = useState([])
   const [selectedAgent, setSelected] = useState('')
-  const [intent, setIntent]         = useState('plant_seed')
-  const [prompt, setPrompt]         = useState('')
-  const [temperature, setTemp]      = useState(0.7)
-  const [output, setOutput]         = useState(null)
-  const [running, setRunning]       = useState(false)
-  const [archOpen, setArchOpen]     = useState(false)
+  const [intent, setIntent] = useState('plant_seed')
+  const [prompt, setPrompt] = useState('')
+  const [temperature, setTemp] = useState(0.7)
+  const [output, setOutput] = useState(null)
+  const [running, setRunning] = useState(false)
+  const [archOpen, setArchOpen] = useState(false)
+
+  const refreshAgents = async () => {
+    try {
+      const a = await api('/agents')
+      setAgents(a)
+      if (!selectedAgent && a.length) {
+        const mapped = INTENT_TO_AGENT[intent]
+        const match = mapped ? a.find(x => x.id === mapped) : null
+        setSelected(match ? match.id : a[0].id)
+      }
+    } catch (_) {}
+  }
 
   useEffect(() => {
-    api('/agents').then(a => {
-      setAgents(a)
-      if (a.length) setSelected(a[0].id)
-    }).catch(() => {})
-  }, [])
+    refreshAgents()
+    const t = setInterval(refreshAgents, 1200)
+    return () => clearInterval(t)
+  }, [selectedAgent, intent])
+
+  const chooseIntent = (i) => {
+    setIntent(i)
+    const mapped = INTENT_TO_AGENT[i]
+    if (mapped) setSelected(mapped)
+  }
 
   const run = async () => {
     if (!prompt.trim() && !intent) return
     setRunning(true)
     setOutput(null)
+    await refreshAgents()
     try {
       const res = await api('/run', {
         method: 'POST',
@@ -51,6 +69,7 @@ export default function AgentPage() {
       setOutput(`Error: ${e.message}`)
     } finally {
       setRunning(false)
+      await refreshAgents()
     }
   }
 
@@ -63,13 +82,12 @@ export default function AgentPage() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         <div style={{ flex: '1 1 420px', minWidth: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16, marginBottom: 16 }}>
-            {/* Agent + temp row */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <label style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Agent</label>
                 <select className="filter-select" value={selectedAgent} onChange={e => setSelected(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.82rem' }}>
                   {agents.length ? agents.map(a => (
-                    <option key={a.id} value={a.id}>{a.name} ({running && a.id === selectedAgent ? 'ACTIVE' : a.status})</option>
+                    <option key={a.id} value={a.id}>{a.name} ({(running && a.id === selectedAgent) || a.status === 'ACTIVE' ? 'ACTIVE' : a.status})</option>
                   )) : <option>Loading agents…</option>}
                 </select>
               </div>
@@ -82,10 +100,9 @@ export default function AgentPage() {
               </div>
             </div>
 
-            {/* Intent chips */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
               {INTENTS.map(i => (
-                <span key={i} onClick={() => setIntent(i)}
+                <span key={i} onClick={() => chooseIntent(i)}
                   style={{
                     fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace',
                     padding: '4px 10px', borderRadius: 20, cursor: 'pointer',
@@ -103,7 +120,6 @@ export default function AgentPage() {
               style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.85rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', resize: 'none', height: 80, boxSizing: 'border-box', marginBottom: 12 }}
             />
 
-            {/* CLI reference collapsible */}
             <button onClick={() => setArchOpen(o => !o)}
               style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <ChevronRight size={12} style={{ transform: archOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
@@ -135,8 +151,7 @@ export default function AgentPage() {
           </div>
         </div>
 
-        {/* Side panel */}
-        <div style={{ width: 260, flexShrink: 0 }}>
+        <div style={{ width: 300, flexShrink: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h3 style={{ fontSize: '0.9rem', fontWeight: 600 }}>Thought Stream</h3>
@@ -150,21 +165,16 @@ export default function AgentPage() {
                 {running ? 'RUNNING' : 'IDLE'}
               </span>
             </div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--txt-mut)', fontStyle: 'italic', minHeight: 40 }}>
-              {running ? (
-                <div style={{ display: 'flex', gap: 4, padding: 8 }}>
-                  {[0,1,2].map(i => <span key={i} className="thinking-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--photon)', display: 'inline-block' }} />)}
-                </div>
-              ) : output ? 'Agent completed.' : 'No agent activity yet.'}
-            </div>
 
             {agents.length > 0 && (
-              <div style={{ marginTop: 16 }}>
+              <div style={{ marginTop: 8 }}>
                 <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Registered Agents</p>
-                {agents.slice(0, 6).map(a => (
+                {agents.slice(0, 10).map(a => (
                   <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: '0.78rem' }}>
                     <span style={{ color: 'var(--txt-pri)' }}>{a.name}</span>
-                    <span style={{ color: ((running && a.id === selectedAgent) || a.status === 'ACTIVE') ? '#22c55e' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.7rem' }}>{running && a.id === selectedAgent ? 'ACTIVE' : a.status}</span>
+                    <span style={{ color: ((running && a.id === selectedAgent) || a.status === 'ACTIVE') ? '#22c55e' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.7rem' }}>
+                      {(running && a.id === selectedAgent) || a.status === 'ACTIVE' ? 'ACTIVE' : a.status}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -175,6 +185,3 @@ export default function AgentPage() {
     </div>
   )
 }
-
-
-

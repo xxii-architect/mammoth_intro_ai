@@ -9,13 +9,21 @@ for the atlas.leaderboard table in Supabase.
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 
-from mammoth_os.supabase_client import supabase
+from mammoth_os.supabase_client import get_supabase
 
 
 # ---------------------------------------------------------
 # RANK SYSTEM
 # ---------------------------------------------------------
 
+
+def _require_supabase():
+    client = get_supabase()
+    if client is None:
+        raise RuntimeError(
+            "Supabase not configured. Set SUPABASE_URL and one of: SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY"
+        )
+    return client
 RANKS = [
     ("Novice", 0),
     ("Pathfinder", 100),
@@ -43,7 +51,7 @@ def calculate_rank(xp: int) -> str:
 def get_leaderboard_record(user_id: str) -> Optional[Dict[str, Any]]:
     """Fetch a single leaderboard record for a user."""
     result = (
-        supabase
+        _require_supabase()
         .schema("atlas") # type: ignore
         .from_("leaderboard")
         .select("*")
@@ -58,7 +66,7 @@ def get_leaderboard_record(user_id: str) -> Optional[Dict[str, Any]]:
 def get_top_leaderboard(limit: int = 20) -> List[Dict[str, Any]]:
     """Fetch top leaderboard entries sorted by XP."""
     result = (
-        supabase
+        _require_supabase()
         .schema("atlas") # type: ignore
         .from_("leaderboard")
         .select("*")
@@ -88,7 +96,7 @@ def add_xp(user_id: str, amount: int) -> int:
         "last_active": datetime.utcnow().isoformat(),
     }
 
-    supabase.schema("atlas").from_("leaderboard").upsert(payload).execute() # type: ignore
+    _require_supabase().schema("atlas").from_("leaderboard").upsert(payload).execute()  # type: ignore
     return new_xp
 
 def sync_streak_and_xp(user_id: str) -> Dict[str, Any]:
@@ -122,7 +130,7 @@ def sync_streak_and_xp(user_id: str) -> Dict[str, Any]:
             "lessons_completed": 0,
             "last_active": datetime.utcnow().isoformat(),
         }
-        supabase.schema("atlas").from_("leaderboard").insert(new_record).execute()  # type: ignore
+        _require_supabase().schema("atlas").from_("leaderboard").insert(new_record).execute()  # type: ignore
         return new_record
 
     # Update existing record
@@ -136,7 +144,7 @@ def sync_streak_and_xp(user_id: str) -> Dict[str, Any]:
         "last_active": datetime.utcnow().isoformat(),
     }
 
-    supabase.schema("atlas").from_("leaderboard").update(updated_record).eq("user_id", user_id).execute()  # type: ignore
+    _require_supabase().schema("atlas").from_("leaderboard").update(updated_record).eq("user_id", user_id).execute()  # type: ignore
 
     return updated_record
 
@@ -154,3 +162,4 @@ def get_streak(user_id: str) -> dict:
         "streak": 0,
         "message": "Streak tracking coming soon.",
     }
+

@@ -403,8 +403,12 @@ async def run_agent(body: Dict[str, Any]):
         )
 
         if manifest:
+            # Keep ACTIVE briefly so polling UIs can observe the transition.
+            await asyncio.sleep(1.2)
             manifest.status = AgentStatus.IDLE
             manifest.last_heartbeat = datetime.now(timezone.utc)
+            manifest.metadata["last_intent"] = intent
+            manifest.metadata["last_run_at"] = datetime.now(timezone.utc).isoformat()
 
         return {
             "status": "ok",
@@ -939,5 +943,6 @@ async def terminal_ws(ws: WebSocket):
 
     except WebSocketDisconnect:
         pass
+
 
 
