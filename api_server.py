@@ -48,8 +48,10 @@ ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
 UI_DIR        = ROOT / "ui" / "mad-architecht-command-center"
 VENV_PYTHON   = ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_UVICORN  = ROOT / ".venv" / "Scripts" / "uvicorn.exe"
+AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
+TASKS_FILE = MAMMOTH_DIR / "tasks.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 
@@ -65,6 +67,143 @@ def _read_json(path: Path, default=None):
 
 def _write_json(path: Path, data):
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _load_activity_events() -> List[Dict[str, Any]]:
+    return _read_json(AGENT_ACTIVITY_FILE)
+
+
+def _save_activity_events(entries: List[Dict[str, Any]]):
+    _write_json(AGENT_ACTIVITY_FILE, entries)
+
+
+def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kind: str = "event", details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    entries = _load_activity_events()
+    entry = {
+        "id": str(uuid.uuid4()),
+        "kind": kind,
+        "message": message,
+        "agent_id": agent_id,
+        "task_id": task_id,
+        "details": details or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    entries.append(entry)
+    if len(entries) > 250:
+        entries = entries[-250:]
+    _save_activity_events(entries)
+    return entry
+
+
+def _create_approval_record(task_id: str, *, agent_id: str, operation: str, target: str, preview: Dict[str, Any], payload: Optional[Dict[str, Any]] = None, requested_by: str = "user") -> Dict[str, Any]:
+    record = {
+        "id": str(uuid.uuid4()),
+        "task_id": task_id,
+        "agent_id": agent_id,
+        "operation": operation,
+        "target": target,
+        "payload": payload or {},
+        "preview": preview,
+        "requested_by": requested_by,
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    approvals = _read_json(MAMMOTH_DIR / "approvals.json", default=[])
+    approvals.append(record)
+    _write_json(MAMMOTH_DIR / "approvals.json", approvals)
+    return record
+
+
+def _build_operation_preview(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    file_path = str(payload.get("file_path", "") or "").strip()
+    if operation == "create_file":
+        return {
+            "summary": "Create file",
+            "file_path": file_path,
+            "content_preview": str(payload.get("content", "") or "")[:400],
+        }
+    if operation == "write_file":
+        return {
+            "summary": "Overwrite file",
+            "file_path": file_path,
+            "content_preview": str(payload.get("content", "") or "")[:400],
+        }
+    if operation == "apply_patch":
+        return {
+            "summary": "Replace file contents",
+            "file_path": file_path,
+            "content_preview": str(payload.get("new_content", "") or "")[:400],
+        }
+    if operation == "insert_after":
+        return {
+            "summary": "Insert after anchor",
+            "file_path": file_path,
+            "anchor": str(payload.get("anchor", "") or "")[:120],
+            "content_preview": str(payload.get("content", "") or "")[:200],
+        }
+    return {"summary": "File operation", "file_path": file_path}
+
+
+def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    operation = str(record.get("operation", "")).strip()
+    payload = record.get("payload") or {}
+    if operation in {"create_file", "write_file", "apply_patch", "insert_after"}:
+        return _run_file_operation(operation, payload)
+    return {"status": "error", "message": f"Unsupported approval operation {operation!r}"}
+
+
+def _approve_record(record_id: str) -> Dict[str, Any]:
+    approvals = _read_json(MAMMOTH_DIR / "approvals.json", default=[])
+    updated = None
+    for item in approvals:
+        if item.get("id") == record_id:
+            if item.get("status") == "approved":
+                return {"status": "ok", "approval": item, "result": item.get("last_result")}
+            item["status"] = "approved"
+            item["approved_at"] = datetime.now(timezone.utc).isoformat()
+            updated = item
+            break
+    if updated is None:
+        return {"status": "error", "message": "approval not found"}
+    result = _execute_approval_record(updated)
+    updated["last_result"] = result
+    updated["completed_at"] = datetime.now(timezone.utc).isoformat()
+    _write_json(MAMMOTH_DIR / "approvals.json", approvals)
+    return {"status": "ok", "approval": updated, "result": result}
+
+
+def _load_approvals() -> List[Dict[str, Any]]:
+    return _read_json(MAMMOTH_DIR / "approvals.json", default=[])
+
+
+def _load_tasks() -> List[Dict[str, Any]]:
+    return _read_json(TASKS_FILE)
+
+
+def _save_tasks(tasks: List[Dict[str, Any]]):
+    _write_json(TASKS_FILE, tasks)
+
+
+def _upsert_task(task_id: str, title: str, *, status: str = "queued", agent_id: str = "", description: str = "", details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    tasks = _load_tasks()
+    now = datetime.now(timezone.utc).isoformat()
+    existing = next((t for t in tasks if t.get("id") == task_id), None)
+    task = {
+        "id": task_id,
+        "title": title,
+        "status": status,
+        "agent_id": agent_id,
+        "description": description,
+        "details": details or {},
+        "updated_at": now,
+        "created_at": existing.get("created_at") if existing else now,
+    }
+    if existing:
+        task["created_at"] = existing.get("created_at") or now
+        tasks = [t for t in tasks if t.get("id") != task_id]
+    tasks.append(task)
+    _save_tasks(tasks)
+    return task
 
 
 def _read_env_vars() -> Dict[str, str]:
@@ -179,7 +318,7 @@ except Exception as _e:
     _engine_registry_err = str(_e)
 
 try:
-    from mammoth_os.agent_registry import agent_registry, AgentStatus
+    from mammoth_os.agent_registry import agent_registry, AgentStatus, AGENTS
     _agent_registry_ok = True
 except Exception as _e:
     _agent_registry_ok = False
@@ -372,6 +511,161 @@ async def get_models():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# /api/activity + /api/tasks
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/activity")
+async def get_activity():
+    return _load_activity_events()
+
+
+@app.post("/api/activity")
+async def add_activity(body: Dict[str, Any]):
+    return _append_activity(
+        str(body.get("message", "")),
+        agent_id=str(body.get("agent_id", "") or ""),
+        task_id=str(body.get("task_id", "") or ""),
+        kind=str(body.get("kind", "event") or "event"),
+        details=body.get("details") or {},
+    )
+
+
+@app.get("/api/tasks")
+async def get_tasks():
+    return _load_tasks()
+
+
+@app.post("/api/tasks")
+async def upsert_task(body: Dict[str, Any]):
+    task_id = str(body.get("id") or "").strip() or f"task-{uuid.uuid4().hex[:8]}"
+    return _upsert_task(
+        task_id,
+        str(body.get("title", "Untitled task")),
+        status=str(body.get("status", "queued") or "queued"),
+        agent_id=str(body.get("agent_id", "") or ""),
+        description=str(body.get("description", "") or ""),
+        details=body.get("details") or {},
+    )
+
+
+_INTENT_TO_AGENT_ID = {
+    "plant_seed": "plant_the_seed_agent",
+    "field_ops": "field_ops_agent",
+    "market_intel": "market_intel_agent",
+    "reflection": "reflection_agent",
+    "brand_voice": "brand_voice_agent",
+    "research_curriculum": "research_agent",
+    "research_survival": "research_agent",
+    "research_plants": "research_agent",
+    "compare_gear": "research_agent",
+    "summarize": "research_agent",
+}
+
+_AGENT_ID_TO_RUNTIME = {
+    "plant_the_seed_agent": "plant_the_seed",
+    "field_ops_agent": "field_ops",
+    "market_intel_agent": "market_intel",
+    "reflection_agent": "reflection",
+    "brand_voice_agent": "brand_voice",
+    "research_agent": "research",
+    "coding_agent": "coding",
+    "community_engine_agent": "community_engine",
+    "custodial_agent": "custodial",
+}
+
+
+def _agent_id_from_intent(intent: str) -> str:
+    return _INTENT_TO_AGENT_ID.get(str(intent or "").strip(), "")
+
+
+def _runtime_agent_name(intent: str, selected_agent_id: str) -> str:
+    if selected_agent_id and selected_agent_id in _AGENT_ID_TO_RUNTIME:
+        return _AGENT_ID_TO_RUNTIME[selected_agent_id]
+    inferred = _agent_id_from_intent(intent)
+    if inferred:
+        return _AGENT_ID_TO_RUNTIME.get(inferred, "")
+    return ""
+
+
+def _parse_coding_operation(payload: Dict[str, Any], prompt_text: str) -> tuple[str, Dict[str, Any]]:
+    if isinstance(payload, dict):
+        op = str(payload.get("operation", "")).strip().lower()
+        file_path = str(payload.get("file_path", "")).strip()
+        if op in {"create_file", "write_file", "apply_patch"} and file_path:
+            if op == "apply_patch":
+                content = str(payload.get("new_content", ""))
+                return op, {"file_path": file_path, "new_content": content}
+            content = str(payload.get("content", ""))
+            return op, {"file_path": file_path, "content": content}
+        if op == "insert_after" and file_path:
+            anchor = str(payload.get("anchor", ""))
+            content = str(payload.get("content", ""))
+            if anchor and content:
+                return op, {"file_path": file_path, "anchor": anchor, "content": content}
+
+    first, sep, rest = prompt_text.partition("\n")
+    first = first.strip()
+    if first.startswith("/create "):
+        fp = first[len("/create "):].strip()
+        return "create_file", {"file_path": fp, "content": rest if sep else ""}
+    if first.startswith("/write "):
+        fp = first[len("/write "):].strip()
+        return "write_file", {"file_path": fp, "content": rest if sep else ""}
+    if first.startswith("/patch "):
+        fp = first[len("/patch "):].strip()
+        return "apply_patch", {"file_path": fp, "new_content": rest if sep else ""}
+    if first.startswith("/insert "):
+        fp = first[len("/insert "):].strip()
+        marker = "\n---\n"
+        if marker in rest:
+            anchor, content = rest.split(marker, 1)
+            if fp and anchor.strip() and content:
+                return "insert_after", {"file_path": fp, "anchor": anchor.strip(), "content": content}
+
+    return "", {}
+
+
+def _insert_after_content(file_path: str, anchor: str, content: str) -> Dict[str, Any]:
+    target = Path(file_path)
+    if not target.is_absolute():
+        target = ROOT / file_path
+    if not target.exists():
+        return {"status": "error", "message": f"File not found: {file_path}"}
+    current = target.read_text(encoding="utf-8")
+    idx = current.find(anchor)
+    if idx < 0:
+        return {"status": "error", "message": "Anchor text not found", "path": str(target)}
+    insert_at = idx + len(anchor)
+    # Always insert on its own line
+    safe_content = content if content.startswith("\n") else "\n" + content
+    if not safe_content.endswith("\n"):
+        safe_content = safe_content + "\n"
+    updated = current[:insert_at] + safe_content + current[insert_at:]
+    target.write_text(updated, encoding="utf-8")
+    return {"status": "success", "action": "insert_after", "path": str(target)}
+
+
+_SAFE_EXTENSIONS = {".py", ".md", ".txt", ".json", ".yaml", ".yml", ".env", ".sh", ".bat", ".ps1", ".toml", ".cfg", ".ini", ".csv", ".jsx", ".tsx", ".ts", ".js", ".css"}
+
+
+def _run_file_operation(operation: str, op_payload: Dict[str, Any]) -> Dict[str, Any]:
+    file_path = str(op_payload.get("file_path", "")).strip()
+    if file_path:
+        ext = Path(file_path).suffix.lower()
+        if ext not in _SAFE_EXTENSIONS:
+            return {"status": "error", "message": f"Extension {ext!r} not in safe-write list. Add it to _SAFE_EXTENSIONS if intentional."}
+    if operation == "insert_after":
+        return _insert_after_content(
+            file_path,
+            str(op_payload.get("anchor", "")),
+            str(op_payload.get("content", "")),
+        )
+    from mammoth_os.agents.autonomous_engine import AutonomousEngine
+    engine = AutonomousEngine()
+    return engine.run_task(operation, op_payload)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # /api/run
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -381,9 +675,25 @@ async def run_agent(body: Dict[str, Any]):
     payload = body.get("payload", {})
     temperature = body.get("temperature", 0.7)
     requested_agent_id = str(body.get("agent_id", "")).strip()
-    # Intent mapping takes priority — the CortexRouter picks the real agent.
-    # UI dropdown selection is a hint only; ignore it for status tracking.
-    tracked_agent_id = _agent_id_from_intent(intent) or requested_agent_id
+    tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
+    prompt_text = str(payload.get("prompt", "") or "").strip()
+    approval_mode = bool(body.get("approval_mode") or payload.get("approval_mode") or payload.get("preview_only"))
+    task_id = f"task-{uuid.uuid4().hex[:8]}"
+    task = _upsert_task(
+        task_id,
+        f"{intent or 'agent'} run",
+        status="active",
+        agent_id=tracked_agent_id,
+        description=prompt_text or "Agent execution started",
+        details={"intent": intent, "temperature": temperature, "approval_mode": approval_mode},
+    )
+    _append_activity(
+        f"Started task for {intent or 'agent'}",
+        agent_id=tracked_agent_id,
+        task_id=task_id,
+        kind="task_started",
+        details={"prompt": prompt_text[:220], "temperature": temperature, "approval_mode": approval_mode},
+    )
 
     manifest = None
     if _agent_registry_ok and tracked_agent_id:
@@ -396,19 +706,100 @@ async def run_agent(body: Dict[str, Any]):
             manifest = None
 
     try:
-        from mammoth_os.cortex.router import CortexRouter
-        router = CortexRouter()
-        result = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: router.route(intent, payload)
-        )
+        runtime_agent = _runtime_agent_name(intent, tracked_agent_id)
+        coding_op, coding_payload = _parse_coding_operation(payload if isinstance(payload, dict) else {}, prompt_text)
+        if runtime_agent == "coding" and coding_op:
+            if approval_mode:
+                preview = _build_operation_preview(coding_op, coding_payload)
+                approval = _create_approval_record(
+                    task_id,
+                    agent_id=tracked_agent_id or "coding_agent",
+                    operation=coding_op,
+                    target=str(coding_payload.get("file_path", "")) or "unknown",
+                    preview=preview,
+                    payload=coding_payload,
+                    requested_by="user",
+                )
+                _upsert_task(
+                    task_id,
+                    task["title"],
+                    status="pending_approval",
+                    agent_id=tracked_agent_id,
+                    description=prompt_text or "Approval required for file change",
+                    details={"intent": intent, "temperature": temperature, "approval_id": approval["id"]},
+                )
+                _append_activity(
+                    f"Requested approval for {coding_op}",
+                    agent_id=tracked_agent_id,
+                    task_id=task_id,
+                    kind="approval_requested",
+                    details={"approval_id": approval["id"], "target": approval["target"]},
+                )
+                result = {
+                    "status": "pending_approval",
+                    "runtime_agent": runtime_agent,
+                    "operation": coding_op,
+                    "approval": approval,
+                    "preview": preview,
+                }
+            else:
+                raw_result = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: _run_file_operation(coding_op, coding_payload)
+                )
+                result = {
+                    "status": "ok",
+                    "runtime_agent": runtime_agent,
+                    "operation": coding_op,
+                    "output": raw_result,
+                }
+        elif runtime_agent and _agent_registry_ok and runtime_agent in AGENTS:
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine"}
+            if runtime_agent in payload_agents:
+                payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
+                if prompt_text and not payload_for_agent.get("topic"):
+                    payload_for_agent["topic"] = prompt_text
+            else:
+                payload_for_agent = prompt_text or json.dumps(payload)
+
+            raw_result = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: AGENTS[runtime_agent](payload_for_agent)
+            )
+            result = {
+                "status": "ok",
+                "runtime_agent": runtime_agent,
+                "output": raw_result,
+            }
+        else:
+            from mammoth_os.cortex.router import CortexRouter
+            router = CortexRouter()
+            result = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: router.route(intent, payload)
+            )
 
         if manifest:
-            # Keep ACTIVE briefly so polling UIs can observe the transition.
             await asyncio.sleep(1.2)
             manifest.status = AgentStatus.IDLE
             manifest.last_heartbeat = datetime.now(timezone.utc)
             manifest.metadata["last_intent"] = intent
             manifest.metadata["last_run_at"] = datetime.now(timezone.utc).isoformat()
+
+        task_status = "completed" if result.get("status") != "pending_approval" else "pending_approval"
+        _upsert_task(
+            task_id,
+            task["title"],
+            status=task_status,
+            agent_id=tracked_agent_id,
+            description=prompt_text or "Agent execution completed",
+            details={"intent": intent, "temperature": temperature, "result": str(result)[:1000]},
+        )
+        if task_status == "completed":
+            _append_activity(
+                f"Completed task for {intent or 'agent'}",
+                agent_id=tracked_agent_id,
+                task_id=task_id,
+                kind="task_completed",
+                details={"result": str(result)[:1000]},
+            )
 
         return {
             "status": "ok",
@@ -416,6 +807,7 @@ async def run_agent(body: Dict[str, Any]):
             "intent": intent,
             "agent_id": tracked_agent_id,
             "temperature": temperature,
+            "task_id": task_id,
         }
     except Exception as e:
         if manifest:
@@ -423,11 +815,28 @@ async def run_agent(body: Dict[str, Any]):
             manifest.last_heartbeat = datetime.now(timezone.utc)
             manifest.metadata["last_error"] = str(e)
 
+        _upsert_task(
+            task_id,
+            task["title"],
+            status="failed",
+            agent_id=tracked_agent_id,
+            description=prompt_text or "Agent execution failed",
+            details={"intent": intent, "temperature": temperature, "error": str(e)[:1000]},
+        )
+        _append_activity(
+            f"Failed task for {intent or 'agent'}",
+            agent_id=tracked_agent_id,
+            task_id=task_id,
+            kind="task_failed",
+            details={"error": str(e)[:1000]},
+        )
+
         return {
             "status": "error",
             "error": str(e),
             "intent": intent,
             "agent_id": tracked_agent_id,
+            "task_id": task_id,
         }
 
 
@@ -446,6 +855,71 @@ def _load_atlas_state() -> Dict[str, Any]:
 
 def _save_atlas_state(state: Dict[str, Any]):
     ATLAS_FILE.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+
+
+def _append_lesson_history(state: Dict[str, Any], lesson: Dict[str, Any], exercise: Dict[str, Any]):
+    history = state.get("lesson_history") or []
+    if not isinstance(history, list):
+        history = []
+    entry = {
+        "lesson_id": lesson.get("lesson_id"),
+        "lesson": lesson,
+        "exercise": exercise,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if not history or history[-1].get("lesson_id") != entry["lesson_id"]:
+        history.append(entry)
+    state["lesson_history"] = history[-80:]
+
+
+def _build_lesson_recap(state: Dict[str, Any]) -> str:
+    lesson = state.get("current_lesson") or {}
+    exercise = state.get("current_exercise") or {}
+    submission = state.get("last_submission") or {}
+    objectives = lesson.get("objectives") or []
+    title = lesson.get("title") or "Current lesson"
+    prompt = exercise.get("prompt") or ""
+    status = "passed" if submission.get("passed") else "in progress"
+    return (
+        f"Lesson recap: {title}.\n"
+        f"Objectives: {objectives}.\n"
+        f"Current exercise: {prompt}\n"
+        f"Latest submission status: {status}."
+    )
+
+
+def _build_lesson_quiz(state: Dict[str, Any]) -> List[Dict[str, Any]]:
+    lesson = state.get("current_lesson") or {}
+    objectives = lesson.get("objectives") or []
+    prompt = (state.get("current_exercise") or {}).get("prompt") or ""
+    questions: List[Dict[str, Any]] = []
+    for idx, obj in enumerate(objectives[:3], start=1):
+        questions.append({
+            "id": f"q{idx}",
+            "question": f"Explain this objective in your own words: {obj}",
+            "type": "short_answer",
+        })
+    if len(questions) < 3:
+        questions.append({
+            "id": f"q{len(questions)+1}",
+            "question": f"What would be your plan to solve this exercise: {prompt}",
+            "type": "short_answer",
+        })
+    return questions[:3]
+
+
+def _build_lesson_review(state: Dict[str, Any]) -> Dict[str, Any]:
+    submission = state.get("last_submission") or {}
+    passed = bool(submission.get("passed"))
+    hint = submission.get("hint") or "No submission feedback yet."
+    return {
+        "strengths": ["Consistent lesson activity"] if passed else ["You are actively iterating"],
+        "focus_next": [
+            "Tighten function return values against test expectations",
+            "Run one quick self-check before submitting",
+        ] if not passed else ["Increase challenge difficulty", "Try refactoring the passing solution"],
+        "coach_note": hint,
+    }
 
 
 @app.get("/api/atlas/status")
@@ -473,6 +947,7 @@ async def atlas_lesson(body: Dict[str, Any]):
             "lesson_id":        session._lesson_id,
             "updated_at":       datetime.now(timezone.utc).isoformat(),
         })
+        _append_lesson_history(state, session.current_lesson or {}, exercise or {})
         _save_atlas_state(state)
         return {"status": "ok", "exercise": exercise}
     except Exception as e:
@@ -530,6 +1005,7 @@ async def atlas_next():
                         # Keep session moving even if exercise generation fails.
                         pass
                     state["updated_at"]     = datetime.now(timezone.utc).isoformat()
+                    _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
                     _save_atlas_state(state)
                     return {"status": "ok", "lesson": mod["lessons"][next_i]}
                 break
@@ -537,6 +1013,101 @@ async def atlas_next():
             break
 
     return {"status": "ok", "message": "No more lessons in current module"}
+
+
+@app.post("/api/atlas/back")
+async def atlas_back():
+    state = _load_atlas_state()
+    history = state.get("lesson_history") or []
+    if not isinstance(history, list) or len(history) < 2:
+        return {"status": "ok", "message": "No previous lesson to return to."}
+    history.pop()
+    previous = history[-1]
+    state["lesson_history"] = history
+    state["current_lesson"] = previous.get("lesson") or {}
+    state["lesson_id"] = previous.get("lesson_id")
+    state["current_exercise"] = previous.get("exercise") or {}
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "lesson": state.get("current_lesson"), "exercise": state.get("current_exercise")}
+
+
+@app.get("/api/atlas/recap")
+async def atlas_recap():
+    state = _load_atlas_state()
+    return {"status": "ok", "recap": _build_lesson_recap(state)}
+
+
+@app.get("/api/atlas/quiz")
+async def atlas_quiz():
+    state = _load_atlas_state()
+    return {"status": "ok", "quiz": _build_lesson_quiz(state)}
+
+
+@app.get("/api/atlas/review")
+async def atlas_review():
+    state = _load_atlas_state()
+    return {"status": "ok", "review": _build_lesson_review(state)}
+
+
+@app.get("/api/approvals")
+async def get_approvals():
+    return _load_approvals()
+
+
+@app.post("/api/approvals/{record_id}/approve")
+async def approve_record_route(record_id: str):
+    return _approve_record(record_id)
+
+
+@app.post("/api/atlas/apply")
+async def atlas_apply(body: Dict[str, Any]):
+    operation = str(body.get("operation", "")).strip().lower()
+    file_path = str(body.get("file_path", "")).strip()
+    if operation not in {"create_file", "write_file", "apply_patch", "insert_after"}:
+        return {"status": "error", "error": "Unsupported operation"}
+    if not file_path:
+        return {"status": "error", "error": "file_path is required"}
+
+    payload: Dict[str, Any] = {"file_path": file_path}
+    if operation == "apply_patch":
+        payload["new_content"] = str(body.get("new_content", ""))
+    elif operation == "insert_after":
+        payload["anchor"] = str(body.get("anchor", ""))
+        payload["content"] = str(body.get("content", ""))
+    else:
+        payload["content"] = str(body.get("content", ""))
+
+    approval_mode = bool(body.get("approval_mode") or body.get("preview_only"))
+    if approval_mode:
+        preview = _build_operation_preview(operation, payload)
+        approval = _create_approval_record(
+            f"atlas-{uuid.uuid4().hex[:8]}",
+            agent_id="tutor_agent",
+            operation=operation,
+            target=file_path,
+            preview=preview,
+            payload=payload,
+            requested_by="user",
+        )
+        _append_activity(
+            f"ATLAS approval requested: {operation}",
+            agent_id="tutor_agent",
+            kind="atlas_apply",
+            details={"file_path": file_path, "approval_id": approval["id"]},
+        )
+        return {"status": "ok", "operation": operation, "approval": approval, "preview": preview}
+
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, lambda: _run_file_operation(operation, payload)
+    )
+    _append_activity(
+        f"ATLAS apply operation: {operation}",
+        agent_id="tutor_agent",
+        kind="atlas_apply",
+        details={"file_path": file_path, "result": result},
+    )
+    return {"status": "ok", "operation": operation, "result": result}
 
 
 @app.post("/api/atlas/reset")
@@ -943,6 +1514,5 @@ async def terminal_ws(ws: WebSocket):
 
     except WebSocketDisconnect:
         pass
-
 
 

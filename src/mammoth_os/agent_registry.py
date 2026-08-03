@@ -162,7 +162,7 @@ def load_agent(agent_name: str, router=None):
 
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
-        return ResearchAgent()  # type: ignore
+        return ResearchAgent(router)  # type: ignore
 
     if agent_name == "coding":
         from mammoth_os.agents.coding_agent import CodingAgent

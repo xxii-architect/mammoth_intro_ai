@@ -20,6 +20,18 @@ const INTENT_TO_AGENT = {
   summarize:           'research_agent',
 }
 
+const AGENT_TO_INTENT = {
+  plant_the_seed_agent: 'plant_seed',
+  field_ops_agent:      'field_ops',
+  market_intel_agent:   'market_intel',
+  reflection_agent:     'reflection',
+  brand_voice_agent:    'brand_voice',
+  research_agent:       'research_curriculum',
+  coding_agent:         'summarize',
+  community_engine_agent: 'summarize',
+  custodial_agent:      'summarize',
+}
+
 export default function AgentPage() {
   const [agents, setAgents] = useState([])
   const [selectedAgent, setSelected] = useState('')
@@ -29,12 +41,17 @@ export default function AgentPage() {
   const [output, setOutput] = useState(null)
   const [running, setRunning] = useState(false)
   const [archOpen, setArchOpen] = useState(false)
+  const [activity, setActivity] = useState([])
+  const [tasks, setTasks] = useState([])
+  const [approvals, setApprovals] = useState([])
+  const [agentPinned, setAgentPinned] = useState(false)
+  const [approvalMode, setApprovalMode] = useState(true)
 
   const refreshAgents = async () => {
     try {
       const a = await api('/agents')
       setAgents(a)
-      if (!selectedAgent && a.length) {
+      if ((!selectedAgent || !a.some(x => x.id === selectedAgent)) && a.length) {
         const mapped = INTENT_TO_AGENT[intent]
         const match = mapped ? a.find(x => x.id === mapped) : null
         setSelected(match ? match.id : a[0].id)
@@ -42,16 +59,53 @@ export default function AgentPage() {
     } catch (_) {}
   }
 
+  const refreshTimeline = async () => {
+    try {
+      const [feed, taskList] = await Promise.all([api('/activity'), api('/tasks')])
+      setActivity((feed || []).slice(-8).reverse())
+      setTasks((taskList || []).slice(-8).reverse())
+    } catch (_) {}
+  }
+
+  const refreshApprovals = async () => {
+    try {
+      const list = await api('/approvals')
+      setApprovals(list || [])
+    } catch (_) {}
+  }
+
+  const approveApproval = async (approvalId) => {
+    try {
+      await api(`/approvals/${approvalId}/approve`, { method: 'POST' })
+      await refreshApprovals()
+      await refreshTimeline()
+    } catch (_) {}
+  }
+
   useEffect(() => {
     refreshAgents()
-    const t = setInterval(refreshAgents, 1200)
+    refreshTimeline()
+    refreshApprovals()
+    const t = setInterval(() => {
+      refreshAgents()
+      refreshTimeline()
+      refreshApprovals()
+    }, 2200)
     return () => clearInterval(t)
-  }, [selectedAgent, intent])
+  }, [selectedAgent, intent, agentPinned])
 
   const chooseIntent = (i) => {
     setIntent(i)
+    setAgentPinned(false)
     const mapped = INTENT_TO_AGENT[i]
     if (mapped) setSelected(mapped)
+  }
+
+  const chooseAgent = (agentId) => {
+    setAgentPinned(true)
+    setSelected(agentId)
+    const mappedIntent = AGENT_TO_INTENT[agentId]
+    if (mappedIntent) setIntent(mappedIntent)
   }
 
   const run = async () => {
@@ -62,14 +116,14 @@ export default function AgentPage() {
     try {
       const res = await api('/run', {
         method: 'POST',
-        body: { intent, payload: { prompt }, temperature, agent_id: selectedAgent },
+        body: { intent, payload: { prompt }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
       })
       setOutput(JSON.stringify(res, null, 2))
     } catch (e) {
       setOutput(`Error: ${e.message}`)
     } finally {
       setRunning(false)
-      await refreshAgents()
+      await Promise.all([refreshAgents(), refreshTimeline()])
     }
   }
 
@@ -85,7 +139,7 @@ export default function AgentPage() {
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <label style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Agent</label>
-                <select className="filter-select" value={selectedAgent} onChange={e => setSelected(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.82rem' }}>
+                <select className="filter-select" value={selectedAgent} onChange={e => chooseAgent(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.82rem' }}>
                   {agents.length ? agents.map(a => (
                     <option key={a.id} value={a.id}>{a.name} ({(running && a.id === selectedAgent) || a.status === 'ACTIVE' ? 'ACTIVE' : a.status})</option>
                   )) : <option>Loading agents…</option>}
@@ -98,6 +152,10 @@ export default function AgentPage() {
                   style={{ width: 80, accentColor: 'var(--photon)' }} />
                 <span style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--photon)' }}>{temperature.toFixed(1)}</span>
               </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.72rem', color: 'var(--txt-sec)' }}>
+                <input type="checkbox" checked={approvalMode} onChange={e => setApprovalMode(e.target.checked)} />
+                Preview first
+              </label>
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -179,6 +237,42 @@ export default function AgentPage() {
                 ))}
               </div>
             )}
+
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Task Queue</p>
+              {tasks.length ? tasks.map(task => (
+                <div key={task.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.76rem' }}>{task.title}</span>
+                    <span style={{ fontSize: '0.67rem', textTransform: 'uppercase', color: task.status === 'completed' ? '#22c55e' : task.status === 'failed' ? '#f87171' : 'var(--photon)', fontFamily: 'JetBrains Mono,monospace' }}>{task.status}</span>
+                  </div>
+                  {task.description ? <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{task.description}</div> : null}
+                </div>
+              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No tasks yet.</div>}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Pending Approvals</p>
+              {approvals.filter(a => a.status === 'pending').length ? approvals.filter(a => a.status === 'pending').map(approval => (
+                <div key={approval.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{approval.operation}</span>
+                    <button onClick={() => approveApproval(approval.id)} style={{ background: 'var(--photon)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Approve</button>
+                  </div>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
+                </div>
+              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No pending approvals.</div>}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Live Activity</p>
+              {activity.length ? activity.map(entry => (
+                <div key={entry.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ color: 'var(--txt-pri)', fontSize: '0.74rem', lineHeight: 1.5 }}>{entry.message}</div>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.66rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>{entry.agent_id || 'system'} • {new Date(entry.created_at).toLocaleTimeString()}</div>
+                </div>
+              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No activity yet.</div>}
+            </div>
           </div>
         </div>
       </div>

@@ -13,6 +13,7 @@ export default function AtlasTutorPage() {
   const [chatBusy, setChatBusy]     = useState(false)
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
+  const [studyAid, setStudyAid]     = useState(null)
   const chatBottomRef = useRef(null)
 
   const loadState = async () => {
@@ -79,8 +80,47 @@ export default function AtlasTutorPage() {
       await loadState()
       setResult(null)
       setCode('')
+      setStudyAid(null)
     } catch (_) {}
     setLoading(false)
+  }
+
+  const prevLesson = async () => {
+    setLoading(true)
+    try {
+      await api('/atlas/back', { method: 'POST', body: {} })
+      await loadState()
+      setResult(null)
+      setStudyAid(null)
+    } catch (_) {}
+    setLoading(false)
+  }
+
+  const loadRecap = async () => {
+    try {
+      const res = await api('/atlas/recap')
+      setStudyAid({ type: 'recap', data: res.recap })
+    } catch (e) {
+      setStudyAid({ type: 'recap', data: `Error: ${e.message}` })
+    }
+  }
+
+  const loadQuiz = async () => {
+    try {
+      const res = await api('/atlas/quiz')
+      setStudyAid({ type: 'quiz', data: res.quiz || [] })
+    } catch (e) {
+      setStudyAid({ type: 'quiz', data: [{ question: `Error: ${e.message}` }] })
+    }
+  }
+
+  const loadReview = async () => {
+    try {
+      const res = await api('/atlas/review')
+      setStudyAid({ type: 'review', data: res.review || {} })
+    } catch (e) {
+      setStudyAid({ type: 'review', data: { coach_note: `Error: ${e.message}` } })
+    }
   }
 
   const sendChat = async () => {
@@ -185,6 +225,10 @@ export default function AtlasTutorPage() {
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--photon)', color: '#050608', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
                     <Send size={13} /> {loading ? 'Submitting…' : 'Submit'}
                   </button>
+                  <button onClick={prevLesson} disabled={loading}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.8rem', cursor: 'pointer' }}>
+                    Back
+                  </button>
                   <button onClick={nextLesson} disabled={loading}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.8rem', cursor: 'pointer' }}>
                     <ChevronRight size={13} /> Next
@@ -195,6 +239,35 @@ export default function AtlasTutorPage() {
                 placeholder="Write your Python solution here…"
                 style={{ flex: 1, minHeight: 200, background: 'rgba(5,6,8,0.8)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: '#4ade80', resize: 'vertical', outline: 'none', boxSizing: 'border-box', width: '100%' }} />
             </div>
+
+            <div className="glass-card-solid" style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button onClick={loadRecap} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Recap</button>
+              <button onClick={loadQuiz} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Quiz</button>
+              <button onClick={loadReview} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Review</button>
+            </div>
+
+            {studyAid && (
+              <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0 }}>
+                <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>
+                  {studyAid.type === 'recap' ? 'Lesson Recap' : studyAid.type === 'quiz' ? 'Quick Quiz' : 'Coach Review'}
+                </p>
+                {studyAid.type === 'quiz' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {(studyAid.data || []).map((q, i) => (
+                      <p key={i} style={{ margin: 0, color: 'var(--txt-pri)', fontSize: '0.8rem' }}>{i + 1}. {q.question || String(q)}</p>
+                    ))}
+                  </div>
+                ) : studyAid.type === 'review' ? (
+                  <div style={{ color: 'var(--txt-pri)', fontSize: '0.8rem', lineHeight: 1.5 }}>
+                    <p style={{ margin: '0 0 6px 0' }}><strong>Strengths:</strong> {Array.isArray(studyAid.data?.strengths) ? studyAid.data.strengths.join(', ') : ''}</p>
+                    <p style={{ margin: '0 0 6px 0' }}><strong>Focus next:</strong> {Array.isArray(studyAid.data?.focus_next) ? studyAid.data.focus_next.join(', ') : ''}</p>
+                    <p style={{ margin: 0 }}><strong>Coach note:</strong> {studyAid.data?.coach_note || ''}</p>
+                  </div>
+                ) : (
+                  <p style={{ margin: 0, color: 'var(--txt-pri)', fontSize: '0.8rem', lineHeight: 1.5 }}>{String(studyAid.data || '')}</p>
+                )}
+              </div>
+            )}
 
             {result && (
               <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0, borderLeft: `3px solid ${result.passed ? '#22c55e' : '#ef4444'}` }}>

@@ -1,0 +1,1 @@
+export default function AtlasGeneratedNote(){ return <div>ATLAS created this.</div> }

@@ -1,0 +1,422 @@
+[
+  {
+    "id": "task-bb9f278d",
+    "title": "field_ops run",
+    "status": "completed",
+    "agent_id": "plant_the_seed_agent",
+    "description": "Agent execution completed",
+    "details": {
+      "intent": "field_ops",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'field_ops'\"}"
+    },
+    "updated_at": "2026-08-03T07:08:30.460318+00:00",
+    "created_at": "2026-08-03T07:08:29.243438+00:00"
+  },
+  {
+    "id": "task-e1a6b5e2",
+    "title": "field_ops run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "Agent execution completed",
+    "details": {
+      "intent": "field_ops",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'field_ops'\"}"
+    },
+    "updated_at": "2026-08-03T07:11:05.683065+00:00",
+    "created_at": "2026-08-03T07:11:04.468699+00:00"
+  },
+  {
+    "id": "task-a81ab3aa",
+    "title": "plant_seed run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "Agent execution completed",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'plant_the_seed'\"}"
+    },
+    "updated_at": "2026-08-03T07:11:21.917256+00:00",
+    "created_at": "2026-08-03T07:11:20.706173+00:00"
+  },
+  {
+    "id": "task-723fc63b",
+    "title": "plant_seed run",
+    "status": "completed",
+    "agent_id": "brand_voice_agent",
+    "description": "Agent execution completed",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'plant_the_seed'\"}"
+    },
+    "updated_at": "2026-08-03T07:11:32.602568+00:00",
+    "created_at": "2026-08-03T07:11:31.390838+00:00"
+  },
+  {
+    "id": "task-b2a0a49e",
+    "title": "plant_seed run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "Agent execution completed",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'plant_the_seed'\"}"
+    },
+    "updated_at": "2026-08-03T07:15:29.256227+00:00",
+    "created_at": "2026-08-03T07:15:28.035988+00:00"
+  },
+  {
+    "id": "task-8f710bab",
+    "title": "plant_seed run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "Run pwd and git status and summarize what you find.",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'plant_the_seed'\"}"
+    },
+    "updated_at": "2026-08-03T07:15:31.972354+00:00",
+    "created_at": "2026-08-03T07:15:30.760172+00:00"
+  },
+  {
+    "id": "task-6b8ae9e0",
+    "title": "field_ops run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "Inspect the UI project and run npm run build in ui/mad-architecht-command-center, then report the result.",
+    "details": {
+      "intent": "field_ops",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'field_ops'\"}"
+    },
+    "updated_at": "2026-08-03T07:16:40.248650+00:00",
+    "created_at": "2026-08-03T07:16:39.020059+00:00"
+  },
+  {
+    "id": "task-d974e03e",
+    "title": "field_ops run",
+    "status": "completed",
+    "agent_id": "curriculum_agent",
+    "description": "Agent execution completed",
+    "details": {
+      "intent": "field_ops",
+      "temperature": 0.7,
+      "result": "{'status': 'error', 'message': \"Unknown task 'field_ops'\"}"
+    },
+    "updated_at": "2026-08-03T07:38:42.707879+00:00",
+    "created_at": "2026-08-03T07:38:41.486376+00:00"
+  },
+  {
+    "id": "task-f57482c6",
+    "title": "plant_seed run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "analyze the codebase",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'output': '\ud83e\udde0 Codebase Analysis (keyword routed)\\n{\\n  \"summary\": {\\n    \"files\": 3304,\\n    \"lines\": 760641,\\n    \"functions\": 22485,\\n    \"classes\": 8444\\n  },\\n  \"todos\": [\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\typing_extensions.py\",\\n      \"line\": 3457,\\n      \"text\": \"# TODO: Use inspect.VALUE here, and make the annotations lazily evaluated\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 82,\\n      \"text\": \"# TODO: Drop the `hasattr()` once the minimum supported Python version\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 515,\\n      \"text\": \"# TODO: replace with `Default[U]` once the min Python version is >= 3.12\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\x509\\\\\\\\name.py\",\\n      \"line\": 368,\\n      \"text\": \"# TODO: this is relativ"
+    },
+    "updated_at": "2026-08-03T07:44:05.132553+00:00",
+    "created_at": "2026-08-03T07:43:16.685715+00:00"
+  },
+  {
+    "id": "task-bacb944c",
+    "title": "plant_seed run",
+    "status": "failed",
+    "agent_id": "plant_the_seed_agent",
+    "description": "quick smoke",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "error": "'str' object has no attribute 'get'"
+    },
+    "updated_at": "2026-08-03T07:44:21.272709+00:00",
+    "created_at": "2026-08-03T07:44:21.220730+00:00"
+  },
+  {
+    "id": "task-5a877078",
+    "title": "summarize run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "analyze codebase quickly",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'output': '\ud83e\udde0 Codebase Analysis (keyword routed)\\n{\\n  \"summary\": {\\n    \"files\": 3304,\\n    \"lines\": 760641,\\n    \"functions\": 22485,\\n    \"classes\": 8444\\n  },\\n  \"todos\": [\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\typing_extensions.py\",\\n      \"line\": 3457,\\n      \"text\": \"# TODO: Use inspect.VALUE here, and make the annotations lazily evaluated\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 82,\\n      \"text\": \"# TODO: Drop the `hasattr()` once the minimum supported Python version\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 515,\\n      \"text\": \"# TODO: replace with `Default[U]` once the min Python version is >= 3.12\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\x509\\\\\\\\name.py\",\\n      \"line\": 368,\\n      \"text\": \"# TODO: this is relativ"
+    },
+    "updated_at": "2026-08-03T07:44:34.081957+00:00",
+    "created_at": "2026-08-03T07:44:21.192184+00:00"
+  },
+  {
+    "id": "task-3ca60fb6",
+    "title": "plant_seed run",
+    "status": "completed",
+    "agent_id": "plant_the_seed_agent",
+    "description": "quick smoke",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'plant_the_seed', 'output': {'agent': 'plant_the_seed', 'topic': 'quick smoke', 'context': None, 'seed': 'Every skill in quick smoke starts as a single seed: consistency.', 'expansion': 'In quick smoke, small daily reps compound the same way survival habits do. You don\u2019t build mastery by waiting for perfect conditions \u2014 you build it by planting tiny seeds every day, even when the weather isn\u2019t ideal.', 'action': 'Write down one tiny quick smoke skill you can practice today. Make it so small you can\u2019t fail. That\u2019s your seed.'}}"
+    },
+    "updated_at": "2026-08-03T07:44:57.225378+00:00",
+    "created_at": "2026-08-03T07:44:55.960362+00:00"
+  },
+  {
+    "id": "task-276f487e",
+    "title": "plant_seed run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "analyze codebase quickly",
+    "details": {
+      "intent": "plant_seed",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'output': '\ud83e\udde0 Codebase Analysis (keyword routed)\\n{\\n  \"summary\": {\\n    \"files\": 3304,\\n    \"lines\": 760648,\\n    \"functions\": 22485,\\n    \"classes\": 8444\\n  },\\n  \"todos\": [\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\typing_extensions.py\",\\n      \"line\": 3457,\\n      \"text\": \"# TODO: Use inspect.VALUE here, and make the annotations lazily evaluated\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 82,\\n      \"text\": \"# TODO: Drop the `hasattr()` once the minimum supported Python version\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 515,\\n      \"text\": \"# TODO: replace with `Default[U]` once the min Python version is >= 3.12\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\x509\\\\\\\\name.py\",\\n      \"line\": 368,\\n      \"text\": \"# TODO: this is relativ"
+    },
+    "updated_at": "2026-08-03T07:45:17.862593+00:00",
+    "created_at": "2026-08-03T07:45:04.858081+00:00"
+  },
+  {
+    "id": "task-3d85a27e",
+    "title": "reflection run",
+    "status": "completed",
+    "agent_id": "reflection_agent",
+    "description": "analyze codebase quickly",
+    "details": {
+      "intent": "reflection",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'reflection', 'output': {'agent': 'reflection', 'timestamp': '2026-08-03T07:51:45.214639', 'topic': 'analyze codebase quickly', 'lesson_title': None, 'difficulty': 'medium', 'prompt': 'What is one thing about analyze codebase quickly that feels less intimidating now than it did yesterday?', 'insight': 'Steady progress in analyze codebase quickly is more important than perfect execution. Consistency beats intensity.', 'action': 'Write one sentence that captures what analyze codebase quickly taught you today. Keep it honest, simple, and grounded.'}}"
+    },
+    "updated_at": "2026-08-03T07:51:46.449587+00:00",
+    "created_at": "2026-08-03T07:51:45.204432+00:00"
+  },
+  {
+    "id": "task-87cdb535",
+    "title": "field_ops run",
+    "status": "completed",
+    "agent_id": "field_ops_agent",
+    "description": "analyze codebase quickly",
+    "details": {
+      "intent": "field_ops",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'field_ops', 'output': {'agent': 'field_ops', 'topic': 'general fieldcraft', 'environment': 'outdoors', 'difficulty': 'easy', 'mission': 'Head into the outdoors and complete a easy general fieldcraft exercise. Perform a practical field task and record observations that relate to real-world survival or outdoors skills.', 'skill_focus': 'General fieldcraft fundamentals', 'checklist': {'observation_made': False, 'notes_recorded': False, 'environment_assessed': False}}}"
+    },
+    "updated_at": "2026-08-03T07:52:34.143687+00:00",
+    "created_at": "2026-08-03T07:52:32.907528+00:00"
+  },
+  {
+    "id": "task-11c516ce",
+    "title": "field_ops run",
+    "status": "completed",
+    "agent_id": "reasoning_agent",
+    "description": "analyze codebase quickly",
+    "details": {
+      "intent": "field_ops",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'field_ops', 'output': {'agent': 'field_ops', 'topic': 'general fieldcraft', 'environment': 'outdoors', 'difficulty': 'easy', 'mission': 'Head into the outdoors and complete a easy general fieldcraft exercise. Perform a practical field task and record observations that relate to real-world survival or outdoors skills.', 'skill_focus': 'General fieldcraft fundamentals', 'checklist': {'observation_made': False, 'notes_recorded': False, 'environment_assessed': False}}}"
+    },
+    "updated_at": "2026-08-03T07:53:28.418478+00:00",
+    "created_at": "2026-08-03T07:53:27.213019+00:00"
+  },
+  {
+    "id": "task-b666d5d2",
+    "title": "research_curriculum run",
+    "status": "failed",
+    "agent_id": "research_agent",
+    "description": "help me understand how to: Implement a Python function called 'solution' that satisfies the objective(s): ['Understand Lesson 1 \u2014 Python Environment Setup', 'Apply lesson concepts in code']. Write a clear, well-tested implementation. with a function that gives a recap when returning to a lesson",
+    "details": {
+      "intent": "research_curriculum",
+      "temperature": 0.7,
+      "error": "ResearchAgent.__init__() missing 1 required positional argument: 'router'"
+    },
+    "updated_at": "2026-08-03T08:33:16.010230+00:00",
+    "created_at": "2026-08-03T08:33:15.984938+00:00"
+  },
+  {
+    "id": "task-58056206",
+    "title": "research_curriculum run",
+    "status": "failed",
+    "agent_id": "search_agent",
+    "description": "help me understand how to apply a recap for returning to a lesson",
+    "details": {
+      "intent": "research_curriculum",
+      "temperature": 1,
+      "error": "ResearchAgent.__init__() missing 1 required positional argument: 'router'"
+    },
+    "updated_at": "2026-08-03T08:43:35.149672+00:00",
+    "created_at": "2026-08-03T08:43:35.122416+00:00"
+  },
+  {
+    "id": "task-3f41d5bf",
+    "title": "field_ops run",
+    "status": "completed",
+    "agent_id": "curriculum_agent",
+    "description": "help me understand how to apply a recap for returning to a lesson",
+    "details": {
+      "intent": "field_ops",
+      "temperature": 1,
+      "result": "{'status': 'ok', 'runtime_agent': 'field_ops', 'output': {'agent': 'field_ops', 'topic': 'general fieldcraft', 'environment': 'outdoors', 'difficulty': 'easy', 'mission': 'Head into the outdoors and complete a easy general fieldcraft exercise. Perform a practical field task and record observations that relate to real-world survival or outdoors skills.', 'skill_focus': 'General fieldcraft fundamentals', 'checklist': {'observation_made': False, 'notes_recorded': False, 'environment_assessed': False}}}"
+    },
+    "updated_at": "2026-08-03T08:43:53.076285+00:00",
+    "created_at": "2026-08-03T08:43:51.861469+00:00"
+  },
+  {
+    "id": "task-e1e20578",
+    "title": "reflection run",
+    "status": "completed",
+    "agent_id": "curriculum_agent",
+    "description": "help me understand how to apply a recap for returning to a lesson",
+    "details": {
+      "intent": "reflection",
+      "temperature": 1,
+      "result": "{'status': 'ok', 'runtime_agent': 'reflection', 'output': {'agent': 'reflection', 'timestamp': '2026-08-03T08:44:01.056176', 'topic': 'help me understand how to apply a recap for returning to a lesson', 'lesson_title': None, 'difficulty': 'medium', 'prompt': 'What is one thing about help me understand how to apply a recap for returning to a lesson that feels less intimidating now than it did yesterday?', 'insight': 'Steady progress in help me understand how to apply a recap for returning to a lesson is more important than perfect execution. Consistency beats intensity.', 'action': 'Write one sentence that captures what help me understand how to apply a recap for returning to a lesson taught you today. Keep it honest, simple, and grounded.'}}"
+    },
+    "updated_at": "2026-08-03T08:44:02.262275+00:00",
+    "created_at": "2026-08-03T08:44:01.051854+00:00"
+  },
+  {
+    "id": "task-19fb1a9d",
+    "title": "summarize run",
+    "status": "completed",
+    "agent_id": "plant_the_seed_agent",
+    "description": "analyze codebase quickly",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'plant_the_seed', 'output': {'agent': 'plant_the_seed', 'topic': 'analyze codebase quickly', 'context': None, 'seed': 'Every skill in analyze codebase quickly starts as a single seed: consistency.', 'expansion': 'In analyze codebase quickly, small daily reps compound the same way survival habits do. You don\u2019t build mastery by waiting for perfect conditions \u2014 you build it by planting tiny seeds every day, even when the weather isn\u2019t ideal.', 'action': 'Write down one tiny analyze codebase quickly skill you can practice today. Make it so small you can\u2019t fail. That\u2019s your seed.'}}"
+    },
+    "updated_at": "2026-08-03T08:53:22.561724+00:00",
+    "created_at": "2026-08-03T08:53:21.351822+00:00"
+  },
+  {
+    "id": "task-ca062d37",
+    "title": "summarize run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "analyze codebase quickly",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'output': '\ud83e\udde0 Codebase Analysis (keyword routed)\\n{\\n  \"summary\": {\\n    \"files\": 3304,\\n    \"lines\": 760648,\\n    \"functions\": 22485,\\n    \"classes\": 8444\\n  },\\n  \"todos\": [\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\typing_extensions.py\",\\n      \"line\": 3457,\\n      \"text\": \"# TODO: Use inspect.VALUE here, and make the annotations lazily evaluated\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 82,\\n      \"text\": \"# TODO: Drop the `hasattr()` once the minimum supported Python version\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\hazmat\\\\\\\\asn1\\\\\\\\asn1.py\",\\n      \"line\": 515,\\n      \"text\": \"# TODO: replace with `Default[U]` once the min Python version is >= 3.12\"\\n    },\\n    {\\n      \"file\": \".venv\\\\\\\\Lib\\\\\\\\site-packages\\\\\\\\cryptography\\\\\\\\x509\\\\\\\\name.py\",\\n      \"line\": 368,\\n      \"text\": \"# TODO: this is relativ"
+    },
+    "updated_at": "2026-08-03T08:54:32.449337+00:00",
+    "created_at": "2026-08-03T08:54:16.660557+00:00"
+  },
+  {
+    "id": "task-8261645c",
+    "title": "research_curriculum run",
+    "status": "completed",
+    "agent_id": "research_agent",
+    "description": "find 3 python learning tracks",
+    "details": {
+      "intent": "research_curriculum",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'research', 'output': {'status': 'intent', 'agent': 'ResearchAgent', 'prompt': 'find 3 python learning tracks', 'message': 'ResearchAgent received the prompt. Implement deeper research logic later.'}}"
+    },
+    "updated_at": "2026-08-03T09:00:21.961909+00:00",
+    "created_at": "2026-08-03T09:00:20.747160+00:00"
+  },
+  {
+    "id": "task-d559f246",
+    "title": "summarize run",
+    "status": "failed",
+    "agent_id": "coding_agent",
+    "description": "Generate a React component called AlertBanner.jsx for the command center UI that renders a neon warning banner with title \"SYSTEM NOTICE\", and include exact import/use instructions for App shell placement.",
+    "details": {
+      "intent": "summarize",
+      "temperature": 1,
+      "error": "'NoneType' object has no attribute 'strip'"
+    },
+    "updated_at": "2026-08-03T09:04:29.584141+00:00",
+    "created_at": "2026-08-03T09:04:29.552425+00:00"
+  },
+  {
+    "id": "task-ce25a871",
+    "title": "summarize run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "create test file",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'operation': 'create_file', 'output': {'status': 'success', 'action': 'create_file', 'path': '.mammoth/coding_agent_test.txt'}}"
+    },
+    "updated_at": "2026-08-03T09:04:54.830058+00:00",
+    "created_at": "2026-08-03T09:04:53.584118+00:00"
+  },
+  {
+    "id": "task-29c66b35",
+    "title": "summarize run",
+    "status": "failed",
+    "agent_id": "coding_agent",
+    "description": "Generate a React component called AlertBanner.jsx for the command center UI that renders a neon warning banner with title \"SYSTEM NOTICE\", and include exact import/use instructions for App shell placement.",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "error": "'NoneType' object has no attribute 'strip'"
+    },
+    "updated_at": "2026-08-03T09:12:37.452480+00:00",
+    "created_at": "2026-08-03T09:12:37.421963+00:00"
+  },
+  {
+    "id": "task-83b386b1",
+    "title": "summarize run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "Agent execution completed",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'operation': 'insert_after', 'output': {'status': 'success', 'action': 'insert_after', 'path': 'C:\\\\Users\\\\runni\\\\mammoth_intro_ai.worktrees\\\\agents-mammothos-atlas-agent-system\\\\.mammoth\\\\insert_op_test.txt'}}"
+    },
+    "updated_at": "2026-08-03T09:13:40.516679+00:00",
+    "created_at": "2026-08-03T09:13:39.268253+00:00"
+  },
+  {
+    "id": "task-7fcb70e8",
+    "title": "summarize run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "/insert ui/mad-architecht-command-center/src/pages/AtlasTutorPage.jsx\nconst chatBottomRef = useRef(null)\n---\nconst ENTERPRISE_NOTE = 'Inserted by coding agent';",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'operation': 'insert_after', 'output': {'status': 'success', 'action': 'insert_after', 'path': 'C:\\\\Users\\\\runni\\\\mammoth_intro_ai.worktrees\\\\agents-mammothos-atlas-agent-system\\\\ui\\\\mad-architecht-command-center\\\\src\\\\pages\\\\AtlasTutorPage.jsx'}}"
+    },
+    "updated_at": "2026-08-03T09:27:16.399236+00:00",
+    "created_at": "2026-08-03T09:27:15.187411+00:00"
+  },
+  {
+    "id": "task-6460b401",
+    "title": "summarize run",
+    "status": "completed",
+    "agent_id": "coding_agent",
+    "description": "/create .mammoth/agent_test.md\n# CodingAgent Test\nThis file was created by the coding agent.",
+    "details": {
+      "intent": "summarize",
+      "temperature": 1,
+      "result": "{'status': 'ok', 'runtime_agent': 'coding', 'operation': 'create_file', 'output': {'status': 'success', 'action': 'create_file', 'path': '.mammoth/agent_test.md'}}"
+    },
+    "updated_at": "2026-08-03T09:31:56.504220+00:00",
+    "created_at": "2026-08-03T09:31:55.292081+00:00"
+  },
+  {
+    "id": "task-7aa0d447",
+    "title": "summarize run",
+    "status": "pending_approval",
+    "agent_id": "coding_agent",
+    "description": "/create test-approval.txt\nhello from approval flow",
+    "details": {
+      "intent": "summarize",
+      "temperature": 0.7,
+      "result": "{'status': 'pending_approval', 'runtime_agent': 'coding', 'operation': 'create_file', 'approval': {'id': 'e55a18c6-77ab-4314-9411-169feec0bdc9', 'task_id': 'task-7aa0d447', 'agent_id': 'coding_agent', 'operation': 'create_file', 'target': 'test-approval.txt', 'payload': {'file_path': 'test-approval.txt', 'content': 'hello from approval flow'}, 'preview': {'summary': 'Create file', 'file_path': 'test-approval.txt', 'content_preview': 'hello from approval flow'}, 'requested_by': 'user', 'status': 'pending', 'created_at': '2026-08-03T09:43:15.572850+00:00'}, 'preview': {'summary': 'Create file', 'file_path': 'test-approval.txt', 'content_preview': 'hello from approval flow'}}"
+    },
+    "updated_at": "2026-08-03T09:43:16.847378+00:00",
+    "created_at": "2026-08-03T09:43:15.568675+00:00"
+  }
+]

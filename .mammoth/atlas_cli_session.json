@@ -1,136 +1,185 @@
 {
-  "user_id": "c5b0576d-728d-48d8-bfa9-2689d57dddcb",
-  "curriculum": {
-    "curriculum_id": "21fe9b531de84f8e8a2da085cf1d2000",
-    "title": "Python functions \u2014 Supabase Curriculum",
-    "subject": "Python functions",
-    "generated_at": "2026-08-03T04:08:23.987627Z",
-    "source": "mammoth.supabase",
-    "modules": [
-      {
-        "module_id": "ccdcc517-99c7-4af7-ba92-c9e59635b554",
-        "title": "Week 1 \u2014 Foundations & Environment Setup",
-        "lessons": [
-          {
-            "lesson_id": "d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
-            "title": "Lesson 1 \u2014 Python Environment Setup",
-            "objectives": [
-              "Understand Lesson 1 \u2014 Python Environment Setup",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "Create your project folder, initialize a virtual environment, install dependencies, and verify Python is configured correctly."
-          },
-          {
-            "lesson_id": "6a3f47c2-0ab8-4ae3-bade-f45f20375fa2",
-            "title": "Lesson 2 \u2014 Environment Variables & .env",
-            "objectives": [
-              "Understand Lesson 2 \u2014 Environment Variables & .env",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "Learn how to securely store API keys using a .env file and load them with python-dotenv."
-          },
-          {
-            "lesson_id": "f8dec8b3-9747-49cb-8910-c71e4c25cffd",
-            "title": "Lesson 3 \u2014 Connecting to OpenAI",
-            "objectives": [
-              "Understand Lesson 3 \u2014 Connecting to OpenAI",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "Initialize the OpenAI client, test your first model call, and verify your API key is loading correctly."
-          },
-          {
-            "lesson_id": "62cfce62-1971-4812-bc98-18179ed78813",
-            "title": "Lesson 4 \u2014 Connecting to Supabase",
-            "objectives": [
-              "Understand Lesson 4 \u2014 Connecting to Supabase",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "Initialize the Supabase client, test database connectivity, and prepare your Mammoth OS backend."
-          }
-        ],
-        "estimated_minutes": 80
-      },
-      {
-        "module_id": "afac2e4a-2d9e-4829-b8db-a12debea1019",
-        "title": "Agent Mesh",
-        "lessons": [
-          {
-            "lesson_id": "6492ef49-3105-45bc-a7d5-f17bd1a4fbf7",
-            "title": "Agent Mesh Fundamentals",
-            "objectives": [
-              "Understand Agent Mesh Fundamentals",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "How MAMMOTH-1 routes tasks across all 11 agents using the neural link protocol."
-          },
-          {
-            "lesson_id": "19843ce2-3747-44a7-adc2-ff29df42e042",
-            "title": "ATLAS AI Integration",
-            "objectives": [
-              "Understand ATLAS AI Integration",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "How ATLAS connects to the lesson engine, logs sessions, and adapts to your performance."
-          }
-        ],
-        "estimated_minutes": 40
-      },
-      {
-        "module_id": "e4056969-39e2-4b75-9b05-30391a400707",
-        "title": "Backend Wiring",
-        "lessons": [
-          {
-            "lesson_id": "619ff2c0-be7c-4734-afca-d886c35dfc46",
-            "title": "FastAPI Router Design",
-            "objectives": [
-              "Understand FastAPI Router Design",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "Clean, typed API routers with FastAPI. Prefix, tags, and Pydantic models."
-          },
-          {
-            "lesson_id": "89012e47-d491-443d-bfd2-21f76d46ffb6",
-            "title": "Supabase Schema Wiring",
-            "objectives": [
-              "Understand Supabase Schema Wiring",
-              "Apply lesson concepts in code"
-            ],
-            "estimated_minutes": 20,
-            "content": "Connect FastAPI to Supabase across multiple schemas with proper upserts."
-          }
-        ],
-        "estimated_minutes": 40
-      }
-    ],
-    "estimated_total_minutes": 160
-  },
-  "current_lesson": {
-    "lesson_id": "d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
-    "title": "Lesson 1 \u2014 Python Environment Setup",
-    "objectives": [
-      "Understand Lesson 1 \u2014 Python Environment Setup",
-      "Apply lesson concepts in code"
-    ],
-    "estimated_minutes": 20,
-    "content": "Create your project folder, initialize a virtual environment, install dependencies, and verify Python is configured correctly."
-  },
+  "status": "active",
+  "user_id": "default_user",
+  "topic": "python functions",
   "current_exercise": {
-    "exercise_id": "111cfcfe928c478d9aabefb1df2a0650-e1",
-    "title": "Lesson 1 \u2014 Python Environment Setup \u2014 Exercise 1",
-    "prompt": "Implement a Python function called 'solution' that satisfies the objective(s): ['Understand Lesson 1 \u2014 Python Environment Setup', 'Apply lesson concepts in code']. Write a clear, well-tested implementation.",
+    "exercise_id": "2168dd513dcf493e837afc047c53b1b4-e1",
+    "title": "python functions \u2014 Module 1 Lesson 1 \u2014 Exercise 1",
+    "prompt": "Implement a Python function called 'solution' that satisfies the objective(s): ['Understand concept 1.1', 'Practice problem 1.1']. Write a clear, well-tested implementation.",
     "starter_files": {
       "solution.py": "def solution(*args, **kwargs):\n    raise NotImplementedError()\n"
     },
     "expected_test": "from solution import solution\ndef test_solution_returns():\n    assert solution() is not None",
-    "generation_method": "template"
+    "generation_method": "template",
+    "lesson": {
+      "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1",
+      "title": "python functions \u2014 Module 1 Lesson 1",
+      "objectives": [
+        "Understand concept 1.1",
+        "Practice problem 1.1"
+      ],
+      "estimated_minutes": 22
+    },
+    "curriculum_id": "4028a5bed3a64e829fa28bedc8c727fd",
+    "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1"
   },
-  "_curriculum_id": "21fe9b531de84f8e8a2da085cf1d2000",
-  "_lesson_id": "d4e2929a-1e0d-49ae-8fbf-43b72c6903fe"
+  "curriculum": {
+    "curriculum_id": "4028a5bed3a64e829fa28bedc8c727fd",
+    "title": "python functions \u2014 Short Curriculum",
+    "subject": "python functions",
+    "generated_at": "2026-08-03T09:13:47.770758Z",
+    "modules": [
+      {
+        "module_id": "4028a5bed3a64e829fa28bedc8c727fd-m1",
+        "title": "Module 1: Foundations",
+        "lessons": [
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1",
+            "title": "python functions \u2014 Module 1 Lesson 1",
+            "objectives": [
+              "Understand concept 1.1",
+              "Practice problem 1.1"
+            ],
+            "estimated_minutes": 22
+          },
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l2",
+            "title": "python functions \u2014 Module 1 Lesson 2",
+            "objectives": [
+              "Understand concept 1.2",
+              "Practice problem 1.2"
+            ],
+            "estimated_minutes": 24
+          },
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l3",
+            "title": "python functions \u2014 Module 1 Lesson 3",
+            "objectives": [
+              "Understand concept 1.3",
+              "Practice problem 1.3"
+            ],
+            "estimated_minutes": 26
+          }
+        ],
+        "estimated_minutes": 72
+      },
+      {
+        "module_id": "4028a5bed3a64e829fa28bedc8c727fd-m2",
+        "title": "Module 2: Core Skills",
+        "lessons": [
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m2-l1",
+            "title": "python functions \u2014 Module 2 Lesson 1",
+            "objectives": [
+              "Understand concept 2.1",
+              "Practice problem 2.1"
+            ],
+            "estimated_minutes": 27
+          },
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m2-l2",
+            "title": "python functions \u2014 Module 2 Lesson 2",
+            "objectives": [
+              "Understand concept 2.2",
+              "Practice problem 2.2"
+            ],
+            "estimated_minutes": 29
+          },
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m2-l3",
+            "title": "python functions \u2014 Module 2 Lesson 3",
+            "objectives": [
+              "Understand concept 2.3",
+              "Practice problem 2.3"
+            ],
+            "estimated_minutes": 31
+          }
+        ],
+        "estimated_minutes": 87
+      },
+      {
+        "module_id": "4028a5bed3a64e829fa28bedc8c727fd-m3",
+        "title": "Module 3: Application",
+        "lessons": [
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m3-l1",
+            "title": "python functions \u2014 Module 3 Lesson 1",
+            "objectives": [
+              "Understand concept 3.1",
+              "Practice problem 3.1"
+            ],
+            "estimated_minutes": 32
+          },
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m3-l2",
+            "title": "python functions \u2014 Module 3 Lesson 2",
+            "objectives": [
+              "Understand concept 3.2",
+              "Practice problem 3.2"
+            ],
+            "estimated_minutes": 34
+          },
+          {
+            "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m3-l3",
+            "title": "python functions \u2014 Module 3 Lesson 3",
+            "objectives": [
+              "Understand concept 3.3",
+              "Practice problem 3.3"
+            ],
+            "estimated_minutes": 36
+          }
+        ],
+        "estimated_minutes": 102
+      }
+    ],
+    "estimated_total_minutes": 261
+  },
+  "current_lesson": {
+    "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1",
+    "title": "python functions \u2014 Module 1 Lesson 1",
+    "objectives": [
+      "Understand concept 1.1",
+      "Practice problem 1.1"
+    ],
+    "estimated_minutes": 22
+  },
+  "curriculum_id": "4028a5bed3a64e829fa28bedc8c727fd",
+  "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1",
+  "updated_at": "2026-08-03T09:13:47.788520+00:00",
+  "lesson_history": [
+    {
+      "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1",
+      "lesson": {
+        "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1",
+        "title": "python functions \u2014 Module 1 Lesson 1",
+        "objectives": [
+          "Understand concept 1.1",
+          "Practice problem 1.1"
+        ],
+        "estimated_minutes": 22
+      },
+      "exercise": {
+        "exercise_id": "2168dd513dcf493e837afc047c53b1b4-e1",
+        "title": "python functions \u2014 Module 1 Lesson 1 \u2014 Exercise 1",
+        "prompt": "Implement a Python function called 'solution' that satisfies the objective(s): ['Understand concept 1.1', 'Practice problem 1.1']. Write a clear, well-tested implementation.",
+        "starter_files": {
+          "solution.py": "def solution(*args, **kwargs):\n    raise NotImplementedError()\n"
+        },
+        "expected_test": "from solution import solution\ndef test_solution_returns():\n    assert solution() is not None",
+        "generation_method": "template",
+        "lesson": {
+          "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1",
+          "title": "python functions \u2014 Module 1 Lesson 1",
+          "objectives": [
+            "Understand concept 1.1",
+            "Practice problem 1.1"
+          ],
+          "estimated_minutes": 22
+        },
+        "curriculum_id": "4028a5bed3a64e829fa28bedc8c727fd",
+        "lesson_id": "4028a5bed3a64e829fa28bedc8c727fd-m1-l1"
+      },
+      "created_at": "2026-08-03T09:13:47.788547+00:00"
+    }
+  ]
 }
