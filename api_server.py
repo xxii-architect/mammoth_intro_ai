@@ -736,13 +736,29 @@ def _ts() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _build_plan_steps(objective: str) -> List[Dict[str, str]]:
+def _normalize_plan_profile(raw_profile: Any) -> str:
+    profile = str(raw_profile or "balanced").strip().lower()
+    if profile not in {"atlas", "coding", "balanced"}:
+        return "balanced"
+    return profile
+
+
+def _build_plan_steps(objective: str, plan_profile: str = "balanced") -> List[Dict[str, str]]:
     objective = (objective or "").strip()
     lower = objective.lower()
-    include_coding = any(tok in lower for tok in ["build", "implement", "code", "patch", "create", "ui", "feature"])
-    include_market = any(tok in lower for tok in ["market", "audience", "position", "messaging"])
+    profile = _normalize_plan_profile(plan_profile)
+    include_coding = profile == "coding" or any(tok in lower for tok in ["build", "implement", "code", "patch", "create", "ui", "feature"])
+    include_market = profile == "atlas" or any(tok in lower for tok in ["market", "audience", "position", "messaging"])
+    include_field_ops = profile == "atlas" or any(tok in lower for tok in ["ops", "operational", "runbook", "checklist", "launch"])
 
     steps: List[Dict[str, str]] = [
+        {
+            "id": "seed-direction",
+            "title": "Plant ATLAS strategic direction",
+            "agent_id": "plant_the_seed_agent",
+            "intent": "plant_seed",
+            "prompt": f"Plant the strategic seed for this objective in 4 concise bullets: {objective}",
+        },
         {
             "id": "research-brief",
             "title": "Research objective and constraints",
@@ -767,6 +783,17 @@ def _build_plan_steps(objective: str) -> List[Dict[str, str]]:
                 "agent_id": "market_intel_agent",
                 "intent": "market_intel",
                 "prompt": f"Provide a short market and user framing for: {objective}",
+            }
+        )
+
+    if include_field_ops:
+        steps.append(
+            {
+                "id": "field-ops-check",
+                "title": "Outline operational execution checks",
+                "agent_id": "field_ops_agent",
+                "intent": "field_ops",
+                "prompt": f"Provide an operational execution checklist for this objective: {objective}",
             }
         )
 
@@ -800,12 +827,13 @@ async def plan_execute(body: Dict[str, Any]):
     temperature = body.get("temperature", 0.4)
     approval_mode = bool(body.get("approval_mode"))
     stop_on_failure = bool(body.get("stop_on_failure", True))
+    plan_profile = _normalize_plan_profile(body.get("plan_profile"))
 
     if not objective:
         return {"status": "error", "error": "objective is required"}
 
     plan_id = f"plan-{uuid.uuid4().hex[:8]}"
-    steps = _build_plan_steps(objective)
+    steps = _build_plan_steps(objective, plan_profile)
 
     _upsert_task(
         plan_id,
@@ -813,14 +841,14 @@ async def plan_execute(body: Dict[str, Any]):
         status="active",
         agent_id="orchestrator",
         description=objective,
-        details={"objective": objective, "step_count": len(steps), "approval_mode": approval_mode},
+        details={"objective": objective, "step_count": len(steps), "approval_mode": approval_mode, "plan_profile": plan_profile},
     )
     _append_activity(
         "Started plan+execute run",
         agent_id="orchestrator",
         task_id=plan_id,
         kind="plan_started",
-        details={"objective": objective, "step_count": len(steps)},
+        details={"objective": objective, "step_count": len(steps), "plan_profile": plan_profile},
     )
 
     step_results: List[Dict[str, Any]] = []
@@ -902,6 +930,7 @@ async def plan_execute(body: Dict[str, Any]):
         description=objective,
         details={
             "objective": objective,
+            "plan_profile": plan_profile,
             "total": total_count,
             "executed": executed_count,
             "completed": completed_count,
@@ -915,13 +944,14 @@ async def plan_execute(body: Dict[str, Any]):
         agent_id="orchestrator",
         task_id=plan_id,
         kind="plan_completed" if plan_status != "failed" else "plan_failed",
-        details={"objective": objective, "executed": executed_count, "failed": failed_count},
+        details={"objective": objective, "plan_profile": plan_profile, "executed": executed_count, "failed": failed_count},
     )
 
     return {
         "status": "ok",
         "plan_id": plan_id,
         "objective": objective,
+        "plan_profile": plan_profile,
         "plan_status": plan_status,
         "progress": {
             "total": total_count,

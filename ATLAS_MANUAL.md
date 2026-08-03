@@ -257,6 +257,9 @@ Open **http://localhost:5173**
 
 ### Agent Console safety flow
 - Turn on **Preview first** before using the coding agent for file edits.
+- Switch to **Plan + Execute** mode to run multi-agent orchestration from one objective.
+- Use **Plan Profile = ATLAS-First** to keep seed/strategy framing at the front of the run.
+- Use **ATLAS + Coding Assistant** when you want coding depth without making coding the top-level driver.
 - Approved edits are queued in **Pending Approvals**.
 - Once approved, the backend applies the change and creates a rollback entry in
   **Rollback Snapshots**.
@@ -307,6 +310,7 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 | `GET /api/health` | Service connectivity: Ollama, Supabase, OpenAI, env keys |
 | `GET /api/agents` | List all agent files from `src/mammoth_os/agents/` |
 | `POST /api/run` | Run a CortexRouter intent (`{intent, context}`) |
+| `POST /api/plan-execute` | Run orchestrated multi-agent plan (`{objective, plan_profile, approval_mode}`) |
 | `GET /api/atlas/status` | Current ATLAS session: lesson, exercise, curriculum, chat history |
 | `POST /api/atlas/lesson` | Start a lesson (`{topic, difficulty, module, lesson, llm}`) |
 | `POST /api/atlas/submit` | Submit code (`{code}`) → graded result |

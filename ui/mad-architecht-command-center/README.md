@@ -17,6 +17,10 @@ Open http://localhost:5173 to preview the app.
 ### Agent Console
 - Select an agent and run prompts against the live backend.
 - Switch to **Plan + Execute** mode to orchestrate a multi-agent plan from one objective.
+- Pick a **Plan Profile**:
+  - **ATLAS-First**: plant seed + research/reflection + ops/market framing
+  - **ATLAS + Coding Assistant**: keep ATLAS framing while prioritizing implementation planning
+  - **Balanced**: neutral orchestration profile
 - Review step-by-step status and progress in the **Plan + Execute** panel.
 - Use **Run Smoke Test** to execute a one-click health sweep across core agents.
 - Review pass/fail, runtime status, latency, and output preview in

@@ -69,6 +69,7 @@ export default function AgentPage() {
   const [smokeRunning, setSmokeRunning] = useState(false)
   const [smokeResults, setSmokeResults] = useState([])
   const [executionMode, setExecutionMode] = useState('single')
+  const [planProfile, setPlanProfile] = useState('atlas')
   const [planRun, setPlanRun] = useState(null)
 
   const refreshAgents = async () => {
@@ -162,7 +163,7 @@ export default function AgentPage() {
     localStorage.setItem('mammoth_run_history', JSON.stringify(entries))
   }
 
-  const addRunHistoryEntry = (res, currentPrompt, currentAgent, currentIntent) => {
+  const addRunHistoryEntry = (res, currentPrompt, currentAgent, currentIntent, extras = {}) => {
     const entry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       created_at: new Date().toISOString(),
@@ -171,6 +172,7 @@ export default function AgentPage() {
       prompt: currentPrompt,
       status: res?.status || 'unknown',
       task_id: res?.task_id || null,
+      ...extras,
     }
     setRunHistory(prev => {
       const next = [...prev, entry].slice(-20)
@@ -181,8 +183,14 @@ export default function AgentPage() {
 
   const replayHistoryEntry = (entry) => {
     if (!entry) return
-    if (entry.agent_id) chooseAgent(entry.agent_id)
-    if (entry.intent) chooseIntent(entry.intent)
+    if (entry.execution_mode === 'plan' || String(entry.intent || '').startsWith('plan_execute')) {
+      setExecutionMode('plan')
+      if (entry.plan_profile) setPlanProfile(entry.plan_profile)
+    } else {
+      setExecutionMode('single')
+      if (entry.agent_id) chooseAgent(entry.agent_id)
+      if (entry.intent) chooseIntent(entry.intent)
+    }
     setPrompt(entry.prompt || '')
   }
 
@@ -199,7 +207,7 @@ export default function AgentPage() {
         body: { intent, payload: { prompt }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
       })
       if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
-      addRunHistoryEntry(res, prompt, selectedAgent, intent)
+      addRunHistoryEntry(res, prompt, selectedAgent, intent, { execution_mode: 'single' })
       setOutput(JSON.stringify(res, null, 2))
     } catch (e) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
@@ -217,6 +225,7 @@ export default function AgentPage() {
     setPlanRun({
       status: 'ok',
       objective: prompt,
+      plan_profile: planProfile,
       plan_status: 'running',
       progress: { total: 0, executed: 0, completed: 0, pending_approval: 0, failed: 0 },
       plan_steps: [],
@@ -225,10 +234,10 @@ export default function AgentPage() {
     try {
       const res = await api('/plan-execute', {
         method: 'POST',
-        body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true },
+        body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true, plan_profile: planProfile },
       })
-      setPlanRun(res)
-      addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute')
+      setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile })
+      addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', { execution_mode: 'plan', plan_profile: res.plan_profile || planProfile })
       setOutput(JSON.stringify(res, null, 2))
       const summarizedThoughts = (res.plan_steps || []).map((step, idx) => ({
         ts: step.finished_at || new Date().toISOString(),
@@ -241,6 +250,7 @@ export default function AgentPage() {
       setPlanRun({
         status: 'error',
         objective: prompt,
+        plan_profile: planProfile,
         plan_status: 'failed',
         progress: { total: 0, executed: 0, completed: 0, pending_approval: 0, failed: 1 },
         plan_steps: [],
@@ -347,6 +357,16 @@ export default function AgentPage() {
                   <option value="plan">Plan + Execute</option>
                 </select>
               </div>
+              {executionMode === 'plan' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Plan Profile</label>
+                  <select className="filter-select" value={planProfile} onChange={e => setPlanProfile(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.78rem' }}>
+                    <option value="atlas">ATLAS-First</option>
+                    <option value="coding">ATLAS + Coding Assistant</option>
+                    <option value="balanced">Balanced</option>
+                  </select>
+                </div>
+              )}
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -540,6 +560,9 @@ export default function AgentPage() {
                   </div>
                   <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 6 }}>
                     {(planRun.progress?.executed || 0)}/{(planRun.progress?.total || 0)} steps • completed {(planRun.progress?.completed || 0)} • pending {(planRun.progress?.pending_approval || 0)} • failed {(planRun.progress?.failed || 0)}
+                  </div>
+                  <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginBottom: 6, fontFamily: 'JetBrains Mono,monospace' }}>
+                    profile: {planRun.plan_profile || 'balanced'}
                   </div>
                   {(planRun.plan_steps || []).map((step, idx) => (
                     <div key={`${step.id || idx}-${idx}`} style={{ padding: '7px 0', borderTop: '1px solid var(--border)' }}>
