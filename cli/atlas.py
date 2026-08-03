@@ -32,6 +32,7 @@ if hasattr(sys.stdout, "reconfigure"):
 # Default paths
 _MAMMOTH_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", ".mammoth")
 _SESSION_STATE_FILE = os.path.join(_MAMMOTH_DIR, "atlas_cli_session.json")
+_UI_STATE_FILE = os.path.join(_MAMMOTH_DIR, "atlas_ui_state.json")
 _DEFAULT_USER = os.environ.get("ATLAS_USER_ID", "cli_user")
 
 
@@ -137,6 +138,40 @@ def _save_session(session) -> None:
         session.save_state(_SESSION_STATE_FILE)
     except Exception as exc:
         print(f"⚠️  Could not save session state: {exc}", file=sys.stderr)
+
+
+def _save_active_ui_dir(path: str) -> None:
+    try:
+        os.makedirs(_MAMMOTH_DIR, exist_ok=True)
+        with open(_UI_STATE_FILE, "w", encoding="utf-8") as fh:
+            abs_path = os.path.abspath(path)
+            json.dump(
+                {"active_ui_project": abs_path, "active_ui_dir": abs_path},
+                fh,
+                indent=2,
+            )
+    except Exception as exc:
+        print(f"⚠️  Could not persist active UI project: {exc}", file=sys.stderr)
+
+
+def _resolve_active_ui_dir() -> str:
+    try:
+        with open(_UI_STATE_FILE, "r", encoding="utf-8") as fh:
+            data = json.load(fh) or {}
+        active_ui_dir = os.path.abspath(
+            str(data.get("active_ui_project") or data.get("active_ui_dir") or "").strip()
+        )
+    except Exception:
+        active_ui_dir = ""
+
+    if not active_ui_dir:
+        print("❌ No active UI project found. Run `python -m cli.main atlas ui scaffold \"<prompt>\"` first.")
+        sys.exit(1)
+    if not os.path.isdir(active_ui_dir):
+        print(f"❌ Active UI project path does not exist: {active_ui_dir}")
+        print("   Run `python -m cli.main atlas ui scaffold \"<prompt>\"` to create a new one.")
+        sys.exit(1)
+    return active_ui_dir
 
 
 def _divider():
@@ -472,6 +507,67 @@ def cmd_atlas_code_generate(args) -> None:
         _save_session(session)
 
 
+def cmd_atlas_ui_scaffold(args) -> None:
+    """Scaffold a small Vite + React UI from a natural-language prompt."""
+    from mammoth_os.agents.ui_builder_agent import UIBuilderAgent
+
+    prompt = " ".join(args.prompt).strip() or "ATLAS progress dashboard"
+    agent = UIBuilderAgent(router=None)
+    result = asyncio.run(agent.scaffold(prompt, target_dir=args.output))
+    _save_active_ui_dir(result["target_dir"])
+
+    print("\n🧩 ATLAS — UI scaffolding")
+    _divider()
+    print(f"Prompt     : {prompt}")
+    print(f"Target     : {result['target_dir']}")
+    print(f"Title      : {result['title']}")
+    print("\nGenerated files:")
+    for rel in result.get("files", []):
+        print(f"  - {rel}")
+    _divider()
+    print("\nRun locally:")
+    print(f"  cd {result['target_dir']}")
+    print("  npm install")
+    print("  npm run dev")
+
+
+def cmd_atlas_ui_generate(args) -> None:
+    """Generate a UI asset in the active UI project directory."""
+    from mammoth_os.agents.ui_builder_agent import UIBuilderAgent
+
+    prompt = (args.prompt or "").strip()
+    if not prompt:
+        print("❌ Please provide a prompt.")
+        sys.exit(1)
+
+    ui_command = getattr(args, "ui_command", "")
+    active_ui_dir = _resolve_active_ui_dir()
+    agent = UIBuilderAgent(router=None)
+
+    if ui_command == "component":
+        result = asyncio.run(agent.generate_component(prompt, target_dir=active_ui_dir))
+    elif ui_command == "style":
+        result = asyncio.run(agent.generate_style(prompt, target_dir=active_ui_dir))
+    elif ui_command == "backend":
+        result = asyncio.run(agent.generate_backend(prompt, target_dir=active_ui_dir))
+    elif ui_command == "graph":
+        result = asyncio.run(agent.generate_graph(prompt, target_dir=active_ui_dir))
+    elif ui_command == "palette":
+        result = asyncio.run(agent.generate_palette(prompt, target_dir=active_ui_dir))
+    else:
+        print(f"❌ Unknown ui command: {ui_command}")
+        sys.exit(1)
+
+    _save_active_ui_dir(result["target_dir"])
+
+    print(f"\n🧩 ATLAS — UI {ui_command} generation")
+    _divider()
+    print(f"Prompt     : {prompt}")
+    print(f"Target UI  : {result['target_dir']}")
+    print(f"Output     : {result.get('relative_file', result.get('file', ''))}")
+    _divider()
+
+
 def cmd_atlas_code_refactor(args) -> None:
     """Refactor a Python file using the CodingAgent LLM prompt."""
     from pathlib import Path
@@ -588,6 +684,35 @@ def build_atlas_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentPars
     # atlas reset
     p_reset = atlas_sub.add_parser("reset", help="Clear the current ATLAS session")
     p_reset.set_defaults(func=cmd_atlas_reset)
+
+    # atlas ui — UIBuilderAgent scaffold
+    p_ui = atlas_sub.add_parser("ui", help="Generate a simple frontend UI from a prompt")
+    ui_sub = p_ui.add_subparsers(dest="ui_command", required=True)
+
+    p_scaffold = ui_sub.add_parser("scaffold", help="Create a Vite + React starter app")
+    p_scaffold.add_argument("prompt", nargs="+", help="Natural-language description of the UI")
+    p_scaffold.add_argument("--output", default=None, metavar="DIR", help="Target directory for the generated app")
+    p_scaffold.set_defaults(func=cmd_atlas_ui_scaffold)
+
+    p_component = ui_sub.add_parser("component", help="Generate a UI component in the active project")
+    p_component.add_argument("prompt", help="Natural-language prompt for component generation")
+    p_component.set_defaults(func=cmd_atlas_ui_generate)
+
+    p_style = ui_sub.add_parser("style", help="Generate UI styles in the active project")
+    p_style.add_argument("prompt", help="Natural-language prompt for style generation")
+    p_style.set_defaults(func=cmd_atlas_ui_generate)
+
+    p_backend = ui_sub.add_parser("backend", help="Generate frontend backend hooks in the active project")
+    p_backend.add_argument("prompt", help="Natural-language prompt for backend hook generation")
+    p_backend.set_defaults(func=cmd_atlas_ui_generate)
+
+    p_graph = ui_sub.add_parser("graph", help="Generate graph UI modules in the active project")
+    p_graph.add_argument("prompt", help="Natural-language prompt for graph generation")
+    p_graph.set_defaults(func=cmd_atlas_ui_generate)
+
+    p_palette = ui_sub.add_parser("palette", help="Generate command palette UI logic in the active project")
+    p_palette.add_argument("prompt", help="Natural-language prompt for palette generation")
+    p_palette.set_defaults(func=cmd_atlas_ui_generate)
 
     # atlas code — CodingAgent generate / refactor / explain
     p_code = atlas_sub.add_parser("code", help="CodingAgent: generate, refactor, or explain code")

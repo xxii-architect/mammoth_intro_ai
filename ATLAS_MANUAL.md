@@ -126,6 +126,27 @@ python -m cli.main atlas code refactor my_script.py --output out.py
 python -m cli.main atlas code explain my_script.py
 ```
 
+### UI scaffolding — generate a starter app
+```powershell
+python -m cli.main atlas ui scaffold "ATLAS progress dashboard"
+```
+Creates a Vite + React starter app in `ui/atlas-progress-dashboard`.
+
+Run it locally:
+```powershell
+cd ui/atlas-progress-dashboard
+npm install
+python server.py
+```
+In a second terminal:
+```powershell
+cd ui/atlas-progress-dashboard
+npm run dev
+```
+Open http://localhost:3000. The Vite frontend proxies `/api/*` to the Python API server on port `8765`, which reads live Supabase metrics from your repo `.env` file.
+
+This is a lightweight first-pass UI workflow: prompt → scaffold app → preview locally → show real ATLAS progress data.
+
 ---
 
 ## 4 — Verify Supabase connectivity
@@ -188,13 +209,15 @@ python -m cli.main atlas status --db
 - OpenAI adapter updated to v2 SDK (gpt-4o-mini default)
 - LLM auto-detection: Ollama running = use it; OPENAI_API_KEY set = use that
 - Code gen always names function solution() so sandbox tests can import it
+- UI scaffolding flow now works: `atlas ui scaffold` generates a Vite + React app and the generated app builds successfully
 
 ### Next up (priority order)
 1. Write atlas.sessions rows on lesson start (track topic history)
 2. atlas progress command — show XP, lessons, streak from Supabase
 3. ReasoningAgent hints on submission fail (chain-of-thought)
-4. UIBuilderAgent — scaffold React/Next.js components via LLM
-5. OrchestratorAgent CLI — multi-agent pipeline from one command
+4. Connect generated UI to real Supabase progress data (XP, lessons, streak)
+5. UIBuilderAgent — scaffold richer React/Next.js components via LLM
+6. OrchestratorAgent CLI — multi-agent pipeline from one command
 
 ### Parked
 - Docker sandbox seccomp tuning (needs CI artifacts)
