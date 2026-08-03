@@ -175,7 +175,7 @@ python -m cli.main atlas status --db
 
 ---
 
-## 5 — Where things live
+## 5 — Where things live (source map)
 
 | What | Path |
 |---|---|
@@ -191,41 +191,136 @@ python -m cli.main atlas status --db
 | CurriculumAgent | `src/mammoth_os/agents/curriculum_agent.py` |
 | CodingAgent | `src/mammoth_os/agents/coding_agent.py` |
 | Sandbox runner | `src/mammoth_os/sandbox_runner.py` |
-| Unit tests | `src/mammoth_os/test_*.py` |
+| UI shell + routing + FAB | `ui/mad-architecht-command-center/src/App.jsx` |
+| All UI pages | `ui/mad-architecht-command-center/src/pages/` |
+| API fetch wrapper + WS helper | `ui/mad-architecht-command-center/src/api/client.js` |
+| React polling hooks | `ui/mad-architecht-command-center/src/hooks/useApi.js` |
+| Design tokens + CSS | `ui/mad-architecht-command-center/src/index.css` |
+| FastAPI backend | `api_server.py` (repo root) |
+| Runtime data files | `.mammoth/` (notes, buildlog, sales_log, atlas session) |
 
 ---
 
-## 6 — Project status (as of August 2026)
+## 6 — Mad Architecht Command Center (Main UI)
 
-### Done and working
+The primary user interface is a full React SPA located at:
+```
+ui/mad-architecht-command-center/
+```
+
+### Start the full stack
+
+**Terminal 1 — FastAPI backend:**
+```powershell
+cd C:\Users\runni\mammoth_intro_ai.worktrees\agents-mammothos-atlas-agent-system
+.\.venv\Scripts\Activate.ps1
+$env:PYTHONPATH = "src"
+uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Terminal 2 — React frontend (Vite):**
+```powershell
+cd ui/mad-architecht-command-center
+npm run dev
+```
+Open **http://localhost:5173**
+
+### Pages in the UI
+
+| Page | What it does |
+|---|---|
+| **Home** | Live dashboard: agent status, health dots, build log feed, sales total, quick-copy commands |
+| **Agent** | Run any CortexRouter intent (plant_seed, field_ops, research_*, etc.) with live thought stream |
+| **Terminal** | WebSocket terminal wired to the backend. HTTP fallback mode when WS is offline. Quick-action buttons for common commands |
+| **Notes** | Full CRUD note-taking, auto-saved to `.mammoth/notes.json` |
+| **Modules** | Live scan of all agents in `src/mammoth_os/agents/` |
+| **Health** | Real-time service health: Ollama, Supabase, OpenAI, API server — polls every 10s |
+| **Log Sale** | Sales tracker: log items + amounts, running total, persisted to `.mammoth/sales_log.json` |
+| **Lessons** | Quick-access ATLAS lesson start + embedded tutor chat |
+| **ATLAS Tutor** | Full 3-column ATLAS experience: curriculum tree | exercise + code editor | live chat with model selector |
+| **Build Log** | Log + browse project build entries with tags, persisted to `.mammoth/buildlog.json` |
+| **Settings** | System info, env key inspector, ATLAS reset, **theme toggle** (Darker/Dark/Midnight), AI runtime status |
+
+### Floating ATLAS Chat (FAB)
+A violet 🧠 button is fixed to the bottom-right corner on **every page**.  
+Click it → glass chat panel slides up → chat directly with ATLAS tutor without leaving your current screen.  
+Wired to `POST /api/atlas/chat` with full chat history.
+
+### Theme Toggle
+Settings → Theme section. Three options:
+- **Darker** `#050608` — near-black (default)
+- **Dark** `#0d1117` — GitHub dark
+- **Midnight** `#080c14` — deep blue-black
+
+Applies instantly via CSS custom properties. Persists across sessions via `localStorage`.
+
+### Design System
+- Colors: `--shell`, `--photon: #4da6ff`, `--cyan: #00f5d4`, `--violet: #b47cff`
+- Glass cards: `backdrop-filter: blur(16px)`, `rgba(13,17,23,0.7)`
+- CRT scanline overlay on entire app
+- Fonts: Inter (UI), JetBrains Mono (code/terminal)
+
+### API endpoints (api_server.py)
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /api/status` | Python version, uptime, agent count, engine count |
+| `GET /api/health` | Service connectivity: Ollama, Supabase, OpenAI, env keys |
+| `GET /api/agents` | List all agent files from `src/mammoth_os/agents/` |
+| `POST /api/run` | Run a CortexRouter intent (`{intent, context}`) |
+| `GET /api/atlas/status` | Current ATLAS session: lesson, exercise, curriculum, chat history |
+| `POST /api/atlas/lesson` | Start a lesson (`{topic, difficulty, module, lesson, llm}`) |
+| `POST /api/atlas/submit` | Submit code (`{code}`) → graded result |
+| `POST /api/atlas/next` | Advance to next lesson |
+| `POST /api/atlas/reset` | Reset ATLAS session |
+| `POST /api/atlas/chat` | Chat with ATLAS tutor (`{message, model?}`) |
+| `GET /api/models` | All available models: active adapter, model, Ollama status, installed models |
+| `GET/POST /api/notes` | Note CRUD |
+| `GET/POST /api/buildlog` | Build log entries |
+| `GET/POST /api/logsale` | Sales log entries |
+| `GET /api/modules` | Scans real agents directory |
+| `POST /api/terminal/exec` | HTTP terminal fallback: run an allowed command, returns stdout/stderr/exit_code |
+| `WS /ws/terminal` | WebSocket terminal with streaming stdout/stderr |
+
+---
+
+## 7 — Project status (as of August 2026)
+
+### Done and working ✅
 - Full ATLAS lesson → submit → pass/fail loop wired to Supabase
 - adaptive_metrics and atlas_progress written on each submission
 - mammoth.ai_sessions logged on every atlas code generate call
 - CurriculumAgent reads real DB lessons with template fallback
 - CLI auto-resolves UUID from public.profiles
-- atlas status --db shows latest DB row
-- .env auto-loaded on every CLI run
+- `.env` auto-loaded on every CLI run
 - All 11 local Ollama models wired (hermes3, deepseek-coder, codellama, llama3.1, mistral, qwen2.5, qwen2.5-coder, phi3, nous-hermes)
 - OpenAI adapter updated to v2 SDK (gpt-4o-mini default)
-- LLM auto-detection: Ollama running = use it; OPENAI_API_KEY set = use that
-- Code gen always names function solution() so sandbox tests can import it
-- UI scaffolding flow now works: `atlas ui scaffold` generates a Vite + React app and the generated app builds successfully
+- LLM auto-detection: Ollama running → use it; OPENAI_API_KEY set → use that
+- Mad Architecht Command Center: 11-page React UI fully wired to FastAPI backend
+- Floating ATLAS FAB chat widget on all pages
+- Dedicated ATLAS Tutor page (3-column: curriculum | editor | chat)
+- Working theme toggle (Darker/Dark/Midnight) with CSS variable mutation + localStorage
+- Terminal WebSocket + HTTP fallback
+- All data files auto-initialized in `.mammoth/`
+- Branch pushed to origin: `ui/compliance-legal-shell`
 
 ### Next up (priority order)
-1. Write atlas.sessions rows on lesson start (track topic history)
-2. atlas progress command — show XP, lessons, streak from Supabase
-3. ReasoningAgent hints on submission fail (chain-of-thought)
-4. Connect generated UI to real Supabase progress data (XP, lessons, streak)
-5. UIBuilderAgent — scaffold richer React/Next.js components via LLM
-6. OrchestratorAgent CLI — multi-agent pipeline from one command
+1. `atlas progress` CLI command — show XP, lessons completed, streak from Supabase
+2. Write `atlas.sessions` rows on lesson start (track topic history in DB)
+3. ReasoningAgent hints on submission fail (chain-of-thought explanation)
+4. Agent page: per-run adapter/model selection dropdown
+5. Ascension Metrics page — real learning stats pulled from Supabase `atlas_ascension` table
+6. Completion Graph — visual skill tree of completed vs pending lessons
+7. Wednesday theme variant — gothic neon styling toggle (planned for future)
+8. OrchestratorAgent CLI — multi-agent pipeline from one command
 
 ### Parked
 - Docker sandbox seccomp tuning (needs CI artifacts)
-- Full LLM lesson generation at scale (ATLAS_EXERCISE_GEN_MODE=llm)
+- Full LLM lesson generation at scale (`ATLAS_EXERCISE_GEN_MODE=llm`)
 
 ---
 
-## 7 — Quick troubleshooting
+## 8 — Quick troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -237,11 +332,12 @@ python -m cli.main atlas status --db
 | Ollama not reachable | Start Ollama: ollama serve |
 | [CodingAgent:WARN] no sub-engines | Informational only — safe to ignore |
 | check constraint adaptive_metrics | Already fixed — difficulty maps to easy/medium/hard |
-| No active exercise | Run atlas lesson topic first |
+| UI shows blank / no data | Start the FastAPI backend first: `uvicorn api_server:app --reload` on port 8000 |
+| Terminal says DISCONNECTED | Backend not running. UI auto-switches to HTTP fallback mode — commands still work via POST /api/terminal/exec |
 
 ---
 
-## 8 — Run the full test suite
+## 9 — Run the full test suite
 
 ```powershell
 $env:PYTHONPATH = "src"
