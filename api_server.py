@@ -736,6 +736,204 @@ def _ts() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _build_plan_steps(objective: str) -> List[Dict[str, str]]:
+    objective = (objective or "").strip()
+    lower = objective.lower()
+    include_coding = any(tok in lower for tok in ["build", "implement", "code", "patch", "create", "ui", "feature"])
+    include_market = any(tok in lower for tok in ["market", "audience", "position", "messaging"])
+
+    steps: List[Dict[str, str]] = [
+        {
+            "id": "research-brief",
+            "title": "Research objective and constraints",
+            "agent_id": "research_agent",
+            "intent": "research_curriculum",
+            "prompt": f"Analyze this objective and list key constraints in 4 bullets: {objective}",
+        },
+        {
+            "id": "reflection-risks",
+            "title": "Identify risks and acceptance criteria",
+            "agent_id": "reflection_agent",
+            "intent": "reflection",
+            "prompt": f"Given this objective, list top risks and acceptance criteria: {objective}",
+        },
+    ]
+
+    if include_market:
+        steps.append(
+            {
+                "id": "market-angle",
+                "title": "Add market and user framing",
+                "agent_id": "market_intel_agent",
+                "intent": "market_intel",
+                "prompt": f"Provide a short market and user framing for: {objective}",
+            }
+        )
+
+    if include_coding:
+        steps.append(
+            {
+                "id": "coding-plan",
+                "title": "Draft implementation approach",
+                "agent_id": "coding_agent",
+                "intent": "summarize",
+                "prompt": f"Provide a concise implementation plan and verification checklist for: {objective}",
+            }
+        )
+
+    steps.append(
+        {
+            "id": "brand-summary",
+            "title": "Produce stakeholder-ready summary",
+            "agent_id": "brand_voice_agent",
+            "intent": "brand_voice",
+            "prompt": f"Summarize the plan in confident brand voice for stakeholders: {objective}",
+        }
+    )
+
+    return steps
+
+
+@app.post("/api/plan-execute")
+async def plan_execute(body: Dict[str, Any]):
+    objective = str(body.get("objective", "") or body.get("prompt", "")).strip()
+    temperature = body.get("temperature", 0.4)
+    approval_mode = bool(body.get("approval_mode"))
+    stop_on_failure = bool(body.get("stop_on_failure", True))
+
+    if not objective:
+        return {"status": "error", "error": "objective is required"}
+
+    plan_id = f"plan-{uuid.uuid4().hex[:8]}"
+    steps = _build_plan_steps(objective)
+
+    _upsert_task(
+        plan_id,
+        "plan+execute run",
+        status="active",
+        agent_id="orchestrator",
+        description=objective,
+        details={"objective": objective, "step_count": len(steps), "approval_mode": approval_mode},
+    )
+    _append_activity(
+        "Started plan+execute run",
+        agent_id="orchestrator",
+        task_id=plan_id,
+        kind="plan_started",
+        details={"objective": objective, "step_count": len(steps)},
+    )
+
+    step_results: List[Dict[str, Any]] = []
+
+    for idx, step in enumerate(steps, start=1):
+        started_at = _ts()
+        _append_activity(
+            f"Plan step {idx}/{len(steps)}: {step['title']}",
+            agent_id=step["agent_id"],
+            task_id=plan_id,
+            kind="plan_step_started",
+            details={"step": step},
+        )
+
+        run_body = {
+            "intent": step["intent"],
+            "payload": {"prompt": step["prompt"]},
+            "temperature": temperature,
+            "agent_id": step["agent_id"],
+            "approval_mode": approval_mode if step["agent_id"] == "coding_agent" else False,
+        }
+
+        response = await run_agent(run_body)
+        result_obj = response.get("result") if isinstance(response, dict) else {}
+        inner_status = str((result_obj or {}).get("status", ""))
+
+        if response.get("status") != "ok" or inner_status == "error":
+            step_status = "failed"
+        elif inner_status == "pending_approval":
+            step_status = "pending_approval"
+        else:
+            step_status = "completed"
+
+        finished_at = _ts()
+        duration_ms = max(0, int((datetime.fromisoformat(finished_at) - datetime.fromisoformat(started_at)).total_seconds() * 1000))
+        step_result = {
+            "id": step["id"],
+            "title": step["title"],
+            "agent_id": step["agent_id"],
+            "intent": step["intent"],
+            "prompt": step["prompt"],
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_ms": duration_ms,
+            "status": step_status,
+            "response": response,
+        }
+        step_results.append(step_result)
+
+        _append_activity(
+            f"Plan step {idx}/{len(steps)} {step_status}",
+            agent_id=step["agent_id"],
+            task_id=plan_id,
+            kind="plan_step_completed" if step_status != "failed" else "plan_step_failed",
+            details={"step_id": step["id"], "status": step_status, "duration_ms": duration_ms},
+        )
+
+        if step_status == "failed" and stop_on_failure:
+            break
+
+    failed_count = sum(1 for s in step_results if s["status"] == "failed")
+    pending_count = sum(1 for s in step_results if s["status"] == "pending_approval")
+    completed_count = sum(1 for s in step_results if s["status"] == "completed")
+    executed_count = len(step_results)
+    total_count = len(steps)
+
+    if failed_count > 0:
+        plan_status = "failed"
+    elif pending_count > 0:
+        plan_status = "pending_approval"
+    else:
+        plan_status = "completed"
+
+    _upsert_task(
+        plan_id,
+        "plan+execute run",
+        status=plan_status,
+        agent_id="orchestrator",
+        description=objective,
+        details={
+            "objective": objective,
+            "total": total_count,
+            "executed": executed_count,
+            "completed": completed_count,
+            "pending_approval": pending_count,
+            "failed": failed_count,
+        },
+    )
+
+    _append_activity(
+        f"Plan+execute run {plan_status}",
+        agent_id="orchestrator",
+        task_id=plan_id,
+        kind="plan_completed" if plan_status != "failed" else "plan_failed",
+        details={"objective": objective, "executed": executed_count, "failed": failed_count},
+    )
+
+    return {
+        "status": "ok",
+        "plan_id": plan_id,
+        "objective": objective,
+        "plan_status": plan_status,
+        "progress": {
+            "total": total_count,
+            "executed": executed_count,
+            "completed": completed_count,
+            "pending_approval": pending_count,
+            "failed": failed_count,
+        },
+        "plan_steps": step_results,
+    }
+
+
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
     intent = str(body.get("intent", "")).strip()

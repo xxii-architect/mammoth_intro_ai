@@ -68,6 +68,8 @@ export default function AgentPage() {
   })
   const [smokeRunning, setSmokeRunning] = useState(false)
   const [smokeResults, setSmokeResults] = useState([])
+  const [executionMode, setExecutionMode] = useState('single')
+  const [planRun, setPlanRun] = useState(null)
 
   const refreshAgents = async () => {
     try {
@@ -206,62 +208,108 @@ export default function AgentPage() {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots()])
     }
+  }
 
-    const runSmokeTests = async () => {
-      if (smokeRunning || running) return
-      setSmokeRunning(true)
-      setSmokeResults([])
-      const collected = []
+  const runPlanExecute = async () => {
+    if (!prompt.trim()) return
+    setRunning(true)
+    setOutput(null)
+    setPlanRun({
+      status: 'ok',
+      objective: prompt,
+      plan_status: 'running',
+      progress: { total: 0, executed: 0, completed: 0, pending_approval: 0, failed: 0 },
+      plan_steps: [],
+    })
 
-      for (const spec of SMOKE_TESTS) {
-        const startedAt = performance.now()
-        try {
-          const res = await api('/run', {
-            method: 'POST',
-            body: {
-              intent: spec.intent,
-              payload: { prompt: spec.prompt },
-              temperature: 0.2,
-              agent_id: spec.agent_id,
-              approval_mode: false,
-            },
-          })
-          const elapsedMs = Math.round(performance.now() - startedAt)
-          const nestedStatus = res?.result?.status || ''
-          const pass = res?.status === 'ok' && nestedStatus !== 'error'
-          const rawPreview = res?.result?.output ?? res?.result?.preview ?? res?.error ?? ''
-          const preview = typeof rawPreview === 'string' ? rawPreview : JSON.stringify(rawPreview)
-          const item = {
-            id: `${spec.agent_id}-${Date.now()}`,
-            agent_id: spec.agent_id,
-            intent: spec.intent,
-            status: pass ? 'pass' : 'fail',
-            runtime_status: nestedStatus || res?.status || 'unknown',
-            duration_ms: elapsedMs,
-            preview: preview.slice(0, 140),
-          }
-          collected.push(item)
-          setSmokeResults([...collected])
-        } catch (e) {
-          const elapsedMs = Math.round(performance.now() - startedAt)
-          const item = {
-            id: `${spec.agent_id}-${Date.now()}`,
-            agent_id: spec.agent_id,
-            intent: spec.intent,
-            status: 'fail',
-            runtime_status: 'request_error',
-            duration_ms: elapsedMs,
-            preview: (e?.message || 'Request failed').slice(0, 140),
-          }
-          collected.push(item)
-          setSmokeResults([...collected])
-        }
-      }
-
-      setSmokeRunning(false)
-      await Promise.all([refreshAgents(), refreshTimeline()])
+    try {
+      const res = await api('/plan-execute', {
+        method: 'POST',
+        body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true },
+      })
+      setPlanRun(res)
+      addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute')
+      setOutput(JSON.stringify(res, null, 2))
+      const summarizedThoughts = (res.plan_steps || []).map((step, idx) => ({
+        ts: step.finished_at || new Date().toISOString(),
+        label: `Plan step ${idx + 1}: ${step.title}`,
+        detail: `${step.agent_id} • ${step.status} • ${step.duration_ms || 0}ms`,
+        status: step.status === 'completed' ? 'success' : step.status === 'pending_approval' ? 'warning' : 'error',
+      }))
+      setThoughtSteps(summarizedThoughts)
+    } catch (e) {
+      setPlanRun({
+        status: 'error',
+        objective: prompt,
+        plan_status: 'failed',
+        progress: { total: 0, executed: 0, completed: 0, pending_approval: 0, failed: 1 },
+        plan_steps: [],
+        error: e.message,
+      })
+      setThoughtSteps([{ ts: new Date().toISOString(), label: 'Plan run failed', detail: e.message, status: 'error' }])
+      setOutput(`Error: ${e.message}`)
+    } finally {
+      setRunning(false)
+      await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots()])
     }
   }
+
+  const runSmokeTests = async () => {
+    if (smokeRunning || running) return
+    setSmokeRunning(true)
+    setSmokeResults([])
+    const collected = []
+
+    for (const spec of SMOKE_TESTS) {
+      const startedAt = performance.now()
+      try {
+        const res = await api('/run', {
+          method: 'POST',
+          body: {
+            intent: spec.intent,
+            payload: { prompt: spec.prompt },
+            temperature: 0.2,
+            agent_id: spec.agent_id,
+            approval_mode: false,
+          },
+        })
+        const elapsedMs = Math.round(performance.now() - startedAt)
+        const nestedStatus = res?.result?.status || ''
+        const pass = res?.status === 'ok' && nestedStatus !== 'error'
+        const rawPreview = res?.result?.output ?? res?.result?.preview ?? res?.error ?? ''
+        const preview = typeof rawPreview === 'string' ? rawPreview : JSON.stringify(rawPreview)
+        const item = {
+          id: `${spec.agent_id}-${Date.now()}`,
+          agent_id: spec.agent_id,
+          intent: spec.intent,
+          status: pass ? 'pass' : 'fail',
+          runtime_status: nestedStatus || res?.status || 'unknown',
+          duration_ms: elapsedMs,
+          preview: preview.slice(0, 140),
+        }
+        collected.push(item)
+        setSmokeResults([...collected])
+      } catch (e) {
+        const elapsedMs = Math.round(performance.now() - startedAt)
+        const item = {
+          id: `${spec.agent_id}-${Date.now()}`,
+          agent_id: spec.agent_id,
+          intent: spec.intent,
+          status: 'fail',
+          runtime_status: 'request_error',
+          duration_ms: elapsedMs,
+          preview: (e?.message || 'Request failed').slice(0, 140),
+        }
+        collected.push(item)
+        setSmokeResults([...collected])
+      }
+    }
+
+    setSmokeRunning(false)
+    await Promise.all([refreshAgents(), refreshTimeline()])
+  }
+
+  const runPrimary = () => executionMode === 'plan' ? runPlanExecute() : run()
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -292,6 +340,13 @@ export default function AgentPage() {
                 <input type="checkbox" checked={approvalMode} onChange={e => setApprovalMode(e.target.checked)} />
                 Preview first
               </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <label style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Mode</label>
+                <select className="filter-select" value={executionMode} onChange={e => setExecutionMode(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.78rem' }}>
+                  <option value="single">Single Agent</option>
+                  <option value="plan">Plan + Execute</option>
+                </select>
+              </div>
             </div>
 
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
@@ -353,9 +408,9 @@ export default function AgentPage() {
             )}
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={run} disabled={running || smokeRunning}
-              style={{ background: 'var(--photon)', color: '#050608', fontWeight: 700, fontSize: '0.85rem', padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: (running || smokeRunning) ? 0.7 : 1 }}>
-              <Play size={14} /> {running ? 'Running…' : 'Run Agent'}
+            <button onClick={runPrimary} disabled={running || smokeRunning}
+              style={{ background: executionMode === 'plan' ? 'var(--violet)' : 'var(--photon)', color: '#050608', fontWeight: 700, fontSize: '0.85rem', padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: (running || smokeRunning) ? 0.7 : 1 }}>
+              <Play size={14} /> {running ? (executionMode === 'plan' ? 'Planning + Executing…' : 'Running…') : (executionMode === 'plan' ? 'Plan + Execute' : 'Run Agent')}
             </button>
             <button onClick={runSmokeTests} disabled={smokeRunning || running}
               style={{ background: 'rgba(255,255,255,0.08)', color: 'var(--txt-pri)', fontWeight: 600, fontSize: '0.78rem', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: (running || smokeRunning) ? 0.7 : 1 }}>
@@ -471,6 +526,34 @@ export default function AgentPage() {
                   </div>
                 </div>
               )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No smoke test run yet.</div>}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Plan + Execute</p>
+              {planRun ? (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{planRun.objective?.slice(0, 44) || 'Plan objective'}</span>
+                    <span style={{ fontSize: '0.66rem', textTransform: 'uppercase', color: planRun.plan_status === 'completed' ? '#22c55e' : planRun.plan_status === 'pending_approval' ? '#f59e0b' : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>
+                      {planRun.plan_status || 'unknown'}
+                    </span>
+                  </div>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 6 }}>
+                    {(planRun.progress?.executed || 0)}/{(planRun.progress?.total || 0)} steps • completed {(planRun.progress?.completed || 0)} • pending {(planRun.progress?.pending_approval || 0)} • failed {(planRun.progress?.failed || 0)}
+                  </div>
+                  {(planRun.plan_steps || []).map((step, idx) => (
+                    <div key={`${step.id || idx}-${idx}`} style={{ padding: '7px 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem' }}>{idx + 1}. {step.title}</span>
+                        <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: step.status === 'completed' ? '#22c55e' : step.status === 'pending_approval' ? '#f59e0b' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>{step.status}</span>
+                      </div>
+                      <div style={{ color: 'var(--txt-sec)', fontSize: '0.67rem', marginTop: 3 }}>
+                        {step.agent_id} • {step.intent} • {step.duration_ms || 0}ms
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>Switch Mode to Plan + Execute and run an objective to orchestrate multiple agents.</div>}
             </div>
 
             <div style={{ marginTop: 16 }}>
