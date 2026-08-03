@@ -89,7 +89,11 @@ export default function TerminalPage() {
 
   const send = (cmd) => {
     if (!cmd.trim()) return
-    if (httpMode) {
+    if (httpMode || !connected) {
+      if (!httpMode) {
+        setHttpMode(true)
+        addLine('ℹ WebSocket offline — auto-switching to HTTP fallback mode.', 'stderr')
+      }
       sendHTTP(cmd)
     } else {
       sendWS(cmd)

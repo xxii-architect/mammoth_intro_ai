@@ -542,6 +542,15 @@ async def atlas_chat(body: Dict[str, Any]):
             cfg["adapter"] = adapter
         if model:
             cfg["model"] = model
+            # If a local model/tag is requested, force Ollama adapter explicitly.
+            model_l = model.lower()
+            try:
+                from mammoth_os.ollama_adapter import MODEL_ALIASES
+                if model_l in MODEL_ALIASES or model_l in MODEL_ALIASES.values() or ":" in model_l:
+                    cfg["adapter"] = "ollama"
+            except Exception:
+                if ":" in model_l:
+                    cfg["adapter"] = "ollama"
         client = get_llm_client(config=cfg)
         active_model = str(getattr(client, "model", model or "unknown"))
         active_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
