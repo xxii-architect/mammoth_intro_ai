@@ -49,8 +49,15 @@ def cmd_engine_list(args):
 def cmd_agent_list(args):
     print("🐘 Mammoth OS Agents")
     agents = asyncio.run(agent_registry.list_agents())
-    # Serialize AgentManifest objects
-    agents_json = [a.__dict__ for a in agents]
+    agents_json = []
+    for a in agents:
+        d = dict(a.__dict__)
+        for k, v in list(d.items()):
+            if hasattr(v, 'isoformat'):
+                d[k] = v.isoformat()
+            elif hasattr(v, 'value'):
+                d[k] = v.value
+        agents_json.append(d)
     print(json.dumps(agents_json, indent=2))
 
 

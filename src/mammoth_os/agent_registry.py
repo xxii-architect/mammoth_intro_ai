@@ -191,3 +191,54 @@ AGENTS: Dict[str, Callable[[str], str]] = {
     "coding":          lambda prompt: load_agent("coding", router).run(prompt),        # type: ignore
     "custodial":       lambda prompt: load_agent("custodial", router).run(prompt),     # type: ignore
 }
+
+
+# ─────────────────────────────────────────────
+# AUTO-DISCOVERY  — scan agents dir at import
+# ─────────────────────────────────────────────
+
+def _auto_register_agents() -> None:
+    """
+    Scan src/mammoth_os/agents/ for *_agent.py files and register each
+    one into agent_registry with a sensible manifest.
+    Called once at module import so list_agents() is never empty.
+    """
+    import datetime
+    from pathlib import Path
+    agents_dir = Path(__file__).parent / "agents"
+    if not agents_dir.exists():
+        return
+
+    registered = []
+    for fpath in sorted(agents_dir.glob("*_agent.py")):
+        stem = fpath.stem  # e.g. "tutor_agent"
+        if stem == "base_agent":
+            continue
+        agent_id = stem  # keep full name as id
+        # pretty name: "tutor_agent" → "TutorAgent"
+        name = "".join(w.title() for w in stem.split("_"))
+        # infer capabilities from the filename
+        caps = [stem.replace("_agent", "")]
+
+        manifest = AgentManifest(
+            agent_id=agent_id,
+            name=name,
+            version="v1.0.0",
+            capabilities=caps,
+            status=AgentStatus.IDLE,
+            level=1,
+            dependencies=[],
+            endpoint=f"internal://{agent_id}",
+            registered_at=datetime.datetime.now(datetime.timezone.utc),
+            last_heartbeat=datetime.datetime.now(datetime.timezone.utc),
+        )
+        # Use a synchronous direct insert to avoid asyncio.run() at import time
+        agent_registry._agents[agent_id] = manifest
+        registered.append(agent_id)
+
+    if registered:
+        logger.info("Auto-registered %d agents: %s", len(registered), registered)
+
+
+# Run auto-discovery immediately so any import of this module populates the registry
+_auto_register_agents()
