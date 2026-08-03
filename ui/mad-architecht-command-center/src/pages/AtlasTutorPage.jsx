@@ -153,7 +153,10 @@ export default function AtlasTutorPage() {
   const curriculum     = atlasState?.curriculum
   const modules        = curriculum?.modules || []
   const currentLessonId = atlasState?.lesson_id
+  const lessonHistory   = Array.isArray(atlasState?.lesson_history) ? atlasState.lesson_history : []
+  const lastSubmission  = atlasState?.last_submission || null
   const chatHistory    = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const totalLessons = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
 
   return (
     <div className="page-enter" style={{ padding: 20, display: 'flex', gap: 16, height: 'calc(100vh - 92px)', overflow: 'hidden' }}>
@@ -195,6 +198,38 @@ export default function AtlasTutorPage() {
               style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--photon)', color: '#050608', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
               {loading ? 'Loading…' : 'Start Lesson'}
             </button>
+          </div>
+
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Learning Memory</p>
+            <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', marginBottom: 8 }}>
+              <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 4 }}>
+                {currentLessonId ? `Resume: ${currentLessonId}` : 'No active lesson'}
+              </div>
+              <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem' }}>
+                {lessonHistory.length} saved lesson{lessonHistory.length === 1 ? '' : 's'} • {totalLessons} total
+              </div>
+            </div>
+            {lastSubmission && (
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', marginBottom: 8 }}>
+                <div style={{ color: lastSubmission.passed ? '#22c55e' : '#f87171', fontSize: '0.75rem', fontWeight: 600, marginBottom: 4 }}>
+                  {lastSubmission.passed ? 'Latest submission passed' : 'Latest submission needs work'}
+                </div>
+                <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', lineHeight: 1.5 }}>
+                  {lastSubmission.hint || lastSubmission.error || 'Submission recorded.'}
+                </div>
+              </div>
+            )}
+            {lessonHistory.length > 0 ? lessonHistory.slice(-4).reverse().map((entry, idx) => (
+              <div key={`${entry.lesson_id || idx}-${entry.created_at || idx}`} style={{ padding: '6px 0', borderTop: '1px solid var(--border)' }}>
+                <div style={{ color: 'var(--txt-pri)', fontSize: '0.76rem' }}>{entry.lesson?.title || entry.lesson?.lesson_title || entry.lesson_id || 'Lesson'}</div>
+                <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 2 }}>
+                  {new Date(entry.created_at).toLocaleString()}
+                </div>
+              </div>
+            )) : (
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.78rem' }}>No lesson history yet.</div>
+            )}
           </div>
         </div>
       </div>

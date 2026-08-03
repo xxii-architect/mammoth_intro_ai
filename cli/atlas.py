@@ -19,6 +19,13 @@ import re
 import sys
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+_CLI_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _CLI_DIR.parent
+_SRC_DIR = _REPO_ROOT / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 # Ensure UTF-8 output on Windows terminals
 if hasattr(sys.stdout, "reconfigure"):
@@ -30,7 +37,7 @@ if hasattr(sys.stdout, "reconfigure"):
 
 
 # Default paths
-_MAMMOTH_DIR = os.path.join(os.path.abspath(os.path.dirname(__file__)), "..", ".mammoth")
+_MAMMOTH_DIR = os.path.join(str(_REPO_ROOT), ".mammoth")
 _SESSION_STATE_FILE = os.path.join(_MAMMOTH_DIR, "atlas_cli_session.json")
 _UI_STATE_FILE = os.path.join(_MAMMOTH_DIR, "atlas_ui_state.json")
 _DEFAULT_USER = os.environ.get("ATLAS_USER_ID", "cli_user")

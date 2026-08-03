@@ -45,13 +45,14 @@ NOTES_FILE    = MAMMOTH_DIR / "notes.json"
 BUILDLOG_FILE = MAMMOTH_DIR / "buildlog.json"
 SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
 ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
+SNAPSHOTS_FILE = MAMMOTH_DIR / "snapshots.json"
 UI_DIR        = ROOT / "ui" / "mad-architecht-command-center"
 VENV_PYTHON   = ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_UVICORN  = ROOT / ".venv" / "Scripts" / "uvicorn.exe"
 AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
 TASKS_FILE = MAMMOTH_DIR / "tasks.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 
@@ -144,11 +145,75 @@ def _build_operation_preview(operation: str, payload: Dict[str, Any]) -> Dict[st
     return {"summary": "File operation", "file_path": file_path}
 
 
+def _resolve_target_path(file_path: str) -> Path:
+    target = Path(file_path)
+    if not target.is_absolute():
+        target = ROOT / file_path
+    return target
+
+
+def _load_snapshots() -> List[Dict[str, Any]]:
+    return _read_json(SNAPSHOTS_FILE, default=[])
+
+
+def _save_snapshots(entries: List[Dict[str, Any]]) -> None:
+    _write_json(SNAPSHOTS_FILE, entries)
+
+
+def _create_snapshot(*, approval_id: str, agent_id: str, operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    target = _resolve_target_path(str(payload.get("file_path", "") or "").strip())
+    existed_before = target.exists()
+    snapshot = {
+        "id": str(uuid.uuid4()),
+        "approval_id": approval_id,
+        "agent_id": agent_id,
+        "operation": operation,
+        "file_path": str(target),
+        "existed_before": existed_before,
+        "previous_content": target.read_text(encoding="utf-8") if existed_before else None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    entries = _load_snapshots()
+    entries.append(snapshot)
+    _save_snapshots(entries)
+    return snapshot
+
+
+def _restore_snapshot(snapshot_id: str) -> Dict[str, Any]:
+    snapshots = _load_snapshots()
+    snapshot = next((item for item in snapshots if item.get("id") == snapshot_id), None)
+    if snapshot is None:
+        return {"status": "error", "message": "snapshot not found"}
+
+    target = Path(str(snapshot.get("file_path", "") or ""))
+    existed_before = bool(snapshot.get("existed_before"))
+    previous_content = snapshot.get("previous_content")
+
+    if existed_before:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(str(previous_content or ""), encoding="utf-8")
+    elif target.exists():
+        target.unlink()
+
+    snapshot["restored_at"] = datetime.now(timezone.utc).isoformat()
+    _save_snapshots(snapshots)
+    return {"status": "ok", "snapshot": snapshot}
+
+
 def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
     operation = str(record.get("operation", "")).strip()
     payload = record.get("payload") or {}
     if operation in {"create_file", "write_file", "apply_patch", "insert_after"}:
-        return _run_file_operation(operation, payload)
+        snapshot = _create_snapshot(
+            approval_id=str(record.get("id", "") or ""),
+            agent_id=str(record.get("agent_id", "") or ""),
+            operation=operation,
+            payload=payload,
+        )
+        result = _run_file_operation(operation, payload)
+        if isinstance(result, dict):
+            result["snapshot_id"] = snapshot["id"]
+        return result
     return {"status": "error", "message": f"Unsupported approval operation {operation!r}"}
 
 
@@ -626,9 +691,7 @@ def _parse_coding_operation(payload: Dict[str, Any], prompt_text: str) -> tuple[
 
 
 def _insert_after_content(file_path: str, anchor: str, content: str) -> Dict[str, Any]:
-    target = Path(file_path)
-    if not target.is_absolute():
-        target = ROOT / file_path
+    target = _resolve_target_path(file_path)
     if not target.exists():
         return {"status": "error", "message": f"File not found: {file_path}"}
     current = target.read_text(encoding="utf-8")
@@ -669,6 +732,10 @@ def _run_file_operation(operation: str, op_payload: Dict[str, Any]) -> Dict[str,
 # /api/run
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _ts() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
     intent = str(body.get("intent", "")).strip()
@@ -678,6 +745,13 @@ async def run_agent(body: Dict[str, Any]):
     tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
     prompt_text = str(payload.get("prompt", "") or "").strip()
     approval_mode = bool(body.get("approval_mode") or payload.get("approval_mode") or payload.get("preview_only"))
+
+    thought_steps: List[Dict[str, Any]] = []
+    def _think(label: str, detail: str = "", status: str = "info") -> None:
+        thought_steps.append({"ts": _ts(), "label": label, "detail": detail, "status": status})
+
+    _think("Received request", f"intent={intent!r}  agent={requested_agent_id!r}  approval_mode={approval_mode}")
+
     task_id = f"task-{uuid.uuid4().hex[:8]}"
     task = _upsert_task(
         task_id,
@@ -702,13 +776,18 @@ async def run_agent(body: Dict[str, Any]):
             if manifest:
                 manifest.status = AgentStatus.ACTIVE
                 manifest.last_heartbeat = datetime.now(timezone.utc)
+                _think("Agent resolved", f"name={manifest.name!r}  type={getattr(manifest, 'agent_type', 'unknown')!r}", "success")
+            else:
+                _think("Agent not in registry", f"id={tracked_agent_id!r} — will fall back to intent routing", "warning")
         except Exception:
             manifest = None
 
     try:
         runtime_agent = _runtime_agent_name(intent, tracked_agent_id)
+        _think("Routing decision", f"runtime_agent={runtime_agent!r}  agent_id={tracked_agent_id!r}")
         coding_op, coding_payload = _parse_coding_operation(payload if isinstance(payload, dict) else {}, prompt_text)
         if runtime_agent == "coding" and coding_op:
+            _think("Operation parsed", f"op={coding_op!r}  target={coding_payload.get('file_path','?')!r}")
             if approval_mode:
                 preview = _build_operation_preview(coding_op, coding_payload)
                 approval = _create_approval_record(
@@ -735,6 +814,7 @@ async def run_agent(body: Dict[str, Any]):
                     kind="approval_requested",
                     details={"approval_id": approval["id"], "target": approval["target"]},
                 )
+                _think("Queued for approval", f"approval_id={approval['id']}  op={coding_op!r}  target={approval['target']!r}", "warning")
                 result = {
                     "status": "pending_approval",
                     "runtime_agent": runtime_agent,
@@ -743,9 +823,11 @@ async def run_agent(body: Dict[str, Any]):
                     "preview": preview,
                 }
             else:
+                _think("Executing file operation", f"op={coding_op!r}  direct=True")
                 raw_result = await asyncio.get_event_loop().run_in_executor(
                     None, lambda: _run_file_operation(coding_op, coding_payload)
                 )
+                _think("File operation done", f"status={raw_result.get('status','?')!r}  path={raw_result.get('path','?')!r}", "success")
                 result = {
                     "status": "ok",
                     "runtime_agent": runtime_agent,
@@ -761,20 +843,24 @@ async def run_agent(body: Dict[str, Any]):
             else:
                 payload_for_agent = prompt_text or json.dumps(payload)
 
+            _think("Dispatching to agent", f"runtime_agent={runtime_agent!r}")
             raw_result = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: AGENTS[runtime_agent](payload_for_agent)
             )
+            _think("Agent returned", f"type={type(raw_result).__name__}  preview={str(raw_result)[:120]!r}", "success")
             result = {
                 "status": "ok",
                 "runtime_agent": runtime_agent,
                 "output": raw_result,
             }
         else:
+            _think("Falling back to CortexRouter", f"intent={intent!r}  no matching AGENTS key", "warning")
             from mammoth_os.cortex.router import CortexRouter
             router = CortexRouter()
             result = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: router.route(intent, payload)
             )
+            _think("CortexRouter returned", f"status={result.get('status','?')!r}  preview={str(result)[:120]!r}", "success")
 
         if manifest:
             await asyncio.sleep(1.2)
@@ -801,6 +887,7 @@ async def run_agent(body: Dict[str, Any]):
                 details={"result": str(result)[:1000]},
             )
 
+        _think("Run complete", f"task_status={task_status!r}", "success")
         return {
             "status": "ok",
             "result": result,
@@ -808,6 +895,7 @@ async def run_agent(body: Dict[str, Any]):
             "agent_id": tracked_agent_id,
             "temperature": temperature,
             "task_id": task_id,
+            "thought_steps": thought_steps,
         }
     except Exception as e:
         if manifest:
@@ -831,12 +919,14 @@ async def run_agent(body: Dict[str, Any]):
             details={"error": str(e)[:1000]},
         )
 
+        _think("Run failed", str(e)[:200], "error")
         return {
             "status": "error",
             "error": str(e),
             "intent": intent,
             "agent_id": tracked_agent_id,
             "task_id": task_id,
+            "thought_steps": thought_steps,
         }
 
 
@@ -1058,6 +1148,16 @@ async def get_approvals():
 @app.post("/api/approvals/{record_id}/approve")
 async def approve_record_route(record_id: str):
     return _approve_record(record_id)
+
+
+@app.get("/api/snapshots")
+async def get_snapshots():
+    return _load_snapshots()
+
+
+@app.post("/api/snapshots/{snapshot_id}/restore")
+async def restore_snapshot_route(snapshot_id: str):
+    return _restore_snapshot(snapshot_id)
 
 
 @app.post("/api/atlas/apply")
@@ -1514,5 +1614,3 @@ async def terminal_ws(ws: WebSocket):
 
     except WebSocketDisconnect:
         pass
-
-

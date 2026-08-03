@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Bot, Play, Info, ChevronRight } from 'lucide-react'
+import { Bot, Play, Info, ChevronRight, Brain, CheckCircle, AlertTriangle, XCircle, Loader } from 'lucide-react'
 import { api } from '../api/client'
+import RunHistoryPanel from '../components/RunHistoryPanel'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
@@ -44,8 +45,17 @@ export default function AgentPage() {
   const [activity, setActivity] = useState([])
   const [tasks, setTasks] = useState([])
   const [approvals, setApprovals] = useState([])
+  const [snapshots, setSnapshots] = useState([])
   const [agentPinned, setAgentPinned] = useState(false)
   const [approvalMode, setApprovalMode] = useState(true)
+  const [thoughtSteps, setThoughtSteps] = useState([])
+  const [traceOpen, setTraceOpen] = useState(true)
+  const [runHistory, setRunHistory] = useState(() => {
+    try {
+      const raw = localStorage.getItem('mammoth_run_history')
+      return raw ? JSON.parse(raw) : []
+    } catch { return [] }
+  })
 
   const refreshAgents = async () => {
     try {
@@ -74,11 +84,26 @@ export default function AgentPage() {
     } catch (_) {}
   }
 
+  const refreshSnapshots = async () => {
+    try {
+      const list = await api('/snapshots')
+      setSnapshots(list || [])
+    } catch (_) {}
+  }
+
   const approveApproval = async (approvalId) => {
     try {
       await api(`/approvals/${approvalId}/approve`, { method: 'POST' })
       await refreshApprovals()
       await refreshTimeline()
+      await refreshSnapshots()
+    } catch (_) {}
+  }
+
+  const restoreSnapshot = async (snapshotId) => {
+    try {
+      await api(`/snapshots/${snapshotId}/restore`, { method: 'POST' })
+      await Promise.all([refreshSnapshots(), refreshTimeline()])
     } catch (_) {}
   }
 
@@ -86,10 +111,12 @@ export default function AgentPage() {
     refreshAgents()
     refreshTimeline()
     refreshApprovals()
+    refreshSnapshots()
     const t = setInterval(() => {
       refreshAgents()
       refreshTimeline()
       refreshApprovals()
+      refreshSnapshots()
     }, 2200)
     return () => clearInterval(t)
   }, [selectedAgent, intent, agentPinned])
@@ -108,6 +135,45 @@ export default function AgentPage() {
     if (mappedIntent) setIntent(mappedIntent)
   }
 
+  const loadCodingTemplate = (template) => {
+    setSelected('coding_agent')
+    setIntent('summarize')
+    setAgentPinned(true)
+    setApprovalMode(true)
+    setPrompt(template)
+  }
+
+  const persistRunHistory = (entries) => {
+    setRunHistory(entries)
+    localStorage.setItem('mammoth_run_history', JSON.stringify(entries))
+  }
+
+  const addRunHistoryEntry = (res, currentPrompt, currentAgent, currentIntent) => {
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      created_at: new Date().toISOString(),
+      agent_id: currentAgent,
+      intent: currentIntent,
+      prompt: currentPrompt,
+      status: res?.status || 'unknown',
+      task_id: res?.task_id || null,
+    }
+    setRunHistory(prev => {
+      const next = [...prev, entry].slice(-20)
+      localStorage.setItem('mammoth_run_history', JSON.stringify(next))
+      return next
+    })
+  }
+
+  const replayHistoryEntry = (entry) => {
+    if (!entry) return
+    if (entry.agent_id) chooseAgent(entry.agent_id)
+    if (entry.intent) chooseIntent(entry.intent)
+    setPrompt(entry.prompt || '')
+  }
+
+  const clearRunHistory = () => persistRunHistory([])
+
   const run = async () => {
     if (!prompt.trim() && !intent) return
     setRunning(true)
@@ -118,12 +184,15 @@ export default function AgentPage() {
         method: 'POST',
         body: { intent, payload: { prompt }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
       })
+      if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
+      addRunHistoryEntry(res, prompt, selectedAgent, intent)
       setOutput(JSON.stringify(res, null, 2))
     } catch (e) {
+      setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
     } finally {
       setRunning(false)
-      await Promise.all([refreshAgents(), refreshTimeline()])
+      await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots()])
     }
   }
 
@@ -178,6 +247,30 @@ export default function AgentPage() {
               style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.85rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', resize: 'none', height: 80, boxSizing: 'border-box', marginBottom: 12 }}
             />
 
+            {selectedAgent === 'coding_agent' && (
+              <div className="glass-card-solid" style={{ padding: 12, marginBottom: 12, borderLeft: '2px solid var(--cyan)' }}>
+                <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Coding Shortcuts</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <button onClick={() => loadCodingTemplate('/create src/demo.txt\nHello from MammothOS')}
+                    style={{ fontSize: '0.72rem', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', cursor: 'pointer' }}>
+                    Create
+                  </button>
+                  <button onClick={() => loadCodingTemplate('/write src/demo.txt\nReplace this content')}
+                    style={{ fontSize: '0.72rem', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', cursor: 'pointer' }}>
+                    Write
+                  </button>
+                  <button onClick={() => loadCodingTemplate('/patch src/demo.txt\nUpdated content here')}
+                    style={{ fontSize: '0.72rem', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', cursor: 'pointer' }}>
+                    Patch
+                  </button>
+                  <button onClick={() => loadCodingTemplate('/insert src/demo.txt\nanchor text\n---\nInserted content')}
+                    style={{ fontSize: '0.72rem', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', cursor: 'pointer' }}>
+                    Insert
+                  </button>
+                </div>
+              </div>
+            )}
+
             <button onClick={() => setArchOpen(o => !o)}
               style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
               <ChevronRight size={12} style={{ transform: archOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
@@ -211,32 +304,80 @@ export default function AgentPage() {
 
         <div style={{ width: 300, flexShrink: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h3 style={{ fontSize: '0.9rem', fontWeight: 600 }}>Thought Stream</h3>
-              <span style={{
-                fontSize: '0.68rem', fontFamily: 'JetBrains Mono,monospace',
-                textTransform: 'uppercase', letterSpacing: '0.12em',
-                padding: '2px 8px', borderRadius: 20,
-                background: running ? 'rgba(77,166,255,0.15)' : 'rgba(255,255,255,0.05)',
-                color: running ? 'var(--photon)' : 'var(--txt-mut)',
-              }}>
-                {running ? 'RUNNING' : 'IDLE'}
-              </span>
-            </div>
+            <button onClick={() => setTraceOpen(o => !o)} style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: 0, marginBottom: traceOpen ? 12 : 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h3 style={{ fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt-pri)' }}>
+                  <Brain size={15} color="var(--violet)" /> Reasoning Trace
+                </h3>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {running && <Loader size={12} color="var(--photon)" style={{ animation: 'spin 1s linear infinite' }} />}
+                  <span style={{
+                    fontSize: '0.68rem', fontFamily: 'JetBrains Mono,monospace',
+                    textTransform: 'uppercase', letterSpacing: '0.12em',
+                    padding: '2px 8px', borderRadius: 20,
+                    background: running ? 'rgba(77,166,255,0.15)' : 'rgba(255,255,255,0.05)',
+                    color: running ? 'var(--photon)' : 'var(--txt-mut)',
+                  }}>
+                    {running ? 'THINKING' : thoughtSteps.length ? `${thoughtSteps.length} steps` : 'IDLE'}
+                  </span>
+                  <ChevronRight size={12} color="var(--txt-mut)" style={{ transform: traceOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+                </div>
+              </div>
+            </button>
 
-            {agents.length > 0 && (
-              <div style={{ marginTop: 8 }}>
-                <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Registered Agents</p>
-                {agents.slice(0, 10).map(a => (
-                  <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: '0.78rem' }}>
-                    <span style={{ color: 'var(--txt-pri)' }}>{a.name}</span>
-                    <span style={{ color: ((running && a.id === selectedAgent) || a.status === 'ACTIVE') ? '#22c55e' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.7rem' }}>
-                      {(running && a.id === selectedAgent) || a.status === 'ACTIVE' ? 'ACTIVE' : a.status}
-                    </span>
+            {traceOpen && (
+              <div>
+                {thoughtSteps.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 14 }}>
+                    {thoughtSteps.map((step, i) => {
+                      const icon = step.status === 'success' ? <CheckCircle size={12} color="#22c55e" />
+                        : step.status === 'warning' ? <AlertTriangle size={12} color="#f59e0b" />
+                        : step.status === 'error' ? <XCircle size={12} color="#f87171" />
+                        : <ChevronRight size={12} color="var(--photon)" />
+                      const borderCol = step.status === 'success' ? '#22c55e33'
+                        : step.status === 'warning' ? '#f59e0b33'
+                        : step.status === 'error' ? '#f8717133'
+                        : 'rgba(77,166,255,0.15)'
+                      return (
+                        <div key={i} style={{ background: 'rgba(255,255,255,0.025)', border: `1px solid ${borderCol}`, borderRadius: 6, padding: '7px 10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: step.detail ? 3 : 0 }}>
+                            {icon}
+                            <span style={{ fontSize: '0.76rem', color: 'var(--txt-pri)', fontWeight: 500 }}>{step.label}</span>
+                            <span style={{ fontSize: '0.6rem', color: 'var(--txt-mut)', marginLeft: 'auto', fontFamily: 'JetBrains Mono,monospace' }}>{new Date(step.ts).toLocaleTimeString()}</span>
+                          </div>
+                          {step.detail && <div style={{ fontSize: '0.69rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace', lineHeight: 1.5, wordBreak: 'break-all' }}>{step.detail}</div>}
+                        </div>
+                      )
+                    })}
                   </div>
-                ))}
+                ) : (
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Brain size={13} color="var(--txt-mut)" /> Run the agent to see its reasoning steps here.
+                  </div>
+                )}
+
+                {agents.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Registered Agents</p>
+                    {agents.slice(0, 10).map(a => (
+                      <div key={a.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: '0.78rem' }}>
+                        <span style={{ color: 'var(--txt-pri)' }}>{a.name}</span>
+                        <span style={{ color: ((running && a.id === selectedAgent) || a.status === 'ACTIVE') ? '#22c55e' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.7rem' }}>
+                          {(running && a.id === selectedAgent) || a.status === 'ACTIVE' ? 'ACTIVE' : a.status}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
               </div>
             )}
+
+            <RunHistoryPanel
+              entries={runHistory}
+              onReplay={replayHistoryEntry}
+              onClear={clearRunHistory}
+            />
 
             <div style={{ marginTop: 16 }}>
               <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Task Queue</p>
@@ -262,6 +403,22 @@ export default function AgentPage() {
                   <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
                 </div>
               )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No pending approvals.</div>}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Rollback Snapshots</p>
+              {snapshots.length ? snapshots.slice().reverse().slice(0, 8).map(snapshot => (
+                <div key={snapshot.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{snapshot.operation}</span>
+                    <button onClick={() => restoreSnapshot(snapshot.id)} style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Restore</button>
+                  </div>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{snapshot.file_path}</div>
+                  <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
+                    {snapshot.existed_before ? 'Previous file captured' : 'New file snapshot'} • {new Date(snapshot.created_at).toLocaleTimeString()}
+                  </div>
+                </div>
+              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No snapshots yet.</div>}
             </div>
 
             <div style={{ marginTop: 16 }}>

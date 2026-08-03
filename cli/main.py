@@ -3,13 +3,19 @@ import json
 import sys
 import asyncio
 import os
+from pathlib import Path
+
+_CLI_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _CLI_DIR.parent
+_SRC_DIR = _REPO_ROOT / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
 
 # Load .env file from repo root so OPENAI_API_KEY, SUPABASE_URL, etc. are
 # available without manually setting env vars in each terminal session.
 try:
     from dotenv import load_dotenv
-    _env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
-    load_dotenv(dotenv_path=_env_path, override=False)
+    load_dotenv(dotenv_path=_REPO_ROOT / ".env", override=False)
 except ImportError:
     pass  # python-dotenv not installed — env vars must be set manually
 

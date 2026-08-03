@@ -8,14 +8,13 @@
 
 ## 1 — One-time setup
 
-### 1a. Set PYTHONPATH (required every new terminal)
-```powershell
-$env:PYTHONPATH = "src"
-```
-
-### 1b. `.env` file (set once, loads automatically)
+### 1a. `.env` file (set once, loads automatically)
 The CLI reads `.env` from the repo root on every run. You do not need to
 `$env:...` anything manually anymore — just keep the file up to date.
+
+> **Update:** the CLI now hard-pins itself to the active worktree `src\` path on
+> startup, so legacy parent-repo installs or stale boot scripts are much less
+> likely to hijack imports.
 
 Required keys in `.env`:
 ```
@@ -147,6 +146,22 @@ Open http://localhost:3000. The Vite frontend proxies `/api/*` to the Python API
 
 This is a lightweight first-pass UI workflow: prompt → scaffold app → preview locally → show real ATLAS progress data.
 
+### UI generator baseline verification
+From the active worktree root, this PowerShell-native sequence verifies the UI
+generator path and the current scaffold target:
+
+```powershell
+$py = ".\.venv\Scripts\python.exe"
+& $py -m cli.main atlas ui scaffold "mad architecht command center"
+& $py -m cli.main atlas ui component "Create status card component"
+& $py -m cli.main atlas ui style "Apply enterprise dark neon style tokens"
+& $py -m cli.main atlas ui backend "Generate API hooks for /api/status and /api/agents"
+& $py -m cli.main atlas ui graph "Generate simple activity graph module"
+& $py -m cli.main atlas ui palette "Generate command palette actions"
+& $py -c "import json,pathlib; s=json.loads(pathlib.Path('.mammoth/atlas_ui_state.json').read_text('utf-8')); assert 'mammoth_intro_ai.worktrees' in s.get('active_ui_project',''); print('State check: OK')"
+Set-Location ui\mad-architecht-command-center; npm run build; Set-Location ..\..
+```
+
 ---
 
 ## 4 — Verify Supabase connectivity
@@ -214,7 +229,6 @@ ui/mad-architecht-command-center/
 ```powershell
 cd C:\Users\runni\mammoth_intro_ai.worktrees\agents-mammothos-atlas-agent-system
 .\.venv\Scripts\Activate.ps1
-$env:PYTHONPATH = "src"
 uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -230,16 +244,41 @@ Open **http://localhost:5173**
 | Page | What it does |
 |---|---|
 | **Home** | Live dashboard: agent status, health dots, build log feed, sales total, quick-copy commands |
-| **Agent** | Run any CortexRouter intent (plant_seed, field_ops, research_*, etc.) with live thought stream |
+| **Agent** | Run any CortexRouter intent (plant_seed, field_ops, research_*, etc.) with live thought stream, approval queue, snapshot rollback, and coding shortcuts |
 | **Terminal** | WebSocket terminal wired to the backend. HTTP fallback mode when WS is offline. Quick-action buttons for common commands |
 | **Notes** | Full CRUD note-taking, auto-saved to `.mammoth/notes.json` |
 | **Modules** | Live scan of all agents in `src/mammoth_os/agents/` |
 | **Health** | Real-time service health: Ollama, Supabase, OpenAI, API server — polls every 10s |
 | **Log Sale** | Sales tracker: log items + amounts, running total, persisted to `.mammoth/sales_log.json` |
 | **Lessons** | Quick-access ATLAS lesson start + embedded tutor chat |
-| **ATLAS Tutor** | Full 3-column ATLAS experience: curriculum tree | exercise + code editor | live chat with model selector |
+| **ATLAS Tutor** | Full 3-column ATLAS experience: curriculum tree | exercise + code editor | live chat with model selector, lesson memory, and latest submission summary |
 | **Build Log** | Log + browse project build entries with tags, persisted to `.mammoth/buildlog.json` |
 | **Settings** | System info, env key inspector, ATLAS reset, **theme toggle** (Darker/Dark/Midnight), AI runtime status |
+
+### Agent Console safety flow
+- Turn on **Preview first** before using the coding agent for file edits.
+- Approved edits are queued in **Pending Approvals**.
+- Once approved, the backend applies the change and creates a rollback entry in
+  **Rollback Snapshots**.
+- Use **Restore** on a snapshot to reverse the approved change.
+
+### Coding shortcuts
+When **coding_agent** is selected in the Agent Console, quick templates are
+available for:
+- `/create`
+- `/write`
+- `/patch`
+- `/insert`
+
+These are the safest way to teach yourself the command shapes while keeping
+approval mode on.
+
+### ATLAS learning memory
+The ATLAS Tutor sidebar now shows:
+- current lesson resume state
+- saved lesson history
+- total lesson count in the loaded curriculum
+- latest submission outcome and coaching hint
 
 ### Floating ATLAS Chat (FAB)
 A violet 🧠 button is fixed to the bottom-right corner on **every page**.  
