@@ -14,7 +14,15 @@ export default function AtlasTutorPage() {
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
   const [studyAid, setStudyAid]     = useState(null)
+  const [onboardingDraft, setOnboardingDraft] = useState({
+    experience_level: 'unknown',
+    preferred_pacing: 'gentle',
+    learning_style: 'guided',
+    goals: '',
+    focus_areas: '',
+  })
   const chatBottomRef = useRef(null)
+  const onboardingSeededRef = useRef(false)
 
   const loadState = async () => {
     try {
@@ -40,6 +48,19 @@ export default function AtlasTutorPage() {
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [atlasState?.chat_history])
+
+  useEffect(() => {
+    const onboarding = atlasState?.learner_model?.onboarding
+    if (!onboarding || onboardingSeededRef.current) return
+    setOnboardingDraft({
+      experience_level: onboarding.experience_level || 'unknown',
+      preferred_pacing: onboarding.preferred_pacing || 'gentle',
+      learning_style: onboarding.learning_style || 'guided',
+      goals: Array.isArray(onboarding.goals) ? onboarding.goals.join(', ') : '',
+      focus_areas: Array.isArray(onboarding.focus_areas) ? onboarding.focus_areas.join(', ') : '',
+    })
+    onboardingSeededRef.current = true
+  }, [atlasState?.learner_model?.onboarding])
 
   const startLesson = async () => {
     if (!topic.trim()) return
@@ -88,7 +109,10 @@ export default function AtlasTutorPage() {
   const prevLesson = async () => {
     setLoading(true)
     try {
-      await api('/atlas/back', { method: 'POST', body: {} })
+      const res = await api('/atlas/back', { method: 'POST', body: {} })
+      if (res && res.status === 'ok') {
+        setAtlasState(prev => ({ ...(prev || {}), ...res }))
+      }
       await loadState()
       setResult(null)
       setStudyAid(null)
@@ -120,6 +144,61 @@ export default function AtlasTutorPage() {
       setStudyAid({ type: 'review', data: res.review || {} })
     } catch (e) {
       setStudyAid({ type: 'review', data: { coach_note: `Error: ${e.message}` } })
+    }
+  }
+
+  const loadFlashcards = async () => {
+    try {
+      const res = await api('/atlas/flashcards')
+      setStudyAid({ type: 'flashcards', data: res.flashcards || [] })
+    } catch (e) {
+      setStudyAid({ type: 'flashcards', data: [{ front: `Error: ${e.message}`, back: 'Could not load flashcards.' }] })
+    }
+  }
+
+  const loadResumeNotes = () => {
+    const notes = Array.isArray(atlasState?.resume_packet?.notes) ? atlasState.resume_packet.notes : []
+    setStudyAid({ type: 'resume_notes', data: notes })
+  }
+
+  const loadResumeFlashcards = () => {
+    const cards = Array.isArray(atlasState?.resume_packet?.flashcards) ? atlasState.resume_packet.flashcards : []
+    setStudyAid({ type: 'flashcards', data: cards })
+  }
+
+  const saveOnboarding = async () => {
+    setLoading(true)
+    try {
+      const res = await api('/atlas/onboard', {
+        method: 'POST',
+        body: {
+          experience_level: onboardingDraft.experience_level,
+          preferred_pacing: onboardingDraft.preferred_pacing,
+          learning_style: onboardingDraft.learning_style,
+          goals: onboardingDraft.goals,
+          focus_areas: onboardingDraft.focus_areas,
+        },
+      })
+      if (res?.learner_model) {
+        setAtlasState(prev => ({
+          ...(prev || {}),
+          learner_model: res.learner_model,
+          learner_context: res.learner_context || prev?.learner_context,
+          learner_profile: res.learner_profile || prev?.learner_profile,
+        }))
+        const onboarding = res.learner_model?.onboarding || {}
+        setOnboardingDraft({
+          experience_level: onboarding.experience_level || 'unknown',
+          preferred_pacing: onboarding.preferred_pacing || 'gentle',
+          learning_style: onboarding.learning_style || 'guided',
+          goals: Array.isArray(onboarding.goals) ? onboarding.goals.join(', ') : '',
+          focus_areas: Array.isArray(onboarding.focus_areas) ? onboarding.focus_areas.join(', ') : '',
+        })
+      }
+    } catch (e) {
+      setResult({ error: e.message })
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -156,6 +235,9 @@ export default function AtlasTutorPage() {
   const lessonHistory   = Array.isArray(atlasState?.lesson_history) ? atlasState.lesson_history : []
   const lastSubmission  = atlasState?.last_submission || null
   const chatHistory    = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const learnerContext = atlasState?.learner_context || null
+  const lessonPlan     = atlasState?.lesson_plan || null
+  const resumePacket   = atlasState?.resume_packet || null
   const totalLessons = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
 
   return (
@@ -201,7 +283,79 @@ export default function AtlasTutorPage() {
           </div>
 
           <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
-            <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Learning Memory</p>
+            <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Onboarding</p>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <select value={onboardingDraft.experience_level} onChange={e => setOnboardingDraft(prev => ({ ...prev, experience_level: e.target.value }))}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem' }}>
+                <option value="unknown">Experience: unknown</option>
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="advanced">Advanced</option>
+              </select>
+              <select value={onboardingDraft.preferred_pacing} onChange={e => setOnboardingDraft(prev => ({ ...prev, preferred_pacing: e.target.value }))}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem' }}>
+                <option value="gentle">Gentle pacing</option>
+                <option value="steady">Steady pacing</option>
+                <option value="challenge">Challenge pacing</option>
+              </select>
+              <select value={onboardingDraft.learning_style} onChange={e => setOnboardingDraft(prev => ({ ...prev, learning_style: e.target.value }))}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem' }}>
+                <option value="guided">Guided</option>
+                <option value="hands-on">Hands-on</option>
+                <option value="exploratory">Exploratory</option>
+              </select>
+              <textarea value={onboardingDraft.goals} onChange={e => setOnboardingDraft(prev => ({ ...prev, goals: e.target.value }))}
+                placeholder="Goals, comma-separated"
+                rows={2}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical' }} />
+              <textarea value={onboardingDraft.focus_areas} onChange={e => setOnboardingDraft(prev => ({ ...prev, focus_areas: e.target.value }))}
+                placeholder="Focus areas, comma-separated"
+                rows={2}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical' }} />
+              <button onClick={saveOnboarding} disabled={loading}
+                style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--cyan)', color: '#050608', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+                {loading ? 'Saving…' : 'Save learning profile'}
+              </button>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Adaptive Learner Profile</p>
+            <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', marginBottom: 8 }}>
+              <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 4 }}>
+                {learnerContext?.recommended_difficulty ? `Difficulty: ${learnerContext.recommended_difficulty}` : 'Ready to learn'}
+              </div>
+              <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', lineHeight: 1.5 }}>
+                Streak {learnerContext?.streak ?? 0} • Attempts {learnerContext?.attempts ?? 0} • Pace {learnerContext?.preferred_pacing || 'gentle'}
+              </div>
+            </div>
+            {learnerContext?.memory_graph_summary ? (
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', marginBottom: 8 }}>
+                <div style={{ color: 'var(--txt-pri)', fontSize: '0.72rem', fontWeight: 600, marginBottom: 4 }}>Memory map</div>
+                <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', lineHeight: 1.5 }}>
+                  {learnerContext.memory_graph_summary.node_count} nodes • {learnerContext.memory_graph_summary.edge_count} edges
+                </div>
+                {learnerContext.memory_graph_summary.recent_nodes?.length ? (
+                  <div style={{ marginTop: 6 }}>
+                    {learnerContext.memory_graph_summary.recent_nodes.slice(-3).map(node => (
+                      <div key={node.id} style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 2 }}>
+                        {node.type}: {node.label}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            {learnerContext?.weakest_concepts?.length ? (
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', marginBottom: 8 }}>
+                <div style={{ color: 'var(--txt-pri)', fontSize: '0.72rem', fontWeight: 600, marginBottom: 4 }}>Focus next</div>
+                {learnerContext.weakest_concepts.slice(0, 3).map((item, idx) => (
+                  <div key={`${item.concept || idx}`} style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginTop: 3 }}>
+                    {item.concept} • {Math.round((item.mastery || 0) * 100)}%
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', marginBottom: 8 }}>
               <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 4 }}>
                 {currentLessonId ? `Resume: ${currentLessonId}` : 'No active lesson'}
@@ -220,6 +374,26 @@ export default function AtlasTutorPage() {
                 </div>
               </div>
             )}
+            {resumePacket?.summary ? (
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.28)', marginBottom: 8 }}>
+                <div style={{ color: 'var(--photon)', fontSize: '0.72rem', fontWeight: 700, marginBottom: 5 }}>
+                  Welcome back summary
+                </div>
+                <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', lineHeight: 1.55, marginBottom: 7 }}>
+                  {resumePacket.summary}
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={loadResumeNotes}
+                    style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.66rem', cursor: 'pointer' }}>
+                    Pull notes ({(resumePacket.notes || []).length})
+                  </button>
+                  <button onClick={loadResumeFlashcards}
+                    style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.66rem', cursor: 'pointer' }}>
+                    Pull flashcards ({(resumePacket.flashcards || []).length})
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {lessonHistory.length > 0 ? lessonHistory.slice(-4).reverse().map((entry, idx) => (
               <div key={`${entry.lesson_id || idx}-${entry.created_at || idx}`} style={{ padding: '6px 0', borderTop: '1px solid var(--border)' }}>
                 <div style={{ color: 'var(--txt-pri)', fontSize: '0.76rem' }}>{entry.lesson?.title || entry.lesson?.lesson_title || entry.lesson_id || 'Lesson'}</div>
@@ -278,19 +452,48 @@ export default function AtlasTutorPage() {
             <div className="glass-card-solid" style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button onClick={loadRecap} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Recap</button>
               <button onClick={loadQuiz} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Quiz</button>
+              <button onClick={loadFlashcards} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Flashcards</button>
               <button onClick={loadReview} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Review</button>
             </div>
 
             {studyAid && (
               <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0 }}>
                 <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>
-                  {studyAid.type === 'recap' ? 'Lesson Recap' : studyAid.type === 'quiz' ? 'Quick Quiz' : 'Coach Review'}
+                  {studyAid.type === 'recap'
+                    ? 'Lesson Recap'
+                    : studyAid.type === 'quiz'
+                      ? 'Quick Quiz'
+                      : studyAid.type === 'flashcards'
+                        ? 'Flashcards'
+                        : studyAid.type === 'resume_notes'
+                          ? 'Resume Notes'
+                          : 'Coach Review'}
                 </p>
                 {studyAid.type === 'quiz' ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {(studyAid.data || []).map((q, i) => (
                       <p key={i} style={{ margin: 0, color: 'var(--txt-pri)', fontSize: '0.8rem' }}>{i + 1}. {q.question || String(q)}</p>
                     ))}
+                  </div>
+                ) : studyAid.type === 'flashcards' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {(studyAid.data || []).map((card, i) => (
+                      <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', background: 'rgba(255,255,255,0.03)' }}>
+                        <p style={{ margin: 0, color: 'var(--txt-pri)', fontSize: '0.78rem' }}><strong>Q:</strong> {card.front || String(card)}</p>
+                        <p style={{ margin: '5px 0 0 0', color: 'var(--txt-sec)', fontSize: '0.74rem' }}><strong>A:</strong> {card.back || 'Review this concept from your lesson notes.'}</p>
+                      </div>
+                    ))}
+                    {!studyAid.data?.length && <p style={{ margin: 0, color: 'var(--txt-mut)', fontSize: '0.78rem' }}>No flashcards yet for this lesson.</p>}
+                  </div>
+                ) : studyAid.type === 'resume_notes' ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {(studyAid.data || []).map((note, i) => (
+                      <div key={note.id || i} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', background: 'rgba(255,255,255,0.03)' }}>
+                        <p style={{ margin: 0, color: 'var(--txt-pri)', fontSize: '0.78rem' }}>{note.title || `Note ${i + 1}`}</p>
+                        <p style={{ margin: '5px 0 0 0', color: 'var(--txt-sec)', fontSize: '0.74rem', lineHeight: 1.5 }}>{note.preview || '(No preview available)'}</p>
+                      </div>
+                    ))}
+                    {!studyAid.data?.length && <p style={{ margin: 0, color: 'var(--txt-mut)', fontSize: '0.78rem' }}>No matching notes were found yet.</p>}
                   </div>
                 ) : studyAid.type === 'review' ? (
                   <div style={{ color: 'var(--txt-pri)', fontSize: '0.8rem', lineHeight: 1.5 }}>

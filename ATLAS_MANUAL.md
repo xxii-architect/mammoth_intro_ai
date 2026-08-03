@@ -164,7 +164,15 @@ Set-Location ui\mad-architecht-command-center; npm run build; Set-Location ..\..
 
 ---
 
-## 4 — Verify Supabase connectivity
+## 4 — Adaptive learner model
+
+ATLAS now keeps a lightweight learner profile in `.mammoth/atlas_learner_model.json` and surfaces it in the tutor UI. The model tracks concept mastery, confidence, streaks, error patterns, and recent outcomes so future lessons and hints can be tuned to the student’s current state.
+
+The tutor UI reads this profile through `/api/atlas/status` and shows the recommended difficulty, pacing, and the weakest concepts to focus on next.
+
+---
+
+## 5 — Verify Supabase connectivity
 
 ```powershell
 python .mammoth\check_supabase.py
@@ -190,7 +198,7 @@ python -m cli.main atlas status --db
 
 ---
 
-## 5 — Where things live (source map)
+## 6 — Where things live (source map)
 
 | What | Path |
 |---|---|
@@ -216,7 +224,7 @@ python -m cli.main atlas status --db
 
 ---
 
-## 6 — Mad Architecht Command Center (Main UI)
+## 7 — Mad Architecht Command Center (Main UI)
 
 The primary user interface is a full React SPA located at:
 ```
@@ -282,6 +290,10 @@ The ATLAS Tutor sidebar now shows:
 - saved lesson history
 - total lesson count in the loaded curriculum
 - latest submission outcome and coaching hint
+- welcome-back lesson summary when returning to a prior lesson
+- quick pull-up actions for related notes and saved flashcards
+- onboarding profile controls for experience, pacing, style, goals, and focus areas
+- learner memory map summary with recent lesson/concept nodes
 
 ### Floating ATLAS Chat (FAB)
 A violet 🧠 button is fixed to the bottom-right corner on **every page**.  
@@ -314,7 +326,10 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 | `GET /api/atlas/status` | Current ATLAS session: lesson, exercise, curriculum, chat history |
 | `POST /api/atlas/lesson` | Start a lesson (`{topic, difficulty, module, lesson, llm}`) |
 | `POST /api/atlas/submit` | Submit code (`{code}`) → graded result |
+| `POST /api/atlas/onboard` | Save learner onboarding profile |
 | `POST /api/atlas/next` | Advance to next lesson |
+| `POST /api/atlas/back` | Return to previous lesson with resume packet |
+| `GET /api/atlas/flashcards` | Generate + save lesson flashcards for recall |
 | `POST /api/atlas/reset` | Reset ATLAS session |
 | `POST /api/atlas/chat` | Chat with ATLAS tutor (`{message, model?}`) |
 | `GET /api/models` | All available models: active adapter, model, Ollama status, installed models |
@@ -327,7 +342,7 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 
 ---
 
-## 7 — Project status (as of August 2026)
+## 8 — Project status (as of August 2026)
 
 ### Done and working ✅
 - Full ATLAS lesson → submit → pass/fail loop wired to Supabase
@@ -346,24 +361,128 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 - Terminal WebSocket + HTTP fallback
 - All data files auto-initialized in `.mammoth/`
 - Branch pushed to origin: `ui/compliance-legal-shell`
+- Agent Console run history (browser-local, replay/clear, up to 20 entries)
+- Plan + Execute multi-agent orchestration mode in Agent Console
+- ATLAS-First plan profile (seed/strategy framing before code)
+- Agent smoke test workflow with baseline health validation
+- **Phase 1 complete:** learner onboarding profile, memory graph, `POST /api/atlas/onboard`,  
+  `POST /api/atlas/back` (resume packet), `GET /api/atlas/flashcards` (recall),  
+  welcome-back lesson summary in ATLAS Tutor UI
 
 ### Next up (priority order)
-1. `atlas progress` CLI command — show XP, lessons completed, streak from Supabase
-2. Write `atlas.sessions` rows on lesson start (track topic history in DB)
-3. ReasoningAgent hints on submission fail (chain-of-thought explanation)
-4. Agent page: per-run adapter/model selection dropdown
+1. **Phase 2** — Adaptive lesson delivery (see roadmap below)
+2. `atlas progress` CLI command — show XP, lessons completed, streak from Supabase
+3. Write `atlas.sessions` rows on lesson start (track topic history in DB)
+4. ReasoningAgent hints on submission fail (chain-of-thought explanation)
 5. Ascension Metrics page — real learning stats pulled from Supabase `atlas_ascension` table
 6. Completion Graph — visual skill tree of completed vs pending lessons
-7. Wednesday theme variant — gothic neon styling toggle (planned for future)
-8. OrchestratorAgent CLI — multi-agent pipeline from one command
 
 ### Parked
 - Docker sandbox seccomp tuning (needs CI artifacts)
 - Full LLM lesson generation at scale (`ATLAS_EXERCISE_GEN_MODE=llm`)
+- Wednesday gothic neon theme variant
 
 ---
 
-## 8 — Quick troubleshooting
+## 9 — ATLAS Upgrade Roadmap
+
+> **ATLAS is the top-level system.** The CodingAgent is ATLAS's teaching assistant —  
+> it generates, explains, and refactors code *in service of ATLAS's adaptive learning goals.*  
+> The original idea: a recursive, self-improving, individualized cognitive tutor OS.  
+> This roadmap is the execution plan for that vision.
+
+---
+
+### Phase 1 — Onboarding + Learner Memory Foundation ✅ COMPLETE
+
+**Goal:** Know the student before the first lesson starts.
+
+| Feature | Status |
+|---|---|
+| Learner model file (`learner_model.py`) | ✅ Done |
+| Onboarding profile (experience, pacing, style, goals, focus areas) | ✅ Done |
+| Memory graph (concept nodes + lesson edges) | ✅ Done |
+| `POST /api/atlas/onboard` endpoint | ✅ Done |
+| Onboarding UI in ATLAS Tutor sidebar | ✅ Done |
+| Learner memory map display in UI | ✅ Done |
+| Welcome-back lesson summary on return | ✅ Done |
+| Flashcard recall (`GET /api/atlas/flashcards`) | ✅ Done |
+| `POST /api/atlas/back` resume packet | ✅ Done |
+
+---
+
+### Phase 2 — Adaptive Lesson Delivery 🔜 NEXT
+
+**Goal:** ATLAS selects the *right lesson* at the *right difficulty* based on the learner model.
+
+| Feature | Plan |
+|---|---|
+| Learner-model-informed lesson selection | Pull weakest concepts from mastery map and weight curriculum accordingly |
+| Dynamic difficulty scaling | Adjust difficulty based on streak + recent outcome history from learner model |
+| Hint depth calibration | Measure confidence score → calibrate hint verbosity (less hand-holding for high confidence) |
+| Pacing adapter | Honor onboarding `preferred_pacing` field to space exercises / explanations |
+| Post-lesson mastery update | Write concept mastery scores back to learner model after every submission |
+| Supabase session rows on lesson start | Write `atlas.sessions` entries for full lesson-history tracking |
+| `atlas progress` CLI command | Display XP, lessons completed, streak, weakest concepts from DB + learner model |
+
+---
+
+### Phase 3 — ReasoningAgent Chain-of-Thought Hints
+
+**Goal:** When a student fails, ATLAS explains *why* step-by-step, not just "wrong."
+
+| Feature | Plan |
+|---|---|
+| ReasoningAgent integration on fail | CodingAgent fails → ReasoningAgent generates chain-of-thought walkthrough |
+| Socratic probe mode | ATLAS asks follow-up questions instead of immediately revealing the fix |
+| Error pattern tracking | Repeated errors update `error_patterns` in learner model → ATLAS flags known sticking points |
+| Contextual micro-lessons | When a concept is repeatedly failed, inject a targeted micro-lesson before the next attempt |
+
+---
+
+### Phase 4 — Ascension Metrics + Skill Tree
+
+**Goal:** Make the student's growth visible and motivating.
+
+| Feature | Plan |
+|---|---|
+| Ascension Metrics page | Real learning stats from Supabase `atlas_ascension` table |
+| Completion Graph | Visual skill tree: completed vs pending lessons, mastery color-coded |
+| Streak + XP leaderboard (personal) | Self-comparison over time, not competitive |
+| Weekly focus report | ATLAS generates a "here's what you learned this week" summary |
+| Concept dependency graph | Show which concepts unlock which advanced topics |
+
+---
+
+### Phase 5 — Multi-Agent Cognitive Loop (Recursive Self-Improvement)
+
+**Goal:** ATLAS + CodingAgent teach each other. The system improves its own curriculum.
+
+| Feature | Plan |
+|---|---|
+| ATLAS evaluates CodingAgent output | ATLAS scores code quality against learner goals, not just correctness |
+| CodingAgent proposes curriculum additions | When generating code solutions, agent flags concepts student hasn't seen yet |
+| Curriculum self-amendment | OrchestratorAgent can add new lessons to the curriculum based on learner model gaps |
+| Agent role hierarchy enforced in UI | Plan Profile = ATLAS-First locks ATLAS as strategy layer; CodingAgent always subordinate |
+| Recursive improvement loop | Each lesson cycle produces learner model updates → curriculum updates → better next lesson |
+
+---
+
+### CodingAgent Upgrade Plan (parallel track, subordinate to ATLAS)
+
+The CodingAgent is ATLAS's teaching assistant. These upgrades make it a better one:
+
+| Upgrade | Purpose |
+|---|---|
+| Per-run model selection in Agent Console | Let ATLAS choose the best model for each coding task |
+| Reasoning trace display | Show CodingAgent's thought steps live in the UI |
+| Context-aware code generation | CodingAgent reads learner model before generating — calibrates complexity to student level |
+| File approval + rollback | Already wired; ensure rollback snapshots preserve ATLAS lesson state too |
+| Smoke test on every code write | Run sandbox tests automatically after every CodingAgent file write |
+
+---
+
+## 10 — Quick troubleshooting
 
 | Symptom | Fix |
 |---|---|
@@ -380,7 +499,7 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 
 ---
 
-## 9 — Run the full test suite
+## 11 — Run the full test suite
 
 ```powershell
 $env:PYTHONPATH = "src"

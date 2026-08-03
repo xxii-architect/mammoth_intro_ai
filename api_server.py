@@ -24,6 +24,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from mammoth_os.learner_model import build_learner_context, build_lesson_plan, load_learner_model, save_learner_model, set_onboarding_profile, update_learner_model
+
 app = FastAPI(title="MammothOS API", version="1.0.0")
 
 app.add_middleware(
@@ -1175,6 +1177,29 @@ def _save_atlas_state(state: Dict[str, Any]):
     ATLAS_FILE.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
 
 
+def _hydrate_learner_state(state: Dict[str, Any], *, user_id: str = "default_user", lesson: Optional[Dict[str, Any]] = None, exercise: Optional[Dict[str, Any]] = None, result: Optional[Dict[str, Any]] = None, topic: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    learner_state = load_learner_model(user_id)
+    if result is not None:
+        learner_state = update_learner_model(
+            user_id,
+            lesson=lesson,
+            exercise=exercise,
+            result=result,
+            topic=topic,
+            metadata=metadata,
+        )
+    learner_context = build_learner_context(learner_state)
+    state["learner_model"] = learner_state
+    state["learner_context"] = learner_context
+    state["learner_profile"] = {
+        "streak": learner_context.get("streak", 0),
+        "attempts": learner_context.get("attempts", 0),
+        "recommended_difficulty": learner_context.get("recommended_difficulty", "beginner"),
+        "preferred_pacing": learner_context.get("preferred_pacing", "gentle"),
+    }
+    return learner_state
+
+
 def _append_lesson_history(state: Dict[str, Any], lesson: Dict[str, Any], exercise: Dict[str, Any]):
     history = state.get("lesson_history") or []
     if not isinstance(history, list):
@@ -1240,9 +1265,219 @@ def _build_lesson_review(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _append_study_aid(state: Dict[str, Any], aid_type: str, data: Any):
+    aids = state.get("study_aids") or []
+    if not isinstance(aids, list):
+        aids = []
+    lesson = state.get("current_lesson") or {}
+    aids.append({
+        "id": str(uuid.uuid4()),
+        "type": str(aid_type or "unknown"),
+        "lesson_id": state.get("lesson_id") or lesson.get("lesson_id"),
+        "lesson_title": lesson.get("title") or lesson.get("lesson_title"),
+        "data": data,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    state["study_aids"] = aids[-120:]
+
+
+def _build_lesson_flashcards(state: Dict[str, Any]) -> List[Dict[str, str]]:
+    lesson = state.get("current_lesson") or {}
+    exercise = state.get("current_exercise") or {}
+    objectives = [str(item).strip() for item in (lesson.get("objectives") or []) if str(item).strip()]
+    lesson_title = lesson.get("title") or lesson.get("lesson_title") or "Current lesson"
+    cards: List[Dict[str, str]] = []
+
+    for idx, objective in enumerate(objectives[:4], start=1):
+        cards.append({
+            "id": f"obj-{idx}",
+            "front": f"{lesson_title}: What does this objective mean? ({objective})",
+            "back": f"Explain {objective} in your own words, then write one tiny example that demonstrates it.",
+        })
+
+    prompt = str(exercise.get("prompt") or "").strip()
+    if prompt:
+        cards.append({
+            "id": "exercise-plan",
+            "front": "What is your plan before coding this exercise?",
+            "back": f"Summarize the input/output, then list 2-3 steps to solve this prompt: {prompt[:220]}",
+        })
+
+    return cards[:6]
+
+
+def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> List[Dict[str, Any]]:
+    notes = _read_json(NOTES_FILE, default=[])
+    if not isinstance(notes, list):
+        return []
+
+    lesson = state.get("current_lesson") or {}
+    keywords = [
+        str(lesson_id or "").strip().lower(),
+        str(lesson.get("title") or lesson.get("lesson_title") or "").strip().lower(),
+        str(state.get("topic") or "").strip().lower(),
+    ]
+    keywords = [k for k in keywords if k]
+
+    matches: List[Dict[str, Any]] = []
+    for raw in reversed(notes):
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title", "") or "")
+        body = str(raw.get("body", "") or "")
+        haystack = f"{title}\n{body}".lower()
+        if keywords and not any(k in haystack for k in keywords):
+            continue
+        matches.append({
+            "id": str(raw.get("id", "")),
+            "title": title or "Untitled",
+            "preview": body[:220],
+            "updated_at": raw.get("updated_at"),
+        })
+        if len(matches) >= 5:
+            break
+
+    if matches:
+        return matches
+
+    fallback: List[Dict[str, Any]] = []
+    for raw in reversed(notes[-3:]):
+        if not isinstance(raw, dict):
+            continue
+        fallback.append({
+            "id": str(raw.get("id", "")),
+            "title": str(raw.get("title", "") or "Untitled"),
+            "preview": str(raw.get("body", "") or "")[:220],
+            "updated_at": raw.get("updated_at"),
+        })
+    return fallback
+
+
+def _flashcards_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> List[Dict[str, str]]:
+    aids = state.get("study_aids") or []
+    if not isinstance(aids, list):
+        aids = []
+
+    cards: List[Dict[str, str]] = []
+    for item in reversed(aids):
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("lesson_id") or "") != str(lesson_id or ""):
+            continue
+        aid_type = str(item.get("type") or "")
+        data = item.get("data")
+        if aid_type == "flashcards" and isinstance(data, list):
+            for card in data:
+                if not isinstance(card, dict):
+                    continue
+                front = str(card.get("front") or "").strip()
+                back = str(card.get("back") or "").strip()
+                if front and back:
+                    cards.append({"front": front, "back": back})
+        elif aid_type == "quiz" and isinstance(data, list):
+            for q in data:
+                question = str((q or {}).get("question") if isinstance(q, dict) else q).strip()
+                if question:
+                    cards.append({
+                        "front": question,
+                        "back": "Answer from memory, then verify against the lesson objective and your code.",
+                    })
+        if len(cards) >= 10:
+            break
+
+    deduped: List[Dict[str, str]] = []
+    seen = set()
+    for card in cards:
+        key = card["front"].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(card)
+        if len(deduped) >= 8:
+            break
+    return deduped
+
+
+def _build_resume_packet(state: Dict[str, Any], lesson_id: Optional[str]) -> Dict[str, Any]:
+    lesson = state.get("current_lesson") or {}
+    submission = state.get("last_submission") or {}
+    objectives = [str(item) for item in (lesson.get("objectives") or []) if str(item).strip()]
+    notes = _matching_notes_for_lesson(state, lesson_id)
+    flashcards = _flashcards_for_lesson(state, lesson_id)
+    passed = bool(submission.get("passed"))
+    status_line = "Latest submission passed." if passed else "Latest submission still needs work."
+    hint = str(submission.get("hint") or submission.get("error") or "").strip()
+    summary = (
+        f"Welcome back to {lesson.get('title') or lesson.get('lesson_title') or (lesson_id or 'this lesson')}. "
+        f"You previously worked on {max(1, len(objectives))} objective(s). "
+        f"{status_line} "
+        f"{('Last feedback: ' + hint[:180]) if hint else ''}".strip()
+    )
+    return {
+        "lesson_id": lesson_id,
+        "lesson_title": lesson.get("title") or lesson.get("lesson_title") or lesson_id,
+        "summary": summary,
+        "objectives": objectives[:4],
+        "notes": notes[:5],
+        "flashcards": flashcards[:8],
+        "has_resources": bool(notes or flashcards),
+    }
+
+
 @app.get("/api/atlas/status")
 async def atlas_status():
-    return _load_atlas_state()
+    state = _load_atlas_state()
+    _hydrate_learner_state(state, user_id="default_user")
+    lesson_id = state.get("lesson_id")
+    if lesson_id:
+        state["resume_packet"] = _build_resume_packet(state, lesson_id)
+    return state
+
+
+@app.get("/api/atlas/learner")
+async def atlas_learner():
+    state = _load_atlas_state()
+    learner_state = _hydrate_learner_state(state, user_id="default_user")
+    return {"status": "ok", "learner_model": learner_state, "learner_context": state.get("learner_context")}
+
+
+@app.post("/api/atlas/onboard")
+async def atlas_onboard(body: Dict[str, Any]):
+    state = _load_atlas_state()
+    learner_state = set_onboarding_profile(state, user_id="default_user", onboarding=body)
+    _save_atlas_state(state)
+    return {
+        "status": "ok",
+        "learner_model": learner_state,
+        "learner_context": state.get("learner_context"),
+        "learner_profile": state.get("learner_profile"),
+    }
+
+
+@app.post("/api/atlas/learner/reset")
+async def atlas_learner_reset():
+    learner_state = load_learner_model("default_user")
+    learner_state.update({
+        "mastery": {},
+        "confidence": {},
+        "streak": 0,
+        "attempts": 0,
+        "error_patterns": {},
+        "recent_outcomes": [],
+        "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
+    })
+    learner_state = save_learner_model(learner_state)
+    state = _load_atlas_state()
+    state["learner_model"] = learner_state
+    state["learner_context"] = build_learner_context(learner_state)
+    state["learner_profile"] = {
+        "streak": 0,
+        "attempts": 0,
+        "recommended_difficulty": "beginner",
+        "preferred_pacing": "gentle",
+    }
+    _save_atlas_state(state)
+    return {"status": "ok", "learner_model": learner_state, "learner_context": state["learner_context"]}
 
 
 @app.post("/api/atlas/lesson")
@@ -1251,10 +1486,17 @@ async def atlas_lesson(body: Dict[str, Any]):
     try:
         from mammoth_os.atlas_session import ATLASSession
         session = ATLASSession(user_id="default_user")
-        exercise = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: session.start_lesson(topic)
-        )
         state = _load_atlas_state()
+        learner_context = state.get("learner_context") or {}
+        if not learner_context:
+            _hydrate_learner_state(state, user_id="default_user")
+            learner_context = state.get("learner_context") or {}
+        lesson_plan = build_lesson_plan(state, topic)
+        learner_context = {**learner_context, "lesson_plan": lesson_plan}
+        difficulty = str(lesson_plan.get("difficulty") or learner_context.get("recommended_difficulty") or "beginner").strip().lower() or "beginner"
+        exercise = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: session.start_lesson(topic, difficulty=difficulty, learner_context=learner_context)
+        )
         state.update({
             "status":           "active",
             "topic":            topic,
@@ -1263,11 +1505,14 @@ async def atlas_lesson(body: Dict[str, Any]):
             "current_lesson":   session.current_lesson,
             "curriculum_id":    session._curriculum_id,
             "lesson_id":        session._lesson_id,
+            "lesson_plan":      lesson_plan,
             "updated_at":       datetime.now(timezone.utc).isoformat(),
         })
+        _hydrate_learner_state(state, user_id="default_user")
         _append_lesson_history(state, session.current_lesson or {}, exercise or {})
+        state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
         _save_atlas_state(state)
-        return {"status": "ok", "exercise": exercise}
+        return {"status": "ok", "exercise": exercise, "learner_context": state.get("learner_context")}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -1289,9 +1534,19 @@ async def atlas_submit(body: Dict[str, Any]):
         result = await session.submit(files)
 
         state["last_submission"] = result
-        state["updated_at"]      = datetime.now(timezone.utc).isoformat()
+        _hydrate_learner_state(
+            state,
+            user_id="default_user",
+            lesson=state.get("current_lesson") or {},
+            exercise=state.get("current_exercise") or {},
+            result=result,
+            topic=state.get("topic"),
+            metadata={"error_fingerprint": None},
+        )
+        state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _save_atlas_state(state)
-        return {"status": "ok", "result": result}
+        return {"status": "ok", "result": result, "learner_context": state.get("learner_context")}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -1324,6 +1579,7 @@ async def atlas_next():
                         pass
                     state["updated_at"]     = datetime.now(timezone.utc).isoformat()
                     _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
+                    state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
                     _save_atlas_state(state)
                     return {"status": "ok", "lesson": mod["lessons"][next_i]}
                 break
@@ -1345,27 +1601,51 @@ async def atlas_back():
     state["current_lesson"] = previous.get("lesson") or {}
     state["lesson_id"] = previous.get("lesson_id")
     state["current_exercise"] = previous.get("exercise") or {}
+    state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
-    return {"status": "ok", "lesson": state.get("current_lesson"), "exercise": state.get("current_exercise")}
+    return {
+        "status": "ok",
+        "lesson": state.get("current_lesson"),
+        "exercise": state.get("current_exercise"),
+        "resume_packet": state.get("resume_packet"),
+    }
 
 
 @app.get("/api/atlas/recap")
 async def atlas_recap():
     state = _load_atlas_state()
-    return {"status": "ok", "recap": _build_lesson_recap(state)}
+    recap = _build_lesson_recap(state)
+    _append_study_aid(state, "recap", recap)
+    _save_atlas_state(state)
+    return {"status": "ok", "recap": recap}
 
 
 @app.get("/api/atlas/quiz")
 async def atlas_quiz():
     state = _load_atlas_state()
-    return {"status": "ok", "quiz": _build_lesson_quiz(state)}
+    quiz = _build_lesson_quiz(state)
+    _append_study_aid(state, "quiz", quiz)
+    _save_atlas_state(state)
+    return {"status": "ok", "quiz": quiz}
 
 
 @app.get("/api/atlas/review")
 async def atlas_review():
     state = _load_atlas_state()
-    return {"status": "ok", "review": _build_lesson_review(state)}
+    review = _build_lesson_review(state)
+    _append_study_aid(state, "review", review)
+    _save_atlas_state(state)
+    return {"status": "ok", "review": review}
+
+
+@app.get("/api/atlas/flashcards")
+async def atlas_flashcards():
+    state = _load_atlas_state()
+    flashcards = _build_lesson_flashcards(state)
+    _append_study_aid(state, "flashcards", flashcards)
+    _save_atlas_state(state)
+    return {"status": "ok", "flashcards": flashcards}
 
 
 @app.get("/api/approvals")
@@ -1440,7 +1720,29 @@ async def atlas_apply(body: Dict[str, Any]):
 
 @app.post("/api/atlas/reset")
 async def atlas_reset():
-    _save_atlas_state({"status": "reset", "user_id": "default_user"})
+    learner_state = load_learner_model("default_user")
+    learner_state.update({
+        "mastery": {},
+        "confidence": {},
+        "streak": 0,
+        "attempts": 0,
+        "error_patterns": {},
+        "recent_outcomes": [],
+        "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
+    })
+    learner_state = save_learner_model(learner_state)
+    _save_atlas_state({
+        "status": "reset",
+        "user_id": "default_user",
+        "learner_model": learner_state,
+        "learner_context": build_learner_context(learner_state),
+        "learner_profile": {
+            "streak": 0,
+            "attempts": 0,
+            "recommended_difficulty": "beginner",
+            "preferred_pacing": "gentle",
+        },
+    })
     return {"status": "ok", "message": "Session reset"}
 
 
@@ -1454,6 +1756,11 @@ async def atlas_chat(body: Dict[str, Any]):
     current_lesson = state.get("current_lesson") or {}
     current_exercise = state.get("current_exercise") or {}
     last_submission = state.get("last_submission") or {}
+    learner_context = state.get("learner_context") or {}
+    _hydrate_learner_state(state, user_id="default_user")
+    lesson_plan = state.get("lesson_plan") or build_lesson_plan(state, state.get("topic"))
+    resume_packet = state.get("resume_packet") or _build_resume_packet(state, state.get("lesson_id"))
+    learner_context = {**(state.get("learner_context") or learner_context), "lesson_plan": lesson_plan}
 
     adapter = str(body.get("adapter", "")).strip()
     model = str(body.get("model", "")).strip()
@@ -1465,7 +1772,10 @@ async def atlas_chat(body: Dict[str, Any]):
         f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
         f"Lesson objectives: {current_lesson.get('objectives', [])}\n"
         f"Exercise prompt: {current_exercise.get('prompt', 'N/A')}\n"
-        f"Recent submission result: {last_submission}\n\n"
+        f"Recent submission result: {last_submission}\n"
+        f"Adaptive learner context: {json.dumps(learner_context, default=str)[:2500]}\n"
+        f"Adaptive lesson plan: {json.dumps(lesson_plan, default=str)[:1500]}\n\n"
+        f"Resume packet: {json.dumps(resume_packet, default=str)[:1800]}\n\n"
         f"Student message: {message}\n\n"
         "Respond as a tutor with: 1) diagnosis, 2) next concrete step, 3) short example when useful."
     )
