@@ -10,6 +10,8 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -43,6 +45,9 @@ NOTES_FILE    = MAMMOTH_DIR / "notes.json"
 BUILDLOG_FILE = MAMMOTH_DIR / "buildlog.json"
 SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
 ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
+UI_DIR        = ROOT / "ui" / "mad-architecht-command-center"
+VENV_PYTHON   = ROOT / ".venv" / "Scripts" / "python.exe"
+VENV_UVICORN  = ROOT / ".venv" / "Scripts" / "uvicorn.exe"
 
 for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE]:
     if not _f.exists():
@@ -60,6 +65,109 @@ def _read_json(path: Path, default=None):
 
 def _write_json(path: Path, data):
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _read_env_vars() -> Dict[str, str]:
+    env_file = ROOT / ".env"
+    env_vars: Dict[str, str] = {}
+    if not env_file.exists():
+        return env_vars
+    try:
+        for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            env_vars[k.strip()] = v.strip().strip('"').strip("'")
+    except Exception:
+        return {}
+    return env_vars
+
+
+def _ollama_running(base_url: str) -> bool:
+    try:
+        req = urllib.request.Request(f"{base_url.rstrip('/')}/api/tags")
+        with urllib.request.urlopen(req, timeout=3):
+            return True
+    except Exception:
+        return False
+
+
+def _ollama_installed_models(base_url: str) -> List[str]:
+    try:
+        req = urllib.request.Request(f"{base_url.rstrip('/')}/api/tags")
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+        models = payload.get("models") or []
+        names: List[str] = []
+        for m in models:
+            if isinstance(m, dict):
+                names.append(str(m.get("name") or "").strip())
+        return [m for m in names if m]
+    except Exception:
+        return []
+
+
+def _models_snapshot() -> Dict[str, Any]:
+    env = _read_env_vars()
+    llm_adapter = (os.environ.get("MAMMOTH_LLM_ADAPTER") or env.get("MAMMOTH_LLM_ADAPTER") or "").strip().lower()
+    openai_model = (os.environ.get("OPENAI_MODEL") or env.get("OPENAI_MODEL") or "gpt-4o-mini").strip()
+    ollama_model = (os.environ.get("OLLAMA_MODEL") or env.get("OLLAMA_MODEL") or "hermes3:8b").strip()
+    ollama_base = (os.environ.get("OLLAMA_BASE_URL") or env.get("OLLAMA_BASE_URL") or "http://localhost:11434").strip()
+    openai_key_present = bool((os.environ.get("OPENAI_API_KEY") or env.get("OPENAI_API_KEY") or "").strip())
+    ollama_up = _ollama_running(ollama_base)
+    installed_local = _ollama_installed_models(ollama_base) if ollama_up else []
+
+    if llm_adapter:
+        active_adapter = llm_adapter
+    elif openai_key_present:
+        active_adapter = "openai"
+    elif ollama_up:
+        active_adapter = "ollama"
+    else:
+        active_adapter = "local"
+
+    if active_adapter == "openai":
+        active_model = openai_model
+    elif active_adapter == "ollama":
+        active_model = ollama_model
+    else:
+        active_model = "local-adapter"
+
+    configured_locals = [
+        "hermes3:8b",
+        "deepseek-coder:latest",
+        "qwen2.5-coder:latest",
+        "codellama:latest",
+        "llama3.1:8b",
+        "mistral:latest",
+        "qwen2.5:latest",
+        "phi3:latest",
+        "nous-hermes:7b",
+    ]
+    local_model_items = []
+    for m in configured_locals:
+        local_model_items.append({
+            "id": m,
+            "provider": "ollama",
+            "installed": m in installed_local,
+        })
+
+    cloud_model_items = [{
+        "id": openai_model,
+        "provider": "openai",
+        "installed": openai_key_present,
+    }]
+
+    return {
+        "active_adapter": active_adapter,
+        "active_model": active_model,
+        "ollama_base_url": ollama_base,
+        "ollama_running": ollama_up,
+        "openai_key_present": openai_key_present,
+        "local_models_installed": installed_local,
+        "models": local_model_items + cloud_model_items,
+    }
 
 
 # ── lazy registry imports ─────────────────────────────────────────────────────
@@ -104,6 +212,8 @@ async def get_status():
 
     buildlog = _read_json(BUILDLOG_FILE)
 
+    models = _models_snapshot()
+
     return {
         "status": "ok",
         "python_version": sys.version,
@@ -112,7 +222,9 @@ async def get_status():
         "engine_count": len(engines),
         "agent_count": len(agents),
         "cli_commands_run": len(buildlog),
-        "active_models": 3,
+        "active_models": max(1, len(models.get("local_models_installed", []))),
+        "active_adapter": models.get("active_adapter"),
+        "active_model": models.get("active_model"),
     }
 
 
@@ -174,23 +286,15 @@ def _port_open(port: int) -> bool:
 async def get_health():
     env_file = ROOT / ".env"
     env_exists = env_file.exists()
+    env_values = _read_env_vars()
     env_vars: Dict[str, bool] = {}
     openai_ok = False
     supabase_ok = False
-    if env_exists:
-        try:
-            text = env_file.read_text(encoding="utf-8")
-            for line in text.splitlines():
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    k, v = line.split("=", 1)
-                    k = k.strip()
-                    v = v.strip().strip('"').strip("'")
-                    env_vars[k] = bool(v)
-            openai_ok  = bool(env_vars.get("OPENAI_API_KEY"))
-            supabase_ok = bool(env_vars.get("SUPABASE_URL"))
-        except Exception:
-            pass
+    for k, v in env_values.items():
+        env_vars[k] = bool(v)
+    openai_ok = bool(env_values.get("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY"))
+    supabase_ok = bool(env_values.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL"))
+    models = _models_snapshot()
 
     # check git
     git_ok = (ROOT / ".git").exists()
@@ -247,6 +351,12 @@ async def get_health():
             "status": "green" if supabase_ok else "yellow",
             "up":     supabase_ok,
         },
+        {
+            "label":  "Ollama Runtime",
+            "detail": models.get("ollama_base_url", "http://localhost:11434"),
+            "status": "green" if models.get("ollama_running") else "yellow",
+            "up":     bool(models.get("ollama_running")),
+        },
     ]
 
     return {
@@ -254,6 +364,11 @@ async def get_health():
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "env_keys": list(env_vars.keys()),
     }
+
+
+@app.get("/api/models")
+async def get_models():
+    return _models_snapshot()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -364,8 +479,17 @@ async def atlas_next():
                 found = True
                 next_i = i + 1
                 if next_i < len(mod["lessons"]):
-                    state["current_lesson"] = mod["lessons"][next_i]
-                    state["lesson_id"]      = mod["lessons"][next_i]["lesson_id"]
+                    next_lesson = mod["lessons"][next_i]
+                    state["current_lesson"] = next_lesson
+                    state["lesson_id"]      = next_lesson["lesson_id"]
+                    try:
+                        from mammoth_os.exercise_generator import generate_exercises_for_lesson
+                        generated = generate_exercises_for_lesson(next_lesson, count=1)
+                        if generated:
+                            state["current_exercise"] = generated[0]
+                    except Exception:
+                        # Keep session moving even if exercise generation fails.
+                        pass
                     state["updated_at"]     = datetime.now(timezone.utc).isoformat()
                     _save_atlas_state(state)
                     return {"status": "ok", "lesson": mod["lessons"][next_i]}
@@ -380,6 +504,85 @@ async def atlas_next():
 async def atlas_reset():
     _save_atlas_state({"status": "reset", "user_id": "default_user"})
     return {"status": "ok", "message": "Session reset"}
+
+
+@app.post("/api/atlas/chat")
+async def atlas_chat(body: Dict[str, Any]):
+    message = str(body.get("message", "")).strip()
+    if not message:
+        return {"status": "error", "error": "message is required"}
+
+    state = _load_atlas_state()
+    current_lesson = state.get("current_lesson") or {}
+    current_exercise = state.get("current_exercise") or {}
+    last_submission = state.get("last_submission") or {}
+
+    adapter = str(body.get("adapter", "")).strip()
+    model = str(body.get("model", "")).strip()
+    temperature = float(body.get("temperature", 0.2))
+
+    tutor_prompt = (
+        "You are ATLAS Tutor, a practical coding mentor. "
+        "Give clear, concise help. Never provide harmful content.\n\n"
+        f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
+        f"Lesson objectives: {current_lesson.get('objectives', [])}\n"
+        f"Exercise prompt: {current_exercise.get('prompt', 'N/A')}\n"
+        f"Recent submission result: {last_submission}\n\n"
+        f"Student message: {message}\n\n"
+        "Respond as a tutor with: 1) diagnosis, 2) next concrete step, 3) short example when useful."
+    )
+
+    llm_reply = ""
+    active_model = ""
+    active_adapter = ""
+    try:
+        from mammoth_os.llm_client import get_llm_client
+        cfg: Dict[str, Any] = {}
+        if adapter:
+            cfg["adapter"] = adapter
+        if model:
+            cfg["model"] = model
+        client = get_llm_client(config=cfg)
+        active_model = str(getattr(client, "model", model or "unknown"))
+        active_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
+        llm_reply = await client.generate(tutor_prompt, temperature=temperature)
+    except Exception as e:
+        llm_reply = (
+            "I could not reach the configured LLM runtime. "
+            f"Here is a local fallback tip:\n{str(e)}\n\n"
+            "Try: check your function signature, return value, and failing assertion line."
+        )
+        if not active_model:
+            active_model = "fallback-local"
+        if not active_adapter:
+            active_adapter = "fallback-local"
+
+    history = state.get("chat_history") or []
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        "role": "user",
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    history.append({
+        "role": "assistant",
+        "message": llm_reply,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "adapter": active_adapter,
+        "model": active_model,
+    })
+    state["chat_history"] = history[-60:]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+
+    return {
+        "status": "ok",
+        "reply": llm_reply,
+        "adapter": active_adapter,
+        "model": active_model,
+        "chat_history": state["chat_history"],
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -509,6 +712,39 @@ async def get_modules():
     return _STATIC_MODULES + extra
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/terminal/exec  (HTTP fallback — returns full output at once)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.post("/api/terminal/exec")
+async def terminal_exec(body: Dict[str, Any]):
+    cmd = str(body.get("cmd", "")).strip()
+    if not cmd:
+        return {"stdout": "", "stderr": "No command provided.", "exit_code": 1}
+
+    resolved, run_cwd = _normalize_terminal_command(cmd)
+    env = _make_env()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "powershell", "-NoProfile", "-NonInteractive", "-Command", resolved,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(run_cwd),
+            env=env,
+        )
+        stdout_raw, stderr_raw = await asyncio.wait_for(proc.communicate(), timeout=60)
+        return {
+            "stdout": stdout_raw.decode(errors="replace"),
+            "stderr": stderr_raw.decode(errors="replace"),
+            "exit_code": proc.returncode,
+        }
+    except asyncio.TimeoutError:
+        return {"stdout": "", "stderr": "Command timed out (60s)", "exit_code": 1}
+    except Exception as e:
+        return {"stdout": "", "stderr": str(e), "exit_code": 1}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # WebSocket /ws/terminal
 # ─────────────────────────────────────────────────────────────────────────────
@@ -516,9 +752,9 @@ async def get_modules():
 ALLOW_LIST = {
     "git status",
     "git log --oneline -20",
+    "git log --oneline",
     "git diff --stat",
     "git branch",
-    "git log --oneline",
     "npm run dev",
     "npm run build",
     "npm install",
@@ -526,6 +762,9 @@ ALLOW_LIST = {
     "python -m cli.main agent-list",
     "python -m cli.main health",
     "python -m cli.main atlas status",
+    "python -m cli.main version",
+    "python -m cli.main diagnostics",
+    "py -m cli.main status",
     "uvicorn api_server:app --reload",
     "ls",
     "dir",
@@ -534,61 +773,118 @@ ALLOW_LIST = {
 
 ALLOW_PREFIXES = (
     "python -m cli.main",
+    "py -m cli.main",
+    "npm ",
+    "uvicorn ",
     "cat ",
     "ls ",
     "dir ",
-    "git log",
-    "git diff",
+    "git ",
 )
 
 
 def _is_allowed(cmd: str) -> bool:
-    cmd_stripped = cmd.strip()
-    if cmd_stripped in ALLOW_LIST:
+    s = cmd.strip()
+    if s in ALLOW_LIST:
         return True
     for prefix in ALLOW_PREFIXES:
-        if cmd_stripped.startswith(prefix):
+        if s.startswith(prefix):
             return True
     return False
+
+
+def _make_env() -> dict:
+    env = os.environ.copy()
+    src_path = str(ROOT / "src")
+    existing = env.get("PYTHONPATH", "")
+    if src_path not in existing:
+        env["PYTHONPATH"] = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+    return env
+
+
+def _normalize_terminal_command(cmd: str) -> tuple:
+    normalized = cmd.strip()
+    run_cwd = ROOT
+
+    # Unix aliases -> PowerShell
+    if normalized == "pwd":
+        normalized = "Get-Location | Select-Object -ExpandProperty Path"
+    elif normalized == "ls":
+        normalized = "Get-ChildItem | Format-Table Name,Length,LastWriteTime"
+    elif normalized.startswith("cat "):
+        normalized = "Get-Content " + normalized[4:]
+
+    # npm -> UI dir
+    if normalized.startswith("npm "):
+        run_cwd = UI_DIR if UI_DIR.exists() else ROOT
+
+    # Use venv python
+    if normalized.startswith("python -m cli.main") and VENV_PYTHON.exists():
+        normalized = f'& "{VENV_PYTHON}"' + normalized[len("python"):]
+    elif normalized.startswith("py -m cli.main") and VENV_PYTHON.exists():
+        normalized = f'& "{VENV_PYTHON}"' + normalized[len("py"):]
+
+    # Use venv uvicorn
+    if normalized.startswith("uvicorn ") and VENV_UVICORN.exists():
+        normalized = f'& "{VENV_UVICORN}"' + normalized[len("uvicorn"):]
+
+    return normalized, run_cwd
 
 
 @app.websocket("/ws/terminal")
 async def terminal_ws(ws: WebSocket):
     await ws.accept()
+    await ws.send_json({"line": "MammothOS Terminal ready. Type a command.", "type": "stdout"})
     try:
         while True:
             data = await ws.receive_json()
-            cmd  = data.get("cmd", "").strip()
+            cmd = data.get("cmd", "").strip()
             if not cmd:
                 continue
 
             if not _is_allowed(cmd):
-                await ws.send_json({"line": f"⛔ Command not in allow-list: {cmd}", "type": "stderr"})
-                await ws.send_json({"line": "", "type": "exit", "code": 1})
+                await ws.send_json({"line": f"Not in allow-list: {cmd}", "type": "stderr"})
+                await ws.send_json({"line": f"  Allowed prefixes: {', '.join(sorted(ALLOW_PREFIXES))}", "type": "stderr"})
+                await ws.send_json({"line": f"[exit 1]", "type": "exit", "code": 1})
                 continue
 
+            resolved, run_cwd = _normalize_terminal_command(cmd)
+            env = _make_env()
+
+            await ws.send_json({"line": f"$ {cmd}", "type": "cmd"})
+
             try:
-                proc = await asyncio.create_subprocess_shell(
-                    cmd,
+                proc = await asyncio.create_subprocess_exec(
+                    "powershell",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    resolved,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    cwd=str(ROOT),
+                    cwd=str(run_cwd),
+                    env=env,
                 )
 
-                async def stream(stream_obj, stype):
-                    async for raw in stream_obj:
-                        line = raw.decode(errors="replace").rstrip("\n")
-                        await ws.send_json({"line": line, "type": stype})
+                async def _stream(reader, stype):
+                    while True:
+                        line_bytes = await reader.readline()
+                        if not line_bytes:
+                            break
+                        text = line_bytes.decode(errors="replace").rstrip("\r\n")
+                        if text:
+                            await ws.send_json({"line": text, "type": stype})
 
                 await asyncio.gather(
-                    stream(proc.stdout, "stdout"),
-                    stream(proc.stderr, "stderr"),
+                    _stream(proc.stdout, "stdout"),
+                    _stream(proc.stderr, "stderr"),
                 )
                 code = await proc.wait()
                 await ws.send_json({"line": f"[exit {code}]", "type": "exit", "code": code})
-            except Exception as e:
-                await ws.send_json({"line": f"Error: {e}", "type": "stderr"})
-                await ws.send_json({"line": "", "type": "exit", "code": 1})
+
+            except Exception as exc:
+                await ws.send_json({"line": f"Error running command: {exc}", "type": "stderr"})
+                await ws.send_json({"line": "[exit 1]", "type": "exit", "code": 1})
 
     except WebSocketDisconnect:
         pass

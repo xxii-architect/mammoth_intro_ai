@@ -1,22 +1,24 @@
 import { useState, useEffect, useRef } from 'react'
-import { Terminal, Play, Copy, Trash2, Globe, GitBranch, Hammer, Bot, FlaskConical, CheckCircle } from 'lucide-react'
+import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff } from 'lucide-react'
 import { openTerminalWS } from '../api/client'
 
 const QUICK_ACTIONS = [
-  { label: 'Git Status',    cmd: 'git status',                  Icon: GitBranch, color: 'var(--violet)' },
-  { label: 'Agent List',    cmd: 'python -m cli.main agent-list', Icon: Bot,       color: 'var(--photon)' },
-  { label: 'CLI Status',    cmd: 'python -m cli.main status',   Icon: CheckCircle, color: '#22c55e' },
-  { label: 'CLI Health',    cmd: 'python -m cli.main health',   Icon: FlaskConical, color: '#22c55e' },
-  { label: 'Git Log',       cmd: 'git log --oneline -20',       Icon: GitBranch, color: '#eab308' },
-  { label: 'Git Branch',    cmd: 'git branch',                  Icon: GitBranch, color: 'var(--cyan)' },
-  { label: 'npm Build',     cmd: 'npm run build',               Icon: Hammer,    color: '#eab308' },
+  { label: 'Git Status',    cmd: 'git status',                   Icon: GitBranch,   color: 'var(--violet)' },
+  { label: 'Agent List',    cmd: 'python -m cli.main agent-list', Icon: Bot,         color: 'var(--photon)' },
+  { label: 'CLI Status',    cmd: 'python -m cli.main status',    Icon: CheckCircle,  color: '#22c55e' },
+  { label: 'CLI Health',    cmd: 'python -m cli.main health',    Icon: FlaskConical, color: '#22c55e' },
+  { label: 'Git Log',       cmd: 'git log --oneline -20',        Icon: GitBranch,    color: '#eab308' },
+  { label: 'Git Branch',    cmd: 'git branch',                   Icon: GitBranch,    color: 'var(--cyan)' },
+  { label: 'npm Build',     cmd: 'npm run build',                Icon: Hammer,       color: '#eab308' },
 ]
 
 export default function TerminalPage() {
-  const [lines, setLines] = useState([{ text: 'MammothOS Terminal — WebSocket connected.', type: 'stdout' }])
-  const [input, setInput] = useState('')
+  const [lines, setLines]       = useState([{ text: 'MammothOS Terminal — WebSocket connected.', type: 'stdout' }])
+  const [input, setInput]       = useState('')
   const [connected, setConnected] = useState(false)
-  const wsRef   = useRef(null)
+  const [httpMode, setHttpMode] = useState(false)
+  const [httpBusy, setHttpBusy] = useState(false)
+  const wsRef     = useRef(null)
   const bottomRef = useRef(null)
 
   const addLine = (text, type = 'stdout') =>
@@ -56,13 +58,41 @@ export default function TerminalPage() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [lines])
 
-  const send = (cmd) => {
-    if (!cmd.trim()) return
-    addLine(`$ ${cmd}`, 'stdout')
+  const sendHTTP = async (cmd) => {
+    if (!cmd.trim() || httpBusy) return
+    setHttpBusy(true)
+    addLine(`$ ${cmd}`, 'cmd')
+    try {
+      const res = await fetch('/api/terminal/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cmd }),
+      })
+      const data = await res.json()
+      if (data.stdout) data.stdout.split('\n').filter(Boolean).forEach(l => addLine(l, 'stdout'))
+      if (data.stderr) data.stderr.split('\n').filter(Boolean).forEach(l => addLine(l, 'stderr'))
+      addLine(`[exit ${data.exit_code ?? 0}]`, 'exit')
+    } catch (e) {
+      addLine(`HTTP error: ${e.message}`, 'stderr')
+    } finally {
+      setHttpBusy(false)
+    }
+  }
+
+  const sendWS = (cmd) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ cmd }))
     } else {
       addLine('⚠ Not connected to backend terminal.', 'stderr')
+    }
+  }
+
+  const send = (cmd) => {
+    if (!cmd.trim()) return
+    if (httpMode) {
+      sendHTTP(cmd)
+    } else {
+      sendWS(cmd)
     }
   }
 
@@ -75,6 +105,7 @@ export default function TerminalPage() {
   const lineColor = (type) => {
     if (type === 'stderr') return '#f87171'
     if (type === 'exit')   return '#a3e635'
+    if (type === 'cmd')    return '#e2e8f0'
     return '#4ade80'
   }
 
@@ -84,18 +115,26 @@ export default function TerminalPage() {
         <h1 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
           <Terminal size={20} color="var(--cyan)" /> Terminal
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', background: connected ? '#22c55e' : '#ef4444' }} />
-          <span style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: connected ? '#22c55e' : '#ef4444' }}>
-            {connected ? 'CONNECTED' : 'DISCONNECTED'}
-          </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {!connected && (
+            <button onClick={() => setHttpMode(m => !m)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, border: `1px solid ${httpMode ? 'var(--cyan)' : 'var(--border)'}`, background: httpMode ? 'rgba(0,212,255,0.1)' : 'transparent', color: httpMode ? 'var(--cyan)' : 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}>
+              <WifiOff size={12} /> {httpMode ? 'HTTP MODE' : 'Use HTTP fallback'}
+            </button>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: connected ? '#22c55e' : (httpMode ? 'var(--cyan)' : '#ef4444') }} />
+            <span style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: connected ? '#22c55e' : (httpMode ? 'var(--cyan)' : '#ef4444') }}>
+              {connected ? 'CONNECTED' : httpMode ? 'HTTP MODE' : 'DISCONNECTED'}
+            </span>
+          </div>
         </div>
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
         {QUICK_ACTIONS.map(a => (
           <button key={a.cmd} onClick={() => send(a.cmd)} className="glass-card-solid"
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', background: 'var(--card)' }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', background: 'var(--card)', opacity: httpBusy ? 0.6 : 1 }}>
             <a.Icon size={14} color={a.color} /> {a.label}
           </button>
         ))}
@@ -105,8 +144,10 @@ export default function TerminalPage() {
         {/* title bar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {['#ef4444','#eab308','#22c55e'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
-            <span style={{ fontSize: '0.7rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-mut)', marginLeft: 8 }}>mammoth@ws:/ws/terminal</span>
+            {['#ef4444', '#eab308', '#22c55e'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
+            <span style={{ fontSize: '0.7rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-mut)', marginLeft: 8 }}>
+              {httpMode ? 'mammoth@http:/api/terminal/exec' : 'mammoth@ws:/ws/terminal'}
+            </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => navigator.clipboard.writeText(lines.map(l => l.text).join('\n'))}

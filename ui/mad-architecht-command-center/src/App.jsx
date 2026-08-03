@@ -1,36 +1,43 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
-  DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, Search,
+  DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, Search, GraduationCap,
 } from 'lucide-react'
 
-import HomePage     from './pages/HomePage'
-import AgentPage    from './pages/AgentPage'
-import TerminalPage from './pages/TerminalPage'
-import NotesPage    from './pages/NotesPage'
-import ModulesPage  from './pages/ModulesPage'
-import HealthPage   from './pages/HealthPage'
-import LessonsPage  from './pages/LessonsPage'
-import BuildLogPage from './pages/BuildLogPage'
-import LogSalePage  from './pages/LogSalePage'
-import SettingsPage from './pages/SettingsPage'
+import HomePage        from './pages/HomePage'
+import AgentPage       from './pages/AgentPage'
+import TerminalPage    from './pages/TerminalPage'
+import NotesPage       from './pages/NotesPage'
+import ModulesPage     from './pages/ModulesPage'
+import HealthPage      from './pages/HealthPage'
+import LessonsPage     from './pages/LessonsPage'
+import BuildLogPage    from './pages/BuildLogPage'
+import LogSalePage     from './pages/LogSalePage'
+import SettingsPage    from './pages/SettingsPage'
+import AtlasTutorPage  from './pages/AtlasTutorPage'
 
-// Nav definition
+const THEMES = {
+  darker:   { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
+  dark:     { '--shell': '#0d1117', '--card': '#161b22', '--card-hover': '#1f2937' },
+  midnight: { '--shell': '#080c14', '--card': '#0f1520', '--card-hover': '#1a2233' },
+}
+
 const NAV = [
   { section: 'Workspace' },
-  { id: 'home',     label: 'Home',      Icon: LayoutDashboard },
-  { id: 'agent',    label: 'Agent',     Icon: Bot },
-  { id: 'terminal', label: 'Terminal',  Icon: Terminal },
+  { id: 'home',     label: 'Home',        Icon: LayoutDashboard },
+  { id: 'agent',    label: 'Agent',       Icon: Bot },
+  { id: 'terminal', label: 'Terminal',    Icon: Terminal },
   { section: 'Tools' },
-  { id: 'notes',    label: 'Notes',     Icon: FileText },
-  { id: 'modules',  label: 'Modules',   Icon: Package },
-  { id: 'health',   label: 'Health',    Icon: HeartPulse },
-  { id: 'logsale',  label: 'Log Sale',  Icon: DollarSign, accent: 'var(--cyan)' },
+  { id: 'notes',    label: 'Notes',       Icon: FileText },
+  { id: 'modules',  label: 'Modules',     Icon: Package },
+  { id: 'health',   label: 'Health',      Icon: HeartPulse },
+  { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--cyan)' },
   { section: 'Learn' },
-  { id: 'lessons',  label: 'Lessons',   Icon: BookOpen },
-  { id: 'buildlog', label: 'Build Log', Icon: ClipboardList },
+  { id: 'lessons',  label: 'Lessons',     Icon: BookOpen },
+  { id: 'atlas',    label: 'ATLAS Tutor', Icon: GraduationCap, accent: 'var(--violet)' },
+  { id: 'buildlog', label: 'Build Log',   Icon: ClipboardList },
   { section: 'System' },
-  { id: 'settings', label: 'Settings',  Icon: Settings },
+  { id: 'settings', label: 'Settings',    Icon: Settings },
 ]
 
 const PAGE_COMPONENTS = {
@@ -42,16 +49,152 @@ const PAGE_COMPONENTS = {
   health:   HealthPage,
   logsale:  LogSalePage,
   lessons:  LessonsPage,
+  atlas:    AtlasTutorPage,
   buildlog: BuildLogPage,
   settings: SettingsPage,
+}
+
+function AtlasFAB() {
+  const [open, setOpen] = useState(false)
+  const [input, setInput] = useState('')
+  const [history, setHistory] = useState([])
+  const [busy, setBusy] = useState(false)
+  const bottomRef = useRef(null)
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [history])
+
+  const send = async () => {
+    if (!input.trim() || busy) return
+    const msg = input.trim()
+    setInput('')
+    setBusy(true)
+    setHistory(h => [...h, { role: 'user', message: msg }])
+    try {
+      const res = await fetch('/api/atlas/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg }),
+      })
+      const data = await res.json()
+      setHistory(data.chat_history || (h => [...h, { role: 'assistant', message: data.reply || data.error || 'No response.' }]))
+    } catch (e) {
+      setHistory(h => [...h, { role: 'assistant', message: `⚠ ${e.message}` }])
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9000,
+          width: 52, height: 52, borderRadius: '50%',
+          background: 'var(--violet)',
+          border: '2px solid rgba(180,124,255,0.5)',
+          boxShadow: '0 0 20px rgba(180,124,255,0.5)',
+          animation: 'pulse-violet 2.5s infinite',
+          cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: '#fff', fontSize: '1.3rem',
+        }}
+        title="ATLAS Tutor"
+      >
+        🧠
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'fixed', bottom: 86, right: 24, zIndex: 8999,
+          width: 360, height: 480,
+          background: 'rgba(13,17,23,0.96)',
+          backdropFilter: 'blur(20px)',
+          border: '1px solid rgba(180,124,255,0.3)',
+          borderRadius: 16,
+          boxShadow: '0 8px 48px rgba(0,0,0,0.6), 0 0 24px rgba(180,124,255,0.15)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+        }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(180,124,255,0.08)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: '1rem' }}>🧠</span>
+              <div>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: 'var(--violet)' }}>ATLAS Tutor</p>
+                <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>AI-powered coding mentor</p>
+              </div>
+            </div>
+            <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4 }}>✕</button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {history.length === 0 && (
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.82rem', textAlign: 'center', marginTop: 40 }}>
+                <p style={{ marginBottom: 8 }}>👋 Hi Vernon!</p>
+                <p>Ask me anything about your current lesson, code, or MammothOS.</p>
+              </div>
+            )}
+            {history.slice(-30).map((msg, i) => (
+              <div key={i} style={{
+                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
+                maxWidth: '85%',
+              }}>
+                <div style={{
+                  padding: '8px 12px',
+                  borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                  background: msg.role === 'user' ? 'rgba(77,166,255,0.2)' : 'rgba(180,124,255,0.12)',
+                  border: `1px solid ${msg.role === 'user' ? 'rgba(77,166,255,0.3)' : 'rgba(180,124,255,0.25)'}`,
+                  fontSize: '0.82rem', color: 'var(--txt-pri)', lineHeight: 1.55,
+                  whiteSpace: 'pre-wrap',
+                }}>
+                  {msg.message}
+                </div>
+                {msg.model && (
+                  <p style={{ margin: '2px 4px', fontSize: '0.62rem', color: 'var(--txt-mut)' }}>{msg.model}</p>
+                )}
+              </div>
+            ))}
+            {busy && (
+              <div style={{ display: 'flex', gap: 4, padding: 8, alignSelf: 'flex-start' }}>
+                {[0, 1, 2].map(i => <span key={i} className="thinking-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--violet)', display: 'inline-block' }} />)}
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+
+          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+              placeholder="Ask ATLAS…"
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.05)', color: 'var(--txt-pri)', fontSize: '0.82rem', outline: 'none', fontFamily: 'Inter,sans-serif' }}
+            />
+            <button onClick={send} disabled={busy}
+              style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: busy ? 'rgba(180,124,255,0.3)' : 'var(--violet)', color: '#fff', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.82rem' }}>
+              {busy ? '…' : '↑'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  )
 }
 
 export default function App() {
   const [page, setPage] = useState('home')
   const [collapsed, setCollapsed] = useState(false)
+  const [theme, setTheme] = useState(() => localStorage.getItem('mmTheme') || 'darker')
+
+  useEffect(() => {
+    const vars = THEMES[theme] || THEMES.darker
+    Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
+    localStorage.setItem('mmTheme', theme)
+  }, [theme])
 
   const nav = useCallback((id) => setPage(id), [])
-
   const sidebarW = collapsed ? 56 : 240
   const PageComponent = PAGE_COMPONENTS[page]
 
@@ -111,6 +254,7 @@ export default function App() {
               )
             }
             const active = page === item.id
+            const accentColor = item.accent || 'var(--photon)'
             return (
               <div key={item.id} onClick={() => nav(item.id)}
                 style={{
@@ -119,9 +263,9 @@ export default function App() {
                   justifyContent: collapsed ? 'center' : 'flex-start',
                   borderRadius: 8, margin: '1px 8px',
                   cursor: 'pointer', transition: 'all 0.15s',
-                  borderLeft: `3px solid ${active ? 'var(--photon)' : 'transparent'}`,
-                  background: active ? 'rgba(77,166,255,0.1)' : 'transparent',
-                  color: item.accent || (active ? 'var(--photon)' : 'var(--txt-sec)'),
+                  borderLeft: `3px solid ${active ? accentColor : 'transparent'}`,
+                  background: active ? 'rgba(255,255,255,0.07)' : 'transparent',
+                  color: active ? accentColor : (item.accent || 'var(--txt-sec)'),
                   fontSize: '0.82rem', fontWeight: 500,
                 }}>
                 <item.Icon size={18} style={{ flexShrink: 0 }} />
@@ -150,8 +294,12 @@ export default function App() {
         left: sidebarW, overflowY: 'auto',
         transition: 'left 0.25s ease',
       }}>
-        {PageComponent ? <PageComponent /> : <div style={{ padding: 24, color: 'var(--txt-mut)' }}>Page not found.</div>}
+        {PageComponent
+          ? <PageComponent theme={theme} setTheme={setTheme} setPage={setPage} />
+          : <div style={{ padding: 24, color: 'var(--txt-mut)' }}>Page not found.</div>}
       </main>
+
+      <AtlasFAB />
     </div>
   )
 }

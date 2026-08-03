@@ -2,17 +2,25 @@ import { useState, useEffect } from 'react'
 import { Settings, Eye, EyeOff, RotateCcw } from 'lucide-react'
 import { api } from '../api/client'
 
-export default function SettingsPage() {
+const THEME_OPTIONS = [
+  { id: 'darker',   label: 'Darker',   bg: '#050608' },
+  { id: 'dark',     label: 'Dark',     bg: '#0d1117' },
+  { id: 'midnight', label: 'Midnight', bg: '#080c14' },
+]
+
+export default function SettingsPage({ theme, setTheme }) {
   const [status, setStatus]   = useState(null)
   const [health, setHealth]   = useState(null)
+  const [models, setModels]   = useState(null)
   const [masked, setMasked]   = useState(true)
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg]   = useState('')
 
   useEffect(() => {
-    Promise.all([api('/status'), api('/health')]).then(([s, h]) => {
+    Promise.all([api('/status'), api('/health'), api('/models')]).then(([s, h, m]) => {
       setStatus(s)
       setHealth(h)
+      setModels(m)
     }).catch(() => {})
   }, [])
 
@@ -69,7 +77,7 @@ export default function SettingsPage() {
           </div>
           {envKeys.length > 0 ? envKeys.map((k, i) => (
             <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
-              <span style={{ fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)' }}>{masked ? k : k}</span>
+              <span style={{ fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)' }}>{k}</span>
               <span style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-mut)' }}>
                 {masked ? '••••••••' : '(set)'}
               </span>
@@ -99,12 +107,60 @@ export default function SettingsPage() {
         {/* Theme */}
         <div className="glass-card-solid" style={{ padding: 20 }}>
           <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', marginBottom: 12, fontWeight: 600 }}>Theme</p>
-          <div style={{ display: 'flex', gap: 12 }}>
-            {[{ label: 'Dark', color: '#0d1117' }, { label: 'Darker', color: '#050608' }].map(t => (
-              <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderRadius: 8, border: '1px solid var(--border)', background: t.color, cursor: 'pointer' }}>
-                <div style={{ width: 16, height: 16, borderRadius: '50%', background: t.color, border: '2px solid rgba(255,255,255,0.2)' }} />
-                <span style={{ fontSize: '0.82rem', color: 'var(--txt-pri)' }}>{t.label}</span>
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            {THEME_OPTIONS.map(t => {
+              const active = theme === t.id
+              return (
+                <div key={t.id} onClick={() => setTheme && setTheme(t.id)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '10px 16px', borderRadius: 10, cursor: 'pointer',
+                    background: t.bg,
+                    border: `2px solid ${active ? 'var(--photon)' : 'rgba(255,255,255,0.08)'}`,
+                    boxShadow: active ? '0 0 12px rgba(77,166,255,0.35)' : 'none',
+                    transition: 'all 0.15s',
+                  }}>
+                  <div style={{ width: 16, height: 16, borderRadius: '50%', background: t.bg, border: `2px solid ${active ? 'var(--photon)' : 'rgba(255,255,255,0.2)'}` }} />
+                  <span style={{ fontSize: '0.82rem', color: active ? 'var(--photon)' : 'var(--txt-pri)', fontWeight: active ? 600 : 400 }}>{t.label}</span>
+                </div>
+              )
+            })}
+          </div>
+          <p style={{ marginTop: 10, fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+            Active: <span style={{ color: 'var(--photon)', fontFamily: 'JetBrains Mono,monospace' }}>{theme || 'darker'}</span>
+          </p>
+        </div>
+
+        {/* AI Runtime */}
+        <div className="glass-card-solid" style={{ padding: 20 }}>
+          <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', marginBottom: 12, fontWeight: 600 }}>
+            AI Runtime Integration
+          </p>
+          <div style={{ display: 'grid', gap: 0, marginBottom: 12 }}>
+            {[
+              { label: 'Active Adapter', value: models?.active_adapter || '–' },
+              { label: 'Active Model', value: models?.active_model || '–' },
+              { label: 'Ollama Running', value: models?.ollama_running ? 'Yes' : 'No' },
+              { label: 'OpenAI Key', value: models?.openai_key_present ? 'Present' : 'Missing' },
+            ].map(({ label, value }, i) => (
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: i ? '1px solid var(--border)' : 'none' }}>
+                <span style={{ fontSize: '0.8rem', color: 'var(--txt-mut)' }}>{label}</span>
+                <span style={{ fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)' }}>{value}</span>
               </div>
+            ))}
+          </div>
+          <p style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', marginBottom: 8 }}>Discovered local models</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {(models?.models || []).filter((m) => m.provider === 'ollama').map((m) => (
+              <span key={m.id} style={{
+                padding: '4px 10px', borderRadius: 999,
+                border: '1px solid var(--border)',
+                fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace',
+                color: m.installed ? '#22c55e' : 'var(--txt-mut)',
+                background: 'rgba(255,255,255,0.03)',
+              }}>
+                {m.id}
+              </span>
             ))}
           </div>
         </div>
