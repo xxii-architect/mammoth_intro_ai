@@ -831,30 +831,24 @@ def _normalize_terminal_command(cmd: str) -> tuple:
     return normalized, run_cwd
 
 
-async def _execute_terminal_command(cmd: str, timeout: int = 60) -> Dict[str, Any]:
-    resolved, run_cwd = _normalize_terminal_command(cmd)
-    env = _make_env()
+def _run_command_sync(resolved: str, run_cwd: Path, env: dict, timeout: int) -> Dict[str, Any]:
+    """Run command synchronously via subprocess.run (Windows ProactorEventLoop-safe)."""
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "powershell",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            resolved,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", resolved],
+            capture_output=True,
             cwd=str(run_cwd),
             env=env,
+            timeout=timeout,
         )
-        stdout_raw, stderr_raw = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         return {
-            "stdout": stdout_raw.decode(errors="replace"),
-            "stderr": stderr_raw.decode(errors="replace"),
-            "exit_code": int(proc.returncode or 0),
+            "stdout": result.stdout.decode(errors="replace"),
+            "stderr": result.stderr.decode(errors="replace"),
+            "exit_code": int(result.returncode or 0),
             "resolved": resolved,
             "cwd": str(run_cwd),
         }
-    except asyncio.TimeoutError:
+    except subprocess.TimeoutExpired:
         return {
             "stdout": "",
             "stderr": f"Command timed out ({timeout}s)",
@@ -870,6 +864,12 @@ async def _execute_terminal_command(cmd: str, timeout: int = 60) -> Dict[str, An
             "resolved": resolved,
             "cwd": str(run_cwd),
         }
+
+
+async def _execute_terminal_command(cmd: str, timeout: int = 60) -> Dict[str, Any]:
+    resolved, run_cwd = _normalize_terminal_command(cmd)
+    env = _make_env()
+    return await asyncio.to_thread(_run_command_sync, resolved, run_cwd, env, timeout)
 
 
 @app.websocket("/ws/terminal")
