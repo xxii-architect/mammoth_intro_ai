@@ -4,6 +4,23 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
 
 ## Start the stack
 
+One-click (Windows):
+```powershell
+cd C:\Users\runni\mammoth_intro_ai.worktrees\agents-mammothos-atlas-agent-system
+.\start-mammothos.bat
+```
+
+This opens two terminal windows automatically:
+- Backend (FastAPI on port 8000)
+- Frontend (Vite on port 5173)
+
+If you see `WinError 10013`, port 8000 is usually already occupied. Stop the listener and retry:
+```powershell
+$conn = Get-NetTCPConnection -LocalPort 8000 -State Listen | Select-Object -First 1
+Stop-Process -Id $conn.OwningProcess
+.\start-mammothos.bat
+```
+
 Backend:
 ```powershell
 cd C:\Users\runni\mammoth_intro_ai.worktrees\agents-mammothos-atlas-agent-system
@@ -18,6 +35,12 @@ npm run dev
 ```
 
 UI: http://localhost:5173
+
+## Audit export
+
+- Backend audit API: `GET /api/audit`
+- CSV export: `GET /api/audit/export`
+- UI path: Diagnostics page → **Export CSV**
 
 ## Safety-first agent workflow
 

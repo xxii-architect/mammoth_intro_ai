@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Copy, LayoutDashboard } from 'lucide-react'
+import { Copy, LayoutDashboard, ShieldCheck, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
+import { loadSelfAuditHistory, runSystemSelfAudit } from '../api/diagnostics'
 import { useInterval } from '../hooks/useApi'
 
 function Sparkline({ points, color, gradId }) {
@@ -37,11 +38,14 @@ const bootSequence = [
   'Command center: ready',
 ]
 
-export default function HomePage() {
+export default function HomePage({ setPage }) {
   const [status, setStatus] = useState(null)
   const [health, setHealth] = useState(null)
   const [buildlog, setBuildlog] = useState([])
   const [sales, setSales] = useState([])
+  const [entitlements, setEntitlements] = useState(null)
+  const [selfAudit, setSelfAudit] = useState(null)
+  const [auditBusy, setAuditBusy] = useState(false)
   const [copied, setCopied] = useState(null)
 
   const fetchAll = async () => {
@@ -56,16 +60,42 @@ export default function HomePage() {
       setHealth(h)
       setBuildlog(b)
       setSales(sl)
+      const entitlementState = await api('/entitlements')
+      setEntitlements(entitlementState)
     } catch (_) {}
   }
 
   useEffect(() => { fetchAll() }, [])
   useInterval(fetchAll, 30000)
+  useEffect(() => {
+    const history = loadSelfAuditHistory()
+    if (history.length > 0) {
+      setSelfAudit(history[0])
+    }
+  }, [])
 
   const copy = (cmd) => {
     navigator.clipboard.writeText(cmd)
     setCopied(cmd)
     setTimeout(() => setCopied(null), 1200)
+  }
+
+  const runSelfAudit = async () => {
+    setAuditBusy(true)
+    try {
+      const { result } = await runSystemSelfAudit()
+      setSelfAudit(result)
+      setEntitlements(result.entitlements)
+    } catch (error) {
+      setSelfAudit({
+        generatedAt: new Date().toLocaleString(),
+        error: error.message,
+        checks: [],
+        recommendations: ['Fix the reported self-audit error before trusting the shell status.'],
+      })
+    } finally {
+      setAuditBusy(false)
+    }
   }
 
   const stats = status ? [
@@ -117,6 +147,114 @@ export default function HomePage() {
             </div>
           </div>
         ))}
+      </div>
+
+      <p style={{ fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--txt-sec)', marginBottom: 12 }}>
+        Self Evaluation
+      </p>
+      <div className="glass-card-solid" style={{ padding: 18, marginBottom: 24 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <ShieldCheck size={16} color="var(--cyan)" />
+              <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>MammothOS self-audit</span>
+            </div>
+            <p style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', lineHeight: 1.6, maxWidth: 620 }}>
+              Run a shell-level audit across backend health, ATLAS evals, learner continuity, and monetization scaffolding without wiring billing yet.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div style={{ padding: '8px 12px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginRight: 6 }}>Tier</span>
+              <span style={{ fontSize: '0.76rem', color: 'var(--cyan)', fontWeight: 700, textTransform: 'capitalize' }}>{entitlements?.tier || 'explorer'}</span>
+            </div>
+            <button
+              onClick={() => setPage?.('diagnostics')}
+              style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontWeight: 600, cursor: 'pointer' }}
+            >
+              Open diagnostics
+            </button>
+            <button
+              onClick={runSelfAudit}
+              disabled={auditBusy}
+              style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, cursor: auditBusy ? 'not-allowed' : 'pointer', opacity: auditBusy ? 0.7 : 1 }}
+            >
+              {auditBusy ? 'Running audit…' : 'Run self-audit'}
+            </button>
+          </div>
+        </div>
+
+        {selfAudit ? (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+              <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Audit score</div>
+                <div style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--txt-pri)', fontFamily: 'JetBrains Mono,monospace' }}>{selfAudit.score || 'error'}</div>
+              </div>
+              <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Observed tier</div>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--cyan)', textTransform: 'capitalize' }}>{selfAudit.tier || 'unknown'}</div>
+              </div>
+              <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>CLI activity</div>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--photon)' }}>{selfAudit.commandCount ?? '–'}</div>
+              </div>
+            </div>
+
+            {selfAudit.error ? (
+              <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(248,113,113,0.25)', background: 'rgba(248,113,113,0.06)', color: '#fca5a5', fontSize: '0.84rem' }}>
+                Self-audit failed: {selfAudit.error}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+                {selfAudit.checks.map(check => (
+                  <div key={check.label} style={{ padding: '12px 14px', borderRadius: 10, border: `1px solid ${check.passed ? 'rgba(34,197,94,0.25)' : 'rgba(248,113,113,0.25)'}`, background: check.passed ? 'rgba(34,197,94,0.06)' : 'rgba(248,113,113,0.06)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
+                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{check.label}</span>
+                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: check.passed ? '#22c55e' : '#f87171' }}>
+                        {check.passed ? 'PASS' : 'ATTN'}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.76rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{check.detail}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {selfAudit.observability ? (
+              <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(77,166,255,0.2)', background: 'rgba(77,166,255,0.05)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <Sparkles size={15} color="var(--photon)" />
+                  <span style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--txt-pri)' }}>ATLAS observability snapshot</span>
+                </div>
+                <p style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
+                  Learner pass rate {selfAudit.observability.learner_pass_rate || 0}% • Eval pass rate {selfAudit.observability.eval_pass_rate || 0}% • Plan runs {selfAudit.observability.plan_runs || 0} • Guard rate {selfAudit.observability.fab_guard_rate || 0}%
+                </p>
+              </div>
+            ) : null}
+
+            <div>
+              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>
+                Highest-value next UI upgrades
+              </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {selfAudit.recommendations.map(item => (
+                  <div key={item} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)' }}>
+                    {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.7rem', color: 'var(--txt-mut)' }}>
+              Last run: {selfAudit.generatedAt}
+            </p>
+          </div>
+        ) : (
+          <p style={{ fontSize: '0.8rem', color: 'var(--txt-mut)' }}>
+            No self-audit run yet. Launch one to see where the shell is strong and what to upgrade next.
+          </p>
+        )}
       </div>
 
       {/* Workspace status */}

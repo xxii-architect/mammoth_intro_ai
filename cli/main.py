@@ -37,6 +37,19 @@ DEFAULT_TEST_USER = "d6c16bc9-fc2a-4efd-8d9e-a95fb6baa448"
 # COMMAND IMPLEMENTATIONS
 # ---------------------------------------------------------
 
+def _to_jsonable(value):
+    if isinstance(value, dict):
+        return {k: _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_jsonable(v) for v in value]
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if hasattr(value, "value"):
+        return value.value
+    if hasattr(value, "__dict__"):
+        return {k: _to_jsonable(v) for k, v in value.__dict__.items()}
+    return value
+
 def cmd_version(args):
     print("🐘 Mammoth OS Version")
     print(json.dumps({
@@ -55,15 +68,7 @@ def cmd_engine_list(args):
 def cmd_agent_list(args):
     print("🐘 Mammoth OS Agents")
     agents = asyncio.run(agent_registry.list_agents())
-    agents_json = []
-    for a in agents:
-        d = dict(a.__dict__)
-        for k, v in list(d.items()):
-            if hasattr(v, 'isoformat'):
-                d[k] = v.isoformat()
-            elif hasattr(v, 'value'):
-                d[k] = v.value
-        agents_json.append(d)
+    agents_json = [_to_jsonable(a) for a in agents]
     print(json.dumps(agents_json, indent=2))
 
 
@@ -102,12 +107,12 @@ def cmd_diagnostics(args):
 
     # Agents (async)
     agents = asyncio.run(agent_registry.list_agents())
-    agents_json = [a.__dict__ for a in agents]
+    agents_json = [_to_jsonable(a) for a in agents]
 
     combined = {
         "system_check": report,
-        "schema": schema,
-        "engines": engines,
+        "schema": _to_jsonable(schema),
+        "engines": _to_jsonable(engines),
         "agents": agents_json,
     }
 

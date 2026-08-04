@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, Search, GraduationCap,
+  Activity,
   Sparkles, CreditCard, ShieldCheck,
 } from 'lucide-react'
 
@@ -19,6 +20,7 @@ import AtlasTutorPage  from './pages/AtlasTutorPage'
 import LandingPage    from './pages/LandingPage'
 import CompliancePage from './pages/CompliancePage'
 import PricingPage    from './pages/PricingPage'
+import DiagnosticsPage from './pages/DiagnosticsPage'
 
 const THEMES = {
   darker:   { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
@@ -45,6 +47,7 @@ const NAV = [
   { id: 'atlas',    label: 'ATLAS Tutor', Icon: GraduationCap, accent: 'var(--violet)' },
   { id: 'buildlog', label: 'Build Log',   Icon: ClipboardList },
   { section: 'System' },
+  { id: 'diagnostics', label: 'Diagnostics', Icon: Activity, accent: 'var(--cyan)' },
   { id: 'settings', label: 'Settings',    Icon: Settings },
 ]
 
@@ -63,6 +66,7 @@ const PAGE_COMPONENTS = {
   landing:    LandingPage,
   pricing:    PricingPage,
   compliance: CompliancePage,
+  diagnostics: DiagnosticsPage,
 }
 
 function AtlasFAB({ currentPage }) {
@@ -238,7 +242,7 @@ function AtlasFAB({ currentPage }) {
 }
 
 export default function App() {
-  const [page, setPage] = useState('home')
+  const [page, setPage] = useState(() => localStorage.getItem('mmPage') || 'home')
   const [collapsed, setCollapsed] = useState(false)
   const [theme, setTheme] = useState(() => localStorage.getItem('mmTheme') || 'darker')
 
@@ -247,6 +251,10 @@ export default function App() {
     Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
     localStorage.setItem('mmTheme', theme)
   }, [theme])
+
+  useEffect(() => {
+    localStorage.setItem('mmPage', page)
+  }, [page])
 
   const nav = useCallback((id) => setPage(id), [])
   const sidebarW = collapsed ? 56 : 240

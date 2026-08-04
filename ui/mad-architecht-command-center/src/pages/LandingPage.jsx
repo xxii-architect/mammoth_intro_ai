@@ -166,7 +166,7 @@ export default function LandingPage({ setPage }) {
           ))}
         </div>
         <p style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', fontStyle: 'italic' }}>
-          Patents pending on adaptive tutor and memory graph methodologies.
+          Product architecture, policy controls, and monetization surfaces are actively evolving.
         </p>
       </div>
     </div>

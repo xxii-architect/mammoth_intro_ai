@@ -4,6 +4,8 @@ Run: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import asyncio
+import csv
+import io
 import json
 import os
 import re
@@ -24,6 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
 from mammoth_os.learner_model import build_learner_context, build_lesson_plan, load_learner_model, save_learner_model, set_onboarding_profile, update_learner_model
 
@@ -50,13 +53,14 @@ SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
 ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
 SNAPSHOTS_FILE = MAMMOTH_DIR / "snapshots.json"
 ATLAS_EVALS_FILE = MAMMOTH_DIR / "atlas_evals.json"
+AUDIT_LOG_FILE = MAMMOTH_DIR / "audit_log.json"
 UI_DIR        = ROOT / "ui" / "mad-architecht-command-center"
 VENV_PYTHON   = ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_UVICORN  = ROOT / ".venv" / "Scripts" / "uvicorn.exe"
 AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
 TASKS_FILE = MAMMOTH_DIR / "tasks.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 
@@ -947,6 +951,48 @@ def _append_plan_history(state: Dict[str, Any], plan: Dict[str, Any]) -> None:
 def _load_eval_history() -> List[Dict[str, Any]]:
     history = _read_json(ATLAS_EVALS_FILE, default=[])
     return history if isinstance(history, list) else []
+
+
+def _load_audit_log() -> List[Dict[str, Any]]:
+    history = _read_json(AUDIT_LOG_FILE, default=[])
+    return history if isinstance(history, list) else []
+
+
+def _append_audit_event(*, kind: str, message: str, details: Optional[Dict[str, Any]] = None, source: str = "system", actor: str = "system", tier: Optional[str] = None) -> Dict[str, Any]:
+    entries = _load_audit_log()
+    entry = {
+        "id": str(uuid.uuid4()),
+        "kind": kind,
+        "message": message,
+        "source": source,
+        "actor": actor,
+        "tier": tier or "explorer",
+        "details": details or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    entries.append(entry)
+    if len(entries) > 250:
+        entries = entries[-250:]
+    _write_json(AUDIT_LOG_FILE, entries)
+    return entry
+
+
+def _audit_entries_to_csv(entries: List[Dict[str, Any]]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "created_at", "kind", "message", "source", "actor", "tier", "details_json"])
+    for entry in entries:
+        writer.writerow([
+            str(entry.get("id") or ""),
+            str(entry.get("created_at") or ""),
+            str(entry.get("kind") or ""),
+            str(entry.get("message") or ""),
+            str(entry.get("source") or ""),
+            str(entry.get("actor") or ""),
+            str(entry.get("tier") or ""),
+            json.dumps(entry.get("details") or {}, ensure_ascii=False),
+        ])
+    return output.getvalue()
 
 
 def _build_atlas_observability(state: Dict[str, Any], *, eval_history: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -2119,6 +2165,13 @@ async def atlas_onboard(body: Dict[str, Any]):
     state = _load_atlas_state()
     learner_state = set_onboarding_profile(state, user_id="default_user", onboarding=body)
     _save_atlas_state(state)
+    _append_audit_event(
+        kind="atlas_onboard",
+        message="ATLAS onboarding profile updated",
+        details={"profile": body.get("profile") or body.get("goal") or "unknown"},
+        source="atlas",
+        actor="learner",
+    )
     return {
         "status": "ok",
         "learner_model": learner_state,
@@ -2185,6 +2238,13 @@ async def atlas_lesson(body: Dict[str, Any]):
         _append_lesson_history(state, session.current_lesson or {}, exercise or {})
         _sync_resume_packet(state, state.get("lesson_id"))
         _save_atlas_state(state)
+        _append_audit_event(
+            kind="atlas_lesson",
+            message="ATLAS lesson started",
+            details={"topic": topic, "difficulty": difficulty},
+            source="atlas",
+            actor="learner",
+        )
         return {"status": "ok", "exercise": exercise, "learner_context": state.get("learner_context")}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -2232,6 +2292,13 @@ async def atlas_submit(body: Dict[str, Any]):
         _sync_resume_packet(state, state.get("lesson_id"))
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _save_atlas_state(state)
+        _append_audit_event(
+            kind="atlas_submit",
+            message="ATLAS submission evaluated",
+            details={"passed": bool(result.get("passed")), "score": result.get("score")},
+            source="atlas",
+            actor="learner",
+        )
         return {
             "status": "ok",
             "result": result,
@@ -2399,6 +2466,13 @@ async def atlas_plan(body: Optional[Dict[str, Any]] = None):
         kind="atlas_plan_generated",
         details={"plan_status": plan_status, "step_count": total_count, "plan_profile": plan_profile},
     )
+    _append_audit_event(
+        kind="atlas_plan",
+        message="ATLAS plan generated",
+        details={"plan_id": plan_id, "plan_profile": plan_profile, "plan_status": plan_status},
+        source="atlas",
+        actor="system",
+    )
     _save_atlas_state(state)
     return {"status": "ok", "plan": plan, "plan_history": state.get("plan_history", []), "observability": _build_atlas_observability(state)}
 
@@ -2412,6 +2486,13 @@ async def atlas_evals(body: Optional[Dict[str, Any]] = None):
     if len(history) > 20:
         history = history[-20:]
     _write_json(ATLAS_EVALS_FILE, history)
+    _append_audit_event(
+        kind="atlas_eval",
+        message="ATLAS eval run completed",
+        details={"pass_count": int((evaluation.get("summary") or {}).get("pass_count") or 0), "fail_count": int((evaluation.get("summary") or {}).get("fail_count") or 0)},
+        source="atlas",
+        actor="system",
+    )
     return {"status": "ok", "evaluation": evaluation, "history": history, "observability": _build_atlas_observability(state, eval_history=history)}
 
 
@@ -2744,12 +2825,20 @@ async def get_buildlog():
 @app.post("/api/buildlog")
 async def append_buildlog(body: Dict[str, Any]):
     entries = _read_json(BUILDLOG_FILE)
+    fields = body.get("fields", {})
+    if not isinstance(fields, dict):
+        fields = {}
     entry = {
         "id":          str(uuid.uuid4()),
-        "title":       body.get("title", ""),
-        "description": body.get("description", ""),
+        "title":       body.get("title", "") or str(fields.get("primary_task") or ""),
+        "description": body.get("description", "") or str(fields.get("session_goal") or ""),
         "tags":        body.get("tags", []),
         "command":     body.get("command", ""),
+        "project":     body.get("project", "") or str(fields.get("project") or ""),
+        "phase":       body.get("phase", "") or str(fields.get("phase") or ""),
+        "month":       body.get("month", "") or str(fields.get("month") or ""),
+        "status":      body.get("status", "") or str(fields.get("goal_outcome") or ""),
+        "fields":      fields,
         "created_at":  datetime.now(timezone.utc).isoformat(),
     }
     entries.append(entry)
@@ -2830,12 +2919,26 @@ async def terminal_exec(body: Dict[str, Any]):
     if not cmd:
         return {"stdout": "", "stderr": "No command provided.", "exit_code": 1}
     if not _is_allowed(cmd):
+        _append_audit_event(
+            kind="terminal_exec_denied",
+            message="Terminal command blocked by allow-list",
+            details={"cmd": cmd},
+            source="terminal",
+            actor="user",
+        )
         return {
             "stdout": "",
             "stderr": f"Not in allow-list: {cmd}\nAllowed prefixes: {', '.join(sorted(ALLOW_PREFIXES))}",
             "exit_code": 1,
         }
     result = await _execute_terminal_command(cmd)
+    _append_audit_event(
+        kind="terminal_exec",
+        message="Terminal command executed",
+        details={"cmd": cmd, "exit_code": result["exit_code"]},
+        source="terminal",
+        actor="user",
+    )
     return {
         "stdout": result["stdout"],
         "stderr": result["stderr"],
@@ -2970,6 +3073,35 @@ async def _execute_terminal_command(cmd: str, timeout: int = 60) -> Dict[str, An
     return await asyncio.to_thread(_run_command_sync, resolved, run_cwd, env, timeout)
 
 
+@app.get("/api/audit")
+async def get_audit_log():
+    entries = _load_audit_log()
+    return {"status": "ok", "entries": entries[-80:]}
+
+
+@app.get("/api/audit/export")
+async def export_audit_log_csv():
+    entries = _load_audit_log()
+    csv_payload = _audit_entries_to_csv(entries[-250:])
+    return PlainTextResponse(
+        content=csv_payload,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="mammoth-audit-{datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")}.csv"'},
+    )
+
+
+@app.post("/api/audit")
+async def append_audit_log(body: Dict[str, Any]):
+    kind = str(body.get("kind") or "generic").strip() or "generic"
+    message = str(body.get("message") or f"{kind} event").strip() or f"{kind} event"
+    details = body.get("details") if isinstance(body.get("details"), dict) else {}
+    source = str(body.get("source") or "system").strip() or "system"
+    actor = str(body.get("actor") or "system").strip() or "system"
+    tier = str(body.get("tier") or "").strip() or None
+    entry = _append_audit_event(kind=kind, message=message, details=details, source=source, actor=actor, tier=tier)
+    return {"status": "ok", "entry": entry}
+
+
 @app.get("/api/entitlements")
 async def get_entitlements():
     """Return the current user's tier and feature entitlements."""
@@ -3017,11 +3149,20 @@ async def set_tier(body: Dict[str, Any]):
     state["tier"] = tier
     state["tier_updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
+    _append_audit_event(
+        kind="tier_change",
+        message="Entitlement tier updated",
+        details={"tier": tier},
+        source="entitlements",
+        actor="user",
+        tier=tier,
+    )
     return {"status": "ok", "tier": tier}
 
 
 @app.websocket("/ws/terminal")
 async def terminal_ws(ws: WebSocket):
+    await ws.accept()
     await ws.send_json({"line": "MammothOS Terminal ready. Type a command.", "type": "stdout"})
     try:
         while True:

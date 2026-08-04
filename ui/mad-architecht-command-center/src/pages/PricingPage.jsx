@@ -80,6 +80,13 @@ const FAQS = [
   { q: 'Is this FERPA/COPPA compliant?', a: 'MammothOS is not a covered educational institution and does not collect data from minors under 13. Do not use with students under 13.' },
 ]
 
+const TRUST_BADGES = [
+  'No-cheat tutoring guardrails',
+  'Approval-gated coding actions',
+  'Audit log stream + CSV export',
+  'Local-first learner state support',
+]
+
 export default function PricingPage({ setPage }) {
   const [openFaq, setOpenFaq] = useState(null)
 
@@ -155,14 +162,36 @@ export default function PricingPage({ setPage }) {
         </div>
       </div>
 
+      <div className="glass-card-solid" style={{ maxWidth: 860, margin: '0 auto 52px', padding: '20px 24px' }}>
+        <h3 style={{ margin: '0 0 10px', fontSize: '1rem', color: 'var(--txt-pri)' }}>Enterprise readiness snapshot</h3>
+        <p style={{ margin: '0 0 14px', fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
+          We are intentionally sequencing monetization after core reliability. Current builds already include governance primitives teams ask for first.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          {TRUST_BADGES.map((badge) => (
+            <div key={badge} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)' }}>
+              ✓ {badge}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* Footer */}
       <div style={{ textAlign: 'center', borderTop: '1px solid var(--border)', paddingTop: 24 }}>
-        <button
-          onClick={() => setPage('compliance')}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.8rem', textDecoration: 'underline', marginBottom: 8 }}
-        >
-          Legal & Compliance
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 8 }}>
+          <button
+            onClick={() => setPage('compliance')}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.8rem', textDecoration: 'underline' }}
+          >
+            Legal & Compliance
+          </button>
+          <button
+            onClick={() => setPage('landing')}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.8rem', textDecoration: 'underline' }}
+          >
+            Back to Landing
+          </button>
+        </div>
         <p style={{ fontSize: '0.75rem', color: 'var(--txt-mut)' }}>© 2026 MammothOS</p>
       </div>
 

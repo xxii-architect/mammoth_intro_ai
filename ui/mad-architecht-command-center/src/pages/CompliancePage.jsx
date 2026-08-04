@@ -93,6 +93,22 @@ export default function CompliancePage({ setPage }) {
         </p>
       </div>
 
+      <div className="glass-card-solid" style={{ marginTop: 18, padding: '20px 24px' }}>
+        <h3 style={{ margin: '0 0 10px', fontSize: '0.98rem', color: 'var(--txt-pri)' }}>Enterprise policy posture (current)</h3>
+        <div style={{ display: 'grid', gap: 8 }}>
+          {[
+            'Audit logging is enabled with backend event capture and CSV export.',
+            'Tutor and coding flows prioritize guardrails over answer leakage.',
+            'Destructive code actions can be gated behind approval workflow.',
+            'Compliance and billing controls are staged behind tier scaffolding and are still evolving.',
+          ].map((line) => (
+            <div key={line} style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+              {line}
+            </div>
+          ))}
+        </div>
+      </div>
+
     </div>
   )
 }
