@@ -174,6 +174,10 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.tutor_agent import TutorAgent
         return TutorAgent(router=router)  # type: ignore
 
+    if agent_name == "reasoning":
+        from mammoth_os.agents.reasoning_agent import ReasoningAgent
+        return ReasoningAgent(router)  # type: ignore
+
     if agent_name == "coding":
         from mammoth_os.agents.coding_agent import CodingAgent
         return CodingAgent(router) # type: ignore
@@ -191,10 +195,12 @@ def load_agent(agent_name: str, router=None):
 
 def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
     if isinstance(payload, dict):
-        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor"}:
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning"}:
             normalized = dict(payload)
             if agent_name == "tutor" and isinstance(normalized.get("prompt"), str) and not normalized.get("topic"):
                 normalized["topic"] = normalized["prompt"]
+            elif agent_name == "reasoning" and isinstance(normalized.get("prompt"), str) and not normalized.get("problem"):
+                normalized["problem"] = normalized["prompt"]
             elif "topic" not in normalized and isinstance(normalized.get("prompt"), str):
                 normalized["topic"] = normalized["prompt"]
             return normalized
@@ -231,6 +237,7 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "research":        lambda prompt: run_agent("research", prompt),                 # type: ignore
     "curriculum":      lambda prompt: run_agent("curriculum", prompt),               # type: ignore
     "tutor":           lambda prompt: run_agent("tutor", prompt),                    # type: ignore
+    "reasoning":       lambda prompt: run_agent("reasoning", prompt, router),        # type: ignore
     "coding":          lambda prompt: run_agent("coding", prompt, router),           # type: ignore
     "custodial":       lambda prompt: run_agent("custodial", prompt, router),        # type: ignore
 }

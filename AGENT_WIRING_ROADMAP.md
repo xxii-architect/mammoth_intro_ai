@@ -14,6 +14,7 @@ Get every major agent from the MammothOS registry into a visible, understandable
   - `workflow_ready`: true when the agent is routed into plan/execute or task execution.
   - `workflow_stage`: `registered`, `routed`, or `autonomous`.
 - Keep the plan/execute workflow and the Modules page in sync.
+- Add a lightweight `ReasoningAgent` runtime path so tutor failure cases can attach structured coaching hints and micro-lessons without a heavy dependency chain.
 
 ## Phase 3 — give the UI a real story
 - Show the backend status, workflow stage, and capabilities for each module card.
@@ -42,3 +43,4 @@ Get every major agent from the MammothOS registry into a visible, understandable
 - Expand approval-aware execution to non-coding ATLAS state mutation operations.
 - Use the autonomous run contract (`/api/autonomous/runs`) to drive Phase 5 run panels and orchestration UX.
 - Continue promoting routed agents into deeper autonomous profiles with explicit rollback/safety checkpoints.
+- ReasoningAgent Phase 2: attach structured Socratic questions, error-pattern guidance, and micro-lessons to tutor coaching/failure flows.

@@ -801,6 +801,8 @@ _INTENT_TO_AGENT_ID = {
     "lesson_curriculum": "curriculum_agent",
     "grade_submission": "tutor_agent",
     "lesson_coaching": "tutor_agent",
+    "reasoning_help": "reasoning_agent",
+    "debug_failure": "reasoning_agent",
 }
 
 _AGENT_ID_TO_RUNTIME = {
@@ -812,6 +814,7 @@ _AGENT_ID_TO_RUNTIME = {
     "research_agent": "research",
     "curriculum_agent": "curriculum",
     "tutor_agent": "tutor",
+    "reasoning_agent": "reasoning",
     "coding_agent": "coding",
     "community_engine_agent": "community_engine",
     "custodial_agent": "custodial",
@@ -825,6 +828,7 @@ _ATLAS_WORKFLOW_AGENT_IDS = {
     "reflection_agent",
     "field_ops_agent",
     "tutor_agent",
+    "reasoning_agent",
 }
 
 
@@ -1540,8 +1544,23 @@ async def run_agent(body: Dict[str, Any]):
     approval_mode = bool(body.get("approval_mode") or payload.get("approval_mode") or payload.get("preview_only"))
 
     thought_steps: List[Dict[str, Any]] = []
+
     def _think(label: str, detail: str = "", status: str = "info") -> None:
         thought_steps.append({"ts": _ts(), "label": label, "detail": detail, "status": status})
+
+    def _is_failure_payload(value: Any) -> bool:
+        if isinstance(value, dict):
+            if value.get("status") == "error":
+                return True
+            if value.get("passed") is False:
+                return True
+            result = value.get("result")
+            if isinstance(result, dict) and result.get("passed") is False:
+                return True
+            return any(_is_failure_payload(child) for child in value.values())
+        if isinstance(value, list):
+            return any(_is_failure_payload(item) for item in value)
+        return False
 
     _think("Received request", f"intent={intent!r}  agent={requested_agent_id!r}  approval_mode={approval_mode}")
 
@@ -1628,13 +1647,15 @@ async def run_agent(body: Dict[str, Any]):
                     "output": raw_result,
                 }
         elif runtime_agent and _agent_registry_ok and runtime_agent in AGENTS:
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
-                if prompt_text and not payload_for_agent.get("topic") and not payload_for_agent.get("prompt"):
+                if prompt_text and not payload_for_agent.get("topic") and not payload_for_agent.get("prompt") and not payload_for_agent.get("problem"):
                     payload_for_agent["topic"] = prompt_text
                 if runtime_agent == "tutor" and prompt_text and not payload_for_agent.get("prompt"):
                     payload_for_agent["prompt"] = prompt_text
+                if runtime_agent == "reasoning" and prompt_text and not payload_for_agent.get("problem"):
+                    payload_for_agent["problem"] = prompt_text
             elif runtime_agent in {"curriculum", "research", "field_ops", "coding", "custodial"}:
                 payload_for_agent = prompt_text or json.dumps(payload)
             else:
@@ -1650,6 +1671,29 @@ async def run_agent(body: Dict[str, Any]):
                 "runtime_agent": runtime_agent,
                 "output": raw_result,
             }
+            attach_reasoning = runtime_agent == "tutor" and (
+                intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(raw_result))
+            )
+            if attach_reasoning:
+                if _is_failure_payload(raw_result):
+                    _think("Tutor failure detected", "Preparing reasoning guidance for the learner", "warning")
+                else:
+                    _think("Coaching extension", "Attaching Socratic reasoning guidance", "info")
+                reasoning_payload = {
+                    "problem": prompt_text or "Explain the tutoring failure and offer a micro-lesson.",
+                    "context": {
+                        "intent": intent,
+                        "prompt": prompt_text,
+                        "tutor_result": raw_result,
+                        "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
+                    },
+                    "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
+                }
+                reasoning_result = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: registry_run_agent("reasoning", reasoning_payload)
+                )
+                _think("Reasoning guidance attached", f"preview={str(reasoning_result)[:120]!r}", "success")
+                result["reasoning"] = reasoning_result
         else:
             _think("Falling back to CortexRouter", f"intent={intent!r}  no matching AGENTS key", "warning")
             from mammoth_os.cortex.router import CortexRouter
