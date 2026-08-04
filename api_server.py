@@ -6,6 +6,7 @@ Run: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 import asyncio
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -48,13 +49,14 @@ BUILDLOG_FILE = MAMMOTH_DIR / "buildlog.json"
 SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
 ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
 SNAPSHOTS_FILE = MAMMOTH_DIR / "snapshots.json"
+ATLAS_EVALS_FILE = MAMMOTH_DIR / "atlas_evals.json"
 UI_DIR        = ROOT / "ui" / "mad-architecht-command-center"
 VENV_PYTHON   = ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_UVICORN  = ROOT / ".venv" / "Scripts" / "uvicorn.exe"
 AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
 TASKS_FILE = MAMMOTH_DIR / "tasks.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 
@@ -823,36 +825,229 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced") -> List[Di
     return steps
 
 
-@app.post("/api/plan-execute")
-async def plan_execute(body: Dict[str, Any]):
-    objective = str(body.get("objective", "") or body.get("prompt", "")).strip()
-    temperature = body.get("temperature", 0.4)
-    approval_mode = bool(body.get("approval_mode"))
-    stop_on_failure = bool(body.get("stop_on_failure", True))
-    plan_profile = _normalize_plan_profile(body.get("plan_profile"))
+def _read_jsonl_records(path: Path, *, limit: int = 200) -> List[Dict[str, Any]]:
+    if not path.exists():
+        return []
+    records: List[Dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(item, dict):
+                records.append(item)
+    except Exception:
+        return []
+    return records[-limit:]
 
-    if not objective:
-        return {"status": "error", "error": "objective is required"}
 
-    plan_id = f"plan-{uuid.uuid4().hex[:8]}"
-    steps = _build_plan_steps(objective, plan_profile)
+def _response_preview(response: Any, *, max_len: int = 240) -> str:
+    if not isinstance(response, dict):
+        return ""
+    candidates = []
+    result = response.get("result")
+    if isinstance(result, dict):
+        candidates.append(result)
+    candidates.append(response)
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        for key in ("output", "preview", "message", "error"):
+            value = candidate.get(key)
+            if value is None:
+                continue
+            if isinstance(value, str):
+                text = value.strip()
+            else:
+                text = json.dumps(value, default=str)
+            if text:
+                return text[:max_len]
+    return ""
 
-    _upsert_task(
-        plan_id,
-        "plan+execute run",
-        status="active",
-        agent_id="orchestrator",
-        description=objective,
-        details={"objective": objective, "step_count": len(steps), "approval_mode": approval_mode, "plan_profile": plan_profile},
-    )
-    _append_activity(
-        "Started plan+execute run",
-        agent_id="orchestrator",
-        task_id=plan_id,
-        kind="plan_started",
-        details={"objective": objective, "step_count": len(steps), "plan_profile": plan_profile},
-    )
 
+def _plan_step_artifacts(step_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    artifacts: List[Dict[str, Any]] = []
+    for step in step_results:
+        preview = _response_preview(step.get("response"))
+        artifacts.append({
+            "id": step.get("id"),
+            "title": step.get("title"),
+            "agent_id": step.get("agent_id"),
+            "status": step.get("status"),
+            "preview": preview,
+        })
+    return artifacts
+
+
+def _build_plan_synthesis(step_results: List[Dict[str, Any]], *, objective: str, lesson_title: str = "") -> Dict[str, Any]:
+    artifacts = _plan_step_artifacts(step_results)
+    completed = [step for step in step_results if step.get("status") == "completed"]
+    pending = [step for step in step_results if step.get("status") == "pending_approval"]
+    failed = [step for step in step_results if step.get("status") == "failed"]
+    coding_preview = next((item["preview"] for item in artifacts if item.get("agent_id") == "coding_agent" and item.get("preview")), "")
+    coach_preview = next((item["preview"] for item in artifacts if item.get("agent_id") == "reflection_agent" and item.get("preview")), "")
+    completed_titles = [str(step.get("title") or "") for step in completed if str(step.get("title") or "").strip()]
+    learner_summary_parts = []
+    if lesson_title:
+        learner_summary_parts.append(f"ATLAS organized a plan for {lesson_title}.")
+    else:
+        learner_summary_parts.append("ATLAS organized a plan for the current objective.")
+    if completed_titles:
+        learner_summary_parts.append(f"Completed focus areas: {', '.join(completed_titles[:3])}.")
+    if failed:
+        learner_summary_parts.append("One or more steps still need intervention before the plan is learner-ready.")
+    elif pending:
+        learner_summary_parts.append("A coding step is waiting for approval before ATLAS can finish execution.")
+    else:
+        learner_summary_parts.append("The plan completed successfully and is ready to coach the learner forward.")
+
+    if failed:
+        next_action = f"Review the failed step: {failed[0].get('title') or 'unnamed step'}."
+    elif pending:
+        next_action = f"Approve and run {pending[0].get('title') or 'the pending step'} to continue."
+    elif coach_preview:
+        next_action = coach_preview[:180]
+    elif coding_preview:
+        next_action = f"Use the coding brief to implement or validate the exercise: {coding_preview[:160]}"
+    else:
+        next_action = f"Start with the first checkpoint for: {objective[:160]}"
+
+    checkpoints = [item["preview"] for item in artifacts if item.get("preview")][:4]
+    return {
+        "learner_summary": " ".join(learner_summary_parts),
+        "coding_brief": coding_preview,
+        "coach_note": coach_preview,
+        "next_action": next_action,
+        "checkpoints": checkpoints,
+        "artifacts": artifacts,
+    }
+
+
+def _append_plan_history(state: Dict[str, Any], plan: Dict[str, Any]) -> None:
+    history = state.get("plan_history") or []
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        "plan_id": plan.get("plan_id"),
+        "objective": plan.get("objective"),
+        "plan_status": plan.get("plan_status"),
+        "plan_profile": plan.get("plan_profile"),
+        "progress": plan.get("progress"),
+        "created_at": plan.get("created_at") or _ts(),
+        "summary": ((plan.get("synthesis") or {}).get("learner_summary") or "")[:300],
+        "next_action": ((plan.get("synthesis") or {}).get("next_action") or "")[:220],
+    })
+    state["plan_history"] = history[-12:]
+
+
+def _load_eval_history() -> List[Dict[str, Any]]:
+    history = _read_json(ATLAS_EVALS_FILE, default=[])
+    return history if isinstance(history, list) else []
+
+
+def _build_atlas_observability(state: Dict[str, Any], *, eval_history: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    eval_entries = eval_history if isinstance(eval_history, list) else _load_eval_history()
+    eval_entries = [entry for entry in eval_entries if isinstance(entry, dict)]
+    recent_evals = eval_entries[-8:]
+    recent_plans = [item for item in (state.get("plan_history") or []) if isinstance(item, dict)][-8:]
+    recent_outcomes = [item for item in ((state.get("learner_model") or {}).get("recent_outcomes") or []) if isinstance(item, dict)]
+    fab_events = [item for item in (state.get("fab_usage_events") or []) if isinstance(item, dict)]
+    sandbox_runs = _read_jsonl_records(MAMMOTH_DIR / "sandbox_runs.jsonl", limit=40)
+    recent_activity = [item for item in _load_activity_events() if isinstance(item, dict)][-6:]
+
+    attempts = len(recent_outcomes)
+    passed_attempts = sum(1 for item in recent_outcomes if bool(item.get("passed")))
+    learner_pass_rate = round((passed_attempts / attempts) * 100) if attempts else 0
+
+    eval_total_checks = sum(len(entry.get("checks") or []) for entry in recent_evals)
+    eval_passed_checks = sum(int((entry.get("summary") or {}).get("pass_count") or 0) for entry in recent_evals)
+    eval_pass_rate = round((eval_passed_checks / eval_total_checks) * 100) if eval_total_checks else 0
+
+    guard_hits = sum(1 for item in fab_events if bool(item.get("guard_triggered")))
+    fab_guard_rate = round((guard_hits / len(fab_events)) * 100) if fab_events else 0
+
+    successful_sandbox_runs = 0
+    for run in sandbox_runs:
+        if "passed" in run:
+            successful_sandbox_runs += 1 if bool(run.get("passed")) else 0
+        elif "returncode" in run:
+            successful_sandbox_runs += 1 if int(run.get("returncode") or 1) == 0 else 0
+    sandbox_success_rate = round((successful_sandbox_runs / len(sandbox_runs)) * 100) if sandbox_runs else 0
+
+    latest_eval = recent_evals[-1] if recent_evals else {}
+    latest_plan = recent_plans[-1] if recent_plans else {}
+
+    return {
+        "metrics": {
+            "learner_pass_rate": learner_pass_rate,
+            "recent_attempts": attempts,
+            "eval_pass_rate": eval_pass_rate,
+            "eval_runs": len(recent_evals),
+            "plan_runs": len(recent_plans),
+            "fab_guard_rate": fab_guard_rate,
+            "sandbox_success_rate": sandbox_success_rate,
+        },
+        "latest_eval": {
+            "generated_at": latest_eval.get("generated_at"),
+            "pass_count": int((latest_eval.get("summary") or {}).get("pass_count") or 0),
+            "fail_count": int((latest_eval.get("summary") or {}).get("fail_count") or 0),
+        },
+        "latest_plan": {
+            "plan_id": latest_plan.get("plan_id"),
+            "status": latest_plan.get("plan_status"),
+            "profile": latest_plan.get("plan_profile"),
+            "created_at": latest_plan.get("created_at"),
+        },
+        "recent_evals": [
+            {
+                "generated_at": entry.get("generated_at"),
+                "pass_count": int((entry.get("summary") or {}).get("pass_count") or 0),
+                "fail_count": int((entry.get("summary") or {}).get("fail_count") or 0),
+            }
+            for entry in recent_evals
+        ],
+        "recent_plans": [
+            {
+                "plan_id": item.get("plan_id"),
+                "objective": item.get("objective"),
+                "plan_status": item.get("plan_status"),
+                "plan_profile": item.get("plan_profile"),
+                "created_at": item.get("created_at"),
+            }
+            for item in recent_plans
+        ],
+        "recent_activity": [
+            {
+                "message": item.get("message"),
+                "agent_id": item.get("agent_id"),
+                "created_at": item.get("created_at"),
+            }
+            for item in recent_activity
+        ],
+    }
+
+
+def _decorate_atlas_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    eval_history = _load_eval_history()
+    state["eval_history"] = eval_history[-8:]
+    state["observability"] = _build_atlas_observability(state, eval_history=eval_history)
+    return state
+
+
+async def _execute_plan_steps(
+    *,
+    plan_id: str,
+    steps: List[Dict[str, Any]],
+    objective: str,
+    temperature: float,
+    approval_mode: bool,
+    stop_on_failure: bool,
+    activity_agent_id: str,
+) -> List[Dict[str, Any]]:
     step_results: List[Dict[str, Any]] = []
 
     for idx, step in enumerate(steps, start=1):
@@ -862,7 +1057,7 @@ async def plan_execute(body: Dict[str, Any]):
             agent_id=step["agent_id"],
             task_id=plan_id,
             kind="plan_step_started",
-            details={"step": step},
+            details={"step": step, "owner": activity_agent_id},
         )
 
         run_body = {
@@ -905,11 +1100,54 @@ async def plan_execute(body: Dict[str, Any]):
             agent_id=step["agent_id"],
             task_id=plan_id,
             kind="plan_step_completed" if step_status != "failed" else "plan_step_failed",
-            details={"step_id": step["id"], "status": step_status, "duration_ms": duration_ms},
+            details={"step_id": step["id"], "status": step_status, "duration_ms": duration_ms, "owner": activity_agent_id},
         )
 
         if step_status == "failed" and stop_on_failure:
             break
+
+    return step_results
+
+
+@app.post("/api/plan-execute")
+async def plan_execute(body: Dict[str, Any]):
+    objective = str(body.get("objective", "") or body.get("prompt", "")).strip()
+    temperature = body.get("temperature", 0.4)
+    approval_mode = bool(body.get("approval_mode"))
+    stop_on_failure = bool(body.get("stop_on_failure", True))
+    plan_profile = _normalize_plan_profile(body.get("plan_profile"))
+
+    if not objective:
+        return {"status": "error", "error": "objective is required"}
+
+    plan_id = f"plan-{uuid.uuid4().hex[:8]}"
+    steps = _build_plan_steps(objective, plan_profile)
+
+    _upsert_task(
+        plan_id,
+        "plan+execute run",
+        status="active",
+        agent_id="orchestrator",
+        description=objective,
+        details={"objective": objective, "step_count": len(steps), "approval_mode": approval_mode, "plan_profile": plan_profile},
+    )
+    _append_activity(
+        "Started plan+execute run",
+        agent_id="orchestrator",
+        task_id=plan_id,
+        kind="plan_started",
+        details={"objective": objective, "step_count": len(steps), "plan_profile": plan_profile},
+    )
+
+    step_results = await _execute_plan_steps(
+        plan_id=plan_id,
+        steps=steps,
+        objective=objective,
+        temperature=float(temperature),
+        approval_mode=approval_mode,
+        stop_on_failure=stop_on_failure,
+        activity_agent_id="orchestrator",
+    )
 
     failed_count = sum(1 for s in step_results if s["status"] == "failed")
     pending_count = sum(1 for s in step_results if s["status"] == "pending_approval")
@@ -1167,7 +1405,23 @@ async def run_agent(body: Dict[str, Any]):
 def _load_atlas_state() -> Dict[str, Any]:
     if ATLAS_FILE.exists():
         try:
-            return json.loads(ATLAS_FILE.read_text(encoding="utf-8"))
+            state = json.loads(ATLAS_FILE.read_text(encoding="utf-8"))
+            if not isinstance(state, dict):
+                return {"status": "no_session", "user_id": "default_user"}
+            normalized_history: List[Dict[str, Any]] = []
+            for idx, raw in enumerate(state.get("lesson_history") or []):
+                entry = _normalize_lesson_history_entry(raw, idx)
+                if entry:
+                    normalized_history.append(entry)
+            state["lesson_history"] = normalized_history[-80:]
+            normalized_aids: List[Dict[str, Any]] = []
+            for raw in state.get("study_aids") or []:
+                aid = _normalize_study_aid_entry(raw)
+                if aid:
+                    normalized_aids.append(aid)
+            state["study_aids"] = normalized_aids[-120:]
+            _sync_resume_packet(state)
+            return state
         except Exception:
             pass
     return {"status": "no_session", "user_id": "default_user"}
@@ -1209,10 +1463,44 @@ def _append_lesson_history(state: Dict[str, Any], lesson: Dict[str, Any], exerci
         "lesson": lesson,
         "exercise": exercise,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    if not history or history[-1].get("lesson_id") != entry["lesson_id"]:
-        history.append(entry)
-    state["lesson_history"] = history[-80:]
+    replaced = False
+    normalized_history: List[Dict[str, Any]] = []
+    for idx, raw in enumerate(history):
+        normalized = _normalize_lesson_history_entry(raw, idx)
+        if not normalized:
+            continue
+        if normalized["lesson_id"] == entry["lesson_id"]:
+            normalized = {
+                **normalized,
+                "lesson": lesson or normalized.get("lesson") or {},
+                "exercise": exercise or normalized.get("exercise") or {},
+                "updated_at": entry["updated_at"],
+            }
+            replaced = True
+        normalized_history.append(normalized)
+    if not replaced:
+        normalized_history.append(_normalize_lesson_history_entry(entry, len(normalized_history)) or entry)
+    state["lesson_history"] = normalized_history[-80:]
+
+
+def _record_submission_on_history(state: Dict[str, Any], submission: Dict[str, Any]) -> None:
+    lesson_id = str(state.get("lesson_id") or "").strip()
+    if not lesson_id:
+        return
+    summary = _summarize_prior_work(state, lesson_id)
+    normalized_history: List[Dict[str, Any]] = []
+    for idx, raw in enumerate(state.get("lesson_history") or []):
+        entry = _normalize_lesson_history_entry(raw, idx)
+        if not entry:
+            continue
+        if entry["lesson_id"] == lesson_id:
+            entry["last_submission"] = submission
+            entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+            entry["summary"] = summary
+        normalized_history.append(entry)
+    state["lesson_history"] = normalized_history[-80:]
 
 
 def _build_lesson_recap(state: Dict[str, Any]) -> str:
@@ -1281,6 +1569,92 @@ def _append_study_aid(state: Dict[str, Any], aid_type: str, data: Any):
     state["study_aids"] = aids[-120:]
 
 
+def _normalize_lesson_history_entry(raw: Any, index: int = 0) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    lesson = raw.get("lesson") if isinstance(raw.get("lesson"), dict) else {}
+    exercise = raw.get("exercise") if isinstance(raw.get("exercise"), dict) else {}
+    lesson_id = str(
+        raw.get("lesson_id")
+        or lesson.get("lesson_id")
+        or exercise.get("lesson_id")
+        or ""
+    ).strip()
+    if not lesson_id:
+        return None
+    created_at = raw.get("created_at") or raw.get("updated_at") or datetime.now(timezone.utc).isoformat()
+    summary = str(raw.get("summary") or raw.get("resume_summary") or "").strip()
+    return {
+        "lesson_id": lesson_id,
+        "lesson": lesson,
+        "exercise": exercise,
+        "created_at": created_at,
+        "updated_at": raw.get("updated_at") or created_at,
+        "summary": summary,
+        "last_submission": raw.get("last_submission") if isinstance(raw.get("last_submission"), dict) else None,
+        "study_aid_count": int(raw.get("study_aid_count") or 0),
+        "resume_packet": raw.get("resume_packet") if isinstance(raw.get("resume_packet"), dict) else None,
+        "sequence": int(raw.get("sequence") or index),
+    }
+
+
+def _normalize_study_aid_entry(raw: Any, lesson_id: str = "", lesson_title: str = "") -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    data = raw.get("data")
+    aid_type = str(raw.get("type") or "unknown").strip() or "unknown"
+    normalized_lesson_id = str(raw.get("lesson_id") or lesson_id or "").strip()
+    if isinstance(data, dict) and aid_type == "flashcards" and "cards" in data and isinstance(data.get("cards"), list):
+        data = data.get("cards")
+    elif isinstance(data, str) and aid_type in {"flashcards", "quiz"}:
+        data = [data]
+    return {
+        "id": str(raw.get("id") or uuid.uuid4()),
+        "type": aid_type,
+        "lesson_id": normalized_lesson_id,
+        "lesson_title": str(raw.get("lesson_title") or lesson_title or "").strip(),
+        "data": data,
+        "created_at": raw.get("created_at") or datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _find_lesson_snapshot(state: Dict[str, Any], lesson_id: Optional[str]) -> Dict[str, Any]:
+    target_id = str(lesson_id or state.get("lesson_id") or "").strip()
+    current_lesson = state.get("current_lesson") if isinstance(state.get("current_lesson"), dict) else {}
+    if target_id and str(current_lesson.get("lesson_id") or "").strip() == target_id:
+        return current_lesson
+
+    history = state.get("lesson_history") or []
+    if isinstance(history, list):
+        for raw in reversed(history):
+            entry = _normalize_lesson_history_entry(raw)
+            if entry and entry["lesson_id"] == target_id:
+                return entry.get("lesson") or {}
+
+    curriculum = state.get("curriculum") if isinstance(state.get("curriculum"), dict) else {}
+    for module in curriculum.get("modules") or []:
+        if not isinstance(module, dict):
+            continue
+        for lesson in module.get("lessons") or []:
+            if not isinstance(lesson, dict):
+                continue
+            if str(lesson.get("lesson_id") or "").strip() == target_id:
+                return lesson
+    return current_lesson if current_lesson else {}
+
+
+def _matching_history_entry(state: Dict[str, Any], lesson_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    target_id = str(lesson_id or "").strip()
+    history = state.get("lesson_history") or []
+    if not isinstance(history, list):
+        return None
+    for raw in reversed(history):
+        entry = _normalize_lesson_history_entry(raw)
+        if entry and entry["lesson_id"] == target_id:
+            return entry
+    return None
+
+
 def _build_lesson_flashcards(state: Dict[str, Any]) -> List[Dict[str, str]]:
     lesson = state.get("current_lesson") or {}
     exercise = state.get("current_exercise") or {}
@@ -1311,13 +1685,14 @@ def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) 
     if not isinstance(notes, list):
         return []
 
-    lesson = state.get("current_lesson") or {}
+    lesson = _find_lesson_snapshot(state, lesson_id)
+    objectives = [str(item).strip().lower() for item in (lesson.get("objectives") or []) if str(item).strip()]
     keywords = [
         str(lesson_id or "").strip().lower(),
         str(lesson.get("title") or lesson.get("lesson_title") or "").strip().lower(),
         str(state.get("topic") or "").strip().lower(),
     ]
-    keywords = [k for k in keywords if k]
+    keywords = [k for k in keywords if k] + objectives[:2]
 
     matches: List[Dict[str, Any]] = []
     for raw in reversed(notes):
@@ -1354,20 +1729,32 @@ def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) 
 
 
 def _flashcards_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> List[Dict[str, str]]:
+    lesson = _find_lesson_snapshot(state, lesson_id)
     aids = state.get("study_aids") or []
     if not isinstance(aids, list):
         aids = []
 
     cards: List[Dict[str, str]] = []
     for item in reversed(aids):
-        if not isinstance(item, dict):
+        normalized = _normalize_study_aid_entry(
+            item,
+            str(lesson_id or ""),
+            str(lesson.get("title") or lesson.get("lesson_title") or ""),
+        )
+        if not normalized:
             continue
-        if str(item.get("lesson_id") or "") != str(lesson_id or ""):
+        if str(normalized.get("lesson_id") or "") != str(lesson_id or ""):
             continue
-        aid_type = str(item.get("type") or "")
-        data = item.get("data")
+        aid_type = str(normalized.get("type") or "")
+        data = normalized.get("data")
         if aid_type == "flashcards" and isinstance(data, list):
             for card in data:
+                if isinstance(card, str) and card.strip():
+                    cards.append({
+                        "front": card.strip(),
+                        "back": "Recall the underlying concept, then verify it against your latest lesson work.",
+                    })
+                    continue
                 if not isinstance(card, dict):
                     continue
                 front = str(card.get("front") or "").strip()
@@ -1395,15 +1782,79 @@ def _flashcards_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> L
         deduped.append(card)
         if len(deduped) >= 8:
             break
-    return deduped
+    if deduped:
+        return deduped
+    fallback_state = {
+        **state,
+        "current_lesson": lesson,
+        "current_exercise": state.get("current_exercise") or {},
+    }
+    return _build_lesson_flashcards(fallback_state)[:4]
+    
+    
+
+def _summarize_prior_work(state: Dict[str, Any], lesson_id: Optional[str]) -> str:
+    entry = _matching_history_entry(state, lesson_id)
+    lesson = _find_lesson_snapshot(state, lesson_id)
+    if entry and entry.get("summary"):
+        return str(entry["summary"])
+    submission = entry.get("last_submission") if entry else None
+    if not isinstance(submission, dict):
+        submission = state.get("last_submission") if str(state.get("lesson_id") or "") == str(lesson_id or "") else {}
+    exercise = (entry or {}).get("exercise") if entry else {}
+    objective_count = len([item for item in (lesson.get("objectives") or []) if str(item).strip()])
+    prompt = str((exercise or {}).get("prompt") or "").strip()
+    hint = str((submission or {}).get("hint") or (submission or {}).get("error") or "").strip()
+    if submission:
+        status_line = "last attempt passed" if bool(submission.get("passed")) else "last attempt still needed work"
+    else:
+        status_line = "you explored this lesson earlier"
+    detail = f"Prompt focus: {prompt[:140]}" if prompt else ""
+    feedback = f"Last feedback: {hint[:160]}" if hint else ""
+    title = lesson.get("title") or lesson.get("lesson_title") or (lesson_id or "this lesson")
+    pieces = [
+        f"Returning to {title}.",
+        f"You previously worked on {max(1, objective_count)} objective(s), and {status_line}.",
+        detail,
+        feedback,
+    ]
+    return " ".join(piece for piece in pieces if piece).strip()
+
+
+def _sync_resume_packet(state: Dict[str, Any], lesson_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    target_lesson_id = str(lesson_id or state.get("lesson_id") or "").strip()
+    if not target_lesson_id:
+        state["resume_packet"] = None
+        return None
+    packet = _build_resume_packet(state, target_lesson_id)
+    state["resume_packet"] = packet
+    entry = _matching_history_entry(state, target_lesson_id)
+    if entry:
+        entry["resume_packet"] = packet
+        entry["summary"] = packet.get("prior_work_summary") or packet.get("summary") or ""
+        entry["study_aid_count"] = int(packet.get("resource_counts", {}).get("total") or 0)
+        normalized_history: List[Dict[str, Any]] = []
+        for idx, raw in enumerate(state.get("lesson_history") or []):
+            normalized = _normalize_lesson_history_entry(raw, idx)
+            if not normalized:
+                continue
+            if normalized["lesson_id"] == target_lesson_id:
+                normalized = {**normalized, **entry}
+            normalized_history.append(normalized)
+        state["lesson_history"] = normalized_history[-80:]
+    return packet
 
 
 def _build_resume_packet(state: Dict[str, Any], lesson_id: Optional[str]) -> Dict[str, Any]:
-    lesson = state.get("current_lesson") or {}
-    submission = state.get("last_submission") or {}
+    lesson = _find_lesson_snapshot(state, lesson_id)
+    history_entry = _matching_history_entry(state, lesson_id)
+    submission = history_entry.get("last_submission") if history_entry and isinstance(history_entry.get("last_submission"), dict) else {}
+    if not submission and str(state.get("lesson_id") or "") == str(lesson_id or ""):
+        submission = state.get("last_submission") or {}
     objectives = [str(item) for item in (lesson.get("objectives") or []) if str(item).strip()]
     notes = _matching_notes_for_lesson(state, lesson_id)
     flashcards = _flashcards_for_lesson(state, lesson_id)
+    prior_work_summary = _summarize_prior_work(state, lesson_id)
     passed = bool(submission.get("passed"))
     status_line = "Latest submission passed." if passed else "Latest submission still needs work."
     hint = str(submission.get("hint") or submission.get("error") or "").strip()
@@ -1417,21 +1868,243 @@ def _build_resume_packet(state: Dict[str, Any], lesson_id: Optional[str]) -> Dic
         "lesson_id": lesson_id,
         "lesson_title": lesson.get("title") or lesson.get("lesson_title") or lesson_id,
         "summary": summary,
+        "prior_work_summary": prior_work_summary,
         "objectives": objectives[:4],
         "notes": notes[:5],
         "flashcards": flashcards[:8],
+        "resource_counts": {
+            "notes": len(notes[:5]),
+            "flashcards": len(flashcards[:8]),
+            "total": len(notes[:5]) + len(flashcards[:8]),
+        },
+        "latest_activity_at": (history_entry or {}).get("updated_at") or (history_entry or {}).get("created_at") or state.get("updated_at"),
         "has_resources": bool(notes or flashcards),
     }
+
+
+def _build_submit_adaptation(learner_context: Dict[str, Any], submission_result: Dict[str, Any]) -> Dict[str, Any]:
+    coaching = learner_context.get("adaptive_coaching") if isinstance(learner_context, dict) else {}
+    if not isinstance(coaching, dict):
+        coaching = {}
+    hint_depth = str(coaching.get("hint_depth") or "guided")
+    challenge_level = str(coaching.get("challenge_level") or "balanced")
+    remediation_needed = bool(coaching.get("remediation_needed"))
+    passed = bool((submission_result or {}).get("passed"))
+    mastery_delta = learner_context.get("latest_mastery_delta")
+    confidence_delta = learner_context.get("latest_confidence_delta")
+
+    if passed and challenge_level == "stretch":
+        next_step = "You passed. Increase challenge: add edge-case tests and refactor for clarity."
+    elif passed:
+        next_step = "You passed. Lock in understanding by explaining your approach in one paragraph."
+    elif hint_depth == "foundational":
+        next_step = "Break this into 2-3 tiny steps and validate each with a quick print/assert check."
+    elif hint_depth == "guided":
+        next_step = "Fix one failing branch first, then re-run tests before adding new logic."
+    else:
+        next_step = "Try a minimal patch focused only on the failing assertion, then re-test."
+
+    return {
+        "hint_depth": hint_depth,
+        "challenge_level": challenge_level,
+        "coaching_tone": str(coaching.get("coaching_tone") or "step_by_step"),
+        "remediation_needed": remediation_needed,
+        "passed": passed,
+        "mastery_delta": mastery_delta,
+        "confidence_delta": confidence_delta,
+        "next_step": next_step,
+    }
+
+
+def _is_answer_seeking_request(message: str) -> bool:
+    text = str(message or "").strip().lower()
+    if not text:
+        return False
+    patterns = [
+        r"\bjust give (me )?the answer\b",
+        r"\bwrite (the )?solution for me\b",
+        r"\bsolve (this|it) for me\b",
+        r"\bfull answer only\b",
+        r"\bno explanation\b",
+        r"\bexact answer\b",
+        r"\bjust the code\b",
+    ]
+    return any(re.search(pattern, text) for pattern in patterns)
+
+
+def _regenerate_current_exercise(state: Dict[str, Any], *, reason: str) -> Optional[Dict[str, Any]]:
+    lesson = state.get("current_lesson") or {}
+    if not isinstance(lesson, dict) or not lesson:
+        return None
+    from mammoth_os.exercise_generator import generate_exercises_for_lesson
+    generated = generate_exercises_for_lesson(lesson, count=1)
+    if not generated:
+        return None
+    previous = state.get("current_exercise") or {}
+    next_exercise = generated[0]
+    state["current_exercise"] = next_exercise
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    state["regenerated_exercise"] = {
+        "reason": reason,
+        "created_at": state["updated_at"],
+        "previous_title": previous.get("title"),
+        "next_title": next_exercise.get("title"),
+    }
+    return next_exercise
+
+
+def _append_fab_usage_event(
+    state: Dict[str, Any],
+    *,
+    mode: str,
+    page_context: Dict[str, Any],
+    guard_triggered: bool,
+) -> None:
+    events = state.get("fab_usage_events") or []
+    if not isinstance(events, list):
+        events = []
+    events.append({
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "mode": mode,
+        "page": str(page_context.get("current_page") or ""),
+        "guard_triggered": guard_triggered,
+        "has_lesson_context": bool(page_context.get("lesson")),
+    })
+    state["fab_usage_events"] = events[-200:]
+
+
+def _run_atlas_evals(state: Dict[str, Any]) -> Dict[str, Any]:
+    eval_state = {
+        **state,
+        "current_lesson": dict(state.get("current_lesson") or {}),
+        "current_exercise": dict(state.get("current_exercise") or {}),
+        "lesson_id": str(state.get("lesson_id") or "lesson-1"),
+        "topic": state.get("topic") or "Python basics",
+        "lesson_history": [
+            {
+                "lesson_id": str(state.get("lesson_id") or "lesson-1"),
+                "lesson": dict(state.get("current_lesson") or {}),
+                "exercise": dict(state.get("current_exercise") or {}),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ],
+    }
+    onboarding_payload = {
+        "experience_level": "intermediate",
+        "preferred_pacing": "steady",
+        "learning_style": "guided",
+        "goals": "Build reliably",
+        "focus_areas": "debugging, planning",
+    }
+    learner_state = set_onboarding_profile(eval_state, user_id="default_user", onboarding=onboarding_payload)
+    onboarding_ok = bool(learner_state.get("onboarding") or {})
+
+    failure_result = {
+        "passed": False,
+        "hint": "Add a return statement and validate the function signature.",
+        "error": "AssertionError: expected 3",
+    }
+    learner_state = update_learner_model(
+        "default_user",
+        lesson=eval_state.get("current_lesson") or {},
+        exercise=eval_state.get("current_exercise") or {},
+        result=failure_result,
+        topic=eval_state.get("topic"),
+        metadata={"eval_run": True},
+    )
+    learner_context = build_learner_context(learner_state)
+    adaptive_feedback = _build_submit_adaptation(learner_context, failure_result)
+    adaptation_ok = bool(adaptive_feedback.get("next_step"))
+
+    resume_packet = _build_resume_packet(eval_state, eval_state.get("lesson_id"))
+    continuity_ok = bool(resume_packet.get("summary"))
+
+    checks = [
+        {
+            "name": "onboarding_profile",
+            "status": "pass" if onboarding_ok else "fail",
+            "detail": "Onboarding profile persisted and exposed through the learner model.",
+        },
+        {
+            "name": "adaptive_feedback",
+            "status": "pass" if adaptation_ok else "fail",
+            "detail": adaptive_feedback.get("next_step") or "Adaptive feedback did not produce a coaching step.",
+        },
+        {
+            "name": "resume_continuity",
+            "status": "pass" if continuity_ok else "fail",
+            "detail": resume_packet.get("summary") or "Resume packet could not be built.",
+        },
+    ]
+    return {
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "checks": checks,
+        "summary": {
+            "pass_count": sum(1 for item in checks if item["status"] == "pass"),
+            "fail_count": sum(1 for item in checks if item["status"] != "pass"),
+        },
+    }
+
+
+def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding") -> List[Dict[str, Any]]:
+    lesson = state.get("current_lesson") or {}
+    exercise = state.get("current_exercise") or {}
+    learner_context = state.get("learner_context") or {}
+    topic = str(state.get("topic") or lesson.get("title") or lesson.get("lesson_title") or "current lesson").strip()
+    prompt = str(exercise.get("prompt") or "").strip()
+    objective = prompt or f"Complete the {topic} lesson with a clear plan and safe next steps."
+    profile = _normalize_plan_profile(plan_profile)
+    difficulty = str(learner_context.get("recommended_difficulty") or "beginner")
+    weakest = [str(item.get("concept") or "").replace("-", " ") for item in (learner_context.get("weakest_concepts") or []) if isinstance(item, dict)]
+    weakest_summary = ", ".join([item for item in weakest[:3] if item]) or "the current lesson objective"
+    return [
+        {
+            "id": "atlas-clarify",
+            "title": "Clarify the lesson objective",
+            "agent_id": "plant_the_seed_agent",
+            "intent": "plant_seed",
+            "prompt": f"Turn this lesson objective into a concise learning plan for a {difficulty} learner: {objective}",
+        },
+        {
+            "id": "atlas-research",
+            "title": "Map constraints and pitfalls",
+            "agent_id": "research_agent",
+            "intent": "research_curriculum",
+            "prompt": f"Summarize the likely constraints and pitfalls for this lesson objective, especially around {weakest_summary}: {objective}",
+        },
+        {
+            "id": "atlas-build",
+            "title": "Draft a concrete build plan",
+            "agent_id": "coding_agent",
+            "intent": "summarize",
+            "prompt": f"Draft a short implementation plan, lightweight code sketch guidance, and verification checklist for: {objective}",
+        },
+        {
+            "id": "atlas-coach",
+            "title": "Translate the plan into coaching checkpoints",
+            "agent_id": "reflection_agent",
+            "intent": "reflection",
+            "prompt": f"Convert this plan into 3 learner-friendly checkpoints, a reflection question, and a safe next action: {objective}",
+        },
+    ] + ([
+        {
+            "id": "atlas-operations",
+            "title": "Prepare execution safeguards",
+            "agent_id": "field_ops_agent",
+            "intent": "field_ops",
+            "prompt": f"Create a short execution checklist to keep this lesson safe, testable, and non-cheaty: {objective}",
+        }
+    ] if profile in {"atlas", "balanced"} else [])
 
 
 @app.get("/api/atlas/status")
 async def atlas_status():
     state = _load_atlas_state()
     _hydrate_learner_state(state, user_id="default_user")
-    lesson_id = state.get("lesson_id")
-    if lesson_id:
-        state["resume_packet"] = _build_resume_packet(state, lesson_id)
-    return state
+    _sync_resume_packet(state)
+    return _decorate_atlas_state(state)
 
 
 @app.get("/api/atlas/learner")
@@ -1510,7 +2183,7 @@ async def atlas_lesson(body: Dict[str, Any]):
         })
         _hydrate_learner_state(state, user_id="default_user")
         _append_lesson_history(state, session.current_lesson or {}, exercise or {})
-        state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
+        _sync_resume_packet(state, state.get("lesson_id"))
         _save_atlas_state(state)
         return {"status": "ok", "exercise": exercise, "learner_context": state.get("learner_context")}
     except Exception as e:
@@ -1543,10 +2216,30 @@ async def atlas_submit(body: Dict[str, Any]):
             topic=state.get("topic"),
             metadata={"error_fingerprint": None},
         )
-        state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
+        learner_context = state.get("learner_context") or {}
+        adaptive_feedback = _build_submit_adaptation(learner_context, result)
+        _record_submission_on_history(state, result)
+        regenerated_exercise = None
+        if (
+            bool(body.get("regenerate_on_fail"))
+            and not bool(result.get("passed"))
+            and adaptive_feedback.get("remediation_needed")
+        ):
+            regenerated_exercise = _regenerate_current_exercise(
+                state,
+                reason="remediation_after_failed_submission",
+            )
+        _sync_resume_packet(state, state.get("lesson_id"))
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _save_atlas_state(state)
-        return {"status": "ok", "result": result, "learner_context": state.get("learner_context")}
+        return {
+            "status": "ok",
+            "result": result,
+            "learner_context": state.get("learner_context"),
+            "adaptive_feedback": adaptive_feedback,
+            "current_exercise": state.get("current_exercise"),
+            "regenerated_exercise": regenerated_exercise,
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -1579,7 +2272,7 @@ async def atlas_next():
                         pass
                     state["updated_at"]     = datetime.now(timezone.utc).isoformat()
                     _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
-                    state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
+                    _sync_resume_packet(state, state.get("lesson_id"))
                     _save_atlas_state(state)
                     return {"status": "ok", "lesson": mod["lessons"][next_i]}
                 break
@@ -1601,7 +2294,9 @@ async def atlas_back():
     state["current_lesson"] = previous.get("lesson") or {}
     state["lesson_id"] = previous.get("lesson_id")
     state["current_exercise"] = previous.get("exercise") or {}
-    state["resume_packet"] = _build_resume_packet(state, state.get("lesson_id"))
+    if isinstance(previous.get("last_submission"), dict):
+        state["last_submission"] = previous.get("last_submission")
+    _sync_resume_packet(state, state.get("lesson_id"))
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
     return {
@@ -1646,6 +2341,98 @@ async def atlas_flashcards():
     _append_study_aid(state, "flashcards", flashcards)
     _save_atlas_state(state)
     return {"status": "ok", "flashcards": flashcards}
+
+
+@app.post("/api/atlas/plan")
+async def atlas_plan(body: Optional[Dict[str, Any]] = None):
+    state = _load_atlas_state()
+    _hydrate_learner_state(state, user_id="default_user")
+    body = body or {}
+    plan_profile = _normalize_plan_profile(body.get("plan_profile") or "coding")
+    approval_mode = bool(body.get("approval_mode", False))
+    steps = _build_atlas_plan_steps(state, plan_profile)
+    plan_id = f"atlas-plan-{uuid.uuid4().hex[:8]}"
+    objective = str((state.get("current_exercise") or {}).get("prompt") or state.get("topic") or "Current lesson")
+    step_results = await _execute_plan_steps(
+        plan_id=plan_id,
+        steps=steps,
+        objective=objective,
+        temperature=0.3,
+        approval_mode=approval_mode,
+        stop_on_failure=True,
+        activity_agent_id="tutor_agent",
+    )
+
+    completed_count = sum(1 for step in step_results if step["status"] == "completed")
+    failed_count = sum(1 for step in step_results if step["status"] == "failed")
+    pending_count = sum(1 for step in step_results if step["status"] == "pending_approval")
+    total_count = len(step_results)
+    plan_status = "completed" if failed_count == 0 and pending_count == 0 else "pending_approval" if pending_count > 0 else "failed"
+    synthesis = _build_plan_synthesis(
+        step_results,
+        objective=objective,
+        lesson_title=str((state.get("current_lesson") or {}).get("title") or (state.get("current_lesson") or {}).get("lesson_title") or ""),
+    )
+    plan = {
+        "plan_id": plan_id,
+        "objective": objective,
+        "plan_profile": plan_profile,
+        "plan_status": plan_status,
+        "progress": {
+            "total": total_count,
+            "executed": total_count,
+            "completed": completed_count,
+            "pending_approval": pending_count,
+            "failed": failed_count,
+        },
+        "plan_steps": step_results,
+        "synthesis": synthesis,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    state["active_plan"] = plan
+    _append_plan_history(state, plan)
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _append_activity(
+        "ATLAS tutor plan generated",
+        agent_id="tutor_agent",
+        task_id=plan["plan_id"],
+        kind="atlas_plan_generated",
+        details={"plan_status": plan_status, "step_count": total_count, "plan_profile": plan_profile},
+    )
+    _save_atlas_state(state)
+    return {"status": "ok", "plan": plan, "plan_history": state.get("plan_history", []), "observability": _build_atlas_observability(state)}
+
+
+@app.post("/api/atlas/evals")
+async def atlas_evals(body: Optional[Dict[str, Any]] = None):
+    state = _load_atlas_state()
+    evaluation = _run_atlas_evals(state)
+    history = _load_eval_history()
+    history.append(evaluation)
+    if len(history) > 20:
+        history = history[-20:]
+    _write_json(ATLAS_EVALS_FILE, history)
+    return {"status": "ok", "evaluation": evaluation, "history": history, "observability": _build_atlas_observability(state, eval_history=history)}
+
+
+@app.post("/api/atlas/regenerate")
+async def atlas_regenerate(body: Optional[Dict[str, Any]] = None):
+    state = _load_atlas_state()
+    reason = "manual_regeneration"
+    if isinstance(body, dict):
+        reason = str(body.get("reason") or reason)
+    exercise = _regenerate_current_exercise(state, reason=reason)
+    if not exercise:
+        return {"status": "error", "error": "No active lesson available for regeneration."}
+    _append_lesson_history(state, state.get("current_lesson") or {}, exercise or {})
+    _sync_resume_packet(state, state.get("lesson_id"))
+    _save_atlas_state(state)
+    return {
+        "status": "ok",
+        "exercise": exercise,
+        "reason": reason,
+        "learner_context": state.get("learner_context"),
+    }
 
 
 @app.get("/api/approvals")
@@ -1753,6 +2540,10 @@ async def atlas_chat(body: Dict[str, Any]):
         return {"status": "error", "error": "message is required"}
 
     state = _load_atlas_state()
+    mode = str(body.get("mode") or "tutor").strip().lower() or "tutor"
+    strict_guard = bool(body.get("strict_guard", True))
+    regenerate_on_guard = bool(body.get("regenerate_on_guard"))
+    page_context = body.get("page_context") if isinstance(body.get("page_context"), dict) else {}
     current_lesson = state.get("current_lesson") or {}
     current_exercise = state.get("current_exercise") or {}
     last_submission = state.get("last_submission") or {}
@@ -1761,14 +2552,70 @@ async def atlas_chat(body: Dict[str, Any]):
     lesson_plan = state.get("lesson_plan") or build_lesson_plan(state, state.get("topic"))
     resume_packet = state.get("resume_packet") or _build_resume_packet(state, state.get("lesson_id"))
     learner_context = {**(state.get("learner_context") or learner_context), "lesson_plan": lesson_plan}
+    has_active_exercise = bool(current_exercise and current_exercise.get("prompt"))
+    guard_triggered = strict_guard and has_active_exercise and _is_answer_seeking_request(message)
+    _sync_resume_packet(state, state.get("lesson_id"))
 
     adapter = str(body.get("adapter", "")).strip()
     model = str(body.get("model", "")).strip()
     temperature = float(body.get("temperature", 0.2))
 
+    history = state.get("chat_history") or []
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        "role": "user",
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "mode": mode,
+        "page": str(page_context.get("current_page") or ""),
+    })
+
+    if guard_triggered:
+        regenerated_exercise = None
+        if regenerate_on_guard:
+            regenerated_exercise = _regenerate_current_exercise(
+                state,
+                reason="anti_cheat_guard_triggered",
+            )
+        guard_reply = (
+            "I can't provide direct answer dumps for an active exercise. "
+            "I can coach you step-by-step or generate a fresh parallel exercise."
+        )
+        if regenerated_exercise:
+            guard_reply += "\n\n✅ I generated a new exercise variant so you can keep learning without answer leakage."
+        history.append({
+            "role": "assistant",
+            "message": guard_reply,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "adapter": "policy-guard",
+            "model": "policy-guard",
+            "guard_triggered": True,
+        })
+        state["chat_history"] = history[-60:]
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _append_fab_usage_event(
+            state,
+            mode=mode,
+            page_context=page_context,
+            guard_triggered=True,
+        )
+        _save_atlas_state(state)
+        return {
+            "status": "ok",
+            "reply": guard_reply,
+            "adapter": "policy-guard",
+            "model": "policy-guard",
+            "chat_history": state["chat_history"],
+            "guard_triggered": True,
+            "regenerated_exercise": regenerated_exercise,
+            "current_exercise": state.get("current_exercise"),
+        }
+
     tutor_prompt = (
         "You are ATLAS Tutor, a practical coding mentor. "
         "Give clear, concise help. Never provide harmful content.\n\n"
+        f"Interaction mode: {mode}\n"
         f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
         f"Lesson objectives: {current_lesson.get('objectives', [])}\n"
         f"Exercise prompt: {current_exercise.get('prompt', 'N/A')}\n"
@@ -1776,8 +2623,11 @@ async def atlas_chat(body: Dict[str, Any]):
         f"Adaptive learner context: {json.dumps(learner_context, default=str)[:2500]}\n"
         f"Adaptive lesson plan: {json.dumps(lesson_plan, default=str)[:1500]}\n\n"
         f"Resume packet: {json.dumps(resume_packet, default=str)[:1800]}\n\n"
+        f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
         f"Student message: {message}\n\n"
-        "Respond as a tutor with: 1) diagnosis, 2) next concrete step, 3) short example when useful."
+        "Policy: do not provide direct final answers for active exercises. Use hints and checks.\n"
+        "If mode is 'build', include a short implementation plan plus one safe next action.\n"
+        "Respond with: 1) diagnosis, 2) next concrete step, 3) short example when useful."
     )
 
     llm_reply = ""
@@ -1814,23 +2664,22 @@ async def atlas_chat(body: Dict[str, Any]):
         if not active_adapter:
             active_adapter = "fallback-local"
 
-    history = state.get("chat_history") or []
-    if not isinstance(history, list):
-        history = []
-    history.append({
-        "role": "user",
-        "message": message,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    })
     history.append({
         "role": "assistant",
         "message": llm_reply,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "adapter": active_adapter,
         "model": active_model,
+        "mode": mode,
     })
     state["chat_history"] = history[-60:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _append_fab_usage_event(
+        state,
+        mode=mode,
+        page_context=page_context,
+        guard_triggered=False,
+    )
     _save_atlas_state(state)
 
     return {
@@ -1839,6 +2688,7 @@ async def atlas_chat(body: Dict[str, Any]):
         "adapter": active_adapter,
         "model": active_model,
         "chat_history": state["chat_history"],
+        "guard_triggered": False,
     }
 
 

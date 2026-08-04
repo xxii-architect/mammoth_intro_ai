@@ -172,7 +172,45 @@ The tutor UI reads this profile through `/api/atlas/status` and shows the recomm
 
 ---
 
-## 5 — Verify Supabase connectivity
+## 5 — ATLAS plan + execute
+
+ATLAS can now turn the current lesson or exercise into a visible tutor plan. The plan is generated from the active lesson context, executed step-by-step through the agent runtime, and surfaced in the ATLAS tutor page with real progress and step status.
+
+- Use the new **Build Plan** action in the ATLAS lesson page to generate a plan from the active exercise.
+- Choose a tutor plan profile directly in the lesson page:
+  - **Tutor + Coding** for implementation-heavy work
+  - **Balanced** for mixed coaching/execution
+  - **ATLAS-first** for more strategic tutoring and safeguards
+- Each plan step is executed by the relevant sub-agent (seed/research/coding/reflection/ops) and reported back to the tutor UI.
+- The plan is persisted in the atlas session state so returning to the lesson preserves the most recent plan view.
+- Every completed plan now includes an **ATLAS synthesis** block with:
+  - learner-facing summary
+  - coding brief
+  - safe next action
+  - checkpoint list distilled from the sub-agent outputs
+
+---
+
+## 6 — ATLAS evals + observability
+
+ATLAS now has a lightweight tutor observability layer in the lesson UI.
+
+- Use **Run Evals** in the tutor page to execute the current smoke checks:
+  - onboarding profile persistence
+  - adaptive feedback generation
+  - resume continuity reconstruction
+- Recent eval runs are stored in `.mammoth/atlas_evals.json` and surfaced back into the tutor UI.
+- The tutor sidebar now shows compact observability metrics:
+  - learner pass rate
+  - eval pass rate
+  - plan/eval run counts
+  - guard trigger rate
+  - sandbox success rate
+- The tutor page also shows recent plan history so you can track ATLAS orchestration over time.
+
+---
+
+## 7 — Verify Supabase connectivity
 
 ```powershell
 python .mammoth\check_supabase.py
@@ -198,7 +236,7 @@ python -m cli.main atlas status --db
 
 ---
 
-## 6 — Where things live (source map)
+## 8 — Where things live (source map)
 
 | What | Path |
 |---|---|
@@ -220,11 +258,11 @@ python -m cli.main atlas status --db
 | React polling hooks | `ui/mad-architecht-command-center/src/hooks/useApi.js` |
 | Design tokens + CSS | `ui/mad-architecht-command-center/src/index.css` |
 | FastAPI backend | `api_server.py` (repo root) |
-| Runtime data files | `.mammoth/` (notes, buildlog, sales_log, atlas session) |
+| Runtime data files | `.mammoth/` (notes, buildlog, sales_log, atlas session, eval history) |
 
 ---
 
-## 7 — Mad Architecht Command Center (Main UI)
+## 9 — Mad Architecht Command Center (Main UI)
 
 The primary user interface is a full React SPA located at:
 ```
@@ -291,14 +329,22 @@ The ATLAS Tutor sidebar now shows:
 - total lesson count in the loaded curriculum
 - latest submission outcome and coaching hint
 - welcome-back lesson summary when returning to a prior lesson
+- deterministic prior-work summary recovered from lesson history, even for legacy state shapes
 - quick pull-up actions for related notes and saved flashcards
 - onboarding profile controls for experience, pacing, style, goals, and focus areas
 - learner memory map summary with recent lesson/concept nodes
 
 ### Floating ATLAS Chat (FAB)
-A violet 🧠 button is fixed to the bottom-right corner on **every page**.  
+A violet 🐘 button is fixed to the bottom-right corner on **every page**.  
 Click it → glass chat panel slides up → chat directly with ATLAS tutor without leaving your current screen.  
 Wired to `POST /api/atlas/chat` with full chat history.
+
+Phase 2 upgrades now wired in the FAB:
+- **Tutor mode** + **Plan + Build mode** toggle
+- **No-cheat guard** toggle (blocks direct answer dumping for active exercises)
+- automatic **fresh exercise regeneration** when guard is triggered (if enabled)
+- page-aware context payload (current page, selection, lesson snapshot) so ATLAS can observe what you're working on
+- usage telemetry events (`fab_usage_events`) recorded for future monetization analytics
 
 ### Theme Toggle
 Settings → Theme section. Three options:
@@ -325,13 +371,14 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 | `POST /api/plan-execute` | Run orchestrated multi-agent plan (`{objective, plan_profile, approval_mode}`) |
 | `GET /api/atlas/status` | Current ATLAS session: lesson, exercise, curriculum, chat history |
 | `POST /api/atlas/lesson` | Start a lesson (`{topic, difficulty, module, lesson, llm}`) |
-| `POST /api/atlas/submit` | Submit code (`{code}`) → graded result |
+| `POST /api/atlas/submit` | Submit code (`{code}`) → graded result + adaptive feedback payload |
 | `POST /api/atlas/onboard` | Save learner onboarding profile |
 | `POST /api/atlas/next` | Advance to next lesson |
 | `POST /api/atlas/back` | Return to previous lesson with resume packet |
 | `GET /api/atlas/flashcards` | Generate + save lesson flashcards for recall |
+| `POST /api/atlas/regenerate` | Generate a new exercise variant for the current lesson |
 | `POST /api/atlas/reset` | Reset ATLAS session |
-| `POST /api/atlas/chat` | Chat with ATLAS tutor (`{message, model?}`) |
+| `POST /api/atlas/chat` | Chat with ATLAS tutor (`{message, model?, mode, strict_guard, regenerate_on_guard, page_context}`) |
 | `GET /api/models` | All available models: active adapter, model, Ollama status, installed models |
 | `GET/POST /api/notes` | Note CRUD |
 | `GET/POST /api/buildlog` | Build log entries |
@@ -411,7 +458,7 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 
 ---
 
-### Phase 2 — Adaptive Lesson Delivery 🔜 NEXT
+### Phase 2 — Adaptive Lesson Delivery 🚧 IN PROGRESS
 
 **Goal:** ATLAS selects the *right lesson* at the *right difficulty* based on the learner model.
 
@@ -419,9 +466,11 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 |---|---|
 | Learner-model-informed lesson selection | Pull weakest concepts from mastery map and weight curriculum accordingly |
 | Dynamic difficulty scaling | Adjust difficulty based on streak + recent outcome history from learner model |
-| Hint depth calibration | Measure confidence score → calibrate hint verbosity (less hand-holding for high confidence) |
+| Hint depth calibration | Measure confidence score → calibrate hint verbosity (less hand-holding for high confidence). **Baseline shipped** via `adaptive_coaching.hint_depth` |
 | Pacing adapter | Honor onboarding `preferred_pacing` field to space exercises / explanations |
-| Post-lesson mastery update | Write concept mastery scores back to learner model after every submission |
+| Post-lesson mastery update | Write concept mastery scores back to learner model after every submission. **Shipped** with mastery/confidence deltas in `recent_outcomes` |
+| Remediation branching | Trigger support mode for repeated failures, with optional automatic exercise regeneration |
+| Anti-cheat continuity | If direct-answer request is detected on active exercises, ATLAS refuses and can auto-generate a parallel variant |
 | Supabase session rows on lesson start | Write `atlas.sessions` entries for full lesson-history tracking |
 | `atlas progress` CLI command | Display XP, lessons completed, streak, weakest concepts from DB + learner model |
 
@@ -435,8 +484,9 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 |---|---|
 | ReasoningAgent integration on fail | CodingAgent fails → ReasoningAgent generates chain-of-thought walkthrough |
 | Socratic probe mode | ATLAS asks follow-up questions instead of immediately revealing the fix |
-| Error pattern tracking | Repeated errors update `error_patterns` in learner model → ATLAS flags known sticking points |
+| Error pattern tracking | Repeated errors update `error_patterns` in learner model → ATLAS flags known sticking points. **Foundation shipped** in learner model + adaptive coaching |
 | Contextual micro-lessons | When a concept is repeatedly failed, inject a targeted micro-lesson before the next attempt |
+| Return continuity hardening | **Shipped** — deterministic resume packets on status reads/transitions, historical submission recovery, legacy study-aid normalization, note/flashcard pull-up fallback |
 
 ---
 

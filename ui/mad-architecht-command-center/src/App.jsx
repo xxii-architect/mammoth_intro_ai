@@ -54,11 +54,13 @@ const PAGE_COMPONENTS = {
   settings: SettingsPage,
 }
 
-function AtlasFAB() {
+function AtlasFAB({ currentPage }) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [history, setHistory] = useState([])
   const [busy, setBusy] = useState(false)
+  const [mode, setMode] = useState('tutor')
+  const [strictGuard, setStrictGuard] = useState(true)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -68,6 +70,14 @@ function AtlasFAB() {
   const send = async () => {
     if (!input.trim() || busy) return
     const msg = input.trim()
+    const selectedText = window.getSelection ? window.getSelection().toString().trim().slice(0, 400) : ''
+    let lessonContext = {}
+    try {
+      const raw = localStorage.getItem('atlas_fab_context')
+      if (raw) lessonContext = JSON.parse(raw)
+    } catch (_) {
+      lessonContext = {}
+    }
     setInput('')
     setBusy(true)
     setHistory(h => [...h, { role: 'user', message: msg }])
@@ -75,10 +85,24 @@ function AtlasFAB() {
       const res = await fetch('/api/atlas/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({
+          message: msg,
+          mode,
+          strict_guard: strictGuard,
+          regenerate_on_guard: true,
+          page_context: {
+            current_page: currentPage,
+            selected_text: selectedText,
+            lesson: lessonContext,
+          },
+        }),
       })
       const data = await res.json()
-      setHistory(data.chat_history || (h => [...h, { role: 'assistant', message: data.reply || data.error || 'No response.' }]))
+      if (Array.isArray(data.chat_history)) {
+        setHistory(data.chat_history)
+      } else {
+        setHistory(h => [...h, { role: 'assistant', message: data.reply || data.error || 'No response.' }])
+      }
     } catch (e) {
       setHistory(h => [...h, { role: 'assistant', message: `⚠ ${e.message}` }])
     } finally {
@@ -103,7 +127,7 @@ function AtlasFAB() {
         }}
         title="ATLAS Tutor"
       >
-        🧠
+        🐘
       </button>
 
       {open && (
@@ -120,13 +144,32 @@ function AtlasFAB() {
         }}>
           <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(180,124,255,0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '1rem' }}>🧠</span>
+              <span style={{ fontSize: '1rem' }}>🐘</span>
               <div>
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: 'var(--violet)' }}>ATLAS Tutor</p>
                 <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>AI-powered coding mentor</p>
               </div>
             </div>
             <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4 }}>✕</button>
+          </div>
+
+          <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <select
+              value={mode}
+              onChange={e => setMode(e.target.value)}
+              style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.72rem' }}
+            >
+              <option value="tutor">Tutor mode</option>
+              <option value="build">Plan + Build mode</option>
+            </select>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-sec)', fontSize: '0.68rem', whiteSpace: 'nowrap' }}>
+              <input
+                type="checkbox"
+                checked={strictGuard}
+                onChange={e => setStrictGuard(e.target.checked)}
+              />
+              No-cheat guard
+            </label>
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -299,7 +342,7 @@ export default function App() {
           : <div style={{ padding: 24, color: 'var(--txt-mut)' }}>Page not found.</div>}
       </main>
 
-      <AtlasFAB />
+      <AtlasFAB currentPage={page} />
     </div>
   )
 }

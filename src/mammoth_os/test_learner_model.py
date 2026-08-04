@@ -34,6 +34,10 @@ def test_update_learner_model_tracks_success_and_failure(tmp_path):
     context = build_learner_context(failed_state)
     assert context["recommended_difficulty"] in {"beginner", "intermediate", "advanced"}
     assert context["weakest_concepts"]
+    assert context["latest_mastery_delta"] is not None
+    assert context["latest_confidence_delta"] is not None
+    assert context["adaptive_coaching"]["hint_depth"] in {"foundational", "guided", "strategic"}
+    assert context["adaptive_coaching"]["challenge_level"] in {"support", "balanced", "stretch"}
 
 
 def test_load_learner_model_returns_default_shape(tmp_path):

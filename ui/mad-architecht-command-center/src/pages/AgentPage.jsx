@@ -320,6 +320,9 @@ export default function AgentPage() {
   }
 
   const runPrimary = () => executionMode === 'plan' ? runPlanExecute() : run()
+  const planProgressPercent = planRun?.progress?.total
+    ? Math.round(((planRun.progress.completed || 0) / planRun.progress.total) * 100)
+    : 0
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -558,11 +561,16 @@ export default function AgentPage() {
                       {planRun.plan_status || 'unknown'}
                     </span>
                   </div>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 6 }}>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 8 }}>
                     {(planRun.progress?.executed || 0)}/{(planRun.progress?.total || 0)} steps • completed {(planRun.progress?.completed || 0)} • pending {(planRun.progress?.pending_approval || 0)} • failed {(planRun.progress?.failed || 0)}
                   </div>
-                  <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginBottom: 6, fontFamily: 'JetBrains Mono,monospace' }}>
-                    profile: {planRun.plan_profile || 'balanced'}
+                  <div style={{ marginBottom: 8 }}>
+                    <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${planProgressPercent}%`, background: planRun.plan_status === 'completed' ? '#22c55e' : planRun.plan_status === 'pending_approval' ? '#f59e0b' : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171', borderRadius: 999, transition: 'width 0.2s ease' }} />
+                    </div>
+                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
+                      progress {planProgressPercent}% • profile {planRun.plan_profile || 'balanced'}
+                    </div>
                   </div>
                   {(planRun.plan_steps || []).map((step, idx) => (
                     <div key={`${step.id || idx}-${idx}`} style={{ padding: '7px 0', borderTop: '1px solid var(--border)' }}>

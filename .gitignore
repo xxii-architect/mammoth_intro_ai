@@ -45,5 +45,9 @@ ui/**/package-lock.json
 coverage/
 .coverage
 
-# Runtime data (keep tracked manually when needed)
+# Runtime data / local session state
+.mammoth/*.json
+.mammoth/*.jsonl
 .mammoth/seccomp.json
+src/.mammoth/
+test-approval.txt

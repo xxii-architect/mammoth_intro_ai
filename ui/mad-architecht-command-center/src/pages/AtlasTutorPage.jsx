@@ -14,6 +14,8 @@ export default function AtlasTutorPage() {
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
   const [studyAid, setStudyAid]     = useState(null)
+  const [evalSummary, setEvalSummary] = useState(null)
+  const [atlasPlanProfile, setAtlasPlanProfile] = useState('coding')
   const [onboardingDraft, setOnboardingDraft] = useState({
     experience_level: 'unknown',
     preferred_pacing: 'gentle',
@@ -85,8 +87,17 @@ export default function AtlasTutorPage() {
     if (!code.trim()) return
     setLoading(true)
     try {
-      const res = await api('/atlas/submit', { method: 'POST', body: { code } })
-      setResult(res.result || res)
+      const res = await api('/atlas/submit', { method: 'POST', body: { code, regenerate_on_fail: false } })
+      setResult({ ...(res.result || res), adaptive_feedback: res.adaptive_feedback || null })
+      setAtlasState(prev => ({
+        ...(prev || {}),
+        learner_context: res.learner_context || prev?.learner_context,
+        current_exercise: res.current_exercise || prev?.current_exercise,
+      }))
+      if (res?.regenerated_exercise?.starter_files) {
+        const first = Object.values(res.regenerated_exercise.starter_files)[0] || ''
+        if (first) setCode(first)
+      }
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -156,6 +167,27 @@ export default function AtlasTutorPage() {
     }
   }
 
+  const regenerateExercise = async () => {
+    setLoading(true)
+    try {
+      const res = await api('/atlas/regenerate', { method: 'POST', body: { reason: 'student_requested_new_variant' } })
+      if (res?.exercise) {
+        setAtlasState(prev => ({ ...(prev || {}), current_exercise: res.exercise }))
+        if (res.exercise?.starter_files) {
+          const first = Object.values(res.exercise.starter_files)[0] || ''
+          setCode(first)
+        } else {
+          setCode('')
+        }
+      }
+      setResult(null)
+    } catch (e) {
+      setResult({ error: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const loadResumeNotes = () => {
     const notes = Array.isArray(atlasState?.resume_packet?.notes) ? atlasState.resume_packet.notes : []
     setStudyAid({ type: 'resume_notes', data: notes })
@@ -202,6 +234,40 @@ export default function AtlasTutorPage() {
     }
   }
 
+  const runAtlasPlan = async () => {
+    setLoading(true)
+    try {
+      const res = await api('/atlas/plan', { method: 'POST', body: { plan_profile: atlasPlanProfile } })
+      setAtlasState(prev => ({
+        ...(prev || {}),
+        active_plan: res.plan || null,
+        plan_history: res.plan_history || prev?.plan_history || [],
+        observability: res.observability || prev?.observability || null,
+      }))
+    } catch (e) {
+      setResult({ error: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const runAtlasEvals = async () => {
+    setLoading(true)
+    try {
+      const res = await api('/atlas/evals', { method: 'POST', body: {} })
+      setEvalSummary(res.evaluation || null)
+      setAtlasState(prev => ({
+        ...(prev || {}),
+        eval_history: res.history || prev?.eval_history || [],
+        observability: res.observability || prev?.observability || null,
+      }))
+    } catch (e) {
+      setResult({ error: e.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const sendChat = async () => {
     if (!chatInput.trim() || chatBusy) return
     const msg = chatInput.trim()
@@ -210,7 +276,21 @@ export default function AtlasTutorPage() {
     try {
       const res = await api('/atlas/chat', {
         method: 'POST',
-        body: { message: msg, model: chatModel || undefined },
+        body: {
+          message: msg,
+          model: chatModel || undefined,
+          mode: 'tutor',
+          strict_guard: true,
+          regenerate_on_guard: false,
+          page_context: {
+            current_page: 'atlas',
+            lesson: {
+              lesson_id: currentLessonId || null,
+              exercise_prompt: exercise?.prompt || null,
+              recommended_difficulty: learnerContext?.recommended_difficulty || null,
+            },
+          },
+        },
       })
       if (res.chat_history) {
         setAtlasState(prev => ({ ...(prev || {}), chat_history: res.chat_history }))
@@ -238,7 +318,33 @@ export default function AtlasTutorPage() {
   const learnerContext = atlasState?.learner_context || null
   const lessonPlan     = atlasState?.lesson_plan || null
   const resumePacket   = atlasState?.resume_packet || null
+  const observability  = atlasState?.observability || null
+  const planHistory    = Array.isArray(atlasState?.plan_history) ? atlasState.plan_history : []
+  const evalHistory    = Array.isArray(atlasState?.eval_history) ? atlasState.eval_history : []
   const totalLessons = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
+
+  useEffect(() => {
+    const context = {
+      lesson_id: currentLessonId || null,
+      lesson_title: atlasState?.current_lesson?.title || atlasState?.current_lesson?.lesson_title || null,
+      exercise_title: exercise?.title || null,
+      exercise_prompt: exercise?.prompt || null,
+      latest_feedback: lastSubmission?.hint || lastSubmission?.error || null,
+      recommended_difficulty: learnerContext?.recommended_difficulty || null,
+      weakest_concepts: learnerContext?.weakest_concepts || [],
+    }
+    localStorage.setItem('atlas_fab_context', JSON.stringify(context))
+  }, [
+    atlasState?.current_lesson?.title,
+    atlasState?.current_lesson?.lesson_title,
+    currentLessonId,
+    exercise?.prompt,
+    exercise?.title,
+    lastSubmission?.error,
+    lastSubmission?.hint,
+    learnerContext?.recommended_difficulty,
+    learnerContext?.weakest_concepts,
+  ])
 
   return (
     <div className="page-enter" style={{ padding: 20, display: 'flex', gap: 16, height: 'calc(100vh - 92px)', overflow: 'hidden' }}>
@@ -356,6 +462,17 @@ export default function AtlasTutorPage() {
                 ))}
               </div>
             ) : null}
+            {observability?.metrics ? (
+              <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(34,197,94,0.05)', border: '1px solid rgba(34,197,94,0.18)', marginBottom: 8 }}>
+                <div style={{ color: 'var(--txt-pri)', fontSize: '0.72rem', fontWeight: 600, marginBottom: 4 }}>ATLAS observability</div>
+                <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', lineHeight: 1.55 }}>
+                  Learner pass rate {observability.metrics.learner_pass_rate || 0}% • Eval pass rate {observability.metrics.eval_pass_rate || 0}%
+                </div>
+                <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', lineHeight: 1.5, marginTop: 4 }}>
+                  Plan runs {observability.metrics.plan_runs || 0} • Eval runs {observability.metrics.eval_runs || 0} • Guard rate {observability.metrics.fab_guard_rate || 0}% • Sandbox success {observability.metrics.sandbox_success_rate || 0}%
+                </div>
+              </div>
+            ) : null}
             <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', marginBottom: 8 }}>
               <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 4 }}>
                 {currentLessonId ? `Resume: ${currentLessonId}` : 'No active lesson'}
@@ -382,6 +499,17 @@ export default function AtlasTutorPage() {
                 <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', lineHeight: 1.55, marginBottom: 7 }}>
                   {resumePacket.summary}
                 </div>
+                {resumePacket.prior_work_summary ? (
+                  <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', lineHeight: 1.5, marginBottom: 7 }}>
+                    Prior work: {resumePacket.prior_work_summary}
+                  </div>
+                ) : null}
+                {resumePacket.latest_activity_at || resumePacket.resource_counts ? (
+                  <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginBottom: 7 }}>
+                    {resumePacket.latest_activity_at ? `Last activity ${new Date(resumePacket.latest_activity_at).toLocaleString()}` : 'History recovered'}
+                    {resumePacket.resource_counts ? ` • ${resumePacket.resource_counts.notes || 0} notes • ${resumePacket.resource_counts.flashcards || 0} flashcards` : ''}
+                  </div>
+                ) : null}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={loadResumeNotes}
                     style={{ padding: '5px 8px', borderRadius: 7, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.66rem', cursor: 'pointer' }}>
@@ -454,7 +582,126 @@ export default function AtlasTutorPage() {
               <button onClick={loadQuiz} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Quiz</button>
               <button onClick={loadFlashcards} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Flashcards</button>
               <button onClick={loadReview} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Review</button>
+              <select value={atlasPlanProfile} onChange={e => setAtlasPlanProfile(e.target.value)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
+                <option value="coding">Tutor + Coding</option>
+                <option value="balanced">Balanced</option>
+                <option value="atlas">ATLAS-first</option>
+              </select>
+              <button onClick={runAtlasPlan} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Build Plan</button>
+              <button onClick={runAtlasEvals} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Run Evals</button>
+              <button onClick={regenerateExercise} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.12)', color: 'var(--violet)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>New Variant</button>
             </div>
+
+            {atlasState?.active_plan && (
+              <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0, borderLeft: '3px solid var(--photon)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <p style={{ margin: 0, fontSize: '0.74rem', fontWeight: 700, color: 'var(--photon)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>ATLAS plan</p>
+                  <span style={{ fontSize: '0.66rem', fontFamily: 'JetBrains Mono,monospace', color: atlasState.active_plan.plan_status === 'completed' ? '#22c55e' : atlasState.active_plan.plan_status === 'pending_approval' ? '#f59e0b' : '#f87171' }}>
+                    {atlasState.active_plan.plan_status}
+                  </span>
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.round(((atlasState.active_plan.progress?.completed || 0) / Math.max(1, atlasState.active_plan.progress?.total || 1)) * 100)}%`, background: atlasState.active_plan.plan_status === 'completed' ? '#22c55e' : atlasState.active_plan.plan_status === 'pending_approval' ? '#f59e0b' : '#f87171', borderRadius: 999 }} />
+                  </div>
+                  <div style={{ marginTop: 4, color: 'var(--txt-mut)', fontSize: '0.64rem', fontFamily: 'JetBrains Mono,monospace' }}>
+                    {atlasState.active_plan.progress?.completed || 0}/{atlasState.active_plan.progress?.total || 0} steps • {atlasState.active_plan.progress?.pending_approval || 0} pending • {atlasState.active_plan.progress?.failed || 0} failed
+                  </div>
+                </div>
+                {(atlasState.active_plan.plan_steps || []).map((step, idx) => (
+                  <div key={step.id || idx} style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                      <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{idx + 1}. {step.title}</span>
+                      <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: step.status === 'completed' ? '#22c55e' : step.status === 'pending_approval' ? '#f59e0b' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>{step.status}</span>
+                    </div>
+                    <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginTop: 3 }}>
+                      {step.agent_id} • {step.intent}
+                    </div>
+                    {step.response?.result?.output ? (
+                      <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4, lineHeight: 1.45 }}>
+                        {String(step.response.result.output).slice(0, 220)}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+                {atlasState.active_plan.synthesis ? (
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 10 }}>
+                    <div style={{ color: 'var(--txt-pri)', fontSize: '0.72rem', fontWeight: 700, marginBottom: 6 }}>ATLAS synthesis</div>
+                    <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', lineHeight: 1.55, marginBottom: 6 }}>
+                      {atlasState.active_plan.synthesis.learner_summary}
+                    </div>
+                    {atlasState.active_plan.synthesis.coding_brief ? (
+                      <div style={{ color: 'var(--txt-mut)', fontSize: '0.67rem', lineHeight: 1.5, marginBottom: 6 }}>
+                        Coding brief: {atlasState.active_plan.synthesis.coding_brief}
+                      </div>
+                    ) : null}
+                    <div style={{ color: 'var(--photon)', fontSize: '0.67rem', lineHeight: 1.5 }}>
+                      Next action: {atlasState.active_plan.synthesis.next_action}
+                    </div>
+                    {(atlasState.active_plan.synthesis.checkpoints || []).length ? (
+                      <div style={{ marginTop: 8 }}>
+                        {(atlasState.active_plan.synthesis.checkpoints || []).map((checkpoint, idx) => (
+                          <div key={`${idx}-${checkpoint.slice(0, 20)}`} style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
+                            {idx + 1}. {checkpoint}
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {evalSummary && (
+              <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0, borderLeft: '3px solid #22c55e' }}>
+                <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>
+                  ATLAS evals
+                </p>
+                <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 6 }}>
+                  {evalSummary.summary?.pass_count || 0} passed • {evalSummary.summary?.fail_count || 0} failed
+                </div>
+                {(evalSummary.checks || []).map((check, idx) => (
+                  <div key={check.name || idx} style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                      <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{check.name}</span>
+                      <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: check.status === 'pass' ? '#22c55e' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>{check.status}</span>
+                    </div>
+                    <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginTop: 3, lineHeight: 1.45 }}>{check.detail}</div>
+                  </div>
+                ))}
+                {evalHistory.length ? (
+                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 8, marginTop: 10 }}>
+                    <div style={{ color: 'var(--txt-pri)', fontSize: '0.7rem', marginBottom: 4 }}>Recent eval history</div>
+                    {evalHistory.slice().reverse().slice(0, 4).map((entry, idx) => (
+                      <div key={`${entry.generated_at || idx}-${idx}`} style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 3 }}>
+                        {entry.generated_at ? new Date(entry.generated_at).toLocaleString() : 'Unknown run'} • {(entry.summary?.pass_count || 0)} pass • {(entry.summary?.fail_count || 0)} fail
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {planHistory.length ? (
+              <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0 }}>
+                <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>
+                  Plan history
+                </p>
+                {planHistory.slice().reverse().slice(0, 4).map((entry, idx) => (
+                  <div key={entry.plan_id || idx} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--border)', paddingTop: idx === 0 ? 0 : 8, marginTop: idx === 0 ? 0 : 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                      <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem' }}>{entry.objective || 'Plan objective'}</span>
+                      <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: entry.plan_status === 'completed' ? '#22c55e' : entry.plan_status === 'pending_approval' ? '#f59e0b' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>
+                        {entry.plan_status}
+                      </span>
+                    </div>
+                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4, lineHeight: 1.45 }}>
+                      {entry.summary || entry.next_action || 'Plan run recorded.'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
 
             {studyAid && (
               <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0 }}>
@@ -518,6 +765,21 @@ export default function AtlasTutorPage() {
                   <p style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-mut)', marginTop: 6 }}>
                     {result.recommendation}
                   </p>
+                )}
+                {result.adaptive_feedback && (
+                  <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                    <p style={{ margin: 0, color: 'var(--txt-pri)', fontSize: '0.72rem', fontWeight: 600 }}>
+                      Adaptive coaching • {result.adaptive_feedback.hint_depth} hints • {result.adaptive_feedback.challenge_level} challenge
+                    </p>
+                    <p style={{ margin: '4px 0 0 0', color: 'var(--txt-sec)', fontSize: '0.72rem', lineHeight: 1.45 }}>
+                      {result.adaptive_feedback.next_step}
+                    </p>
+                    {(result.adaptive_feedback.mastery_delta !== null && result.adaptive_feedback.mastery_delta !== undefined) ? (
+                      <p style={{ margin: '4px 0 0 0', color: 'var(--txt-mut)', fontSize: '0.68rem' }}>
+                        Mastery Δ {result.adaptive_feedback.mastery_delta} • Confidence Δ {result.adaptive_feedback.confidence_delta}
+                      </p>
+                    ) : null}
+                  </div>
                 )}
               </div>
             )}

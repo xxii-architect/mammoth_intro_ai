@@ -386,13 +386,21 @@ def update_learner_model(
         counts[fingerprint] = int(counts.get(fingerprint, 0)) + 1
         state["error_patterns"] = counts
 
-    state.setdefault("mastery", {})[concept] = _clamp(prior_mastery + mastery_delta)
-    state.setdefault("confidence", {})[concept] = _clamp(prior_confidence + confidence_delta)
+    next_mastery = _clamp(prior_mastery + mastery_delta)
+    next_confidence = _clamp(prior_confidence + confidence_delta)
+    state.setdefault("mastery", {})[concept] = next_mastery
+    state.setdefault("confidence", {})[concept] = next_confidence
     _record_memory_graph(state, lesson=lesson, exercise=exercise, result=raw_result, topic=topic)
 
     state.setdefault("recent_outcomes", []).append({
         "concept": concept,
         "passed": passed,
+        "mastery_before": round(prior_mastery, 3),
+        "mastery_after": round(next_mastery, 3),
+        "mastery_delta": round(next_mastery - prior_mastery, 3),
+        "confidence_before": round(prior_confidence, 3),
+        "confidence_after": round(next_confidence, 3),
+        "confidence_delta": round(next_confidence - prior_confidence, 3),
         "attempts": state["attempts"],
         "streak": state["streak"],
         "timestamp": _now_iso(),
@@ -401,10 +409,53 @@ def update_learner_model(
     return save_learner_model(state, storage_path=storage_path)
 
 
+def _derive_adaptive_coaching(
+    *,
+    onboarding: Dict[str, Any],
+    average_mastery: float,
+    streak: int,
+    recent_failures: int,
+    repeated_error_count: int,
+) -> Dict[str, Any]:
+    learning_style = str(onboarding.get("learning_style") or "guided").strip().lower()
+    preferred_pacing = str(onboarding.get("preferred_pacing") or "gentle").strip().lower()
+
+    if recent_failures >= 2 or average_mastery < 0.4:
+        hint_depth = "foundational"
+    elif average_mastery < 0.7:
+        hint_depth = "guided"
+    else:
+        hint_depth = "strategic"
+
+    if preferred_pacing == "challenge" and streak >= 2 and recent_failures == 0:
+        challenge_level = "stretch"
+    elif preferred_pacing == "gentle" or recent_failures >= 2:
+        challenge_level = "support"
+    else:
+        challenge_level = "balanced"
+
+    remediation_needed = recent_failures >= 2 or repeated_error_count >= 3
+    tone_map = {
+        "guided": "step_by_step",
+        "hands-on": "nudge_then_practice",
+        "exploratory": "question_led",
+    }
+    return {
+        "hint_depth": hint_depth,
+        "challenge_level": challenge_level,
+        "remediation_needed": remediation_needed,
+        "coaching_tone": tone_map.get(learning_style, "step_by_step"),
+        "style": learning_style,
+        "pacing": preferred_pacing,
+    }
+
+
 def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     model = _ensure_model_shape(state, (state or {}).get("user_id") or "default_user")
     mastery = model.get("mastery") or {}
     confidence = model.get("confidence") or {}
+    recent_outcomes = list(model.get("recent_outcomes") or [])
+    error_patterns = dict(model.get("error_patterns") or {})
     sorted_mastery = sorted(mastery.items(), key=lambda item: item[1])
     sorted_confidence = sorted(confidence.items(), key=lambda item: item[1], reverse=True)
     average_mastery = sum(mastery.values()) / len(mastery) if mastery else 0.5
@@ -429,6 +480,16 @@ def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, A
 
     weakest = [{"concept": concept, "mastery": round(value, 3)} for concept, value in sorted_mastery[:3]]
     strongest = [{"concept": concept, "confidence": round(value, 3)} for concept, value in sorted_confidence[:3]]
+    recent_failures = sum(1 for item in recent_outcomes[-3:] if isinstance(item, dict) and not bool(item.get("passed")))
+    repeated_error_count = max((int(count) for key, count in error_patterns.items() if key != "passed"), default=0)
+    adaptive_coaching = _derive_adaptive_coaching(
+        onboarding=onboarding,
+        average_mastery=average_mastery,
+        streak=int(model.get("streak") or 0),
+        recent_failures=recent_failures,
+        repeated_error_count=repeated_error_count,
+    )
+    latest_delta = recent_outcomes[-1] if recent_outcomes else None
 
     return {
         "user_id": model.get("user_id") or "default_user",
@@ -440,10 +501,13 @@ def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "strongest_concepts": strongest,
         "recommended_difficulty": recommended_difficulty,
         "preferred_pacing": preferred_pacing,
+        "adaptive_coaching": adaptive_coaching,
+        "latest_mastery_delta": latest_delta.get("mastery_delta") if isinstance(latest_delta, dict) else None,
+        "latest_confidence_delta": latest_delta.get("confidence_delta") if isinstance(latest_delta, dict) else None,
         "onboarding": onboarding,
         "memory_graph_summary": graph_summary,
-        "error_patterns": dict(model.get("error_patterns") or {}),
-        "recent_outcomes": list(model.get("recent_outcomes") or []),
+        "error_patterns": error_patterns,
+        "recent_outcomes": recent_outcomes,
     }
 
 
