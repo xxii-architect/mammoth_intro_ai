@@ -10,6 +10,9 @@ export default function DiagnosticsPage() {
   const [busy, setBusy] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
   const [auditEvents, setAuditEvents] = useState([])
+  const [activityStream, setActivityStream] = useState([])
+  const [taskStream, setTaskStream] = useState([])
+  const [approvalStream, setApprovalStream] = useState([])
 
   const loadHealth = async () => {
     try {
@@ -25,12 +28,26 @@ export default function DiagnosticsPage() {
     } catch (_) {}
   }
 
+  const loadStreams = async () => {
+    try {
+      const [activity, tasks, approvals] = await Promise.all([
+        api('/activity'),
+        api('/tasks'),
+        api('/approvals'),
+      ])
+      setActivityStream(Array.isArray(activity) ? activity : [])
+      setTaskStream(Array.isArray(tasks) ? tasks : [])
+      setApprovalStream(Array.isArray(approvals) ? approvals : [])
+    } catch (_) {}
+  }
+
   useEffect(() => {
     const stored = loadSelfAuditHistory()
     setHistory(stored)
     setSelectedId(stored[0]?.id || null)
     loadHealth()
     loadAuditEvents()
+    loadStreams()
   }, [])
 
   const runAudit = async () => {
@@ -42,6 +59,7 @@ export default function DiagnosticsPage() {
       setHealth(prev => prev || null)
       await loadHealth()
       await loadAuditEvents()
+      await loadStreams()
     } finally {
       setBusy(false)
     }
@@ -177,6 +195,44 @@ export default function DiagnosticsPage() {
                 {selectedAudit?.tier || 'explorer'}
               </div>
               <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>entitlement snapshot</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+            <div className="glass-card-solid" style={{ padding: 16 }}>
+              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Recent activity</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {activityStream.length > 0 ? activityStream.slice(0, 5).map(item => (
+                  <div key={item.id} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                    <div style={{ fontSize: '0.76rem', color: 'var(--txt-pri)', marginBottom: 4 }}>{item.message}</div>
+                    <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{item.kind} • {item.agent_id || 'system'} • {item.created_at ? new Date(item.created_at).toLocaleString() : 'unknown'}</div>
+                  </div>
+                )) : <div style={{ fontSize: '0.78rem', color: 'var(--txt-mut)' }}>No recent activity yet.</div>}
+              </div>
+            </div>
+
+            <div className="glass-card-solid" style={{ padding: 16 }}>
+              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Task stream</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {taskStream.length > 0 ? taskStream.slice(0, 5).map(task => (
+                  <div key={task.id} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                    <div style={{ fontSize: '0.76rem', color: 'var(--txt-pri)', marginBottom: 4 }}>{task.title}</div>
+                    <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{task.status} • {task.agent_id || 'unassigned'}</div>
+                  </div>
+                )) : <div style={{ fontSize: '0.78rem', color: 'var(--txt-mut)' }}>No tasks recorded yet.</div>}
+              </div>
+            </div>
+
+            <div className="glass-card-solid" style={{ padding: 16 }}>
+              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Approval queue</div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {approvalStream.length > 0 ? approvalStream.slice(0, 5).map(item => (
+                  <div key={item.id} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                    <div style={{ fontSize: '0.76rem', color: 'var(--txt-pri)', marginBottom: 4 }}>{item.operation} • {item.target}</div>
+                    <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{item.status} • {item.agent_id || 'system'} • {item.created_at ? new Date(item.created_at).toLocaleString() : 'unknown'}</div>
+                  </div>
+                )) : <div style={{ fontSize: '0.78rem', color: 'var(--txt-mut)' }}>No approvals waiting.</div>}
+              </div>
             </div>
           </div>
 

@@ -11,6 +11,7 @@ export default function AtlasTutorPage() {
   const [loading, setLoading]       = useState(false)
   const [chatInput, setChatInput]   = useState('')
   const [chatBusy, setChatBusy]     = useState(false)
+  const [chatMode, setChatMode]     = useState('assistant')
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
   const [studyAid, setStudyAid]     = useState(null)
@@ -49,7 +50,7 @@ export default function AtlasTutorPage() {
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [atlasState?.chat_history])
+  }, [atlasState?.chat_history, atlasState?.assistant_chat_history])
 
   useEffect(() => {
     const onboarding = atlasState?.learner_model?.onboarding
@@ -279,8 +280,8 @@ export default function AtlasTutorPage() {
         body: {
           message: msg,
           model: chatModel || undefined,
-          mode: 'tutor',
-          strict_guard: true,
+          mode: chatMode,
+          strict_guard: chatMode !== 'assistant',
           regenerate_on_guard: false,
           page_context: {
             current_page: 'atlas',
@@ -293,15 +294,29 @@ export default function AtlasTutorPage() {
         },
       })
       if (res.chat_history) {
-        setAtlasState(prev => ({ ...(prev || {}), chat_history: res.chat_history }))
+        setAtlasState(prev => ({
+          ...(prev || {}),
+          ...(chatMode === 'assistant'
+            ? { assistant_chat_history: res.chat_history }
+            : { chat_history: res.chat_history }),
+        }))
       }
     } catch (e) {
       setAtlasState(prev => ({
         ...(prev || {}),
-        chat_history: [
-          ...((prev && Array.isArray(prev.chat_history)) ? prev.chat_history : []),
-          { role: 'assistant', message: `Error: ${e.message}` },
-        ],
+        ...(chatMode === 'assistant'
+          ? {
+              assistant_chat_history: [
+                ...((prev && Array.isArray(prev.assistant_chat_history)) ? prev.assistant_chat_history : []),
+                { role: 'assistant', message: `Error: ${e.message}` },
+              ],
+            }
+          : {
+              chat_history: [
+                ...((prev && Array.isArray(prev.chat_history)) ? prev.chat_history : []),
+                { role: 'assistant', message: `Error: ${e.message}` },
+              ],
+            }),
       }))
     } finally {
       setChatBusy(false)
@@ -314,7 +329,9 @@ export default function AtlasTutorPage() {
   const currentLessonId = atlasState?.lesson_id
   const lessonHistory   = Array.isArray(atlasState?.lesson_history) ? atlasState.lesson_history : []
   const lastSubmission  = atlasState?.last_submission || null
-  const chatHistory    = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const tutorHistory = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const assistantHistory = Array.isArray(atlasState?.assistant_chat_history) ? atlasState.assistant_chat_history : []
+  const chatHistory = chatMode === 'assistant' ? assistantHistory : tutorHistory
   const learnerContext = atlasState?.learner_context || null
   const lessonPlan     = atlasState?.lesson_plan || null
   const resumePacket   = atlasState?.resume_packet || null
@@ -586,6 +603,7 @@ export default function AtlasTutorPage() {
                 <option value="coding">Tutor + Coding</option>
                 <option value="balanced">Balanced</option>
                 <option value="atlas">ATLAS-first</option>
+                <option value="autonomous">Autonomous Prep</option>
               </select>
               <button onClick={runAtlasPlan} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Build Plan</button>
               <button onClick={runAtlasEvals} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Run Evals</button>
@@ -799,8 +817,17 @@ export default function AtlasTutorPage() {
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <MessageSquare size={14} color="var(--violet)" />
-              <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--violet)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>ATLAS Tutor</p>
+              <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--violet)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>
+                {chatMode === 'assistant' ? 'ATLAS Assistant' : 'ATLAS Tutor'}
+              </p>
             </div>
+            <select value={chatMode} onChange={e => setChatMode(e.target.value)}
+              className="filter-select"
+              style={{ fontSize: '0.68rem', padding: '3px 6px' }}>
+              <option value="assistant">Assistant</option>
+              <option value="tutor">Tutor</option>
+              <option value="build">Build</option>
+            </select>
             <select value={chatModel} onChange={e => setChatModel(e.target.value)}
               className="filter-select"
               style={{ fontSize: '0.7rem', padding: '3px 6px' }}>
@@ -814,7 +841,9 @@ export default function AtlasTutorPage() {
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {chatHistory.length === 0 ? (
               <div style={{ color: 'var(--txt-mut)', fontSize: '0.8rem', textAlign: 'center', marginTop: 20, lineHeight: 1.6 }}>
-                Ask ATLAS for hints, debugging help, or lesson explanations.
+                {chatMode === 'assistant'
+                  ? 'Talk to ATLAS naturally about ideas, plans, architecture, and coding.'
+                  : 'Ask ATLAS for hints, debugging help, or lesson explanations.'}
               </div>
             ) : chatHistory.slice(-40).map((msg, i) => (
               <div key={i}>
@@ -839,7 +868,7 @@ export default function AtlasTutorPage() {
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
-              placeholder="Ask ATLAS Tutor…"
+              placeholder={chatMode === 'assistant' ? 'Talk with ATLAS Assistant…' : 'Ask ATLAS Tutor…'}
               style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', fontFamily: 'Inter,sans-serif' }}
             />
             <button onClick={sendChat} disabled={chatBusy}

@@ -6,6 +6,7 @@ import RunHistoryPanel from '../components/RunHistoryPanel'
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
   'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'summarize',
+  'lesson_curriculum', 'lesson_coaching', 'grade_submission',
 ]
 
 const INTENT_TO_AGENT = {
@@ -19,6 +20,9 @@ const INTENT_TO_AGENT = {
   research_plants:     'research_agent',
   compare_gear:        'research_agent',
   summarize:           'research_agent',
+  lesson_curriculum:   'curriculum_agent',
+  lesson_coaching:     'tutor_agent',
+  grade_submission:    'tutor_agent',
 }
 
 const AGENT_TO_INTENT = {
@@ -28,6 +32,8 @@ const AGENT_TO_INTENT = {
   reflection_agent:     'reflection',
   brand_voice_agent:    'brand_voice',
   research_agent:       'research_curriculum',
+  curriculum_agent:     'lesson_curriculum',
+  tutor_agent:          'lesson_coaching',
   coding_agent:         'summarize',
   community_engine_agent: 'summarize',
   custodial_agent:      'summarize',
@@ -40,6 +46,8 @@ const SMOKE_TESTS = [
   { agent_id: 'reflection_agent', intent: 'reflection', prompt: 'Smoke test: provide a one-sentence reflection prompt.' },
   { agent_id: 'brand_voice_agent', intent: 'brand_voice', prompt: 'Smoke test: provide one sentence in brand voice.' },
   { agent_id: 'research_agent', intent: 'research_curriculum', prompt: 'Smoke test: summarize one curriculum tip in one sentence.' },
+  { agent_id: 'curriculum_agent', intent: 'lesson_curriculum', prompt: 'Smoke test: provide one sentence on lesson framing.' },
+  { agent_id: 'tutor_agent', intent: 'lesson_coaching', prompt: 'Smoke test: provide one coaching checkpoint.' },
   { agent_id: 'coding_agent', intent: 'summarize', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
 ]
 
@@ -71,6 +79,7 @@ export default function AgentPage() {
   const [executionMode, setExecutionMode] = useState('single')
   const [planProfile, setPlanProfile] = useState('atlas')
   const [planRun, setPlanRun] = useState(null)
+  const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
 
   const refreshAgents = async () => {
     try {
@@ -106,6 +115,16 @@ export default function AgentPage() {
     } catch (_) {}
   }
 
+  const refreshAutonomousRuns = async () => {
+    try {
+      const data = await api('/autonomous/runs')
+      setAutonomousRuns({
+        summary: data?.summary || null,
+        runs: Array.isArray(data?.runs) ? data.runs : [],
+      })
+    } catch (_) {}
+  }
+
   const approveApproval = async (approvalId) => {
     try {
       await api(`/approvals/${approvalId}/approve`, { method: 'POST' })
@@ -127,11 +146,13 @@ export default function AgentPage() {
     refreshTimeline()
     refreshApprovals()
     refreshSnapshots()
+    refreshAutonomousRuns()
     const t = setInterval(() => {
       refreshAgents()
       refreshTimeline()
       refreshApprovals()
       refreshSnapshots()
+      refreshAutonomousRuns()
     }, 2200)
     return () => clearInterval(t)
   }, [selectedAgent, intent, agentPinned])
@@ -214,7 +235,7 @@ export default function AgentPage() {
       setOutput(`Error: ${e.message}`)
     } finally {
       setRunning(false)
-      await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots()])
+      await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
     }
   }
 
@@ -260,7 +281,7 @@ export default function AgentPage() {
       setOutput(`Error: ${e.message}`)
     } finally {
       setRunning(false)
-      await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots()])
+      await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
     }
   }
 
@@ -367,6 +388,7 @@ export default function AgentPage() {
                     <option value="atlas">ATLAS-First</option>
                     <option value="coding">ATLAS + Coding Assistant</option>
                     <option value="balanced">Balanced</option>
+                    <option value="autonomous">Autonomous Prep</option>
                   </select>
                 </div>
               )}
@@ -585,6 +607,30 @@ export default function AgentPage() {
                   ))}
                 </div>
               ) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>Switch Mode to Plan + Execute and run an objective to orchestrate multiple agents.</div>}
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Autonomous Runs</p>
+              {autonomousRuns.summary ? (
+                <div>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 8 }}>
+                    total {autonomousRuns.summary.total_runs || 0} • completed {autonomousRuns.summary.completed || 0} • pending {autonomousRuns.summary.pending_approval || 0} • failed {autonomousRuns.summary.failed || 0}
+                  </div>
+                  {autonomousRuns.runs.slice(0, 4).map(run => (
+                    <div key={`${run.run_id}-${run.source}`} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+                        <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem' }}>{(run.objective || 'Autonomous run').slice(0, 36)}</span>
+                        <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: run.plan_status === 'completed' ? '#22c55e' : run.plan_status === 'pending_approval' ? '#f59e0b' : run.plan_status === 'failed' ? '#f87171' : 'var(--photon)', fontFamily: 'JetBrains Mono,monospace' }}>
+                          {run.plan_status || 'unknown'}
+                        </span>
+                      </div>
+                      <div style={{ color: 'var(--txt-sec)', fontSize: '0.66rem', marginTop: 3 }}>
+                        {run.source} • {run.plan_profile || 'balanced'} • {run.progress?.completed || 0}/{run.progress?.total || 0}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No autonomous run data yet.</div>}
             </div>
 
             <div style={{ marginTop: 16 }}>

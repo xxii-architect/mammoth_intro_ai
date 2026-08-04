@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import inspect
+import json
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
@@ -164,6 +166,14 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.research_agent import ResearchAgent
         return ResearchAgent(router)  # type: ignore
 
+    if agent_name == "curriculum":
+        from mammoth_os.agents.curriculum_agent import CurriculumAgent
+        return CurriculumAgent(router)  # type: ignore
+
+    if agent_name == "tutor":
+        from mammoth_os.agents.tutor_agent import TutorAgent
+        return TutorAgent(router=router)  # type: ignore
+
     if agent_name == "coding":
         from mammoth_os.agents.coding_agent import CodingAgent
         return CodingAgent(router) # type: ignore
@@ -179,17 +189,50 @@ def load_agent(agent_name: str, router=None):
 # PUBLIC CALL INTERFACE  (your existing lambdas, fixed)
 # ─────────────────────────────────────────────
 
-AGENTS: Dict[str, Callable[[str], str]] = {
-    "plant_the_seed":  lambda prompt: load_agent("plant_the_seed").run(prompt),       # type: ignore
-    "field_ops":       lambda prompt: load_agent("field_ops").run(prompt),             # type: ignore
-    "market_intel":    lambda prompt: load_agent("market_intel").run(prompt),          # type: ignore
-    "reflection":      lambda prompt: load_agent("reflection").run(prompt),            # type: ignore
-    "brand_voice":     lambda prompt: load_agent("brand_voice").run(prompt),           # type: ignore
-    "visual_engine":   lambda prompt: load_agent("visual_engine").run(prompt),         # type: ignore
-    "community_engine":lambda prompt: load_agent("community_engine").run(prompt),      # type: ignore
-    "research":        lambda prompt: load_agent("research").run(prompt),              # type: ignore
-    "coding":          lambda prompt: load_agent("coding", router).run(prompt),        # type: ignore
-    "custodial":       lambda prompt: load_agent("custodial", router).run(prompt),     # type: ignore
+def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
+    if isinstance(payload, dict):
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor"}:
+            normalized = dict(payload)
+            if agent_name == "tutor" and isinstance(normalized.get("prompt"), str) and not normalized.get("topic"):
+                normalized["topic"] = normalized["prompt"]
+            elif "topic" not in normalized and isinstance(normalized.get("prompt"), str):
+                normalized["topic"] = normalized["prompt"]
+            return normalized
+        if agent_name in {"curriculum", "research", "field_ops", "coding", "custodial"}:
+            if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
+                return payload["prompt"]
+            if isinstance(payload.get("topic"), str) and payload.get("topic").strip():
+                return payload["topic"]
+            return json.dumps(payload)
+    if isinstance(payload, str):
+        return payload
+    if payload is None:
+        return ""
+    return str(payload)
+
+
+def run_agent(agent_name: str, payload: Any = None, router=None) -> Any:
+    agent = load_agent(agent_name, router)
+    normalized_payload = _normalize_runtime_payload(agent_name, payload)
+    result = agent.run(normalized_payload)
+    if inspect.isawaitable(result):
+        return asyncio.run(result)
+    return result
+
+
+AGENTS: Dict[str, Callable[[Any], Any]] = {
+    "plant_the_seed":  lambda prompt: run_agent("plant_the_seed", prompt),           # type: ignore
+    "field_ops":       lambda prompt: run_agent("field_ops", prompt),                # type: ignore
+    "market_intel":    lambda prompt: run_agent("market_intel", prompt),             # type: ignore
+    "reflection":      lambda prompt: run_agent("reflection", prompt),               # type: ignore
+    "brand_voice":     lambda prompt: run_agent("brand_voice", prompt),              # type: ignore
+    "visual_engine":   lambda prompt: run_agent("visual_engine", prompt),            # type: ignore
+    "community_engine":lambda prompt: run_agent("community_engine", prompt),         # type: ignore
+    "research":        lambda prompt: run_agent("research", prompt),                 # type: ignore
+    "curriculum":      lambda prompt: run_agent("curriculum", prompt),               # type: ignore
+    "tutor":           lambda prompt: run_agent("tutor", prompt),                    # type: ignore
+    "coding":          lambda prompt: run_agent("coding", prompt, router),           # type: ignore
+    "custodial":       lambda prompt: run_agent("custodial", prompt, router),        # type: ignore
 }
 
 

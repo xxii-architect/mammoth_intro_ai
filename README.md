@@ -48,6 +48,22 @@ UI: http://localhost:5173
 - Review changes in **Pending Approvals**.
 - Approve only what you want applied.
 - If needed, undo with **Rollback Snapshots** (Restore button).
+- Non-coding state mutations now support preview/approval too:
+  - `POST /api/atlas/onboard` with `approval_mode: true`
+  - `POST /api/atlas/learner/reset` with `approval_mode: true`
+  - `POST /api/atlas/reset` with `approval_mode: true`
+
+## Autonomous run contract (Phase 5 prep)
+
+- `GET /api/autonomous/runs` returns a unified run feed from:
+  - orchestrator plan/execute tasks
+  - ATLAS plan history
+- Response includes:
+  - `contract_version`
+  - `profiles` (`atlas`, `coding`, `balanced`, `autonomous`)
+  - aggregate `summary`
+  - recent `runs` with status/progress/source
+- Agent Console now renders an **Autonomous Runs** panel using this endpoint.
 
 ## Local AI vs OpenAI routing
 

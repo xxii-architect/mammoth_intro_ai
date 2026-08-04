@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 from .base_agent import BaseAgent
 import uuid
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import os
 import urllib.parse
@@ -186,7 +186,7 @@ class CurriculumAgent(BaseAgent):
         subject = self._extract_subject(prompt)
 
         curriculum_id = uuid.uuid4().hex
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat()
 
         curriculum = self._load_from_mammoth_supabase(subject, curriculum_id, now)
         if curriculum is None:

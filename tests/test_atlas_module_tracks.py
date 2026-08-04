@@ -91,3 +91,37 @@ def test_atlas_lesson_uses_module_track_to_expand_curriculum_prompt(monkeypatch)
     assert call_log["learner_context"]["module_track"]["id"] == "ham-radio"
     assert saved["state"]["module_id"] == "ham-radio"
     assert saved["state"]["active_module"]["label"] == "Ham Radio"
+
+
+def test_atlas_plan_steps_include_curriculum_and_tutor_for_lesson_flow():
+    steps = api_server._build_atlas_plan_steps(
+        {
+            "module_id": "ham-radio",
+            "topic": "Ham radio fundamentals",
+            "current_lesson": {"title": "Check-in basics"},
+            "current_exercise": {"prompt": "Draft a disciplined radio check-in."},
+            "learner_context": {"recommended_difficulty": "beginner"},
+        },
+        plan_profile="atlas",
+    )
+
+    agent_ids = [step["agent_id"] for step in steps]
+    assert "curriculum_agent" in agent_ids
+    assert "tutor_agent" in agent_ids
+
+
+def test_atlas_plan_autonomous_profile_adds_community_and_custodial_steps():
+    steps = api_server._build_atlas_plan_steps(
+        {
+            "module_id": "ham-radio",
+            "topic": "Ham radio fundamentals",
+            "current_lesson": {"title": "Check-in basics"},
+            "current_exercise": {"prompt": "Draft a disciplined radio check-in."},
+            "learner_context": {"recommended_difficulty": "beginner"},
+        },
+        plan_profile="autonomous",
+    )
+
+    agent_ids = [step["agent_id"] for step in steps]
+    assert "community_engine_agent" in agent_ids
+    assert "custodial_agent" in agent_ids

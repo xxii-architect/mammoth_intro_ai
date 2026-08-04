@@ -74,7 +74,7 @@ function AtlasFAB({ currentPage }) {
   const [input, setInput] = useState('')
   const [history, setHistory] = useState([])
   const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState('tutor')
+  const [mode, setMode] = useState('assistant')
   const [strictGuard, setStrictGuard] = useState(true)
   const bottomRef = useRef(null)
 
@@ -174,24 +174,27 @@ function AtlasFAB({ currentPage }) {
               onChange={e => setMode(e.target.value)}
               style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.72rem' }}
             >
+              <option value="assistant">Assistant mode</option>
               <option value="tutor">Tutor mode</option>
               <option value="build">Plan + Build mode</option>
             </select>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-sec)', fontSize: '0.68rem', whiteSpace: 'nowrap' }}>
-              <input
-                type="checkbox"
-                checked={strictGuard}
-                onChange={e => setStrictGuard(e.target.checked)}
-              />
-              No-cheat guard
-            </label>
+            {mode !== 'assistant' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-sec)', fontSize: '0.68rem', whiteSpace: 'nowrap' }}>
+                <input
+                  type="checkbox"
+                  checked={strictGuard}
+                  onChange={e => setStrictGuard(e.target.checked)}
+                />
+                No-cheat guard
+              </label>
+            )}
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             {history.length === 0 && (
               <div style={{ color: 'var(--txt-mut)', fontSize: '0.82rem', textAlign: 'center', marginTop: 40 }}>
                 <p style={{ marginBottom: 8 }}>👋 Hi Vernon!</p>
-                <p>Ask me anything about your current lesson, code, or MammothOS.</p>
+                <p>{mode === 'assistant' ? 'Talk to me naturally about your build, code, ideas, and plans.' : 'Ask me anything about your current lesson, code, or MammothOS.'}</p>
               </div>
             )}
             {history.slice(-30).map((msg, i) => (
@@ -227,7 +230,7 @@ function AtlasFAB({ currentPage }) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-              placeholder="Ask ATLAS…"
+              placeholder={mode === 'assistant' ? 'Talk with ATLAS Assistant…' : 'Ask ATLAS…'}
               style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.05)', color: 'var(--txt-pri)', fontSize: '0.82rem', outline: 'none', fontFamily: 'Inter,sans-serif' }}
             />
             <button onClick={send} disabled={busy}

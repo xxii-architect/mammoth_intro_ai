@@ -2,6 +2,7 @@ import os
 import json
 import asyncio
 import time
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
 from .base_agent import BaseAgent
@@ -45,6 +46,50 @@ class TutorAgent(BaseAgent):
 
     def log(self, level: str, message: str) -> None:
         print(f"[{self.name}:{level}] {message}")
+
+    async def run(self, payload: Any) -> Dict[str, Any]:
+        """
+        Workflow entrypoint used by the runtime registry.
+
+        - When `files` are provided, grade a submission through `accept_submission`.
+        - Otherwise, return a lightweight coaching packet for the current lesson/module.
+        """
+        if isinstance(payload, dict) and payload.get("files"):
+            return await self.accept_submission(
+                str(payload.get("user_id") or "default_user"),
+                str(payload.get("curriculum_id") or "atlas-curriculum"),
+                str(payload.get("lesson_id") or "current-lesson"),
+                payload.get("files") or {},
+            )
+
+        if isinstance(payload, dict):
+            topic = str(payload.get("topic") or payload.get("prompt") or "current lesson").strip()
+            lesson_title = str(payload.get("lesson_title") or topic).strip()
+            module_id = str(payload.get("module_id") or "").strip()
+        else:
+            topic = str(payload or "current lesson").strip()
+            lesson_title = topic
+            module_id = ""
+
+        checkpoints = [
+            f"Restate the objective for {lesson_title} in your own words.",
+            "Identify one concrete success check before you start.",
+            "Record what confused you so the next coaching step can adapt.",
+        ]
+        if module_id:
+            checkpoints.insert(1, f"Keep the work aligned with module '{module_id}'.")
+
+        return {
+            "status": "ok",
+            "agent": self.name,
+            "mode": "coach",
+            "topic": topic,
+            "lesson_title": lesson_title,
+            "module_id": module_id,
+            "coach_summary": f"Guide the learner through {lesson_title} with a clear objective, one validation checkpoint, and an honest reflection step.",
+            "checkpoints": checkpoints,
+            "next_step": "Complete the smallest verifiable part of the lesson, then reflect before escalating difficulty.",
+        }
 
     async def accept_submission(self, user_id: str, curriculum_id: str, lesson_id: str, files: Dict[str, str]) -> Dict[str, Any]:
         """Accept a student's submission and grade it by running tests.
@@ -117,7 +162,7 @@ class TutorAgent(BaseAgent):
             "user_id": user_id,
             "curriculum_id": curriculum_id,
             "lesson_id": lesson_id,
-            "timestamp": __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "result": result,
             "duration_ms": duration_ms,
             "error_fingerprint": error_fingerprint,

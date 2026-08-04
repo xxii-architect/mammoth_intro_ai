@@ -34,13 +34,16 @@ export function clearSelfAuditHistory() {
 }
 
 export async function runSystemSelfAudit() {
-  const [statusRes, healthRes, atlasRes, evalRes, entitlementRes, modelsRes] = await Promise.all([
+  const [statusRes, healthRes, atlasRes, evalRes, entitlementRes, modelsRes, activityRes, tasksRes, approvalsRes] = await Promise.all([
     api('/status'),
     api('/health'),
     api('/atlas/status'),
     api('/atlas/evals', { method: 'POST', body: {} }),
     api('/entitlements'),
     api('/models'),
+    api('/activity'),
+    api('/tasks'),
+    api('/approvals'),
   ])
 
   const services = Array.isArray(healthRes?.services) ? healthRes.services : []
@@ -50,6 +53,9 @@ export async function runSystemSelfAudit() {
   const enabledFeatures = Object.values(features).filter(Boolean).length
   const totalFeatures = Object.keys(features).length
   const latestActivity = Array.isArray(atlasRes?.activity_log) ? atlasRes.activity_log[0] : null
+  const recentAgentActivity = Array.isArray(activityRes) ? activityRes[0] : null
+  const tasks = Array.isArray(tasksRes) ? tasksRes : []
+  const approvals = Array.isArray(approvalsRes) ? approvalsRes : []
   const hasModelRouting = Boolean(modelsRes?.active_model || (modelsRes?.models && Object.keys(modelsRes.models).length))
 
   const checks = [
@@ -74,6 +80,21 @@ export async function runSystemSelfAudit() {
       detail: atlasRes?.resume_packet?.summary || 'Learner state loaded and ready',
     },
     {
+      label: 'Live task stream',
+      passed: tasks.length >= 0,
+      detail: `${tasks.length} tasks recorded • ${tasks.filter(task => task.status === 'pending_approval').length} awaiting approval`,
+    },
+    {
+      label: 'Agent activity stream',
+      passed: Boolean(recentAgentActivity),
+      detail: recentAgentActivity ? `${recentAgentActivity.kind || 'event'} • ${recentAgentActivity.message || 'recent activity'}` : 'No recent activity entries',
+    },
+    {
+      label: 'Approval queue',
+      passed: true,
+      detail: `${approvals.filter(approval => approval.status === 'pending').length} pending approvals`,
+    },
+    {
       label: 'Monetization scaffolding',
       passed: Boolean(entitlementRes?.tier && totalFeatures > 0),
       detail: `${entitlementRes?.tier || 'unknown'} tier with ${enabledFeatures}/${totalFeatures} features enabled`,
@@ -91,6 +112,9 @@ export async function runSystemSelfAudit() {
   }
   if (!hasModelRouting) {
     recommendations.unshift('Restore model routing visibility so operators can verify which tutor/coding brain is active.')
+  }
+  if (!recentAgentActivity) {
+    recommendations.push('Generate a live agent run so the activity stream can prove runtime wiring end-to-end.')
   }
 
   const auditEntry = await api('/audit', {
@@ -125,6 +149,9 @@ export async function runSystemSelfAudit() {
     entitlements: entitlementRes,
     models: modelsRes,
     latestActivity,
+    activityStream: Array.isArray(activityRes) ? activityRes.slice(0, 10) : [],
+    taskStream: tasks.slice(0, 10),
+    approvalStream: approvals.slice(0, 10),
     backendEntry: auditEntry?.entry || null,
     auditEntries: backendEntries,
   }

@@ -202,6 +202,7 @@ ATLAS can now turn the current lesson or exercise into a visible tutor plan. The
   - **Tutor + Coding** for implementation-heavy work
   - **Balanced** for mixed coaching/execution
   - **ATLAS-first** for more strategic tutoring and safeguards
+  - **Autonomous Prep** to include community and custodial readiness steps
 - Each plan step is executed by the relevant sub-agent (seed/research/coding/reflection/ops) and reported back to the tutor UI.
 - The plan is persisted in the atlas session state so returning to the lesson preserves the most recent plan view.
 - Every completed plan now includes an **ATLAS synthesis** block with:
@@ -390,15 +391,17 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 | `GET /api/agents` | List all agent files from `src/mammoth_os/agents/` |
 | `POST /api/run` | Run a CortexRouter intent (`{intent, context}`) |
 | `POST /api/plan-execute` | Run orchestrated multi-agent plan (`{objective, plan_profile, approval_mode}`) |
+| `GET /api/autonomous/runs` | Unified autonomous run feed (`plan_execute` + `atlas_plan`) with status/progress summary |
 | `GET /api/atlas/status` | Current ATLAS session: lesson, exercise, curriculum, chat history |
 | `POST /api/atlas/lesson` | Start a lesson (`{topic, difficulty, module, lesson, llm}`) |
 | `POST /api/atlas/submit` | Submit code (`{code}`) → graded result + adaptive feedback payload |
-| `POST /api/atlas/onboard` | Save learner onboarding profile |
+| `POST /api/atlas/onboard` | Save learner onboarding profile (`approval_mode` supported for preview-first) |
 | `POST /api/atlas/next` | Advance to next lesson |
 | `POST /api/atlas/back` | Return to previous lesson with resume packet |
 | `GET /api/atlas/flashcards` | Generate + save lesson flashcards for recall |
 | `POST /api/atlas/regenerate` | Generate a new exercise variant for the current lesson |
-| `POST /api/atlas/reset` | Reset ATLAS session |
+| `POST /api/atlas/learner/reset` | Reset learner model (`approval_mode` supported for preview-first) |
+| `POST /api/atlas/reset` | Reset ATLAS session (`approval_mode` supported for preview-first) |
 | `POST /api/atlas/chat` | Chat with ATLAS tutor (`{message, model?, mode, strict_guard, regenerate_on_guard, page_context}`) |
 | `GET /api/models` | All available models: active adapter, model, Ollama status, installed models |
 | `GET/POST /api/notes` | Note CRUD |

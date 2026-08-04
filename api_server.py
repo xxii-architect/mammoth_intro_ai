@@ -3,6 +3,7 @@ MammothOS Command Center — FastAPI Server
 Run: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import ast
 import asyncio
 import csv
 import io
@@ -269,6 +270,25 @@ def _build_operation_preview(operation: str, payload: Dict[str, Any]) -> Dict[st
             "anchor": str(payload.get("anchor", "") or "")[:120],
             "content_preview": str(payload.get("content", "") or "")[:200],
         }
+    if operation == "atlas_onboard_update":
+        onboarding = payload.get("onboarding") if isinstance(payload.get("onboarding"), dict) else {}
+        return {
+            "summary": "Update ATLAS onboarding profile",
+            "target": "atlas/onboarding",
+            "experience_level": str(onboarding.get("experience_level") or "unknown"),
+            "preferred_pacing": str(onboarding.get("preferred_pacing") or "gentle"),
+            "learning_style": str(onboarding.get("learning_style") or "guided"),
+        }
+    if operation == "atlas_learner_reset":
+        return {
+            "summary": "Reset ATLAS learner state",
+            "target": "atlas/learner",
+        }
+    if operation == "atlas_session_reset":
+        return {
+            "summary": "Reset full ATLAS session",
+            "target": "atlas/session",
+        }
     return {"summary": "File operation", "file_path": file_path}
 
 
@@ -341,6 +361,13 @@ def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(result, dict):
             result["snapshot_id"] = snapshot["id"]
         return result
+    if operation == "atlas_onboard_update":
+        onboarding = payload.get("onboarding") if isinstance(payload.get("onboarding"), dict) else {}
+        return _apply_atlas_onboarding_update(onboarding)
+    if operation == "atlas_learner_reset":
+        return _apply_atlas_learner_reset()
+    if operation == "atlas_session_reset":
+        return _apply_atlas_session_reset()
     return {"status": "error", "message": f"Unsupported approval operation {operation!r}"}
 
 
@@ -360,6 +387,26 @@ def _approve_record(record_id: str) -> Dict[str, Any]:
     result = _execute_approval_record(updated)
     updated["last_result"] = result
     updated["completed_at"] = datetime.now(timezone.utc).isoformat()
+    task_id = str(updated.get("task_id") or "").strip()
+    if task_id:
+        operation = str(updated.get("operation") or "approval")
+        title = f"approval:{operation}"
+        result_status = str(result.get("status", "error"))
+        _upsert_task(
+            task_id,
+            title,
+            status="completed" if result_status in {"ok", "success"} else "failed",
+            agent_id=str(updated.get("agent_id") or ""),
+            description=str(updated.get("target") or operation),
+            details={"approval_id": record_id, "result_status": result_status},
+        )
+    _append_activity(
+        f"Approval executed: {updated.get('operation', 'unknown')}",
+        agent_id=str(updated.get("agent_id") or ""),
+        task_id=task_id,
+        kind="approval_executed",
+        details={"approval_id": record_id, "status": result.get("status", "unknown")},
+    )
     _write_json(MAMMOTH_DIR / "approvals.json", approvals)
     return {"status": "ok", "approval": updated, "result": result}
 
@@ -510,7 +557,7 @@ except Exception as _e:
     _engine_registry_err = str(_e)
 
 try:
-    from mammoth_os.agent_registry import agent_registry, AgentStatus, AGENTS
+    from mammoth_os.agent_registry import agent_registry, AgentStatus, AGENTS, run_agent as registry_run_agent
     _agent_registry_ok = True
 except Exception as _e:
     _agent_registry_ok = False
@@ -751,6 +798,9 @@ _INTENT_TO_AGENT_ID = {
     "research_plants": "research_agent",
     "compare_gear": "research_agent",
     "summarize": "research_agent",
+    "lesson_curriculum": "curriculum_agent",
+    "grade_submission": "tutor_agent",
+    "lesson_coaching": "tutor_agent",
 }
 
 _AGENT_ID_TO_RUNTIME = {
@@ -760,9 +810,21 @@ _AGENT_ID_TO_RUNTIME = {
     "reflection_agent": "reflection",
     "brand_voice_agent": "brand_voice",
     "research_agent": "research",
+    "curriculum_agent": "curriculum",
+    "tutor_agent": "tutor",
     "coding_agent": "coding",
     "community_engine_agent": "community_engine",
     "custodial_agent": "custodial",
+}
+
+_ATLAS_WORKFLOW_AGENT_IDS = {
+    "plant_the_seed_agent",
+    "research_agent",
+    "curriculum_agent",
+    "coding_agent",
+    "reflection_agent",
+    "field_ops_agent",
+    "tutor_agent",
 }
 
 
@@ -865,7 +927,7 @@ def _ts() -> str:
 
 def _normalize_plan_profile(raw_profile: Any) -> str:
     profile = str(raw_profile or "balanced").strip().lower()
-    if profile not in {"atlas", "coding", "balanced"}:
+    if profile not in {"atlas", "coding", "balanced", "autonomous"}:
         return "balanced"
     return profile
 
@@ -877,6 +939,8 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced") -> List[Di
     include_coding = profile == "coding" or any(tok in lower for tok in ["build", "implement", "code", "patch", "create", "ui", "feature"])
     include_market = profile == "atlas" or any(tok in lower for tok in ["market", "audience", "position", "messaging"])
     include_field_ops = profile == "atlas" or any(tok in lower for tok in ["ops", "operational", "runbook", "checklist", "launch"])
+    include_community = profile == "autonomous"
+    include_custodial = profile == "autonomous"
 
     steps: List[Dict[str, str]] = [
         {
@@ -932,6 +996,28 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced") -> List[Di
                 "agent_id": "coding_agent",
                 "intent": "summarize",
                 "prompt": f"Provide a concise implementation plan and verification checklist for: {objective}",
+            }
+        )
+
+    if include_community:
+        steps.append(
+            {
+                "id": "community-check",
+                "title": "Prepare community-facing update",
+                "agent_id": "community_engine_agent",
+                "intent": "summarize",
+                "prompt": f"Create a short community update and expectation-setting note for: {objective}",
+            }
+        )
+
+    if include_custodial:
+        steps.append(
+            {
+                "id": "custodial-check",
+                "title": "Run maintenance and safety checklist",
+                "agent_id": "custodial_agent",
+                "intent": "summarize",
+                "prompt": f"Provide a maintenance checklist and rollback guard notes before executing: {objective}",
             }
         )
 
@@ -1373,6 +1459,76 @@ async def plan_execute(body: Dict[str, Any]):
     }
 
 
+@app.get("/api/autonomous/runs")
+async def get_autonomous_runs():
+    state = _load_atlas_state()
+    recent_runs: List[Dict[str, Any]] = []
+
+    plan_tasks = [
+        task for task in _load_tasks()
+        if isinstance(task, dict) and (
+            str(task.get("id", "")).startswith("plan-")
+            or str(task.get("title", "")).strip() == "plan+execute run"
+        )
+    ]
+    for task in plan_tasks[-12:]:
+        details = task.get("details") if isinstance(task.get("details"), dict) else {}
+        recent_runs.append({
+            "run_id": task.get("id"),
+            "source": "plan_execute",
+            "objective": details.get("objective") or task.get("description") or "",
+            "plan_profile": _normalize_plan_profile(details.get("plan_profile")),
+            "plan_status": task.get("status") or "unknown",
+            "created_at": task.get("created_at") or task.get("updated_at") or "",
+            "updated_at": task.get("updated_at") or task.get("created_at") or "",
+            "progress": {
+                "total": int(details.get("total") or details.get("step_count") or 0),
+                "executed": int(details.get("executed") or 0),
+                "completed": int(details.get("completed") or 0),
+                "pending_approval": int(details.get("pending_approval") or 0),
+                "failed": int(details.get("failed") or 0),
+            },
+        })
+
+    for plan in [item for item in (state.get("plan_history") or []) if isinstance(item, dict)][-12:]:
+        progress = plan.get("progress") if isinstance(plan.get("progress"), dict) else {}
+        recent_runs.append({
+            "run_id": plan.get("plan_id"),
+            "source": "atlas_plan",
+            "objective": plan.get("objective") or "",
+            "plan_profile": _normalize_plan_profile(plan.get("plan_profile")),
+            "plan_status": plan.get("plan_status") or "unknown",
+            "created_at": plan.get("created_at") or "",
+            "updated_at": plan.get("created_at") or "",
+            "progress": {
+                "total": int(progress.get("total") or 0),
+                "executed": int(progress.get("executed") or 0),
+                "completed": int(progress.get("completed") or 0),
+                "pending_approval": int(progress.get("pending_approval") or 0),
+                "failed": int(progress.get("failed") or 0),
+            },
+        })
+
+    recent_runs.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
+    recent_runs = recent_runs[:20]
+
+    summary = {
+        "total_runs": len(recent_runs),
+        "completed": sum(1 for run in recent_runs if run.get("plan_status") == "completed"),
+        "pending_approval": sum(1 for run in recent_runs if run.get("plan_status") == "pending_approval"),
+        "failed": sum(1 for run in recent_runs if run.get("plan_status") == "failed"),
+        "latest_run_at": recent_runs[0].get("created_at") if recent_runs else "",
+    }
+
+    return {
+        "status": "ok",
+        "contract_version": "v1",
+        "profiles": ["atlas", "coding", "balanced", "autonomous"],
+        "summary": summary,
+        "runs": recent_runs,
+    }
+
+
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
     intent = str(body.get("intent", "")).strip()
@@ -1472,17 +1628,21 @@ async def run_agent(body: Dict[str, Any]):
                     "output": raw_result,
                 }
         elif runtime_agent and _agent_registry_ok and runtime_agent in AGENTS:
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
-                if prompt_text and not payload_for_agent.get("topic"):
+                if prompt_text and not payload_for_agent.get("topic") and not payload_for_agent.get("prompt"):
                     payload_for_agent["topic"] = prompt_text
+                if runtime_agent == "tutor" and prompt_text and not payload_for_agent.get("prompt"):
+                    payload_for_agent["prompt"] = prompt_text
+            elif runtime_agent in {"curriculum", "research", "field_ops", "coding", "custodial"}:
+                payload_for_agent = prompt_text or json.dumps(payload)
             else:
                 payload_for_agent = prompt_text or json.dumps(payload)
 
             _think("Dispatching to agent", f"runtime_agent={runtime_agent!r}")
             raw_result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: AGENTS[runtime_agent](payload_for_agent)
+                None, lambda: registry_run_agent(runtime_agent, payload_for_agent)
             )
             _think("Agent returned", f"type={type(raw_result).__name__}  preview={str(raw_result)[:120]!r}", "success")
             result = {
@@ -1598,6 +1758,71 @@ def _load_atlas_state() -> Dict[str, Any]:
 
 def _save_atlas_state(state: Dict[str, Any]):
     ATLAS_FILE.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+
+
+def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
+    learner_state = load_learner_model(user_id)
+    learner_state.update({
+        "mastery": {},
+        "confidence": {},
+        "streak": 0,
+        "attempts": 0,
+        "error_patterns": {},
+        "recent_outcomes": [],
+        "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
+    })
+    return save_learner_model(learner_state)
+
+
+def _apply_atlas_onboarding_update(onboarding: Dict[str, Any]) -> Dict[str, Any]:
+    state = _load_atlas_state()
+    learner_state = set_onboarding_profile(state, user_id="default_user", onboarding=onboarding)
+    _save_atlas_state(state)
+    _append_audit_event(
+        kind="atlas_onboard",
+        message="ATLAS onboarding profile updated",
+        details={"profile": onboarding.get("profile") or onboarding.get("goal") or "unknown"},
+        source="atlas",
+        actor="learner",
+    )
+    return {
+        "status": "ok",
+        "learner_model": learner_state,
+        "learner_context": state.get("learner_context"),
+        "learner_profile": state.get("learner_profile"),
+    }
+
+
+def _apply_atlas_learner_reset() -> Dict[str, Any]:
+    learner_state = _reset_learner_model_state("default_user")
+    state = _load_atlas_state()
+    state["learner_model"] = learner_state
+    state["learner_context"] = build_learner_context(learner_state)
+    state["learner_profile"] = {
+        "streak": 0,
+        "attempts": 0,
+        "recommended_difficulty": "beginner",
+        "preferred_pacing": "gentle",
+    }
+    _save_atlas_state(state)
+    return {"status": "ok", "learner_model": learner_state, "learner_context": state["learner_context"]}
+
+
+def _apply_atlas_session_reset() -> Dict[str, Any]:
+    learner_state = _reset_learner_model_state("default_user")
+    _save_atlas_state({
+        "status": "reset",
+        "user_id": "default_user",
+        "learner_model": learner_state,
+        "learner_context": build_learner_context(learner_state),
+        "learner_profile": {
+            "streak": 0,
+            "attempts": 0,
+            "recommended_difficulty": "beginner",
+            "preferred_pacing": "gentle",
+        },
+    })
+    return {"status": "ok", "message": "Session reset"}
 
 
 def _hydrate_learner_state(state: Dict[str, Any], *, user_id: str = "default_user", lesson: Optional[Dict[str, Any]] = None, exercise: Optional[Dict[str, Any]] = None, result: Optional[Dict[str, Any]] = None, topic: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -2221,6 +2446,7 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding")
     lesson = state.get("current_lesson") or {}
     exercise = state.get("current_exercise") or {}
     learner_context = state.get("learner_context") or {}
+    module_track = state.get("active_module") or _serialize_module_track(_resolve_module_track(state.get("module_id"), state.get("topic"))) or {}
     topic = str(state.get("topic") or lesson.get("title") or lesson.get("lesson_title") or "current lesson").strip()
     prompt = str(exercise.get("prompt") or "").strip()
     objective = prompt or f"Complete the {topic} lesson with a clear plan and safe next steps."
@@ -2228,7 +2454,18 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding")
     difficulty = str(learner_context.get("recommended_difficulty") or "beginner")
     weakest = [str(item.get("concept") or "").replace("-", " ") for item in (learner_context.get("weakest_concepts") or []) if isinstance(item, dict)]
     weakest_summary = ", ".join([item for item in weakest[:3] if item]) or "the current lesson objective"
-    return [
+    steps: List[Dict[str, Any]] = [
+        {
+            "id": "atlas-curriculum",
+            "title": "Align the lesson to the active module",
+            "agent_id": "curriculum_agent",
+            "intent": "lesson_curriculum",
+            "prompt": (
+                f"Generate a concise curriculum framing for {topic}. "
+                f"Module: {module_track.get('label') or state.get('module_id') or 'current track'}. "
+                f"Objective: {objective}"
+            ),
+        },
         {
             "id": "atlas-clarify",
             "title": "Clarify the lesson objective",
@@ -2253,19 +2490,47 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding")
         {
             "id": "atlas-coach",
             "title": "Translate the plan into coaching checkpoints",
-            "agent_id": "reflection_agent",
-            "intent": "reflection",
-            "prompt": f"Convert this plan into 3 learner-friendly checkpoints, a reflection question, and a safe next action: {objective}",
+            "agent_id": "tutor_agent",
+            "intent": "lesson_coaching",
+            "prompt": (
+                f"Create learner checkpoints, a reflection question, and a safe next action for this lesson. "
+                f"Topic: {topic}. Objective: {objective}"
+            ),
         },
-    ] + ([
-        {
-            "id": "atlas-operations",
-            "title": "Prepare execution safeguards",
-            "agent_id": "field_ops_agent",
-            "intent": "field_ops",
-            "prompt": f"Create a short execution checklist to keep this lesson safe, testable, and non-cheaty: {objective}",
-        }
-    ] if profile in {"atlas", "balanced"} else [])
+    ]
+
+    if profile in {"atlas", "balanced", "autonomous"}:
+        steps.append(
+            {
+                "id": "atlas-operations",
+                "title": "Prepare execution safeguards",
+                "agent_id": "field_ops_agent",
+                "intent": "field_ops",
+                "prompt": f"Create a short execution checklist to keep this lesson safe, testable, and non-cheaty: {objective}",
+            }
+        )
+
+    if profile == "autonomous":
+        steps.extend(
+            [
+                {
+                    "id": "atlas-community",
+                    "title": "Create stakeholder update",
+                    "agent_id": "community_engine_agent",
+                    "intent": "summarize",
+                    "prompt": f"Draft a short progress update and expectation-setting note for this lesson objective: {objective}",
+                },
+                {
+                    "id": "atlas-custodial",
+                    "title": "Add maintenance + rollback checkpoints",
+                    "agent_id": "custodial_agent",
+                    "intent": "summarize",
+                    "prompt": f"Generate maintenance checks and rollback checkpoints before shipping this lesson work: {objective}",
+                },
+            ]
+        )
+
+    return steps
 
 
 @app.get("/api/atlas/status")
@@ -2296,48 +2561,71 @@ async def atlas_learner():
 
 @app.post("/api/atlas/onboard")
 async def atlas_onboard(body: Dict[str, Any]):
-    state = _load_atlas_state()
-    learner_state = set_onboarding_profile(state, user_id="default_user", onboarding=body)
-    _save_atlas_state(state)
-    _append_audit_event(
-        kind="atlas_onboard",
-        message="ATLAS onboarding profile updated",
-        details={"profile": body.get("profile") or body.get("goal") or "unknown"},
-        source="atlas",
-        actor="learner",
-    )
-    return {
-        "status": "ok",
-        "learner_model": learner_state,
-        "learner_context": state.get("learner_context"),
-        "learner_profile": state.get("learner_profile"),
-    }
+    approval_mode = bool(body.get("approval_mode") or body.get("preview_only"))
+    if approval_mode:
+        task_id = f"atlas-onboard-{uuid.uuid4().hex[:8]}"
+        preview = _build_operation_preview("atlas_onboard_update", {"onboarding": body})
+        approval = _create_approval_record(
+            task_id,
+            agent_id="tutor_agent",
+            operation="atlas_onboard_update",
+            target="atlas/onboarding",
+            preview=preview,
+            payload={"onboarding": body},
+            requested_by="user",
+        )
+        _upsert_task(
+            task_id,
+            "approval:atlas_onboard_update",
+            status="pending_approval",
+            agent_id="tutor_agent",
+            description="ATLAS onboarding profile update pending approval",
+            details={"approval_id": approval["id"]},
+        )
+        _append_activity(
+            "ATLAS onboarding update queued for approval",
+            agent_id="tutor_agent",
+            task_id=task_id,
+            kind="approval_requested",
+            details={"approval_id": approval["id"]},
+        )
+        return {"status": "ok", "approval": approval, "preview": preview}
+    return _apply_atlas_onboarding_update(body)
 
 
 @app.post("/api/atlas/learner/reset")
-async def atlas_learner_reset():
-    learner_state = load_learner_model("default_user")
-    learner_state.update({
-        "mastery": {},
-        "confidence": {},
-        "streak": 0,
-        "attempts": 0,
-        "error_patterns": {},
-        "recent_outcomes": [],
-        "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
-    })
-    learner_state = save_learner_model(learner_state)
-    state = _load_atlas_state()
-    state["learner_model"] = learner_state
-    state["learner_context"] = build_learner_context(learner_state)
-    state["learner_profile"] = {
-        "streak": 0,
-        "attempts": 0,
-        "recommended_difficulty": "beginner",
-        "preferred_pacing": "gentle",
-    }
-    _save_atlas_state(state)
-    return {"status": "ok", "learner_model": learner_state, "learner_context": state["learner_context"]}
+async def atlas_learner_reset(body: Optional[Dict[str, Any]] = None):
+    body = body or {}
+    approval_mode = bool(body.get("approval_mode") or body.get("preview_only"))
+    if approval_mode:
+        task_id = f"atlas-learner-reset-{uuid.uuid4().hex[:8]}"
+        preview = _build_operation_preview("atlas_learner_reset", {})
+        approval = _create_approval_record(
+            task_id,
+            agent_id="tutor_agent",
+            operation="atlas_learner_reset",
+            target="atlas/learner",
+            preview=preview,
+            payload={},
+            requested_by="user",
+        )
+        _upsert_task(
+            task_id,
+            "approval:atlas_learner_reset",
+            status="pending_approval",
+            agent_id="tutor_agent",
+            description="ATLAS learner reset pending approval",
+            details={"approval_id": approval["id"]},
+        )
+        _append_activity(
+            "ATLAS learner reset queued for approval",
+            agent_id="tutor_agent",
+            task_id=task_id,
+            kind="approval_requested",
+            details={"approval_id": approval["id"]},
+        )
+        return {"status": "ok", "approval": approval, "preview": preview}
+    return _apply_atlas_learner_reset()
 
 
 @app.post("/api/atlas/lesson")
@@ -2738,31 +3026,38 @@ async def atlas_apply(body: Dict[str, Any]):
 
 
 @app.post("/api/atlas/reset")
-async def atlas_reset():
-    learner_state = load_learner_model("default_user")
-    learner_state.update({
-        "mastery": {},
-        "confidence": {},
-        "streak": 0,
-        "attempts": 0,
-        "error_patterns": {},
-        "recent_outcomes": [],
-        "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
-    })
-    learner_state = save_learner_model(learner_state)
-    _save_atlas_state({
-        "status": "reset",
-        "user_id": "default_user",
-        "learner_model": learner_state,
-        "learner_context": build_learner_context(learner_state),
-        "learner_profile": {
-            "streak": 0,
-            "attempts": 0,
-            "recommended_difficulty": "beginner",
-            "preferred_pacing": "gentle",
-        },
-    })
-    return {"status": "ok", "message": "Session reset"}
+async def atlas_reset(body: Optional[Dict[str, Any]] = None):
+    body = body or {}
+    approval_mode = bool(body.get("approval_mode") or body.get("preview_only"))
+    if approval_mode:
+        task_id = f"atlas-reset-{uuid.uuid4().hex[:8]}"
+        preview = _build_operation_preview("atlas_session_reset", {})
+        approval = _create_approval_record(
+            task_id,
+            agent_id="tutor_agent",
+            operation="atlas_session_reset",
+            target="atlas/session",
+            preview=preview,
+            payload={},
+            requested_by="user",
+        )
+        _upsert_task(
+            task_id,
+            "approval:atlas_session_reset",
+            status="pending_approval",
+            agent_id="tutor_agent",
+            description="ATLAS session reset pending approval",
+            details={"approval_id": approval["id"]},
+        )
+        _append_activity(
+            "ATLAS session reset queued for approval",
+            agent_id="tutor_agent",
+            task_id=task_id,
+            kind="approval_requested",
+            details={"approval_id": approval["id"]},
+        )
+        return {"status": "ok", "approval": approval, "preview": preview}
+    return _apply_atlas_session_reset()
 
 
 @app.post("/api/atlas/chat")
@@ -2773,6 +3068,10 @@ async def atlas_chat(body: Dict[str, Any]):
 
     state = _load_atlas_state()
     mode = str(body.get("mode") or "tutor").strip().lower() or "tutor"
+    if mode in {"assistant", "general", "chat"}:
+        mode = "assistant"
+    elif mode not in {"tutor", "build"}:
+        mode = "tutor"
     strict_guard = bool(body.get("strict_guard", True))
     regenerate_on_guard = bool(body.get("regenerate_on_guard"))
     page_context = body.get("page_context") if isinstance(body.get("page_context"), dict) else {}
@@ -2785,14 +3084,15 @@ async def atlas_chat(body: Dict[str, Any]):
     resume_packet = state.get("resume_packet") or _build_resume_packet(state, state.get("lesson_id"))
     learner_context = {**(state.get("learner_context") or learner_context), "lesson_plan": lesson_plan}
     has_active_exercise = bool(current_exercise and current_exercise.get("prompt"))
-    guard_triggered = strict_guard and has_active_exercise and _is_answer_seeking_request(message)
+    guard_triggered = mode in {"tutor", "build"} and strict_guard and has_active_exercise and _is_answer_seeking_request(message)
     _sync_resume_packet(state, state.get("lesson_id"))
 
     adapter = str(body.get("adapter", "")).strip()
     model = str(body.get("model", "")).strip()
     temperature = float(body.get("temperature", 0.2))
 
-    history = state.get("chat_history") or []
+    history_key = "assistant_chat_history" if mode == "assistant" else "chat_history"
+    history = state.get(history_key) or []
     if not isinstance(history, list):
         history = []
     history.append({
@@ -2824,7 +3124,7 @@ async def atlas_chat(body: Dict[str, Any]):
             "model": "policy-guard",
             "guard_triggered": True,
         })
-        state["chat_history"] = history[-60:]
+        state[history_key] = history[-60:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _append_fab_usage_event(
             state,
@@ -2838,29 +3138,42 @@ async def atlas_chat(body: Dict[str, Any]):
             "reply": guard_reply,
             "adapter": "policy-guard",
             "model": "policy-guard",
-            "chat_history": state["chat_history"],
+            "chat_history": state[history_key],
             "guard_triggered": True,
             "regenerated_exercise": regenerated_exercise,
             "current_exercise": state.get("current_exercise"),
         }
 
-    tutor_prompt = (
-        "You are ATLAS Tutor, a practical coding mentor. "
-        "Give clear, concise help. Never provide harmful content.\n\n"
-        f"Interaction mode: {mode}\n"
-        f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
-        f"Lesson objectives: {current_lesson.get('objectives', [])}\n"
-        f"Exercise prompt: {current_exercise.get('prompt', 'N/A')}\n"
-        f"Recent submission result: {last_submission}\n"
-        f"Adaptive learner context: {json.dumps(learner_context, default=str)[:2500]}\n"
-        f"Adaptive lesson plan: {json.dumps(lesson_plan, default=str)[:1500]}\n\n"
-        f"Resume packet: {json.dumps(resume_packet, default=str)[:1800]}\n\n"
-        f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
-        f"Student message: {message}\n\n"
-        "Policy: do not provide direct final answers for active exercises. Use hints and checks.\n"
-        "If mode is 'build', include a short implementation plan plus one safe next action.\n"
-        "Respond with: 1) diagnosis, 2) next concrete step, 3) short example when useful."
-    )
+    if mode == "assistant":
+        tutor_prompt = (
+            "You are MammothOS Assistant, a natural-language AI partner for building, planning, and learning. "
+            "Be conversational, practical, and concise. Never provide harmful content.\n\n"
+            f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
+            f"User message: {message}\n\n"
+            "If the user asks for lesson-specific coaching, you can optionally use this context:\n"
+            f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
+            f"Exercise prompt: {current_exercise.get('prompt', 'N/A')}\n"
+            f"Recent submission result: {last_submission}\n\n"
+            "Respond naturally like a normal AI chat assistant. Do not force lesson framing unless the user asks for it."
+        )
+    else:
+        tutor_prompt = (
+            "You are ATLAS Tutor, a practical coding mentor. "
+            "Give clear, concise help. Never provide harmful content.\n\n"
+            f"Interaction mode: {mode}\n"
+            f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
+            f"Lesson objectives: {current_lesson.get('objectives', [])}\n"
+            f"Exercise prompt: {current_exercise.get('prompt', 'N/A')}\n"
+            f"Recent submission result: {last_submission}\n"
+            f"Adaptive learner context: {json.dumps(learner_context, default=str)[:2500]}\n"
+            f"Adaptive lesson plan: {json.dumps(lesson_plan, default=str)[:1500]}\n\n"
+            f"Resume packet: {json.dumps(resume_packet, default=str)[:1800]}\n\n"
+            f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
+            f"Student message: {message}\n\n"
+            "Policy: do not provide direct final answers for active exercises. Use hints and checks.\n"
+            "If mode is 'build', include a short implementation plan plus one safe next action.\n"
+            "Respond with: 1) diagnosis, 2) next concrete step, 3) short example when useful."
+        )
 
     llm_reply = ""
     active_model = ""
@@ -2904,7 +3217,7 @@ async def atlas_chat(body: Dict[str, Any]):
         "model": active_model,
         "mode": mode,
     })
-    state["chat_history"] = history[-60:]
+    state[history_key] = history[-60:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _append_fab_usage_event(
         state,
@@ -2919,8 +3232,9 @@ async def atlas_chat(body: Dict[str, Any]):
         "reply": llm_reply,
         "adapter": active_adapter,
         "model": active_model,
-        "chat_history": state["chat_history"],
+        "chat_history": state[history_key],
         "guard_triggered": False,
+        "mode": mode,
     }
 
 
@@ -3026,14 +3340,237 @@ async def log_sale(body: Dict[str, Any]):
 # /api/modules
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _normalize_module_status(raw_status: Any) -> str:
+    if hasattr(raw_status, "value"):
+        raw_status = raw_status.value
+    if isinstance(raw_status, str):
+        raw_status = raw_status.strip().upper()
+    else:
+        raw_status = ""
+    mapping = {
+        "ACTIVE": "active",
+        "READY": "ready",
+        "IDLE": "ready",
+        "LOADING": "loading",
+        "ERROR": "error",
+        "SHUTDOWN": "disabled",
+        "DISABLED": "disabled",
+    }
+    return mapping.get(str(raw_status), "ready")
+
+
+def _workflow_state_for_agent(agent_id: str) -> Dict[str, Any]:
+    normalized_id = str(agent_id or "").strip()
+    agent_runtime_map = globals().get("AGENTS", {})
+    routed = normalized_id in _AGENT_ID_TO_RUNTIME or normalized_id in agent_runtime_map
+    atlas_routed = normalized_id in _ATLAS_WORKFLOW_AGENT_IDS
+    return {
+        "workflow_ready": routed or atlas_routed,
+        "workflow_stage": "autonomous" if atlas_routed else "routed" if routed else "registered",
+        "workflow_path": "atlas_lesson" if atlas_routed else "plan_execute" if routed else "manual",
+    }
+
+
+def _agent_source_path(agent_id: str) -> Path:
+    return ROOT / "src" / "mammoth_os" / "agents" / f"{agent_id}.py"
+
+
+def _parse_iso_datetime(raw_value: Any) -> Optional[datetime]:
+    if isinstance(raw_value, datetime):
+        if raw_value.tzinfo is None:
+            return raw_value.replace(tzinfo=timezone.utc)
+        return raw_value.astimezone(timezone.utc)
+    if not isinstance(raw_value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw_value.strip())
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _canonical_agent_keys(agent_id: Any) -> List[str]:
+    normalized = _normalize_module_key(agent_id)
+    if not normalized:
+        return []
+    keys = {normalized}
+    if normalized.endswith("-agent"):
+        keys.add(normalized[: -len("-agent")])
+    return [item for item in keys if item]
+
+
+def _build_activity_index() -> Dict[str, Dict[str, Any]]:
+    latest_by_key: Dict[str, Dict[str, Any]] = {}
+    for entry in _load_activity_events():
+        if not isinstance(entry, dict):
+            continue
+        agent_id = entry.get("agent_id")
+        if not agent_id:
+            continue
+        created_at = _parse_iso_datetime(entry.get("created_at"))
+        if created_at is None:
+            continue
+        event = {
+            "created_at": created_at,
+            "created_at_iso": created_at.isoformat(),
+            "kind": str(entry.get("kind") or "event"),
+            "message": str(entry.get("message") or "").strip(),
+        }
+        for key in _canonical_agent_keys(agent_id):
+            previous = latest_by_key.get(key)
+            if not previous or created_at > previous["created_at"]:
+                latest_by_key[key] = event
+    return latest_by_key
+
+
+def _module_observability_snapshot(module_id: str, status: str, *, manifest: Any = None, activity_index: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    now = datetime.now(timezone.utc)
+    activity_index = activity_index or {}
+
+    latest_activity: Optional[Dict[str, Any]] = None
+    for key in _canonical_agent_keys(module_id):
+        candidate = activity_index.get(key)
+        if candidate and (latest_activity is None or candidate["created_at"] > latest_activity["created_at"]):
+            latest_activity = candidate
+
+    heartbeat_dt = _parse_iso_datetime(getattr(manifest, "last_heartbeat", None))
+    metadata = getattr(manifest, "metadata", {}) if manifest else {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    last_run_dt = _parse_iso_datetime(metadata.get("last_run_at"))
+
+    activity_age_seconds = int((now - latest_activity["created_at"]).total_seconds()) if latest_activity else None
+    heartbeat_age_seconds = int((now - heartbeat_dt).total_seconds()) if heartbeat_dt else None
+    has_recent_activity = activity_age_seconds is not None and activity_age_seconds <= 180
+    has_recent_heartbeat = (
+        heartbeat_age_seconds is not None
+        and heartbeat_age_seconds <= 180
+        and (last_run_dt is not None or latest_activity is not None)
+    )
+    observed_active = has_recent_activity or has_recent_heartbeat
+
+    effective_status = status
+    if status == "ready" and observed_active:
+        effective_status = "active"
+
+    return {
+        "status": effective_status,
+        "observed_active": observed_active,
+        "last_activity_at": latest_activity["created_at_iso"] if latest_activity else "",
+        "last_activity_kind": latest_activity["kind"] if latest_activity else "",
+        "last_activity_message": latest_activity["message"] if latest_activity else "",
+        "activity_age_seconds": activity_age_seconds,
+        "last_heartbeat_at": heartbeat_dt.isoformat() if heartbeat_dt else "",
+        "heartbeat_age_seconds": heartbeat_age_seconds,
+        "last_run_at": last_run_dt.isoformat() if last_run_dt else "",
+    }
+
+
+def _agent_quality_snapshot(agent_id: str) -> Dict[str, Any]:
+    source_path = _agent_source_path(agent_id)
+    if not source_path.exists():
+        return {}
+
+    try:
+        text = source_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        return {
+            "quality_score": 20,
+            "quality_tier": "error",
+            "quality_findings": [f"Could not read source: {exc}"],
+            "interface_mode": "unknown",
+        }
+
+    try:
+        tree = ast.parse(text)
+    except SyntaxError as exc:
+        return {
+            "quality_score": 10,
+            "quality_tier": "error",
+            "quality_findings": [f"Syntax issue at line {exc.lineno}"],
+            "interface_mode": "unknown",
+        }
+
+    class_node = next(
+        (
+            node for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name.lower().endswith("agent")
+        ),
+        None,
+    )
+    if not class_node:
+        return {
+            "quality_score": 25,
+            "quality_tier": "prototype",
+            "quality_findings": ["No agent class was discovered in the file."],
+            "interface_mode": "unknown",
+        }
+
+    method_nodes = [node for node in class_node.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    method_names = {node.name for node in method_nodes}
+    run_node = next((node for node in method_nodes if node.name == "run"), None)
+    inherits_base_agent = any(
+        (isinstance(base, ast.Name) and base.id == "BaseAgent")
+        or (isinstance(base, ast.Attribute) and base.attr == "BaseAgent")
+        for base in class_node.bases
+    )
+
+    score = 92
+    findings: List[str] = []
+    interface_mode = "async" if isinstance(run_node, ast.AsyncFunctionDef) else "sync" if run_node else "specialized"
+    lowered = text.lower()
+    placeholder_markers = [
+        marker for marker in ("implement later", "placeholder", "todo", "deeper logic later")
+        if marker in lowered
+    ]
+
+    if not inherits_base_agent:
+        score -= 12
+        findings.append("Does not inherit BaseAgent.")
+    if "run" not in method_names and "accept_submission" not in method_names:
+        score -= 20
+        findings.append("No standard workflow entrypoint was found.")
+    if placeholder_markers:
+        score -= min(24, 8 * len(placeholder_markers))
+        findings.append("Contains placeholder-oriented logic markers.")
+    if len(method_names) <= 2:
+        score -= 8
+        findings.append("Agent surface area is still narrow.")
+    if len(text.splitlines()) < 40:
+        score -= 6
+        findings.append("Implementation is still lightweight.")
+    if "accept_submission" in method_names and run_node:
+        interface_mode = "hybrid"
+
+    score = max(10, min(100, score))
+    if score >= 88:
+        tier = "top-tier"
+    elif score >= 75:
+        tier = "strong"
+    elif score >= 60:
+        tier = "developing"
+    else:
+        tier = "prototype"
+
+    return {
+        "quality_score": score,
+        "quality_tier": tier,
+        "quality_findings": findings[:2],
+        "interface_mode": interface_mode,
+        "source_file": str(source_path.relative_to(ROOT)),
+    }
+
+
 _STATIC_MODULES = [
     {"id": "coding_agent",      "name": "CodingAgent",      "version": "v1.2.0", "status": "active",   "description": "Code generation, refactor, review"},
     {"id": "field_ops_agent",   "name": "FieldOpsAgent",    "version": "v0.9.1", "status": "active",   "description": "Planting, irrigation, field data"},
     {"id": "research_agent",    "name": "ResearchAgent",    "version": "v0.8.3", "status": "active",   "description": "Market intel, curriculum research"},
     {"id": "memory_engine",     "name": "MemoryEngine",     "version": "v0.8.0", "status": "active",   "description": "Long-term context & session memory"},
-    {"id": "atlas_session",     "name": "ATLASSession",     "version": "v0.5.0", "status": "idle",     "description": "Progress tracking & subsystem status"},
-    {"id": "plant_seed_agent",  "name": "PlantSeedAgent",   "version": "v0.6.2", "status": "idle",     "description": "Seed sourcing, planting schedules"},
-    {"id": "market_intel_agent","name": "MarketIntelAgent", "version": "v0.3.0", "status": "idle",     "description": "Price feeds, market analysis"},
+    {"id": "atlas_session",     "name": "ATLASSession",     "version": "v0.5.0", "status": "ready",     "description": "Progress tracking & subsystem status"},
+    {"id": "plant_seed_agent",  "name": "PlantSeedAgent",   "version": "v0.6.2", "status": "ready",     "description": "Seed sourcing, planting schedules"},
+    {"id": "market_intel_agent","name": "MarketIntelAgent", "version": "v0.3.0", "status": "ready",     "description": "Price feeds, market analysis"},
     {"id": "cortex_router",     "name": "CortexRouter",     "version": "v1.0.0", "status": "active",   "description": "Intent-based routing layer"},
     {"id": "engine_registry",   "name": "EngineRegistry",   "version": "v1.0.0", "status": "active",   "description": "Discovers and registers engine classes"},
 ]
@@ -3041,22 +3578,79 @@ _STATIC_MODULES = [
 
 @app.get("/api/modules")
 async def get_modules():
+    module_map: Dict[str, Dict[str, Any]] = {}
+    manifest_map: Dict[str, Any] = {}
+    for item in _STATIC_MODULES:
+        module = dict(item)
+        workflow = _workflow_state_for_agent(module["id"])
+        module.update(workflow)
+        module_map[module["id"]] = module
+
+    if _agent_registry_ok:
+        try:
+            manifests = await agent_registry.list_agents()
+        except Exception:
+            manifests = []
+        for manifest in manifests:
+            agent_id = str(getattr(manifest, "agent_id", "") or "").strip()
+            if not agent_id:
+                continue
+            workflow = _workflow_state_for_agent(agent_id)
+            module = module_map.get(agent_id, {
+                "id": agent_id,
+                "name": getattr(manifest, "name", agent_id),
+                "version": getattr(manifest, "version", "v1.0.0"),
+                "status": "ready",
+                "description": "Registered agent",
+            })
+            module.update({
+                "id": agent_id,
+                "name": getattr(manifest, "name", module.get("name", agent_id)),
+                "version": getattr(manifest, "version", module.get("version", "v1.0.0")),
+                "status": _normalize_module_status(getattr(manifest, "status", None)),
+                "description": module.get("description") or "Registered agent",
+                "capabilities": getattr(manifest, "capabilities", []),
+                "level": getattr(manifest, "level", 1),
+                "endpoint": getattr(manifest, "endpoint", ""),
+                "source": "registry",
+            })
+            manifest_map[agent_id] = manifest
+            module.update(_agent_quality_snapshot(agent_id))
+            module.update(workflow)
+            module_map[agent_id] = module
+
     agents_dir = ROOT / "src" / "mammoth_os" / "agents"
-    dynamic_ids = set(m["id"] for m in _STATIC_MODULES)
-    extra = []
     if agents_dir.exists():
         for f in sorted(agents_dir.glob("*_agent.py")):
             mid = f.stem
-            if mid not in dynamic_ids:
-                name = "".join(w.title() for w in mid.split("_"))
-                extra.append({
-                    "id":          mid,
-                    "name":        name,
-                    "version":     "v1.0.0",
-                    "status":      "idle",
-                    "description": f"Agent: {mid}",
-                })
-    return _STATIC_MODULES + extra
+            if mid in module_map:
+                continue
+            workflow = _workflow_state_for_agent(mid)
+            module_map[mid] = {
+                "id": mid,
+                "name": "".join(w.title() for w in mid.split("_")),
+                "version": "v1.0.0",
+                "status": "ready",
+                "description": f"Agent: {mid}",
+                "source": "discovered",
+                **workflow,
+                **_agent_quality_snapshot(mid),
+            }
+
+    activity_index = _build_activity_index()
+    for module in module_map.values():
+        module_id = str(module.get("id") or "")
+        status = str(module.get("status") or "ready")
+        module.update(
+            _module_observability_snapshot(
+                module_id,
+                status,
+                manifest=manifest_map.get(module_id),
+                activity_index=activity_index,
+            )
+        )
+
+    return list(module_map.values())
 
 
 
