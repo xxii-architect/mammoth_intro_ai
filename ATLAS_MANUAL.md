@@ -28,6 +28,27 @@ OPENAI_API_KEY            = <your OpenAI key>          # optional if using Ollam
 
 ---
 
+## 0 — Scope, suggestions, and operator notes
+
+### Scope right now
+- Keep ATLAS as the top-level adaptive tutor and MammothOS as the execution shell.
+- Strengthen reliability, continuity, diagnostics, and lesson quality before monetization wiring.
+- Maintain enterprise-safe posture: accurate claims, auditable operations, no legal overstatements.
+
+### Suggested next build order (lowest credits first)
+1. **Lessons domain architecture** (UI-first track templates, starter pathways, progress shells).
+2. **Health dual-mode expansion** (personal readiness + system telemetry in one page).
+3. **Finance dual-mode expansion** (personal + business lanes, rollups, and notes).
+4. **Payments and checkout** only after the above surfaces are stable and policy-ready.
+
+### Keep in mind
+- Use `Preview first` for coding agent edits and approve intentionally.
+- Keep startup deterministic (`start-mammothos.bat`) before debugging UI connectivity.
+- Record major runs in Build Log and Diagnostics export so work remains portfolio-verifiable.
+- Avoid mixing legal claims with roadmap intent; document "current posture" vs "planned posture."
+
+---
+
 ## 2 — LLM model selection
 
 MammothOS auto-selects the best available model. Priority order:
@@ -677,4 +698,3 @@ MammothOS is positioned as an **educational AI assistant**:
 - All AI outputs carry an implicit "verify before use" disclaimer surfaced in the Disclaimer tab
 
 When seeking investment, partnerships, or enterprise contracts: lead with the adaptive tutor story, the memory graph, and the no-cheat guard — these are your key differentiators.
-

@@ -12,6 +12,19 @@ npm run dev
 
 Open http://localhost:5173 to preview the app.
 
+## Scope + low-credit execution plan
+
+### Scope
+- Keep this UI aligned to an operator-grade tutor OS: clear status, reliable actions, auditable outputs.
+- Prefer incremental upgrades that improve lesson outcomes and runtime trust.
+
+### Lowest-credit next option
+- Upgrade **Lessons** with focused module tracks (wilderness/survival, fishing/hunting, ham radio, EMT/emergency management, horticulture/botany/weather) using UI-first templates and starter prompts.
+
+### Keep in mind
+- Keep changes composable: small UI surfaces now, deeper backend logic later.
+- Avoid introducing fragile dependencies when the same goal can be done with existing endpoints.
+
 ## Main operator workflows
 
 ### Agent Console

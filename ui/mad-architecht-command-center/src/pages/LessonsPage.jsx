@@ -2,6 +2,14 @@ import { useState, useEffect } from 'react'
 import { BookOpen, Send, ChevronRight, ExternalLink } from 'lucide-react'
 import { api } from '../api/client'
 
+const FALLBACK_MODULE_TRACKS = [
+  { id: 'wilderness-survival', label: 'Wilderness Navigation + Survival', topic: 'Wilderness navigation survival and safety fundamentals', summary: 'Field-ready navigation, shelter, water, and risk management fundamentals.' },
+  { id: 'hunting-fishing', label: 'Hunting + Fishing', topic: 'Hunting and fishing safety ethics and field basics', summary: 'Ethical harvest, gear discipline, and field-readiness basics for outdoor food systems.' },
+  { id: 'ham-radio', label: 'Ham Radio', topic: 'Ham radio fundamentals call signs and emergency comms basics', summary: 'Introductory radio literacy for disciplined communication and emergency readiness.' },
+  { id: 'emt-emergency-management', label: 'EMT + Emergency Mgmt', topic: 'EMT and emergency management triage and incident fundamentals', summary: 'Structured emergency response thinking with triage, ICS awareness, and scene safety.' },
+  { id: 'horticulture-weather', label: 'Horticulture + Weather', topic: 'Horticulture botany and weather pattern literacy basics', summary: 'Plant care, growth cycles, and weather-aware decision-making for practical stewardship.' },
+]
+
 export default function LessonsPage({ setPage }) {
   const [atlasState, setAtlasState] = useState(null)
   const [topic, setTopic]           = useState('')
@@ -12,11 +20,15 @@ export default function LessonsPage({ setPage }) {
   const [chatBusy, setChatBusy]     = useState(false)
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
+  const [moduleCatalog, setModuleCatalog] = useState(FALLBACK_MODULE_TRACKS)
 
   const loadState = async () => {
     try {
       const s = await api('/atlas/status')
       setAtlasState(s)
+      if (Array.isArray(s?.available_modules) && s.available_modules.length) {
+        setModuleCatalog(s.available_modules)
+      }
       if (s.current_exercise?.starter_files) {
         const files = s.current_exercise.starter_files
         const first = Object.values(files)[0] || ''
@@ -29,6 +41,13 @@ export default function LessonsPage({ setPage }) {
 
   useEffect(() => { loadState() }, [])
   useEffect(() => {
+    api('/atlas/modules').then((res) => {
+      if (Array.isArray(res?.modules) && res.modules.length) {
+        setModuleCatalog(res.modules)
+      }
+    }).catch(() => {})
+  }, [])
+  useEffect(() => {
     api('/models').then((m) => {
       setModels(m)
       if (m?.active_model) {
@@ -37,12 +56,19 @@ export default function LessonsPage({ setPage }) {
     }).catch(() => {})
   }, [])
 
-  const startLesson = async () => {
-    if (!topic.trim()) return
+  const startLesson = async (overrideTopic, moduleTrack = null) => {
+    const requestedTopic = (overrideTopic || topic).trim()
+    if (!requestedTopic) return
     setLoading(true)
     setResult(null)
     try {
-      const res = await api('/atlas/lesson', { method: 'POST', body: { topic } })
+      const res = await api('/atlas/lesson', {
+        method: 'POST',
+        body: {
+          topic: requestedTopic,
+          module_id: moduleTrack?.id,
+        },
+      })
       setAtlasState(prev => ({ ...prev, ...res }))
       if (res.exercise?.starter_files) {
         const first = Object.values(res.exercise.starter_files)[0] || ''
@@ -113,6 +139,7 @@ export default function LessonsPage({ setPage }) {
   const modules        = curriculum?.modules || []
   const currentLessonId = atlasState?.lesson_id
   const chatHistory    = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const activeModule   = atlasState?.active_module
 
   return (
     <div className="page-enter" style={{ padding: 24, display: 'flex', gap: 20, height: 'calc(100vh - 100px)' }}>
@@ -151,6 +178,48 @@ export default function LessonsPage({ setPage }) {
             </button>
           </div>
 
+          <div style={{ marginTop: 14, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>
+              Focused Module Quick Starts
+            </p>
+            <div style={{ display: 'grid', gap: 6 }}>
+              {moduleCatalog.map((track) => {
+                const isActive = activeModule?.id === track.id
+                return (
+                  <button
+                    key={track.id || track.label}
+                    onClick={() => {
+                      setTopic(track.topic)
+                      startLesson(track.topic, track)
+                    }}
+                    disabled={loading}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '9px 10px',
+                      borderRadius: 8,
+                      border: `1px solid ${isActive ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`,
+                      background: isActive ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.03)',
+                      color: 'var(--txt-sec)',
+                      fontSize: '0.78rem',
+                      cursor: 'pointer',
+                      opacity: loading ? 0.7 : 1,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, color: isActive ? 'var(--photon)' : 'var(--txt-pri)', marginBottom: 3 }}>
+                      {track.label}
+                    </div>
+                    {track.summary && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', lineHeight: 1.4 }}>
+                        {track.summary}
+                      </div>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
           {/* ATLAS Tutor link */}
           {setPage && (
             <div style={{ marginTop: 12 }}>
@@ -169,6 +238,11 @@ export default function LessonsPage({ setPage }) {
           <>
             <div className="glass-card-solid" style={{ padding: 20 }}>
               <div className="eyebrow">Exercise</div>
+              {activeModule?.label && (
+                <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--photon)', marginBottom: 8 }}>
+                  {activeModule.label}
+                </p>
+              )}
               <h2 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 8 }}>{exercise.title || 'Untitled Exercise'}</h2>
               <p style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', lineHeight: 1.6, marginBottom: 12 }}>{exercise.prompt || exercise.description}</p>
 
@@ -276,7 +350,7 @@ export default function LessonsPage({ setPage }) {
           <div className="glass-card-solid" style={{ padding: 32, textAlign: 'center' }}>
             <BookOpen size={32} color="var(--txt-mut)" style={{ marginBottom: 12 }} />
             <p style={{ color: 'var(--txt-sec)', fontSize: '0.9rem', marginBottom: 8 }}>No active lesson.</p>
-            <p style={{ color: 'var(--txt-mut)', fontSize: '0.82rem' }}>Enter a topic in the sidebar to start a lesson.</p>
+            <p style={{ color: 'var(--txt-mut)', fontSize: '0.82rem' }}>Enter a topic or launch one of the focused module tracks from the sidebar.</p>
           </div>
         )}
       </div>

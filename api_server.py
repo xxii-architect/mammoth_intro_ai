@@ -64,6 +64,69 @@ for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FIL
     if not _f.exists():
         _f.write_text("[]")
 
+ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
+    {
+        "id": "wilderness-survival",
+        "label": "Wilderness Navigation + Survival",
+        "topic": "Wilderness navigation survival and safety fundamentals",
+        "summary": "Field-ready navigation, shelter, water, and risk management fundamentals.",
+        "outcomes": [
+            "Map-and-compass orientation with terrain awareness",
+            "Shelter, water, and fire decision-making under pressure",
+            "Safety-first route planning and emergency signaling basics",
+        ],
+        "operator_note": "Keep examples practical, safety-first, and grounded in conservative field decisions.",
+    },
+    {
+        "id": "hunting-fishing",
+        "label": "Hunting + Fishing",
+        "topic": "Hunting and fishing safety ethics and field basics",
+        "summary": "Ethical harvest, gear discipline, and field-readiness basics for outdoor food systems.",
+        "outcomes": [
+            "Safe tool handling and site awareness",
+            "Ethical harvest principles and conservation framing",
+            "Basic field prep, legal mindset, and risk reduction habits",
+        ],
+        "operator_note": "Emphasize lawful, ethical, and humane practice over optimization or tactics.",
+    },
+    {
+        "id": "ham-radio",
+        "label": "Ham Radio",
+        "topic": "Ham radio fundamentals call signs and emergency comms basics",
+        "summary": "Introductory radio literacy for disciplined communication and emergency readiness.",
+        "outcomes": [
+            "Call-sign etiquette and net discipline basics",
+            "Frequency, repeater, and simplex communication fundamentals",
+            "Emergency message structure and communication logging habits",
+        ],
+        "operator_note": "Use novice-friendly comms scenarios with disciplined operating habits.",
+    },
+    {
+        "id": "emt-emergency-management",
+        "label": "EMT + Emergency Mgmt",
+        "topic": "EMT and emergency management triage and incident fundamentals",
+        "summary": "Structured emergency response thinking with triage, ICS awareness, and scene safety.",
+        "outcomes": [
+            "Scene safety, triage priorities, and patient communication basics",
+            "Incident command awareness and escalation habits",
+            "Documentation-minded response flow under stress",
+        ],
+        "operator_note": "Stay educational and procedural; do not present as professional medical direction.",
+    },
+    {
+        "id": "horticulture-weather",
+        "label": "Horticulture + Weather",
+        "topic": "Horticulture botany and weather pattern literacy basics",
+        "summary": "Plant care, growth cycles, and weather-aware decision-making for practical stewardship.",
+        "outcomes": [
+            "Plant structure, soil, and watering fundamentals",
+            "Seasonal planning informed by basic weather pattern reading",
+            "Observation logs that connect weather signals to plant decisions",
+        ],
+        "operator_note": "Favor observation, stewardship, and repeatable habits over overconfident predictions.",
+    },
+]
+
 
 def _read_json(path: Path, default=None):
     if default is None:
@@ -76,6 +139,62 @@ def _read_json(path: Path, default=None):
 
 def _write_json(path: Path, data):
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _normalize_module_key(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+
+
+def _serialize_module_track(track: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(track, dict):
+        return None
+    return {
+        "id": str(track.get("id") or "").strip(),
+        "label": str(track.get("label") or "").strip(),
+        "topic": str(track.get("topic") or "").strip(),
+        "summary": str(track.get("summary") or "").strip(),
+        "outcomes": [str(item).strip() for item in (track.get("outcomes") or []) if str(item).strip()],
+        "operator_note": str(track.get("operator_note") or "").strip(),
+    }
+
+
+def _atlas_module_catalog() -> List[Dict[str, Any]]:
+    return [track for track in (_serialize_module_track(item) for item in ATLAS_MODULE_TRACKS) if track]
+
+
+def _resolve_module_track(module_id: Any = None, topic: Any = None) -> Optional[Dict[str, Any]]:
+    normalized_module_id = _normalize_module_key(module_id)
+    normalized_topic = _normalize_module_key(topic)
+
+    if normalized_module_id:
+        for track in ATLAS_MODULE_TRACKS:
+            if track["id"] == normalized_module_id:
+                return track
+
+    if normalized_topic:
+        for track in ATLAS_MODULE_TRACKS:
+            candidates = {
+                _normalize_module_key(track.get("id")),
+                _normalize_module_key(track.get("label")),
+                _normalize_module_key(track.get("topic")),
+            }
+            if normalized_topic in candidates:
+                return track
+    return None
+
+
+def _compose_module_curriculum_topic(requested_topic: str, track: Optional[Dict[str, Any]]) -> str:
+    base_topic = str(requested_topic or "").strip()
+    if not track:
+        return base_topic or "Python basics"
+    if not base_topic:
+        base_topic = str(track.get("topic") or track.get("label") or "Python basics").strip()
+    outcomes = [str(item).strip() for item in (track.get("outcomes") or []) if str(item).strip()]
+    emphasis = "; ".join(outcomes[:3])
+    return (
+        f"{base_topic}. Build a practical beginner-friendly lesson track for {track['label']} "
+        f"with safety-aware, real-world scenarios and emphasis on: {emphasis}."
+    )
 
 
 def _load_activity_events() -> List[Dict[str, Any]]:
@@ -1081,6 +1200,10 @@ def _decorate_atlas_state(state: Dict[str, Any]) -> Dict[str, Any]:
     eval_history = _load_eval_history()
     state["eval_history"] = eval_history[-8:]
     state["observability"] = _build_atlas_observability(state, eval_history=eval_history)
+    state["available_modules"] = _atlas_module_catalog()
+    active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
+    if active_track:
+        state["active_module"] = _serialize_module_track(active_track)
     return state
 
 
@@ -2153,6 +2276,17 @@ async def atlas_status():
     return _decorate_atlas_state(state)
 
 
+@app.get("/api/atlas/modules")
+async def atlas_modules():
+    state = _load_atlas_state()
+    active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
+    return {
+        "status": "ok",
+        "modules": _atlas_module_catalog(),
+        "active_module": _serialize_module_track(active_track),
+    }
+
+
 @app.get("/api/atlas/learner")
 async def atlas_learner():
     state = _load_atlas_state()
@@ -2208,7 +2342,10 @@ async def atlas_learner_reset():
 
 @app.post("/api/atlas/lesson")
 async def atlas_lesson(body: Dict[str, Any]):
-    topic = body.get("topic", "Python basics")
+    requested_topic = str(body.get("topic") or "").strip()
+    module_track = _resolve_module_track(body.get("module_id"), requested_topic)
+    topic = requested_topic or str((module_track or {}).get("topic") or "Python basics")
+    curriculum_topic = _compose_module_curriculum_topic(topic, module_track)
     try:
         from mammoth_os.atlas_session import ATLASSession
         session = ATLASSession(user_id="default_user")
@@ -2218,20 +2355,28 @@ async def atlas_lesson(body: Dict[str, Any]):
             _hydrate_learner_state(state, user_id="default_user")
             learner_context = state.get("learner_context") or {}
         lesson_plan = build_lesson_plan(state, topic)
+        if module_track:
+            lesson_plan["module_track"] = _serialize_module_track(module_track)
+            lesson_plan["curriculum_topic"] = curriculum_topic
         learner_context = {**learner_context, "lesson_plan": lesson_plan}
+        if module_track:
+            learner_context["module_track"] = _serialize_module_track(module_track)
         difficulty = str(lesson_plan.get("difficulty") or learner_context.get("recommended_difficulty") or "beginner").strip().lower() or "beginner"
         exercise = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: session.start_lesson(topic, difficulty=difficulty, learner_context=learner_context)
+            None, lambda: session.start_lesson(curriculum_topic, difficulty=difficulty, learner_context=learner_context)
         )
         state.update({
             "status":           "active",
             "topic":            topic,
+            "curriculum_topic": curriculum_topic,
             "current_exercise": exercise,
             "curriculum":       session.curriculum,
             "current_lesson":   session.current_lesson,
             "curriculum_id":    session._curriculum_id,
             "lesson_id":        session._lesson_id,
             "lesson_plan":      lesson_plan,
+            "module_id":        (module_track or {}).get("id"),
+            "active_module":    _serialize_module_track(module_track),
             "updated_at":       datetime.now(timezone.utc).isoformat(),
         })
         _hydrate_learner_state(state, user_id="default_user")
@@ -2241,11 +2386,17 @@ async def atlas_lesson(body: Dict[str, Any]):
         _append_audit_event(
             kind="atlas_lesson",
             message="ATLAS lesson started",
-            details={"topic": topic, "difficulty": difficulty},
+            details={"topic": topic, "difficulty": difficulty, "module_id": (module_track or {}).get("id")},
             source="atlas",
             actor="learner",
         )
-        return {"status": "ok", "exercise": exercise, "learner_context": state.get("learner_context")}
+        return {
+            "status": "ok",
+            "exercise": exercise,
+            "learner_context": state.get("learner_context"),
+            "active_module": _serialize_module_track(module_track),
+            "curriculum_topic": curriculum_topic,
+        }
     except Exception as e:
         return {"status": "error", "error": str(e)}
 

@@ -84,3 +84,21 @@ This keeps development moving but is less isolated than Docker sandboxing.
 
 - `ATLAS_MANUAL.md` — full CLI + UI operating guide
 - `ui\mad-architecht-command-center\README.md` — UI-specific workflows
+
+## Scope + suggestions (credit-efficient path)
+
+### Current scope
+- Keep ATLAS + MammothOS stable as a tutor-first system with diagnostics, audit history, and operator logging.
+- Prioritize quality and continuity over adding paid features too early.
+- Keep product language compliance-safe (no overclaims, no patent claims unless filed).
+
+### Suggestions (in order)
+1. Expand **lessons domain architecture** (lowest credit cost, mostly UI/state wiring).
+2. Expand **health page** into personal + system health (medium cost).
+3. Expand **finances page** into personal + business tracking (medium-high cost).
+4. Defer payment wiring until core learning loops and trust surfaces are locked.
+
+### Keep in mind
+- Always start from `.\start-mammothos.bat` first to avoid false "disconnected" states.
+- Port 8000 conflicts can mimic backend failures; clear listeners before retrying.
+- Track meaningful work in Build Log + Diagnostics so progress is provable and reviewable.
