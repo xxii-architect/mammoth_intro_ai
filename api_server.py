@@ -2970,9 +2970,58 @@ async def _execute_terminal_command(cmd: str, timeout: int = 60) -> Dict[str, An
     return await asyncio.to_thread(_run_command_sync, resolved, run_cwd, env, timeout)
 
 
+@app.get("/api/entitlements")
+async def get_entitlements():
+    """Return the current user's tier and feature entitlements."""
+    state = _load_atlas_state()
+    tier = str(state.get("tier") or "explorer").strip().lower()
+    if tier not in {"explorer", "pro", "enterprise"}:
+        tier = "explorer"
+    base_features = {
+        "atlas_tutor": True,
+        "adaptive_pacing": True,
+        "lesson_resume": True,
+        "flashcards_quiz": True,
+        "basic_evals": True,
+        "local_storage": True,
+    }
+    pro_features = {
+        "multi_agent_orchestration": tier in {"pro", "enterprise"},
+        "plan_execute_all_profiles": tier in {"pro", "enterprise"},
+        "supabase_sync": tier in {"pro", "enterprise"},
+        "eval_history_dashboard": tier in {"pro", "enterprise"},
+        "audit_log_export": tier in {"pro", "enterprise"},
+        "coding_agent_approval": tier in {"pro", "enterprise"},
+    }
+    enterprise_features = {
+        "team_dashboards": tier == "enterprise",
+        "custom_curriculum": tier == "enterprise",
+        "lms_integration": tier == "enterprise",
+        "white_label": tier == "enterprise",
+    }
+    return {
+        "status": "ok",
+        "tier": tier,
+        "features": {**base_features, **pro_features, **enterprise_features},
+        "upgrade_cta": "pricing" if tier == "explorer" else None,
+    }
+
+
+@app.post("/api/entitlements/tier")
+async def set_tier(body: Dict[str, Any]):
+    """Set the user's tier (for testing / admin use)."""
+    tier = str(body.get("tier") or "explorer").strip().lower()
+    if tier not in {"explorer", "pro", "enterprise"}:
+        return {"status": "error", "error": "Invalid tier. Use: explorer, pro, enterprise"}
+    state = _load_atlas_state()
+    state["tier"] = tier
+    state["tier_updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "tier": tier}
+
+
 @app.websocket("/ws/terminal")
 async def terminal_ws(ws: WebSocket):
-    await ws.accept()
     await ws.send_json({"line": "MammothOS Terminal ready. Type a command.", "type": "stdout"})
     try:
         while True:

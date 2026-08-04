@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, Search, GraduationCap,
+  Sparkles, CreditCard, ShieldCheck,
 } from 'lucide-react'
 
 import HomePage        from './pages/HomePage'
@@ -15,6 +16,9 @@ import BuildLogPage    from './pages/BuildLogPage'
 import LogSalePage     from './pages/LogSalePage'
 import SettingsPage    from './pages/SettingsPage'
 import AtlasTutorPage  from './pages/AtlasTutorPage'
+import LandingPage    from './pages/LandingPage'
+import CompliancePage from './pages/CompliancePage'
+import PricingPage    from './pages/PricingPage'
 
 const THEMES = {
   darker:   { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
@@ -32,6 +36,10 @@ const NAV = [
   { id: 'modules',  label: 'Modules',     Icon: Package },
   { id: 'health',   label: 'Health',      Icon: HeartPulse },
   { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--cyan)' },
+  { section: 'Product' },
+  { id: 'landing',    label: 'Landing Page',       Icon: Sparkles,    accent: 'var(--cyan)' },
+  { id: 'pricing',    label: 'Pricing',            Icon: CreditCard },
+  { id: 'compliance', label: 'Legal & Compliance', Icon: ShieldCheck },
   { section: 'Learn' },
   { id: 'lessons',  label: 'Lessons',     Icon: BookOpen },
   { id: 'atlas',    label: 'ATLAS Tutor', Icon: GraduationCap, accent: 'var(--violet)' },
@@ -52,6 +60,9 @@ const PAGE_COMPONENTS = {
   atlas:    AtlasTutorPage,
   buildlog: BuildLogPage,
   settings: SettingsPage,
+  landing:    LandingPage,
+  pricing:    PricingPage,
+  compliance: CompliancePage,
 }
 
 function AtlasFAB({ currentPage }) {
@@ -319,12 +330,24 @@ export default function App() {
         </nav>
 
         {!collapsed && (
-          <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px' }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(180,124,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--violet)', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>V</div>
-              <div>
-                <p style={{ fontSize: '0.78rem', fontWeight: 500, color: 'var(--txt-pri)', margin: 0 }}>Vernon Unzicker</p>
-                <p style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', margin: 0 }}>Operator</p>
+          <div>
+            <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px' }}>
+                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(180,124,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--violet)', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>V</div>
+                <div>
+                  <p style={{ fontSize: '0.78rem', fontWeight: 500, color: 'var(--txt-pri)', margin: 0 }}>Vernon Unzicker</p>
+                  <p style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', margin: 0 }}>Operator</p>
+                </div>
+              </div>
+            </div>
+            <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
+              <p style={{ fontSize: '0.6rem', color: 'var(--txt-mut)', lineHeight: 1.5, margin: 0 }}>
+                Educational AI software. Not professional instruction.
+              </p>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button onClick={() => nav('compliance')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.58rem', padding: 0, textDecoration: 'underline' }}>Terms</button>
+                <button onClick={() => nav('compliance')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.58rem', padding: 0, textDecoration: 'underline' }}>Privacy</button>
+                <button onClick={() => nav('landing')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.58rem', padding: 0, textDecoration: 'underline' }}>About</button>
               </div>
             </div>
           </div>

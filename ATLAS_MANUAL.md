@@ -557,3 +557,124 @@ python -m pytest -q
 ```
 
 Tests that hit Supabase or OpenAI are skipped when credentials not set — safe offline.
+
+
+---
+
+## 9 — Compliance, Legal & Monetization
+
+### 9a. Product pages (in-app)
+
+Three public-facing product pages are now wired into the MammothOS sidebar under the **Product** section:
+
+| Page | Route key | Description |
+|---|---|---|
+| Landing Page | `landing` | Hero, feature grid, free/pro tiers, legal footer |
+| Pricing | `pricing` | 3-tier grid (Explorer / Pro / Enterprise) + FAQ |
+| Legal & Compliance | `compliance` | 4-tab legal: Terms, Privacy, Acceptable Use, Disclaimer |
+
+All pages use `setPage` prop for navigation — no separate router needed. A compliance footer strip (Terms · Privacy · About) also appears at the bottom of the sidebar.
+
+---
+
+### 9b. Terms of Use (summary)
+
+- MammothOS is an AI-assisted educational platform for personal and educational use.
+- ATLAS is a learning aid — not professional instruction, therapy, or certified education.
+- Do not use MammothOS to cheat on exams or circumvent academic integrity policies.
+- Users retain ownership of their submitted code and notes. MammothOS makes no claim.
+- By using the platform you agree to these terms. Full text available in-app under **Legal & Compliance**.
+
+---
+
+### 9c. Privacy Policy (summary)
+
+- Data collected: lesson history, onboarding profile, learner model state, submitted code.
+- Storage: local browser session + your local Supabase instance. No third-party analytics.
+- AI providers (OpenAI, Ollama) process prompts per their own terms.
+- We do not sell, rent, or share personal data.
+- Delete your data anytime: Settings → Reset Session.
+
+---
+
+### 9d. Acceptable Use Policy
+
+- ATLAS is a coach, not a solution generator. Do not use it to produce work you submit as your own.
+- Do not attempt to bypass the no-cheat guard via prompt engineering.
+- Do not use MammothOS for harmful, abusive, or illegal content generation.
+- Violations may restrict access to advanced features.
+
+---
+
+### 9e. Monetization tiers
+
+| Tier | Price | Status |
+|---|---|---|
+| **Explorer** | Free, forever | ✅ Active |
+| **Pro** | ~$12/mo (est.) | 🔜 Coming soon |
+| **Enterprise / Team** | Contact us | 📅 Future |
+
+**Explorer** includes: ATLAS tutor chat, adaptive pacing, lesson resume, flashcards/quiz, basic evals, local storage.
+
+**Pro** adds: multi-agent plan orchestration, all plan profiles, Supabase sync, eval history dashboard, audit export, coding agent with approval workflow, priority model routing.
+
+**Enterprise** adds: team dashboards, cohort analytics, custom curriculum authoring, LMS integration, white-label ATLAS, fine-tuned models, SLA.
+
+> **Monetization note:** No formal patents have been filed. "Patents pending on adaptive tutor and memory graph methodologies" is forward-looking product positioning language. All monetization scaffolding is designed to be wired to Stripe + Supabase entitlement sync when billing is ready.
+
+---
+
+### 9f. Entitlement API
+
+Two routes control feature gating:
+
+**`GET /api/entitlements`** — returns current tier and feature flags:
+```json
+{
+  "status": "ok",
+  "tier": "explorer",
+  "features": {
+    "atlas_tutor": true,
+    "adaptive_pacing": true,
+    "multi_agent_orchestration": false,
+    "supabase_sync": false,
+    ...
+  },
+  "upgrade_cta": "pricing"
+}
+```
+
+**`POST /api/entitlements/tier`** — set tier (admin/testing):
+```bash
+curl -X POST http://localhost:8000/api/entitlements/tier \
+  -H "Content-Type: application/json" \
+  -d '{"tier": "pro"}'
+```
+
+Valid tiers: `explorer`, `pro`, `enterprise`. Tier is persisted to `.mammoth/atlas_state.json`.
+
+---
+
+### 9g. Compliance and monetization scaling plan
+
+| Phase | Feature | Status |
+|---|---|---|
+| ✅ Phase 6a | Product pages (Landing, Pricing, Compliance) | Done |
+| ✅ Phase 6b | Entitlement API with tier persistence | Done |
+| 🔜 Phase 7 | Stripe integration for Pro subscriptions | Planned |
+| 🔜 Phase 8 | Supabase user accounts + tier sync | Planned |
+| 🔜 Phase 9 | Team dashboards and cohort reporting | Planned |
+| 🔜 Phase 10 | White-label ATLAS for schools/bootcamps | Future |
+
+---
+
+### 9h. Legal positioning
+
+MammothOS is positioned as an **educational AI assistant**:
+- Not a covered educational institution (not FERPA-regulated as a software vendor)
+- Not intended for users under 13 (COPPA safe harbor requires collecting no data from minors)
+- Not providing certified instruction or professional advice
+- All AI outputs carry an implicit "verify before use" disclaimer surfaced in the Disclaimer tab
+
+When seeking investment, partnerships, or enterprise contracts: lead with the adaptive tutor story, the memory graph, and the no-cheat guard — these are your key differentiators.
+
