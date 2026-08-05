@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 class FakeTable:
     def __init__(self, rows=None):
-        self._rows = rows or []
+        self._rows = rows if rows is not None else []
         self._filter = None
         self._pending_insert = None
         self._pending_update = None
@@ -60,7 +60,10 @@ class FakeTable:
                     r.update(payload)
                     updated = True
             if not updated:
-                self._rows.append(payload)
+                if isinstance(payload, list):
+                    self._rows.extend(payload)
+                else:
+                    self._rows.append(payload)
             self._pending_upsert = None
             self._filter = None
             return SimpleNamespace(data=[payload], status_code=200)
@@ -121,7 +124,12 @@ class FakeSupabase:
             {"user_id": "d6c16bc9-fc2a-4efd-8d9e-a95fb6baa448", "xp": 0, "rank": "Novice"}
         ]
         self._streaks = []
+        self._notes = []
+        self._progress = []
+        self._atlas_progress = []
+        self._adaptive_metrics = []
         self._lessons = []  # ← IMPORTANT: lessons stored here
+        self._lesson_chunks = []
         self._profiles = []
 
     def schema(self, name):
@@ -133,8 +141,18 @@ class FakeSupabase:
             return FakeTable(self._leaderboard)
         if name == "streaks":
             return FakeTable(self._streaks)
+        if name == "notes":
+            return FakeTable(self._notes)
+        if name == "progress":
+            return FakeTable(self._progress)
+        if name == "atlas_progress":
+            return FakeTable(self._atlas_progress)
+        if name == "adaptive_metrics":
+            return FakeTable(self._adaptive_metrics)
         if name == "lessons":
             return FakeTable(self._lessons)  # ← FIXED
+        if name == "lesson_chunks":
+            return FakeTable(self._lesson_chunks)
         if name == "profiles":
             return FakeTable(self._profiles)
         return FakeTable([])

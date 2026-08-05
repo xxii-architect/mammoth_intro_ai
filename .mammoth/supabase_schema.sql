@@ -91,6 +91,36 @@ GRANT SELECT, INSERT ON atlas.exercises TO service_role;
 
 
 -- ─────────────────────────────────────────────────────────────────────────
+-- atlas.lesson_chunks — persistent RAG chunks for lesson content
+-- ─────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS atlas.lesson_chunks (
+    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    lesson_id     UUID NOT NULL REFERENCES atlas.atlas_lessons(id) ON DELETE CASCADE,
+    chunk_index   INTEGER NOT NULL,
+    chunk_text    TEXT NOT NULL,
+    chunk_length  INTEGER NOT NULL DEFAULT 0,
+    embedding     vector(1536),
+    metadata      JSONB,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE atlas.lesson_chunks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role full access to lesson_chunks" ON atlas.lesson_chunks;
+CREATE POLICY "Service role full access to lesson_chunks"
+    ON atlas.lesson_chunks
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+
+GRANT SELECT, INSERT, UPDATE ON atlas.lesson_chunks TO service_role;
+
+CREATE INDEX IF NOT EXISTS idx_lesson_chunks_lesson_order
+    ON atlas.lesson_chunks (lesson_id, chunk_index);
+
+
+-- ─────────────────────────────────────────────────────────────────────────
 -- Useful indexes
 -- ─────────────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_exercises_curriculum_lesson

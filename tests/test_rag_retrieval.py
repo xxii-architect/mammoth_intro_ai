@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from mammoth_os.rag_retrieval import LessonChunkRetriever
 from mammoth_os.agents.curriculum_agent import CurriculumAgent
+from support.fake_supabase import fake_get_supabase
 
 
 def test_retriever_chunks_lesson_content():
@@ -150,6 +151,108 @@ def test_retriever_full_pipeline():
     asyncio.run(run_test())
 
 
+def test_retriever_persists_chunks_to_supabase(monkeypatch):
+    """Verify chunks are saved and loaded through the Supabase path."""
+    fake = fake_get_supabase()
+    monkeypatch.setattr("mammoth_os.rag_retrieval.get_supabase", lambda: fake)
+
+    async def run_test():
+        retriever = LessonChunkRetriever()
+        lesson_content = """
+        # Persistence Basics
+
+        Lessons should keep their chunks so later tutors can reuse them.
+        This makes coaching consistent across sessions.
+        """
+
+        first_pass = await retriever.retrieve_for_lesson(
+            lesson_id="lesson-persist-001",
+            content=lesson_content,
+            query="persistence"
+        )
+
+        assert first_pass
+        assert len(fake._lesson_chunks) > 0
+
+        second_retriever = LessonChunkRetriever()
+        second_pass = await second_retriever.retrieve_for_lesson(
+            lesson_id="lesson-persist-001",
+            content="",
+            query=""
+        )
+
+        assert second_pass
+        assert second_pass[0] == fake._lesson_chunks[0]["chunk_text"]
+
+    asyncio.run(run_test())
+
+
+def test_retriever_reranks_with_reflection_and_progress(monkeypatch):
+    """Verify signal-aware reranking prefers example-heavy chunks."""
+    fake = fake_get_supabase()
+    fake._lesson_chunks.extend([
+        {
+            "lesson_id": "lesson-signal-001",
+            "chunk_index": 0,
+            "chunk_text": "Intro: variables store values and names map to data.",
+            "embedding": [0.1] * 1536,
+            "metadata": {},
+        },
+        {
+            "lesson_id": "lesson-signal-001",
+            "chunk_index": 1,
+            "chunk_text": "Example: build a small function, test it, and inspect the output.",
+            "embedding": [0.1] * 1536,
+            "metadata": {},
+        },
+        {
+            "lesson_id": "lesson-signal-001",
+            "chunk_index": 2,
+            "chunk_text": "Advanced: recursion, memoization, and performance tradeoffs.",
+            "embedding": [0.1] * 1536,
+            "metadata": {},
+        },
+    ])
+    fake._notes.append({
+        "user_id": "user-1",
+        "lesson_id": "lesson-signal-001",
+        "content": "I need more examples of this and I get lost when it moves too fast.",
+        "metadata": {},
+        "created_at": "2026-08-04T00:00:00Z",
+    })
+    fake._progress.append({
+        "user_id": "user-1",
+        "lesson_id": "lesson-signal-001",
+        "status": "in_progress",
+        "last_accessed": "2026-08-04T01:00:00Z",
+    })
+    fake._adaptive_metrics.append({
+        "user_id": "user-1",
+        "lesson_id": "lesson-signal-001",
+        "difficulty_level": "hard",
+        "performance_score": 0.42,
+        "completion_time": "900 milliseconds",
+        "created_at": "2026-08-04T01:05:00Z",
+    })
+    monkeypatch.setattr("mammoth_os.rag_retrieval.get_supabase", lambda: fake)
+
+    async def run_test():
+        retriever = LessonChunkRetriever()
+        ranked = await retriever.retrieve_chunks(
+            user_id="user-1",
+            lesson_id="lesson-signal-001",
+            query=None,
+            top_k=3,
+        )
+
+        assert ranked
+        assert ranked[0]["chunk_index"] == 1
+        assert "signal_summary" in ranked[0]
+        assert "need more examples" in ranked[0]["signal_summary"]
+
+    asyncio.run(run_test())
+
+
 def test_curriculum_agent_injects_chunks():
     """Verify curriculum agent can inject chunks (mocked)."""
     curriculum_agent = CurriculumAgent(router=None)
@@ -215,4 +318,3 @@ def test_tutor_agent_uses_lesson_chunks():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
-

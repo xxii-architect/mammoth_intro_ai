@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, List
 
 from .base_agent import BaseAgent
 from mammoth_os.agents.coding_agent import CodingAgent
+from mammoth_os.rag_retrieval import get_retriever
 
 
 class TutorAgent(BaseAgent):
@@ -66,13 +67,32 @@ class TutorAgent(BaseAgent):
             topic = str(payload.get("topic") or payload.get("prompt") or "current lesson").strip()
             lesson_title = str(payload.get("lesson_title") or topic).strip()
             module_id = str(payload.get("module_id") or "").strip()
-            # Extract lesson chunks injected by curriculum_agent RAG pipeline
+            user_id = str(payload.get("user_id") or payload.get("user") or "default_user").strip()
+            lesson_id = str(payload.get("lesson_id") or payload.get("current_lesson_id") or "").strip()
             lesson_chunks = payload.get("_chunks") or []
         else:
             topic = str(payload or "current lesson").strip()
             lesson_title = topic
             module_id = ""
+            user_id = "default_user"
+            lesson_id = ""
             lesson_chunks = []
+
+        retriever = get_retriever()
+        signal_summary = "Signals:\n- Difficulty: unknown\n- Performance score: unknown\n- Struggle tags: none"
+        personalized_chunks: List[Dict[str, Any]] = []
+        if lesson_id:
+            personalized_chunks = await retriever.retrieve_chunks(
+                user_id=user_id,
+                lesson_id=lesson_id,
+                query=topic or lesson_title,
+                top_k=5,
+            )
+            signal_summary = retriever.build_signal_summary(
+                await retriever.load_user_signals(user_id, lesson_id)
+            )
+        elif lesson_chunks:
+            personalized_chunks = [{"chunk_text": chunk, "chunk_index": idx, "score": 0.0} for idx, chunk in enumerate(lesson_chunks)]
 
         checkpoints = [
             f"Restate the objective for {lesson_title} in your own words.",
@@ -84,7 +104,13 @@ class TutorAgent(BaseAgent):
 
         # Build coaching response with RAG-enriched context
         coaching_context = ""
-        if lesson_chunks:
+        if personalized_chunks:
+            coaching_context = "\n".join([
+                f"• {str(chunk.get('chunk_text') or '')[:200]}..."
+                for chunk in personalized_chunks[:3]
+                if chunk.get("chunk_text")
+            ])
+        elif lesson_chunks:
             coaching_context = "\n".join([f"• {chunk[:200]}..." for chunk in lesson_chunks[:3]])
 
         return {
@@ -93,8 +119,12 @@ class TutorAgent(BaseAgent):
             "mode": "coach",
             "topic": topic,
             "lesson_title": lesson_title,
+            "user_id": user_id,
+            "lesson_id": lesson_id,
             "module_id": module_id,
             "lesson_context": coaching_context,
+            "signal_summary": signal_summary,
+            "personalized_chunks": personalized_chunks,
             "coach_summary": f"Guide the learner through {lesson_title} with a clear objective, one validation checkpoint, and an honest reflection step.",
             "checkpoints": checkpoints,
             "next_step": "Complete the smallest verifiable part of the lesson, then reflect before escalating difficulty.",

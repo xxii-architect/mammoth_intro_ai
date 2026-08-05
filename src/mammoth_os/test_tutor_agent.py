@@ -3,6 +3,7 @@ import tempfile
 import os
 from unittest.mock import AsyncMock, patch
 import json
+from types import SimpleNamespace
 
 from mammoth_os.agents.tutor_agent import TutorAgent
 
@@ -72,3 +73,35 @@ async def _run():
 
 def test_tutor_agent_accept_submission():
     asyncio.run(_run())
+
+
+async def _personalized_chunk_run():
+    agent = TutorAgent()
+    retriever = SimpleNamespace(
+        retrieve_chunks=AsyncMock(return_value=[
+            {"chunk_text": "Example: test the helper with a tiny function.", "chunk_index": 1, "score": 0.95},
+            {"chunk_text": "Error handling: wrap risky operations in try/except.", "chunk_index": 2, "score": 0.75},
+        ]),
+        load_user_signals=AsyncMock(return_value={
+            "difficulty_level": "hard",
+            "performance_score": 0.42,
+            "struggle_tags": ["need more examples", "error handling"],
+        }),
+        build_signal_summary=lambda signals: (
+            "Signals:\n- Difficulty: hard\n- Performance score: 0.42\n- Struggle tags: need more examples, error handling"
+        ),
+    )
+    with patch("mammoth_os.agents.tutor_agent.get_retriever", return_value=retriever):
+        result = await agent.run({
+            "user_id": "user-1",
+            "lesson_id": "lesson-1",
+            "topic": "functions",
+            "lesson_title": "Functions",
+        })
+    assert "Example: test the helper" in result["lesson_context"]
+    assert "Signals:" in result["signal_summary"]
+    assert result["personalized_chunks"][0]["chunk_text"].startswith("Example:")
+
+
+def test_tutor_agent_uses_personalized_chunks_and_signals():
+    asyncio.run(_personalized_chunk_run())
