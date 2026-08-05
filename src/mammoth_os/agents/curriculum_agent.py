@@ -9,6 +9,8 @@ import json
 import os
 import urllib.parse
 import urllib.request
+import asyncio
+from mammoth_os.rag_retrieval import get_retriever
 
 
 class CurriculumAgent(BaseAgent):
@@ -175,6 +177,41 @@ class CurriculumAgent(BaseAgent):
             "estimated_total_minutes": sum(m["estimated_minutes"] for m in modules),
         }
 
+    async def _retrieve_lesson_chunks(self, lesson: Dict[str, Any]) -> List[str]:
+        """Retrieve relevant lesson chunks for tutor context injection."""
+        lesson_id = lesson.get("lesson_id", "")
+        content = lesson.get("content", "")
+        title = lesson.get("title", "")
+        
+        if not content or not lesson_id:
+            return []
+
+        try:
+            retriever = get_retriever()
+            # Retrieve top 3 chunks from lesson content
+            chunks = await retriever.retrieve_for_lesson(
+                lesson_id=lesson_id,
+                content=content,
+                query=title  # Use lesson title as context query
+            )
+            return chunks
+        except Exception as e:
+            self.log("WARN", f"Chunk retrieval failed for {lesson_id}: {e}")
+            return []
+
+    def _inject_chunks_into_lessons(self, curriculum: Dict[str, Any]) -> Dict[str, Any]:
+        """Inject retrieved chunks into lesson metadata for tutor context."""
+        if not curriculum or "modules" not in curriculum:
+            return curriculum
+
+        for module in curriculum.get("modules", []):
+            for lesson in module.get("lessons", []):
+                # Store chunks for later retrieval by tutor
+                lesson["_chunks"] = asyncio.run(self._retrieve_lesson_chunks(lesson))
+        
+        return curriculum
+
+
     def run(self, prompt: str) -> Dict[str, Any]:
         """
         Main entry point for CurriculumAgent.
@@ -191,6 +228,9 @@ class CurriculumAgent(BaseAgent):
         curriculum = self._load_from_mammoth_supabase(subject, curriculum_id, now)
         if curriculum is None:
             curriculum = self._build_template_curriculum(subject, curriculum_id, now)
+
+        # Inject RAG-retrieved lesson chunks for tutor context
+        curriculum = self._inject_chunks_into_lessons(curriculum)
 
         return {
             "status": "ok",

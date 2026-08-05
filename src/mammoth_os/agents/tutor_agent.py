@@ -66,10 +66,13 @@ class TutorAgent(BaseAgent):
             topic = str(payload.get("topic") or payload.get("prompt") or "current lesson").strip()
             lesson_title = str(payload.get("lesson_title") or topic).strip()
             module_id = str(payload.get("module_id") or "").strip()
+            # Extract lesson chunks injected by curriculum_agent RAG pipeline
+            lesson_chunks = payload.get("_chunks") or []
         else:
             topic = str(payload or "current lesson").strip()
             lesson_title = topic
             module_id = ""
+            lesson_chunks = []
 
         checkpoints = [
             f"Restate the objective for {lesson_title} in your own words.",
@@ -79,6 +82,11 @@ class TutorAgent(BaseAgent):
         if module_id:
             checkpoints.insert(1, f"Keep the work aligned with module '{module_id}'.")
 
+        # Build coaching response with RAG-enriched context
+        coaching_context = ""
+        if lesson_chunks:
+            coaching_context = "\n".join([f"• {chunk[:200]}..." for chunk in lesson_chunks[:3]])
+
         return {
             "status": "ok",
             "agent": self.name,
@@ -86,6 +94,7 @@ class TutorAgent(BaseAgent):
             "topic": topic,
             "lesson_title": lesson_title,
             "module_id": module_id,
+            "lesson_context": coaching_context,
             "coach_summary": f"Guide the learner through {lesson_title} with a clear objective, one validation checkpoint, and an honest reflection step.",
             "checkpoints": checkpoints,
             "next_step": "Complete the smallest verifiable part of the lesson, then reflect before escalating difficulty.",
