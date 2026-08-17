@@ -15,6 +15,8 @@ class OpenAIAdapter:
         # Default: gpt-4o-mini (cheap, fast, sufficient for MammothOS workloads)
         # Override with OPENAI_MODEL env var or config["model"]
         self.model = self._config.get("model") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        self.api_key = self._config.get("api_key") or os.getenv("OPENAI_API_KEY")
+        self.base_url = self._config.get("base_url") or os.getenv("OPENAI_BASE_URL")
         self._client = None
 
     def _ensure_client(self):
@@ -25,13 +27,16 @@ class OpenAIAdapter:
                 raise RuntimeError(
                     "openai package is required. Run: pip install 'openai>=1.0'"
                 ) from exc
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = self.api_key
             if not api_key:
                 raise RuntimeError(
                     "OPENAI_API_KEY environment variable is not set. "
                     "Add it to your .env file or set it in your terminal."
                 )
-            self._client = OpenAI(api_key=api_key)
+            client_kwargs = {"api_key": api_key}
+            if self.base_url:
+                client_kwargs["base_url"] = self.base_url
+            self._client = OpenAI(**client_kwargs)
         return self._client
 
     async def generate(self, prompt: str, **kwargs) -> str:

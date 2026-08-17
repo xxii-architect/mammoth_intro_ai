@@ -44,3 +44,10 @@ Get every major agent from the MammothOS registry into a visible, understandable
 - Use the autonomous run contract (`/api/autonomous/runs`) to drive Phase 5 run panels and orchestration UX.
 - Continue promoting routed agents into deeper autonomous profiles with explicit rollback/safety checkpoints.
 - ReasoningAgent Phase 2: attach structured Socratic questions, error-pattern guidance, and micro-lessons to tutor coaching/failure flows.
+- Add explicit dual-provider routing for the runtime: DeepSeek for reasoning, OpenAI for coding, with graceful fallback when keys are missing or accounts are out of credits.
+
+## Safety contract for model routing
+- `DEEPSEEK_API_KEY` → DeepSeek cloud reasoning path.
+- `OPENAI_API_KEY` → OpenAI coding path (`gpt-4o-mini` by default).
+- If a provider is unavailable due to no balance, quota exhaustion, auth failure, or billing issues, the runtime should move to the next provider without crashing the workflow.
+- If all cloud providers fail, the runtime must land on the local deterministic fallback so the app stays usable for testing and recovery.

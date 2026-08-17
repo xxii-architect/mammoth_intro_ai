@@ -76,19 +76,31 @@ These routes are intentionally additive and can coexist with `GET /api/agents`, 
   - recent `runs` with status/progress/source
 - Agent Console now renders an **Autonomous Runs** panel using this endpoint.
 
-## Local AI vs OpenAI routing
+## Local AI vs cloud routing
 
-Local model support is still active.
+MammothOS supports a safe multi-provider workflow without failing hard when an account is empty or a key is invalid.
 
 Current selection order in `src/mammoth_os/llm_client.py`:
 1. `MAMMOTH_LLM_ADAPTER=local` → deterministic local adapter
-2. `MAMMOTH_LLM_ADAPTER=ollama|hermes|deepseek|codellama|...` → local Ollama
-3. `MAMMOTH_LLM_ADAPTER=openai` → OpenAI
-4. `OPENAI_API_KEY` present → OpenAI
-5. Ollama running locally → Ollama auto-detect
-6. fallback → local deterministic adapter
+2. `MAMMOTH_LLM_ADAPTER=ollama|hermes|deepseek|codellama|...` → local Ollama model path
+3. `MAMMOTH_LLM_ADAPTER=deepseek|deepseek-api|deepseek-cloud` → DeepSeek cloud reasoning path
+4. `MAMMOTH_LLM_ADAPTER=openai` → OpenAI coding path
+5. `OPENAI_API_KEY` present → OpenAI (`gpt-4o-mini` by default)
+6. `DEEPSEEK_API_KEY` present → DeepSeek cloud fallback
+7. Ollama running locally → Ollama auto-detect
+8. fallback → local deterministic adapter
 
-If you want to prefer local models even when OpenAI key exists, set:
+Graceful-fallback behavior:
+- If DeepSeek or OpenAI rejects the request for quota/billing/auth reasons, the runtime falls back to the next viable provider.
+- This is the safe path when a provider runs out of credits or a key has expired.
+- The app remains usable rather than crashing with a terminal failure.
+
+Recommended split:
+- DeepSeek reasoning / ATLAS tutor / long-context coaching
+- OpenAI `gpt-4o-mini` for coding generation and code-review work
+- Ollama or local echo only when cloud providers are unavailable
+
+If you want to prefer local models even when cloud keys exist, set:
 ```powershell
 $env:MAMMOTH_LLM_ADAPTER = "hermes"
 # or

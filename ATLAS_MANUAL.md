@@ -64,16 +64,35 @@ Use these endpoints as an optional integration layer when you want an external c
 
 ## 2 — LLM model selection
 
-MammothOS auto-selects the best available model. Priority order:
+MammothOS now supports a safe dual-provider runtime: DeepSeek for reasoning-heavy work and OpenAI for coding tasks, with automatic fallback if a provider is out of credits or a key is invalid.
 
 | Priority | Condition | Result |
 |---|---|---|
 | 1 | `MAMMOTH_LLM_ADAPTER=local` in `.env` | Deterministic echo (CI only) |
-| 2 | `MAMMOTH_LLM_ADAPTER=hermes` (or deepseek, codellama...) | That Ollama model |
-| 3 | `MAMMOTH_LLM_ADAPTER=openai` | OpenAI |
-| 4 | `OPENAI_API_KEY` is set | OpenAI (gpt-4o-mini default) |
-| 5 | Ollama is running on localhost:11434 | Ollama auto-detected |
-| 6 | Nothing available | Local echo fallback |
+| 2 | `MAMMOTH_LLM_ADAPTER=ollama|hermes|codellama|...` | That Ollama model |
+| 3 | `MAMMOTH_LLM_ADAPTER=deepseek|deepseek-api|deepseek-cloud` | DeepSeek cloud reasoning path |
+| 4 | `MAMMOTH_LLM_ADAPTER=openai` | OpenAI |
+| 5 | `OPENAI_API_KEY` is set | OpenAI (`gpt-4o-mini` default) |
+| 6 | `DEEPSEEK_API_KEY` is set | DeepSeek cloud fallback |
+| 7 | Ollama is running on localhost:11434 | Ollama auto-detected |
+| 8 | Nothing available | Local echo fallback |
+
+### Recommended provider split
+
+- Use DeepSeek for reasoning, long-context tutoring, and ATLAS coaching.
+- Use OpenAI `gpt-4o-mini` for coding generation, repair, and code review.
+- If the current provider is out of quota / billing blocked / key invalid, MammothOS retries through the next provider instead of dead-ending the workflow.
+
+### Cloud keys in `.env`
+
+```env
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4o-mini
+DEEPSEEK_API_KEY=...
+DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+DEEPSEEK_MODEL=deepseek-chat
+MAMMOTH_LLM_ADAPTER=deepseek
+```
 
 ### Installed local models (Ollama)
 
@@ -93,8 +112,8 @@ All of these are ready to use — set `MAMMOTH_LLM_ADAPTER` in `.env`:
 
 **Switch models by changing one line in `.env`:**
 ```
-MAMMOTH_LLM_ADAPTER=deepseek    # DeepSeek Coder for code tasks
-MAMMOTH_LLM_ADAPTER=hermes      # Hermes3 for ATLAS (recommended default)
+MAMMOTH_LLM_ADAPTER=deepseek    # DeepSeek reasoning path (cloud)
+MAMMOTH_LLM_ADAPTER=hermes      # Hermes3 for ATLAS (local)
 MAMMOTH_LLM_ADAPTER=openai      # force OpenAI even if Ollama is running
 ```
 
