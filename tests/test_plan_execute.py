@@ -66,3 +66,23 @@ def test_plan_execute_autonomous_profile_includes_community_and_custodial(monkey
     assert result["plan_status"] == "completed"
     assert "community_engine_agent" in agent_ids
     assert "custodial_agent" in agent_ids
+
+
+def test_http_agent_routes_dispatch_to_registry(monkeypatch):
+    calls = []
+
+    def fake_registry_run_agent(agent_name, payload):
+        calls.append((agent_name, payload))
+        return {"status": "ok", "agent": agent_name, "payload": payload}
+
+    monkeypatch.setattr(api_server, "_agent_registry_ok", True)
+    monkeypatch.setattr(api_server, "registry_run_agent", fake_registry_run_agent)
+
+    atlas_result = asyncio.run(api_server.run_atlas_agent_endpoint("teach me the lesson plan"))
+    coding_result = asyncio.run(api_server.run_coding_agent_endpoint({"prompt": "refactor the routes"}))
+
+    assert atlas_result["status"] == "ok"
+    assert atlas_result["runtime_agent"] == "tutor"
+    assert coding_result["status"] == "ok"
+    assert coding_result["runtime_agent"] == "coding"
+    assert [name for name, _ in calls] == ["tutor", "coding"]

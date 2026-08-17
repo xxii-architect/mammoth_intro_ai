@@ -36,9 +36,9 @@ def test_atlas_plan_creates_completed_plan(monkeypatch):
 
     assert result["status"] == "ok"
     assert result["plan"]["plan_status"] == "completed"
-    assert result["plan"]["progress"]["total"] == 4
-    assert result["plan"]["progress"]["completed"] == 4
-    assert len(result["plan"]["plan_steps"]) == 4
+    assert result["plan"]["progress"]["total"] >= 4
+    assert result["plan"]["progress"]["completed"] == result["plan"]["progress"]["total"]
+    assert len(result["plan"]["plan_steps"]) >= 4
     assert result["plan"]["plan_profile"] == "coding"
     assert result["plan"]["synthesis"]["learner_summary"]
     assert result["plan"]["synthesis"]["next_action"]

@@ -274,7 +274,7 @@ class CodingAgent(BaseAgent):
         context = context or {}
 
         try:
-            raw = await client.generate(llm_prompt, max_tokens=1800, temperature=0.2)
+            raw = await client.generate(llm_prompt, max_tokens=8192, temperature=0.2)
             parsed = parse_structured_code_response(raw)
             if str(context.get("source", "")).strip().lower() == "atlas.code.generate":
                 self._write_ai_session(
@@ -387,7 +387,7 @@ class CodingAgent(BaseAgent):
 
             client = get_llm_client()
             prompt = f"Refactor the following Python code to improve readability, reduce complexity, and add minimal comments. Preserve behavior.\n\n{src}"
-            raw = await client.generate(prompt, max_tokens=1500, temperature=0.2)
+            raw = await client.generate(prompt, max_tokens=8192, temperature=0.2)
             refactored = extract_code_from_text(raw)
             diff = self._unified_diff(src, refactored)
             return {
@@ -429,6 +429,20 @@ class CodingAgent(BaseAgent):
             except Exception:
                 continue
 
+        # ── Syntax-check collected files before sandbox ──────────────────────────
+        for _rel, _src in list(project_files.items()):
+            try:
+                compile(_src, _rel, "exec")
+            except SyntaxError as _se:
+                return {
+                    "passed": False,
+                    "stdout": "",
+                    "stderr": f"SyntaxError in {_rel} — {_se.msg} (line {_se.lineno}): {_se.text or ''}",
+                    "returncode": 1,
+                    "method": "syntax-check",
+                }
+        # ─────────────────────────────────────────────────────────────────────────
+        
         # test runner script: simple, dependency-free runner that imports test modules and executes functions named test_*
         test_script = '''
 import importlib.util, sys, os, traceback
@@ -441,7 +455,13 @@ for t in test_files:
     try:
         spec = importlib.util.spec_from_file_location('mod_' + t, t)
         mod = importlib.util.module_from_spec(spec)
+        if os.path.exists('solution.py'):
+            sol_spec = importlib.util.spec_from_file_location('solution', 'solution.py')
+            sol_mod = importlib.util.module_from_spec(sol_spec)
+            sol_spec.loader.exec_module(sol_mod)
+            mod.__dict__.update({k: v for k, v in vars(sol_mod).items() if not k.startswith('_')})
         spec.loader.exec_module(mod)
+
         for name in dir(mod):
             if name.startswith('test_') and callable(getattr(mod, name)):
                 try:
@@ -479,20 +499,30 @@ sys.exit(failed)
                         try:
                             spec = importlib.util.spec_from_file_location(mod_name, tmp_path)
                             mod = importlib.util.module_from_spec(spec)
-                            # Ensure the project root is on sys.path so package imports like 'pkg.mathlib' resolve
+
+                            # Set up sys.path FIRST so solution.py can be found
                             if project_path not in sys.path:
                                 sys.path.insert(0, project_path)
                                 remove_project_path = True
                             else:
                                 remove_project_path = False
+
                             try:
-                                spec.loader.exec_module(mod)
+                                # Inject solution namespace so test files don't need explicit imports
+                                sol_path = os.path.join(project_path, 'solution.py')
+                                if os.path.exists(sol_path):
+                                    sol_spec = importlib.util.spec_from_file_location('solution', sol_path)
+                                    sol_mod = importlib.util.module_from_spec(sol_spec)
+                                    sol_spec.loader.exec_module(sol_mod)
+                                    mod.__dict__.update({k: v for k, v in vars(sol_mod).items() if not k.startswith('_')})
+                                spec.loader.exec_module(mod)  # ← only called ONCE
                             finally:
                                 if remove_project_path:
                                     try:
                                         sys.path.remove(project_path)
                                     except ValueError:
                                         pass
+
                             for name in dir(mod):
                                 if name.startswith('test_') and callable(getattr(mod, name)):
                                     try:
@@ -565,41 +595,277 @@ sys.exit(failed)
     # ---------------------------------------------------------
 
     async def _get_files(self, path: str) -> list[str]:
-        ...
+        """Recursively collect all Python file paths under the given directory."""
+        import glob
+        import os
+
+        if not os.path.exists(path):
+            self.log("WARN", f"_get_files: path not found: {path}")
+            return []
+
+        # If it's a single file, just return it directly
+        if os.path.isfile(path):
+            return [path]
+
+        return sorted(
+            glob.glob(os.path.join(path, "**", "*.py"), recursive=True)
+     )
 
     async def _read_file(self, path: str) -> str:
-        ...
+        """Read a file from disk and return its contents as a string."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        except FileNotFoundError:
+            self.log("WARN", f"_read_file: file not found: {path}")
+            return ""
+        except Exception as exc:
+            self.log("WARN", f"_read_file failed for {path}: {exc}")
+            return ""
 
-    async def _retrieve_context(self, query: str, codebase_path: str) -> list[dict]:
-        ...
+    def _build_prompt(
+        self,
+        prompt: str,
+        context_files: list,
+        language: str,
+        constraints: dict,
+    ) -> str:
+        """Assemble a full LLM prompt from user request + context + constraints."""
+        parts = [f"Language: {language}\n"] if language else []
 
-    def _build_prompt(self, prompt: str, context_files: list, language: str, constraints: dict) -> str:
-        ...
+        if constraints:
+            parts.append("Constraints:\n" + "\n".join(
+                f"  - {k}: {v}" for k, v in constraints.items()
+            ))
+
+        if context_files:
+            parts.append("Relevant context files:")
+            for snippet in context_files[:5]:  # cap at 5 to stay under token budget
+                name = snippet.get("file", "unknown")
+                content = snippet.get("content", "")[:800]  # trim long files
+                parts.append(f"# {name}\n{content}")
+
+        parts.append(f"Task:\n{prompt}")
+        return "\n\n".join(parts)
 
     async def _call_reasoning_engine(self, prompt: str) -> str:
-        ...
+        """Use the LLM to reason about a prompt and return a decision string."""
+        try:
+            client = get_llm_client()
+            response = await client.generate(
+                prompt,
+                max_tokens=64,
+                temperature=0.0,  # deterministic — we want a single tool name back
+            )
+            return (response or "generate_code").strip()
+        except Exception as exc:
+            self.log("WARN", f"_call_reasoning_engine failed: {exc}")
+            return "generate_code"
 
     async def _run_tests_sandboxed(self, tests: str, code: str, language: str) -> dict:
-        ...
+        """Run tests against code inside the sandbox, injecting the solution namespace."""
+        # ── Syntax-check generated code before sandbox ───────────────────────────
+        try:
+            compile(code, "solution.py", "exec")
+        except SyntaxError as se:
+            return {
+                "passed": False,
+                "stdout": "",
+                "stderr": f"SyntaxError in generated code — {se.msg} (line {se.lineno}): {se.text or ''}",
+                "returncode": 1,
+                "method": "syntax-check",
+            }
+        # ─────────────────────────────────────────────────────────────────────────
+
+        try:
+            from mammoth_os.sandbox_runner import run_code
+        except Exception as exc:
+            return {"passed": False, "error": f"SandboxRunner unavailable: {exc}"}
+
+        test_script = '''
+    import importlib.util, sys, os, traceback
+    test_files = [p for p in os.listdir('.') if p.startswith("test_") and p.endswith('.py')]
+    failed = 0
+    out_lines = []
+    err_lines = []
+    for t in test_files:
+        try:
+            spec = importlib.util.spec_from_file_location('mod_' + t, t)
+            mod = importlib.util.module_from_spec(spec)
+            if os.path.exists('solution.py'):
+                sol_spec = importlib.util.spec_from_file_location('solution', 'solution.py')
+                sol_mod = importlib.util.module_from_spec(sol_spec)
+                sol_spec.loader.exec_module(sol_mod)
+                mod.__dict__.update({k: v for k, v in vars(sol_mod).items() if not k.startswith('_')})
+            spec.loader.exec_module(mod)
+            for name in dir(mod):
+                if name.startswith('test_') and callable(getattr(mod, name)):
+                    try:
+                        getattr(mod, name)()
+                        out_lines.append("OK: %s::%s" % (t, name))
+                    except AssertionError as ae:
+                        failed += 1
+                        err_lines.append("FAIL: %s::%s: %s" % (t, name, ae))
+                    except Exception:
+                        failed += 1
+                        err_lines.append("ERROR: %s::%s: %s" % (t, name, traceback.format_exc()))
+        except Exception:
+            failed += 1
+            err_lines.append("IMPORT ERROR: %s: %s" % (t, traceback.format_exc()))
+print("\\n".join(out_lines))
+if err_lines:
+    print("\\n".join(err_lines), file=sys.stderr)
+sys.exit(failed)
+'''
+        project_files = {
+            "solution.py": code,
+            "test_generated.py": tests,
+        }
+
+        result = run_code(
+            code="",
+            test_script=test_script,
+            timeout=60,
+            memory_limit_mb=256,
+            project_files=project_files,
+        )
+
+        parsed = self._parse_pytest_output(result)
+        return {
+            **parsed,
+            "stdout": result.get("stdout", ""),
+            "stderr": result.get("stderr", ""),
+            "returncode": result.get("returncode", -1),
+            "language": language,
+        }
+
 
     async def _compute_diff(self, original_path: str, new_code: str) -> str:
-        ...
+        """Compute a unified diff between the original file and new_code string."""
+        original = await self._read_file(original_path)
+        return self._unified_diff(original, new_code)
 
     def _unified_diff(self, a: str, b: str) -> str:
         import difflib
         return "\n".join(difflib.unified_diff(a.splitlines(), b.splitlines(), lineterm=""))
 
     async def _compute_complexity(self, ast_results: list) -> dict:
-        ...
+        """Compute cyclomatic complexity per function across all AST results."""
+        import ast as ast_mod
+
+        BRANCH_NODES = (
+            ast_mod.If, ast_mod.For, ast_mod.While, ast_mod.ExceptHandler,
+            ast_mod.With, ast_mod.Assert, ast_mod.comprehension,
+        )
+
+        scores = {}
+        high_risk = []
+
+        for item in ast_results:
+            source = item.get("source", "")
+            filename = item.get("file", "unknown")
+            if not source:
+                continue
+            try:
+                tree = ast_mod.parse(source)
+                for node in ast_mod.walk(tree):
+                    if isinstance(node, (ast_mod.FunctionDef, ast_mod.AsyncFunctionDef)):
+                        complexity = 1 + sum(
+                            1 for child in ast_mod.walk(node)
+                            if isinstance(child, BRANCH_NODES)
+                        )
+                        key = f"{filename}::{node.name}"
+                        scores[key] = complexity
+                        if complexity >= 10:
+                            high_risk.append({"function": key, "complexity": complexity})
+            except Exception:
+                continue
+
+        avg = round(sum(scores.values()) / len(scores), 2) if scores else 0.0
+        return {
+            "scores": scores,
+            "average": avg,
+            "high_risk": high_risk,           # complexity >= 10
+            "medium_risk": [                   # complexity 5-9
+                {"function": k, "complexity": v}
+                for k, v in scores.items() if 5 <= v < 10
+            ],
+            "total_functions": len(scores),
+        }
 
     async def _extract_dependencies(self, ast_results: list) -> list[str]:
-        ...
+        """Walk AST results and extract all third-party import names."""
+        import sys
+        stdlib = set(sys.stdlib_module_names)  # Python 3.10+
+        deps = set()
+
+        for item in ast_results:
+            source = item.get("source", "")
+            if not source:
+                continue
+            try:
+                import ast as ast_mod
+                tree = ast_mod.parse(source)
+                for node in ast_mod.walk(tree):
+                    if isinstance(node, ast_mod.Import):
+                        for alias in node.names:
+                            root = alias.name.split(".")[0]
+                            if root not in stdlib:
+                                deps.add(root)
+                    elif isinstance(node, ast_mod.ImportFrom):
+                        if node.module:
+                            root = node.module.split(".")[0]
+                            if root not in stdlib:
+                                deps.add(root)
+            except Exception:
+                continue
+
+        return sorted(deps)
 
     async def _run_shell(self, cmd: str) -> dict:
-        ...
+        """Run a shell command asynchronously and return stdout/stderr/returncode."""
+        import asyncio
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            return {
+                "stdout": stdout.decode("utf-8", errors="replace"),
+                "stderr": stderr.decode("utf-8", errors="replace"),
+                "returncode": proc.returncode,
+            }
+        except Exception as exc:
+            self.log("ERROR", f"_run_shell failed: {exc}")
+            return {"stdout": "", "stderr": str(exc), "returncode": -1}
 
     def _parse_pytest_output(self, result: dict) -> dict:
-        ...
+        """Parse our OK:/FAIL:/ERROR: line format from sandbox test output."""
+        stdout = result.get("stdout", "")
+        stderr = result.get("stderr", "")
+        passed, failed, errors = [], [], []
+
+        for line in stdout.splitlines():
+            if line.startswith("OK:"):
+                passed.append(line[3:].strip())
+            elif line.startswith("FAIL:"):
+                failed.append(line[5:].strip())
+
+        for line in stderr.splitlines():
+            if line.startswith("ERROR:") or line.startswith("IMPORT ERROR:"):
+                errors.append(line.strip())
+
+        return {
+            "passed": len(failed) == 0 and len(errors) == 0,
+            "passed_tests": passed,
+            "failed_tests": failed,
+            "errors": errors,
+            "total": len(passed) + len(failed) + len(errors),
+            "pass_count": len(passed),
+            "fail_count": len(failed) + len(errors),
+        }
 
     def _score_confidence(self, test_results: dict, warnings: list) -> float:
         base = 0.9

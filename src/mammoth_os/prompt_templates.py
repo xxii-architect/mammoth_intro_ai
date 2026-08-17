@@ -4,6 +4,29 @@ from typing import List, Dict
 # MammothOS-context code generation prompt
 # ──────────────────────────────────────────────────────────────
 
+NON_PYTHON_KEYWORDS = {"react", "typescript", "tsx", "javascript", "vue", "svelte", "css", "html"}
+
+def build_code_gen_prompt(prompt: str, context_snippets: list) -> str:
+    prompt_lower = prompt.lower()
+    is_python = not any(kw in prompt_lower for kw in NON_PYTHON_KEYWORDS)
+
+    if is_python:
+        lang_instruction = (
+            "Return THREE labelled blocks:\n"
+            "```python\n# implementation here — main function MUST be named `solution`\n```\n"
+            "```pytest\n# pytest test functions — import solution from solution module\n```\n"
+            "```docs\n# short docstring / usage example\n```"
+        )
+    else:
+        lang_instruction = (
+            "Return the complete component code in a single labeled block:\n"
+            "```typescript\n// component code here\n```\n"
+            "```docs\n// short usage example\n```"
+        )
+    # ... rest of the prompt assembly
+
+
+
 _CODE_GEN_TEMPLATE = """\
 You are the CodingAgent inside MammothOS — an expert Python software engineer.
 Produce clean, production-ready code for the following request.

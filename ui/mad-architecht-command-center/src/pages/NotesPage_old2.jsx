@@ -1,21 +1,19 @@
 import { useState, useEffect } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
 import { api } from '../api/client'
-import NotesPanel from "../notes/NotesPanel";
-
+import NotesPanel from '../notes/NotesPanel';
+import AgentNotesPanel from '../notes/AgentNotesPanel';
 
 export default function NotesPage() {
-  const [notes, setNotes] = useState([])
+  const [notes, setNotes]   = useState([])
   const [active, setActive] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  // Fetch notes on load
   useEffect(() => {
-    api('/notes')
-      .then(data => {
-        setNotes(data)
-        if (data.length) setActive(data[0].id)
-      })
-      .catch(() => {})
+    api('/notes').then(data => {
+      setNotes(data)
+      if (data.length) setActive(data[0].id)
+    }).catch(() => {})
   }, [])
 
   const current = notes.find(n => n.id === active)
@@ -35,9 +33,7 @@ export default function NotesPage() {
   }
 
   const updateField = (field, value) => {
-    setNotes(prev =>
-      prev.map(n => (n.id === active ? { ...n, [field]: value } : n))
-    )
+    setNotes(prev => prev.map(n => n.id === active ? { ...n, [field]: value } : n))
   }
 
   const saveNote = async () => {
@@ -53,9 +49,7 @@ export default function NotesPage() {
     try {
       await api(`/notes/${id}`, { method: 'DELETE' })
     } catch (_) {}
-
     setNotes(prev => prev.filter(n => n.id !== id))
-
     if (active === id) {
       const remaining = notes.filter(n => n.id !== id)
       setActive(remaining.length ? remaining[0].id : null)
@@ -64,20 +58,12 @@ export default function NotesPage() {
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
-      <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16 }}>
-        Notes
-      </h1>
-
+      <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16 }}>Notes</h1>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 24, padding: 16 }}>
-        <NotesPanel
-          notes={notes}
-          active={active}
-          saving={saving}
-          onAdd={addNote}
-          onUpdateField={updateField}
-          onSave={saveNote}
-          onDelete={deleteNote}
-        />
+        <h2 style={{ color: 'var(--txt-pri)' }}>Your Notes</h2>
+        <NotesPanel />
+        <h2 style={{ color: 'var(--txt-pri)' }}>Agent Notes</h2>
+        <AgentNotesPanel />
       </div>
     </div>
   )

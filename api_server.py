@@ -648,6 +648,76 @@ async def get_agents():
     return results
 
 
+def _coerce_http_agent_prompt(payload: Any) -> str:
+    if isinstance(payload, str):
+        return payload.strip()
+    if isinstance(payload, dict):
+        for key in ("prompt", "message", "query", "task", "goal", "instruction"):
+            value = payload.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                return text
+        return ""
+    if payload is None:
+        return ""
+    return str(payload).strip()
+
+
+async def _dispatch_http_agent(agent_label: str, payload: Any) -> Dict[str, Any]:
+    prompt = _coerce_http_agent_prompt(payload)
+    if not prompt:
+        return {"status": "error", "error": "prompt is required"}
+    mapping = {"atlas": "tutor", "coding": "coding"}
+    runtime_agent = mapping.get(agent_label)
+    if runtime_agent is None:
+        return {"status": "error", "error": f"unsupported agent label: {agent_label}"}
+    if not _agent_registry_ok:
+        return {"status": "error", "error": "agent registry unavailable"}
+
+    def _invoke() -> Any:
+        return registry_run_agent(runtime_agent, prompt)
+
+    result = await asyncio.get_event_loop().run_in_executor(None, _invoke)
+    return {
+        "status": "ok",
+        "agent": agent_label,
+        "runtime_agent": runtime_agent,
+        "result": result,
+    }
+
+
+@app.post("/agent/atlas/run")
+async def run_atlas_agent_endpoint(payload: Any):
+    return await _dispatch_http_agent("atlas", payload)
+
+
+@app.post("/agent/coding/run")
+async def run_coding_agent_endpoint(payload: Any):
+    return await _dispatch_http_agent("coding", payload)
+
+
+@app.post("/agent/shell/run")
+async def run_shell_agent_endpoint(payload: Any):
+    prompt = _coerce_http_agent_prompt(payload)
+    if not prompt:
+        return {"status": "error", "error": "command is required"}
+    try:
+        completed = subprocess.run(prompt, shell=True, capture_output=True, text=True, cwd=str(ROOT), timeout=120)
+        return {
+            "status": "ok",
+            "agent": "shell",
+            "result": {
+                "returncode": completed.returncode,
+                "stdout": completed.stdout,
+                "stderr": completed.stderr,
+            },
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "agent": "shell"}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/health
 # ─────────────────────────────────────────────────────────────────────────────

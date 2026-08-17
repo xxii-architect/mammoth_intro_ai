@@ -47,6 +47,19 @@ OPENAI_API_KEY            = <your OpenAI key>          # optional if using Ollam
 - Record major runs in Build Log and Diagnostics export so work remains portfolio-verifiable.
 - Avoid mixing legal claims with roadmap intent; document "current posture" vs "planned posture."
 
+### Additive agent bridge
+
+MammothOS keeps the native runtime-first flow and adds an optional HTTP bridge for external orchestrators such as Copilot Tasks.
+The bridge is deliberately additive and does not replace the existing registry + workflow APIs.
+
+```http
+POST /agent/atlas/run
+POST /agent/coding/run
+POST /agent/shell/run
+```
+
+Use these endpoints as an optional integration layer when you want an external conductor to delegate to ATLAS or CodingAgent without forcing Copilot itself to do all edits.
+
 ---
 
 ## 2 — LLM model selection

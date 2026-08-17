@@ -91,6 +91,17 @@ def get_llm_client(config: Dict[str, Any] | None = None):
             cfg = {**cfg, "model": adapter_name}
         return OllamaAdapter(config=cfg)
 
+    # 2a. DeepSeek cloud API (OpenAI-compatible)
+    if adapter_name in {"deepseek-api", "deepseek-cloud"}:
+        deepseek_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+        deepseek_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1").strip()
+        deepseek_model = cfg.get("model") or os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+        if deepseek_key:
+            try:
+                return OpenAIAdapter(config={**cfg, "api_key": deepseek_key, "base_url": deepseek_url, "model": deepseek_model})
+            except Exception:
+                pass
+
     # 2b. Model hint implies Ollama (even when OPENAI_API_KEY is present).
     requested_model = str(cfg.get("model", "")).strip()
     if _is_ollama_model_hint(requested_model):

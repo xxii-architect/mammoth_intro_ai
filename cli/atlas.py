@@ -455,7 +455,17 @@ def cmd_atlas_code_generate(args) -> None:
         print('   python -m cli.main atlas code generate "write a function that reverses a string"')
         sys.exit(1)
 
+    # ── Language guard ──────────────────────────────────────────────────────
+    _NON_PYTHON = {"react", "typescript", "tsx", "javascript", "vue", "svelte", "html", "css"}
+    if any(kw in prompt.lower() for kw in _NON_PYTHON):
+        print("\n⚠️  Non-Python prompt detected — skipping Python sandbox.")
+        print("👉  Use:  python -m cli.main atlas ui palette \"<your prompt>\"")
+        print("    That command routes to UIBuilderAgent and outputs a .tsx file directly.\n")
+        sys.exit(0)
+    # ────────────────────────────────────────────────────────────────────────
+
     session = _load_session()
+    ...
 
     print("\n🐘 ATLAS — CodingAgent: generate → test → hint")
     _divider()
@@ -591,7 +601,7 @@ def cmd_atlas_code_refactor(args) -> None:
         from mammoth_os.agents.coding_agent import CodingAgent
         from mammoth_os.prompt_templates import build_refactor_prompt
         try:
-            from mammoth_os.llm_clients import get_llm_client
+            from mammoth_os.llm_client import get_llm_client
             client = get_llm_client()
             prompt = build_refactor_prompt(original)
             raw = await client.generate(prompt, max_tokens=1800, temperature=0.2)
@@ -615,6 +625,116 @@ def cmd_atlas_code_refactor(args) -> None:
         out.write_text(refactored, encoding="utf-8")
         print(f"\n✅ Refactored code written to {out}")
 
+def cmd_atlas_code_debug(args) -> None:
+    """Ask the CodingAgent to hunt for bugs in a file."""
+    from pathlib import Path
+    path = Path(args.file)
+    if not path.exists():
+        print(f"❌ File not found: {path}")
+        sys.exit(1)
+
+    code = path.read_text(encoding="utf-8")
+    print(f"\n🐘 ATLAS — CodingAgent: debug {path.name}")
+    _divider()
+
+    async def _do_debug() -> str:
+        try:
+            from mammoth_os.llm_client import get_llm_client
+            client = get_llm_client()
+            prompt = (
+                "You are a senior code reviewer and bug hunter. "
+                "Carefully read the following code and identify every bug, "
+                "logic error, broken reference, and potential runtime exception. "
+                "For each issue found, state: the line or section, what the bug is, "
+                "and why it will fail. Be specific and direct.\n\n"
+                f"```\n{code}\n```"
+            )
+            return await client.generate(prompt, max_tokens=600, temperature=0.2)
+        except Exception as exc:
+            return f"(debug unavailable: {exc})"
+
+    result = asyncio.run(_do_debug())
+    print(f"\n🐛 Bugs found:\n\n{result.strip()}\n")
+    _divider()
+
+
+def cmd_atlas_code_scan(args) -> None:
+    """Run a structured audit scan: bugs, warnings, and improvement suggestions."""
+    from pathlib import Path
+    path = Path(args.file)
+    if not path.exists():
+        print(f"❌ File not found: {path}")
+        sys.exit(1)
+
+    code = path.read_text(encoding="utf-8")
+    print(f"\n🐘 ATLAS — CodingAgent: scan {path.name}")
+    _divider()
+
+    async def _do_scan() -> str:
+        try:
+            from mammoth_os.llm_client import get_llm_client
+            client = get_llm_client()
+            prompt = (
+                "You are a code quality auditor. Analyze the following code and return "
+                "a structured report with exactly three numbered sections:\n"
+                "1. BUGS — actual errors that will break the code at runtime\n"
+                "2. WARNINGS — risky patterns, deprecated usage, or likely future breakage\n"
+                "3. SUGGESTIONS — optional improvements for readability, performance, or maintainability\n"
+                "Be concise. Each item gets one line. If a section has no items, write 'None found.'\n\n"
+                f"```\n{code}\n```"
+            )
+            return await client.generate(prompt, max_tokens=700, temperature=0.2)
+        except Exception as exc:
+            return f"(scan unavailable: {exc})"
+
+    result = asyncio.run(_do_scan())
+    print(f"\n🔍 Scan report:\n\n{result.strip()}\n")
+    _divider()
+
+
+def cmd_atlas_code_patch(args) -> None:
+    """Apply a targeted directed change to a file based on a --fix instruction."""
+    from pathlib import Path
+    path = Path(args.file)
+    if not path.exists():
+        print(f"❌ File not found: {path}")
+        sys.exit(1)
+
+    code = path.read_text(encoding="utf-8")
+    instruction = args.fix
+    print(f"\n🐘 ATLAS — CodingAgent: patch {path.name}")
+    print(f"🔧 Instruction: {instruction}")
+    _divider()
+
+    async def _do_patch() -> str:
+        try:
+            from mammoth_os.llm_client import get_llm_client
+            client = get_llm_client()
+            prompt = (
+                "You are a precise code editor. Apply ONLY the following change to the code below. "
+                "Do not refactor, rename, reformat, or alter anything else. "
+                "Return the COMPLETE updated file with the change applied.\n\n"
+                f"INSTRUCTION: {instruction}\n\n"
+                f"```\n{code}\n```"
+            )
+            raw = await client.generate(prompt, max_tokens=2000, temperature=0.1)
+            import re
+            m = re.search(r"```(?:\w+)?\s*\n([\s\S]*?)```", raw)
+            return m.group(1).strip() if m else raw.strip()
+        except Exception as exc:
+            return f"# patch unavailable: {exc}\n{code}"
+
+    patched = asyncio.run(_do_patch())
+
+    if args.inplace:
+        path.write_text(patched, encoding="utf-8")
+        print(f"\n✅ Patch applied directly to {path}")
+    else:
+        out = Path(args.output) if args.output else path.with_suffix(".patched" + path.suffix)
+        out.write_text(patched, encoding="utf-8")
+        print(f"\n✅ Patched file written to {out}")
+    _divider()
+
 
 def cmd_atlas_code_explain(args) -> None:
     """Ask the CodingAgent to explain a Python file to a learner."""
@@ -631,7 +751,7 @@ def cmd_atlas_code_explain(args) -> None:
     async def _do_explain() -> str:
         from mammoth_os.prompt_templates import build_explain_prompt
         try:
-            from mammoth_os.llm_clients import get_llm_client
+            from mammoth_os.llm_client import get_llm_client
             client = get_llm_client()
             prompt = build_explain_prompt(code)
             return await client.generate(prompt, max_tokens=400, temperature=0.3)
@@ -742,5 +862,24 @@ def build_atlas_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentPars
     p_exp = code_sub.add_parser("explain", help="Ask the CodingAgent to explain a Python file")
     p_exp.add_argument("file", help="Path to the Python file to explain")
     p_exp.set_defaults(func=cmd_atlas_code_explain)
+
+    # atlas code debug <file>
+    p_dbg = code_sub.add_parser("debug", help="Hunt for bugs in a file using the CodingAgent")
+    p_dbg.add_argument("file", help="Path to the file to debug")
+    p_dbg.set_defaults(func=cmd_atlas_code_debug)
+
+    # atlas code scan <file>
+    p_scan = code_sub.add_parser("scan", help="Structured audit: bugs, warnings, suggestions")
+    p_scan.add_argument("file", help="Path to the file to scan")
+    p_scan.set_defaults(func=cmd_atlas_code_scan)
+
+    # atlas code patch <file> --fix "instruction"
+    p_patch = code_sub.add_parser("patch", help="Apply a targeted directed change to a file")
+    p_patch.add_argument("file", help="Path to the file to patch")
+    p_patch.add_argument("--fix", required=True, metavar="INSTRUCTION", help="What to change, e.g. --fix \"replace all #fff with var(--text-primary)\"")
+    p_patch.add_argument("--inplace", action="store_true", help="Overwrite the original file")
+    p_patch.add_argument("--output", default=None, metavar="FILE", help="Write patched output to this path")
+    p_patch.set_defaults(func=cmd_atlas_code_patch)
+
 
     return p_atlas

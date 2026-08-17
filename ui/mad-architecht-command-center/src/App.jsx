@@ -1,9 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
-  DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, Search, GraduationCap,
-  Activity,
-  Sparkles, CreditCard, ShieldCheck,
+  DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
+  Activity, Sparkles, CreditCard, ShieldCheck,
 } from 'lucide-react'
 
 import HomePage        from './pages/HomePage'
@@ -17,9 +16,10 @@ import BuildLogPage    from './pages/BuildLogPage'
 import LogSalePage     from './pages/LogSalePage'
 import SettingsPage    from './pages/SettingsPage'
 import AtlasTutorPage  from './pages/AtlasTutorPage'
-import LandingPage    from './pages/LandingPage'
-import CompliancePage from './pages/CompliancePage'
-import PricingPage    from './pages/PricingPage'
+import FlashcardsPage  from './pages/FlashcardsPage'
+import LandingPage     from './pages/LandingPage'
+import CompliancePage  from './pages/CompliancePage'
+import PricingPage     from './pages/PricingPage'
 import DiagnosticsPage from './pages/DiagnosticsPage'
 
 const THEMES = {
@@ -33,39 +33,45 @@ const NAV = [
   { id: 'home',     label: 'Home',        Icon: LayoutDashboard },
   { id: 'agent',    label: 'Agent',       Icon: Bot },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
+
   { section: 'Tools' },
   { id: 'notes',    label: 'Notes',       Icon: FileText },
   { id: 'modules',  label: 'Modules',     Icon: Package },
   { id: 'health',   label: 'Health',      Icon: HeartPulse },
   { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--cyan)' },
+
   { section: 'Product' },
   { id: 'landing',    label: 'Landing Page',       Icon: Sparkles,    accent: 'var(--cyan)' },
   { id: 'pricing',    label: 'Pricing',            Icon: CreditCard },
   { id: 'compliance', label: 'Legal & Compliance', Icon: ShieldCheck },
+
   { section: 'Learn' },
-  { id: 'lessons',  label: 'Lessons',     Icon: BookOpen },
-  { id: 'atlas',    label: 'ATLAS Tutor', Icon: GraduationCap, accent: 'var(--violet)' },
-  { id: 'buildlog', label: 'Build Log',   Icon: ClipboardList },
+  { id: 'lessons',    label: 'Lessons',     Icon: BookOpen },
+  { id: 'atlas',      label: 'ATLAS Tutor', Icon: GraduationCap, accent: 'var(--violet)' },
+  { id: 'flashcards', label: 'Flashcards',  Icon: Brain, accent: 'var(--violet)' },
+  { id: 'buildlog',   label: 'Build Log',   Icon: ClipboardList },
+
   { section: 'System' },
   { id: 'diagnostics', label: 'Diagnostics', Icon: Activity, accent: 'var(--cyan)' },
-  { id: 'settings', label: 'Settings',    Icon: Settings },
+  { id: 'settings',    label: 'Settings',    Icon: Settings },
 ]
 
 const PAGE_COMPONENTS = {
-  home:     HomePage,
-  agent:    AgentPage,
-  terminal: TerminalPage,
-  notes:    NotesPage,
-  modules:  ModulesPage,
-  health:   HealthPage,
-  logsale:  LogSalePage,
-  lessons:  LessonsPage,
-  atlas:    AtlasTutorPage,
-  buildlog: BuildLogPage,
-  settings: SettingsPage,
-  landing:    LandingPage,
-  pricing:    PricingPage,
-  compliance: CompliancePage,
+  home:        HomePage,
+  agent:       AgentPage,
+  terminal:    TerminalPage,
+  notes:       NotesPage,
+  modules:     ModulesPage,
+  health:      HealthPage,
+  logsale:     LogSalePage,
+  lessons:     LessonsPage,
+  atlas:       AtlasTutorPage,
+  flashcards:  FlashcardsPage,
+  buildlog:    BuildLogPage,
+  settings:    SettingsPage,
+  landing:     LandingPage,
+  pricing:     PricingPage,
+  compliance:  CompliancePage,
   diagnostics: DiagnosticsPage,
 }
 
@@ -119,7 +125,8 @@ function AtlasFAB({ currentPage }) {
         setHistory(h => [...h, { role: 'assistant', message: data.reply || data.error || 'No response.' }])
       }
     } catch (e) {
-      setHistory(h => [...h, { role: 'assistant', message: `⚠ ${e.message}` }])
+      const errMsg = e instanceof Error ? e.message : 'Connection error'
+      setHistory(h => [...h, { role: 'assistant', message: '[!] ' + errMsg }])
     } finally {
       setBusy(false)
     }
@@ -172,69 +179,68 @@ function AtlasFAB({ currentPage }) {
             <select
               value={mode}
               onChange={e => setMode(e.target.value)}
-              style={{ flex: 1, minWidth: 120, padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.72rem' }}
+              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, color: 'var(--txt-sec)', fontSize: '0.72rem', padding: '3px 6px', cursor: 'pointer' }}
             >
-              <option value="assistant">Assistant mode</option>
-              <option value="tutor">Tutor mode</option>
-              <option value="build">Plan + Build mode</option>
+              <option value="assistant">Assistant</option>
+              <option value="tutor">Tutor</option>
+              <option value="strict">Strict</option>
             </select>
-            {mode !== 'assistant' && (
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--txt-sec)', fontSize: '0.68rem', whiteSpace: 'nowrap' }}>
-                <input
-                  type="checkbox"
-                  checked={strictGuard}
-                  onChange={e => setStrictGuard(e.target.checked)}
-                />
-                No-cheat guard
-              </label>
-            )}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', color: 'var(--txt-mut)', cursor: 'pointer', userSelect: 'none' }}>
+              <input type="checkbox" checked={strictGuard} onChange={e => setStrictGuard(e.target.checked)} style={{ accentColor: 'var(--violet)' }} />
+              Guard
+            </label>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {history.length === 0 && (
-              <div style={{ color: 'var(--txt-mut)', fontSize: '0.82rem', textAlign: 'center', marginTop: 40 }}>
-                <p style={{ marginBottom: 8 }}>👋 Hi Vernon!</p>
-                <p>{mode === 'assistant' ? 'Talk to me naturally about your build, code, ideas, and plans.' : 'Ask me anything about your current lesson, code, or MammothOS.'}</p>
+              <div style={{ textAlign: 'center', marginTop: 40 }}>
+                <p style={{ fontSize: '1.8rem', marginBottom: 8 }}>🐘</p>
+                <p style={{ fontSize: '0.78rem', color: 'var(--txt-mut)', margin: 0 }}>Ask ATLAS anything about your current lesson or code.</p>
               </div>
             )}
-            {history.slice(-30).map((msg, i) => (
+            {history.map((msg, i) => (
               <div key={i} style={{
                 alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
                 maxWidth: '85%',
+                background: msg.role === 'user' ? 'rgba(180,124,255,0.18)' : 'rgba(255,255,255,0.06)',
+                border: msg.role === 'user' ? '1px solid rgba(180,124,255,0.3)' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                padding: '8px 11px',
+                fontSize: '0.78rem',
+                color: 'var(--txt-pri)',
+                lineHeight: 1.5,
+                whiteSpace: 'pre-wrap',
               }}>
-                <div style={{
-                  padding: '8px 12px',
-                  borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                  background: msg.role === 'user' ? 'rgba(77,166,255,0.2)' : 'rgba(180,124,255,0.12)',
-                  border: `1px solid ${msg.role === 'user' ? 'rgba(77,166,255,0.3)' : 'rgba(180,124,255,0.25)'}`,
-                  fontSize: '0.82rem', color: 'var(--txt-pri)', lineHeight: 1.55,
-                  whiteSpace: 'pre-wrap',
-                }}>
-                  {msg.message}
-                </div>
-                {msg.model && (
-                  <p style={{ margin: '2px 4px', fontSize: '0.62rem', color: 'var(--txt-mut)' }}>{msg.model}</p>
-                )}
+                {msg.message}
               </div>
             ))}
             {busy && (
-              <div style={{ display: 'flex', gap: 4, padding: 8, alignSelf: 'flex-start' }}>
-                {[0, 1, 2].map(i => <span key={i} className="thinking-dot" style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--violet)', display: 'inline-block' }} />)}
-              </div>
+              <div style={{ alignSelf: 'flex-start', fontSize: '0.78rem', color: 'var(--txt-mut)', padding: '8px 11px' }}>🐘 thinking…</div>
             )}
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+          <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 8 }}>
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-              placeholder={mode === 'assistant' ? 'Talk with ATLAS Assistant…' : 'Ask ATLAS…'}
-              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.05)', color: 'var(--txt-pri)', fontSize: '0.82rem', outline: 'none', fontFamily: 'Inter,sans-serif' }}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
+              placeholder="Ask ATLAS..."
+              style={{
+                flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
+                borderRadius: 8, color: 'var(--txt-pri)', fontSize: '0.8rem',
+                padding: '8px 10px', outline: 'none',
+              }}
             />
-            <button onClick={send} disabled={busy}
-              style={{ padding: '8px 14px', borderRadius: 8, border: 'none', background: busy ? 'rgba(180,124,255,0.3)' : 'var(--violet)', color: '#fff', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.82rem' }}>
+            <button
+              onClick={send}
+              disabled={busy}
+              style={{
+                padding: '8px 14px', borderRadius: 8, border: 'none',
+                background: busy ? 'rgba(180,124,255,0.3)' : 'var(--violet)',
+                color: '#fff', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.8rem',
+              }}
+            >
               {busy ? '…' : '↑'}
             </button>
           </div>
@@ -245,136 +251,98 @@ function AtlasFAB({ currentPage }) {
 }
 
 export default function App() {
-  const [page, setPage] = useState(() => localStorage.getItem('mmPage') || 'home')
-  const [collapsed, setCollapsed] = useState(false)
-  const [theme, setTheme] = useState(() => localStorage.getItem('mmTheme') || 'darker')
+  const [page, setPage] = useState('home')
+  const [theme, setTheme] = useState('darker')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   useEffect(() => {
     const vars = THEMES[theme] || THEMES.darker
     Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
-    localStorage.setItem('mmTheme', theme)
   }, [theme])
 
-  useEffect(() => {
-    localStorage.setItem('mmPage', page)
-  }, [page])
-
-  const nav = useCallback((id) => setPage(id), [])
-  const sidebarW = collapsed ? 56 : 240
-  const PageComponent = PAGE_COMPONENTS[page]
+  const PageComponent = PAGE_COMPONENTS[page] || HomePage
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'var(--shell)', fontFamily: 'Inter,system-ui,sans-serif', color: 'var(--txt-pri)', overflow: 'hidden' }}>
-
-      {/* Header */}
-      <header style={{
-        position: 'fixed', top: 0, left: 0, right: 0, height: 52, zIndex: 100,
-        background: 'rgba(13,17,23,0.85)', backdropFilter: 'blur(16px)',
-        borderBottom: '1px solid var(--border)',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button onClick={() => setCollapsed(c => !c)}
-            style={{ padding: 6, borderRadius: 8, background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)' }}>
-            <PanelLeft size={20} />
-          </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--txt-pri)' }}>Mammoth</span>
-            <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--photon)' }}>OS</span>
-            <span style={{ fontSize: '0.65rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--photon)', border: '1px solid rgba(77,166,255,0.3)', borderRadius: 20, padding: '2px 6px', marginLeft: 4 }}>v2036</span>
-          </div>
-        </div>
-
-        <span style={{ fontSize: '0.7rem', letterSpacing: '0.2em', color: 'var(--txt-mut)', fontWeight: 500, textTransform: 'uppercase' }}>
-          Command Center
-        </span>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div className="live-dot" style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)' }} />
-            <span style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--cyan)', fontWeight: 600 }}>LIVE</span>
-          </div>
-          <button style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: 'var(--txt-sec)' }}>
-            <Search size={14} />
-            <span style={{ fontSize: '0.7rem', fontFamily: 'JetBrains Mono,monospace' }}>Ctrl+K</span>
-          </button>
-        </div>
-      </header>
+    <div style={{ display: 'flex', height: '100vh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
 
       {/* Sidebar */}
-      <aside style={{
-        position: 'fixed', top: 52, left: 0, bottom: 0, width: sidebarW, zIndex: 90,
-        background: 'rgba(13,17,23,0.85)', backdropFilter: 'blur(16px)',
-        borderRight: '1px solid var(--border)',
+      <div style={{
+        width: sidebarOpen ? 220 : 0,
+        minWidth: sidebarOpen ? 220 : 0,
+        transition: 'width 0.2s, min-width 0.2s',
+        overflow: 'hidden',
+        background: 'var(--card)',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
         display: 'flex', flexDirection: 'column',
-        transition: 'width 0.25s ease', overflow: 'hidden',
       }}>
-        <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto', overflowX: 'hidden' }}>
+        <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: '1.2rem' }}>🐘</span>
+          <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--txt-pri)', letterSpacing: '0.04em' }}>MammothOS</span>
+        </div>
+
+        <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
           {NAV.map((item, i) => {
             if (item.section) {
-              return collapsed ? null : (
-                <div key={i} style={{ fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-mut)', padding: '16px 16px 4px' }}>
+              return (
+                <p key={i} style={{ margin: '14px 16px 4px', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>
                   {item.section}
-                </div>
+                </p>
               )
             }
-            const active = page === item.id
-            const accentColor = item.accent || 'var(--photon)'
+            const { id, label, Icon, accent } = item
+            const active = page === id
             return (
-              <div key={item.id} onClick={() => nav(item.id)}
+              <button
+                key={id}
+                onClick={() => setPage(id)}
                 style={{
-                  display: 'flex', alignItems: 'center', gap: 10,
-                  padding: '8px 16px',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  borderRadius: 8, margin: '1px 8px',
-                  cursor: 'pointer', transition: 'all 0.15s',
-                  borderLeft: `3px solid ${active ? accentColor : 'transparent'}`,
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 9,
+                  padding: '7px 16px', border: 'none', cursor: 'pointer', textAlign: 'left',
                   background: active ? 'rgba(255,255,255,0.07)' : 'transparent',
-                  color: active ? accentColor : (item.accent || 'var(--txt-sec)'),
-                  fontSize: '0.82rem', fontWeight: 500,
-                }}>
-                <item.Icon size={18} style={{ flexShrink: 0 }} />
-                {!collapsed && <span style={{ whiteSpace: 'nowrap' }}>{item.label}</span>}
-              </div>
+                  borderLeft: active ? '2px solid ' + (accent || 'var(--violet)') : '2px solid transparent',
+                  color: active ? (accent || 'var(--txt-pri)') : 'var(--txt-sec)',
+                  fontSize: '0.82rem', fontWeight: active ? 600 : 400,
+                  transition: 'all 0.15s',
+                }}
+              >
+                {Icon && <Icon size={15} style={{ color: active ? (accent || 'var(--violet)') : 'var(--txt-mut)', flexShrink: 0 }} />}
+                {label}
+              </button>
             )
           })}
         </nav>
 
-        {!collapsed && (
-          <div>
-            <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 8px' }}>
-                <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(180,124,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--violet)', fontSize: '0.78rem', fontWeight: 700, flexShrink: 0 }}>V</div>
-                <div>
-                  <p style={{ fontSize: '0.78rem', fontWeight: 500, color: 'var(--txt-pri)', margin: 0 }}>Vernon Unzicker</p>
-                  <p style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', margin: 0 }}>Operator</p>
-                </div>
-              </div>
-            </div>
-            <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
-              <p style={{ fontSize: '0.6rem', color: 'var(--txt-mut)', lineHeight: 1.5, margin: 0 }}>
-                Educational AI software. Not professional instruction.
-              </p>
-              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <button onClick={() => nav('compliance')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.58rem', padding: 0, textDecoration: 'underline' }}>Terms</button>
-                <button onClick={() => nav('compliance')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.58rem', padding: 0, textDecoration: 'underline' }}>Privacy</button>
-                <button onClick={() => nav('landing')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.58rem', padding: 0, textDecoration: 'underline' }}>About</button>
-              </div>
-            </div>
-          </div>
-        )}
-      </aside>
+        <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <select
+            value={theme}
+            onChange={e => setTheme(e.target.value)}
+            style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: 'var(--txt-sec)', fontSize: '0.72rem', padding: '4px 6px', cursor: 'pointer' }}
+          >
+           {Object.keys(THEMES).map(t => (
+  <option key={t} value={t}>{t}</option>
+))}
+          </select>
+        </div>
+      </div>
 
-      {/* Main content */}
-      <main style={{
-        position: 'fixed', top: 52, bottom: 0, right: 0,
-        left: sidebarW, overflowY: 'auto',
-        transition: 'left 0.25s ease',
-      }}>
-        {PageComponent
-          ? <PageComponent theme={theme} setTheme={setTheme} setPage={setPage} />
-          : <div style={{ padding: 24, color: 'var(--txt-mut)' }}>Page not found.</div>}
-      </main>
+      {/* Main Content */}
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4 }}
+            title="Toggle sidebar"
+          >
+            <PanelLeft size={18} />
+          </button>
+          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--txt-pri)' }}>
+            {NAV.find(n => n.id === page)?.label || 'MammothOS'}
+          </span>
+        </div>
+        <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
+          <PageComponent />
+        </div>
+      </div>
 
       <AtlasFAB currentPage={page} />
     </div>

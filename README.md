@@ -53,6 +53,17 @@ UI: http://localhost:5173
   - `POST /api/atlas/learner/reset` with `approval_mode: true`
   - `POST /api/atlas/reset` with `approval_mode: true`
 
+## Additive agent bridge (Copilot Tasks optional)
+
+MammothOS supports the existing registry-backed runtime and an optional external HTTP bridge.
+This is an upgrade-only path: it adds an explicit task runner surface without replacing the native agent runtime.
+
+- `POST /agent/atlas/run` → routes to the runtime `tutor` agent
+- `POST /agent/coding/run` → routes to the runtime `coding` agent
+- `POST /agent/shell/run` → executes a shell command in the repo worktree with a safe subprocess wrapper
+
+These routes are intentionally additive and can coexist with `GET /api/agents`, `GET /api/modules`, and the plan/execute APIs.
+
 ## Autonomous run contract (Phase 5 prep)
 
 - `GET /api/autonomous/runs` returns a unified run feed from:
@@ -118,3 +129,4 @@ This keeps development moving but is less isolated than Docker sandboxing.
 - Always start from `.\start-mammothos.bat` first to avoid false "disconnected" states.
 - Port 8000 conflicts can mimic backend failures; clear listeners before retrying.
 - Track meaningful work in Build Log + Diagnostics so progress is provable and reviewable.
+
