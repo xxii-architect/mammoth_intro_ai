@@ -64,6 +64,33 @@ This is an upgrade-only path: it adds an explicit task runner surface without re
 
 These routes are intentionally additive and can coexist with `GET /api/agents`, `GET /api/modules`, and the plan/execute APIs.
 
+## Copilot Tasks integration appendix
+
+This is the recommended integration model when an external orchestrator such as GitHub Copilot / Copilot Tasks needs to call into MammothOS without bypassing the native runtime.
+
+- Keep MammothOS as the source of truth for agents, workflows, and state.
+- Use Copilot as a conductor, never as the direct file editor.
+- Route work through `tutor`, `coding`, and `shell` agent endpoints rather than editing the repo directly.
+- Preserve preview-first approval, rollback, and observability.
+
+Example mapping:
+```json
+POST /agent/coding/run
+{
+  "objective": "Apply MammothOS Command Center theme to NotesPanel.",
+  "context": {
+    "files": [
+      "ui/mad-architecht-command-center/src/notes/NotesPanel.tsx",
+      "ui/mad-architecht-command-center/src/index.css"
+    ],
+    "plan_profile": "atlas_first",
+    "approval_mode": true
+  }
+}
+```
+
+This aligns with the actual runtime contract in `api_server.py`: the external bridge is additive and the real work remains in the runtime-backed agent system.
+
 ## Autonomous run contract (Phase 5 prep)
 
 - `GET /api/autonomous/runs` returns a unified run feed from:

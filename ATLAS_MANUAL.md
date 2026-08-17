@@ -60,6 +60,76 @@ POST /agent/shell/run
 
 Use these endpoints as an optional integration layer when you want an external conductor to delegate to ATLAS or CodingAgent without forcing Copilot itself to do all edits.
 
+### Copilot Tasks integration appendix
+
+This is the recommended integration model when an external orchestrator such as GitHub Copilot / Copilot Tasks needs to talk to MammothOS without bypassing the native runtime.
+
+**Goal:**
+- Keep MammothOS as the source of truth for agents, workflows, and state.
+- Use Copilot as a conductor, not as the direct file editor.
+- Route work through the runtime agents rather than editing files directly from the external tool.
+- Preserve safety rails: preview-first, approvals, rollback, observability.
+
+**Connection surface:**
+```http
+POST /agent/atlas/run
+POST /agent/coding/run
+POST /agent/shell/run
+```
+
+**Contract:**
+- `/agent/atlas/run` → routes to the runtime tutor agent for lesson planning, coaching, adaptive feedback, and ATLAS-first orchestration.
+- `/agent/coding/run` → routes to the runtime coding agent for code generation, refactor, explain, and UI scaffolding tasks.
+- `/agent/shell/run` → executes a safe shell command in the repo worktree using the safe subprocess wrapper.
+
+These routes are additive and coexist with:
+- `GET /api/agents`
+- `GET /api/modules`
+- `POST /api/plan-execute`
+- `GET /api/autonomous/runs`
+
+**Copilot Task → MammothOS mapping example:**
+```json
+POST /agent/coding/run
+{
+  "objective": "Apply MammothOS Command Center theme to NotesPanel.",
+  "context": {
+    "files": [
+      "ui/mad-architecht-command-center/src/notes/NotesPanel.tsx",
+      "ui/mad-architecht-command-center/src/index.css"
+    ],
+    "plan_profile": "atlas_first",
+    "approval_mode": true
+  }
+}
+```
+
+MammothOS then:
+1. Uses the runtime `coding` agent to propose a patch preview.
+2. Uses the `tutor` agent if the plan profile is `atlas_first` for strategy and safeguard checks.
+3. Surfaces the preview in the approval workflow.
+4. Applies changes only after approval, with rollback support enabled.
+
+**Recommended profiles:**
+- `atlas_first` — ATLAS strategy layer first, coding subordinate.
+- `tutor_coding` — balanced tutoring + implementation.
+- `coding_only` — tightly scoped, low-risk code work.
+- `autonomous_prep` — larger multi-agent execution with ops and safety steps.
+
+**Safety and authorship rules:**
+- Preview-first is mandatory for any Copilot-driven task (`approval_mode: true`).
+- No direct file writes from Copilot; all code edits should come through the runtime agent bridge or the plan/execute API.
+- Use MammothOS agents as the actual implementation layer; Copilot acts as orchestrator, not direct editor.
+- Log and show progress via `GET /api/autonomous/runs` and the build log / diagnostics trail.
+
+**Minimal wiring checklist:**
+1. Point the external orchestrator at `http://localhost:8000`.
+2. Enable discovery with `GET /api/agents` and `GET /api/modules`.
+3. Use the bridge for execution: `POST /agent/atlas/run`, `POST /agent/coding/run`, `POST /agent/shell/run`.
+4. Use `POST /api/plan-execute` with `plan_profile` and `approval_mode` for multi-step work.
+5. Respect approvals and rollback before any mutable action.
+6. Display run history via `GET /api/autonomous/runs`.
+
 ---
 
 ## 2 — LLM model selection
