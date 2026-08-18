@@ -139,25 +139,25 @@ export default function HomePage({ setPage }) {
     } finally {
       setAuditBusy(false)
     }
+  }
 
-    const openOnboardingStep = (step) => {
-      const next = {
-        ...onboarding,
-        completed: {
-          ...(onboarding.completed || {}),
-          [step.id]: true,
-        },
-      }
-      persistOnboarding(next)
-      setPage?.(step.page)
+  const openOnboardingStep = (step) => {
+    const next = {
+      ...onboarding,
+      completed: {
+        ...(onboarding.completed || {}),
+        [step.id]: true,
+      },
     }
+    persistOnboarding(next)
+    setPage?.(step.page)
+  }
 
-    const dismissOnboarding = () => {
-      persistOnboarding({
-        ...onboarding,
-        dismissed: true,
-      })
-    }
+  const dismissOnboarding = () => {
+    persistOnboarding({
+      ...onboarding,
+      dismissed: true,
+    })
   }
 
   const stats = status ? [
