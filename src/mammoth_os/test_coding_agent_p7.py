@@ -191,6 +191,41 @@ def test_generate_code_logs_ai_session_for_atlas_generate():
     assert kwargs["context"]["source"] == "atlas.code.generate"
 
 
+def test_write_ai_session_posts_to_mammoth_schema():
+    """ai_sessions writes must include schema headers for non-public tables."""
+    from mammoth_os.agents.coding_agent import CodingAgent
+
+    captured = {}
+
+    class _DummyResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_urlopen(req, timeout=0):
+        captured["headers"] = {k.lower(): v for k, v in req.header_items()}
+        captured["url"] = req.full_url
+        return _DummyResponse()
+
+    with patch.dict(os.environ, {
+        "SUPABASE_URL": "https://example.supabase.co",
+        "SUPABASE_SERVICE_ROLE_KEY": "service-role-key",
+    }, clear=False), patch("urllib.request.urlopen", side_effect=_fake_urlopen):
+        agent = CodingAgent()
+        agent._write_ai_session(
+            prompt="write add",
+            response="ok",
+            context={"source": "atlas.code.generate"},
+            ok=True,
+        )
+
+    assert captured["url"].endswith("/rest/v1/ai_sessions")
+    assert captured["headers"]["accept-profile"] == "mammoth"
+    assert captured["headers"]["content-profile"] == "mammoth"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ATLASSession.generate_and_test tests
 # ─────────────────────────────────────────────────────────────────────────────

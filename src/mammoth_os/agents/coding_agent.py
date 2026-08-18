@@ -383,6 +383,7 @@ class CodingAgent(BaseAgent):
                 "Content-Type": "application/json",
                 "Accept": "application/json",
                 "Accept-Profile": "mammoth",
+                "Content-Profile": "mammoth",
                 "Prefer": "return=minimal",
             },
             method="POST",
