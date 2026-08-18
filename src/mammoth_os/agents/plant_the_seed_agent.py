@@ -27,33 +27,64 @@ class PlantTheSeedAgent:
         }
         """
         topic = str(payload.get("topic", "learning")).strip() or "learning"
+        mode = str(payload.get("mode") or payload.get("focus") or "seed").strip() or "seed"
+        audience = str(payload.get("audience") or "learner").strip() or "learner"
         context = str(payload.get("context") or "").strip() or None
         lesson_title = str(payload.get("lesson_title") or "").strip() or None
         module_title = str(payload.get("module_title") or "").strip() or None
         progress_score = self._coerce_progress(payload.get("progress_score"))
         next_focus = str(payload.get("next_focus") or "").strip()
+        constraints = self._normalize_list(payload.get("constraints") or payload.get("guardrails"))
+        approval_contract = self._normalize_contract(payload.get("approval_contract"))
 
         seed = self._generate_seed(topic, context, lesson_title, module_title)
         expansion = self._expand_seed(topic, context, lesson_title, module_title, progress_score)
         action = self._generate_action(topic, lesson_title, module_title, next_focus, progress_score)
         follow_up = self._follow_up_questions(topic, lesson_title, module_title, next_focus)
         tags = self._derive_tags(topic, lesson_title, module_title, next_focus, progress_score)
+        recommendations = self._build_recommendations(topic, lesson_title, module_title, next_focus, progress_score)
+        task_card = {
+            "title": f"Plant the seed: {lesson_title or module_title or topic}",
+            "mode": mode,
+            "audience": audience,
+            "summary": seed,
+            "next_action": action,
+            "follow_up": follow_up[:2],
+            "tags": tags[:4],
+        }
+        observability = {
+            "structured_output_version": "v2",
+            "topic": topic,
+            "mode": mode,
+            "audience": audience,
+            "constraint_count": len(constraints),
+            "progress_bucket": "starter" if progress_score < 0.33 else "building" if progress_score < 0.66 else "refining",
+        }
 
         return {
             "agent": "plant_the_seed",
             "status": "ok",
+            "structured_output_version": "v2",
+            "approval_safe": True,
             "topic": topic,
+            "mode": mode,
+            "audience": audience,
             "context": context,
             "lesson_title": lesson_title,
             "module_title": module_title,
             "progress_score": progress_score,
+            "constraints": constraints,
+            "approval_contract": approval_contract,
             "seed": seed,
             "expansion": expansion,
             "action": action,
             "follow_up": follow_up,
             "tags": tags,
-            "recommendations": self._build_recommendations(topic, lesson_title, module_title, next_focus, progress_score),
+            "recommendations": recommendations,
             "summary": self._build_summary(topic, lesson_title, module_title, progress_score, next_focus),
+            "task_card": task_card,
+            "observability": observability,
+            "evidence": [seed, expansion, action],
         }
 
     def _coerce_progress(self, value: Any) -> float:
@@ -62,6 +93,25 @@ class PlantTheSeedAgent:
         except (TypeError, ValueError):
             return 0.5
         return max(0.0, min(1.0, progress))
+
+    def _normalize_list(self, value: Any) -> List[str]:
+        if not value:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        items: List[str] = []
+        for entry in value:
+            text = str(entry or "").strip()
+            if text:
+                items.append(text)
+        return list(dict.fromkeys(items))
+
+    def _normalize_contract(self, value: Any) -> Dict[str, Any]:
+        if not value:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        return {"value": str(value)}
 
     def _generate_seed(
         self,

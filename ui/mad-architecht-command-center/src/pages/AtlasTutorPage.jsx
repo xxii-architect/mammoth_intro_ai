@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { BookOpen, Send, ChevronRight, MessageSquare } from 'lucide-react'
 import { api } from '../api/client'
 import { useInterval } from '../hooks/useApi'
+import RuntimeStatusBanner from '../components/RuntimeStatusBanner'
 
 export default function AtlasTutorPage() {
   const [atlasState, setAtlasState] = useState(null)
@@ -364,7 +365,10 @@ export default function AtlasTutorPage() {
   ])
 
   return (
-    <div className="page-enter" style={{ padding: 20, display: 'flex', gap: 16, height: 'calc(100vh - 92px)', overflow: 'hidden' }}>
+    <div className="page-enter" style={{ padding: 20, display: 'flex', flexWrap: 'wrap', gap: 16, height: 'calc(100vh - 92px)', overflow: 'hidden' }}>
+      <div style={{ flexBasis: '100%' }}>
+        <RuntimeStatusBanner title="ATLAS runtime" compact />
+      </div>
 
       {/* Left: Curriculum (240px) */}
       <div style={{ width: 240, flexShrink: 0, overflowY: 'auto' }}>

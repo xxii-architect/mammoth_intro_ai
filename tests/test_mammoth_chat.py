@@ -1,0 +1,124 @@
+import asyncio
+
+import api_server
+import mammoth_os.llm_client as llm_client_mod
+
+
+class DummyClient:
+    def __init__(self, prompt_log):
+        self.prompt_log = prompt_log
+        self.model = 'dummy-model'
+
+    async def generate(self, prompt: str, **kwargs) -> str:
+        self.prompt_log.append(prompt)
+        return 'native-chat-response'
+
+
+def test_mammoth_chat_assistant_uses_separate_history(monkeypatch):
+    prompt_log = []
+    state = {}
+
+    monkeypatch.setattr(api_server, '_load_atlas_state', lambda: state)
+    monkeypatch.setattr(api_server, '_save_atlas_state', lambda payload: None)
+    monkeypatch.setattr(llm_client_mod, 'get_llm_client', lambda config=None: DummyClient(prompt_log))
+
+    response = asyncio.run(
+        api_server.mammoth_chat(
+            {
+                'message': 'Help me plan the next MammothOS milestone.',
+                'agent_id': 'assistant',
+                'mode': 'chat',
+                'page_context': {'current_page': 'chat'},
+            }
+        )
+    )
+
+    assert response['status'] == 'ok'
+    assert response['reply'] == 'native-chat-response'
+    assert state.get('mammoth_chat_history')
+    assert 'assistant_chat_history' not in state
+    assert prompt_log and 'MammothOS Chat' in prompt_log[-1]
+    assert any(step['label'] == 'Bribing the hamster' for step in response['thought_steps'])
+
+
+def test_mammoth_chat_dispatches_to_agent_runtime(monkeypatch):
+    state = {}
+
+    async def fake_run_agent(body):
+        return {
+            'status': 'ok',
+            'result': {
+                'status': 'ok',
+                'output': {'summary': 'Patched files successfully.'},
+            },
+            'agent_id': body.get('agent_id'),
+            'task_id': 'task-1234',
+            'thought_steps': [
+                {'label': 'Routing decision', 'detail': 'runtime_agent=coding', 'status': 'info'},
+                {'label': 'Run complete', 'detail': 'task_status=completed', 'status': 'success'},
+            ],
+        }
+
+    monkeypatch.setattr(api_server, '_load_atlas_state', lambda: state)
+    monkeypatch.setattr(api_server, '_save_atlas_state', lambda payload: None)
+    monkeypatch.setattr(api_server, 'run_agent', fake_run_agent)
+
+    response = asyncio.run(
+        api_server.mammoth_chat(
+            {
+                'message': 'Patch the agent page to improve status UX.',
+                'agent_id': 'coding_agent',
+                'coding_intent': 'patch_existing',
+                'mode': 'chat',
+            }
+        )
+    )
+
+    assert response['status'] == 'ok'
+    assert response['dispatched'] is True
+    assert response['task_id'] == 'task-1234'
+    assert response['reply'] == 'Patched files successfully.'
+    assert any(step['label'] == 'Routing decision' for step in response['thought_steps'])
+
+
+def test_mammoth_chat_stream_emits_sse_events(monkeypatch):
+    state = {}
+
+    async def fake_chat(body):
+        return {
+            'status': 'ok',
+            'reply': 'streamed response text',
+            'chat_history': [
+                {'role': 'user', 'message': body['message']},
+                {'role': 'assistant', 'message': 'streamed response text'},
+            ],
+            'thought_steps': [
+                {'ts': '2026-08-17T23:00:00Z', 'label': 'Consulting the herd', 'detail': 'Running native MammothOS assistant response', 'status': 'info'},
+                {'ts': '2026-08-17T23:00:01Z', 'label': 'Tusks charged', 'detail': 'adapter=openai model=gpt-4o-mini', 'status': 'success'},
+            ],
+            'agent_id': 'assistant',
+            'adapter': 'openai',
+            'model': 'gpt-4o-mini',
+            'mode': 'chat',
+            'task_id': 'task-1234',
+            'dispatched': False,
+        }
+
+    monkeypatch.setattr(api_server, '_load_atlas_state', lambda: state)
+    monkeypatch.setattr(api_server, '_save_atlas_state', lambda payload: None)
+    monkeypatch.setattr(api_server, 'mammoth_chat', fake_chat)
+
+    response = asyncio.run(api_server.mammoth_chat_stream({'message': 'stream this', 'agent_id': 'assistant'}))
+    assert getattr(response, 'media_type', '') == 'text/event-stream'
+
+    async def collect():
+        payload = []
+        async for chunk in response.body_iterator:
+            payload.append(chunk.decode('utf-8') if isinstance(chunk, (bytes, bytearray)) else str(chunk))
+        return ''.join(payload)
+
+    body = asyncio.run(collect())
+    assert 'event: meta' in body
+    assert 'event: thought' in body
+    assert 'event: chunk' in body
+    assert 'event: done' in body

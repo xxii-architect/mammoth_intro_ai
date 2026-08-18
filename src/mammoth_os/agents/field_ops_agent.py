@@ -27,6 +27,10 @@ class FieldOpsAgent:
             objective = str(payload.get("objective") or payload.get("mission") or "").strip()
             duration_minutes = self._coerce_int(payload.get("duration_minutes"), default=20)
             hazards = self._normalize_list(payload.get("hazards") or payload.get("risk_notes"))
+            mode = str(payload.get("mode") or payload.get("format") or "field_task").strip() or "field_task"
+            audience = str(payload.get("audience") or "operator").strip() or "operator"
+            constraints = self._normalize_list(payload.get("constraints") or payload.get("guardrails"))
+            approval_contract = self._normalize_contract(payload.get("approval_contract"))
         else:
             prompt = str(payload or "").strip()
             topic = self._infer_topic(prompt)
@@ -35,6 +39,10 @@ class FieldOpsAgent:
             objective = ""
             duration_minutes = 20
             hazards = []
+            mode = "field_task"
+            audience = "operator"
+            constraints = []
+            approval_contract = {}
 
         mission = objective or self._generate_mission(topic, environment, difficulty)
         skill_focus = self._skill_focus(topic)
@@ -42,15 +50,23 @@ class FieldOpsAgent:
         completion_criteria = self._completion_criteria(topic, environment, difficulty, duration_minutes)
         safety_notes = self._safety_notes(environment, hazards)
         risk_level = self._risk_level(environment, difficulty, hazards)
+        risk_score = self._risk_score(environment, difficulty, hazards)
+        safety_gate = self._safety_gate(risk_level, hazards, constraints)
 
         return {
             "agent": "field_ops",
             "status": "ok",
+            "structured_output_version": "v2",
+            "approval_safe": True,
             "topic": topic,
             "environment": environment,
             "difficulty": difficulty,
             "duration_minutes": duration_minutes,
             "prompt": prompt,
+            "mode": mode,
+            "audience": audience,
+            "constraints": constraints,
+            "approval_contract": approval_contract,
             "mission": mission,
             "skill_focus": skill_focus,
             "checklist": checklist,
@@ -58,7 +74,28 @@ class FieldOpsAgent:
             "hazards": hazards,
             "safety_notes": safety_notes,
             "risk_level": risk_level,
+            "risk_score": risk_score,
+            "safety_gate": safety_gate,
             "next_actions": self._next_actions(topic, environment, difficulty),
+            "task_card": {
+                "title": f"Field ops: {topic}",
+                "summary": mission,
+                "skill_focus": skill_focus,
+                "difficulty": difficulty,
+                "environment": environment,
+                "completion_criteria": completion_criteria[:3],
+            },
+            "observability": {
+                "structured_output_version": "v2",
+                "topic": topic,
+                "environment": environment,
+                "difficulty": difficulty,
+                "duration_minutes": duration_minutes,
+                "hazard_count": len(hazards),
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "safety_gate": safety_gate,
+            },
         }
 
     def _infer_topic(self, prompt: str) -> str:
@@ -110,6 +147,13 @@ class FieldOpsAgent:
             if text:
                 items.append(text)
         return list(dict.fromkeys(items))
+
+    def _normalize_contract(self, value: Any) -> Dict[str, Any]:
+        if not value:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        return {"value": str(value)}
 
     def _generate_mission(self, topic: str, environment: str, difficulty: str) -> str:
         base = f"Head into the {environment} and complete a {difficulty} {topic} exercise."
@@ -218,6 +262,27 @@ class FieldOpsAgent:
         if score <= 3:
             return "moderate"
         return "high"
+
+    def _risk_score(self, environment: str, difficulty: str, hazards: List[str]) -> float:
+        score = 0.25
+        if environment in {"desert", "mountain", "forest"}:
+            score += 0.15
+        if difficulty == "medium":
+            score += 0.15
+        elif difficulty == "hard":
+            score += 0.25
+        score += min(0.2, len(hazards) * 0.05)
+        return round(min(1.0, score), 2)
+
+    def _safety_gate(self, risk_level: str, hazards: List[str], constraints: List[str]) -> Dict[str, Any]:
+        requires_review = risk_level == "high" or len(hazards) >= 3 or len(constraints) >= 2
+        return {
+            "requires_review": requires_review,
+            "risk_level": risk_level,
+            "hazards": hazards[:3],
+            "constraint_count": len(constraints),
+            "reason": "elevated field risk" if requires_review else "safe to proceed",
+        }
 
     def _next_actions(self, topic: str, environment: str, difficulty: str) -> List[str]:
         actions = [

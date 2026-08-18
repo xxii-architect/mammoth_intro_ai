@@ -5,7 +5,7 @@ import { api } from '../api/client'
 export default function LogSalePage() {
   const [sales, setSales]     = useState([])
   const [form, setForm]       = useState({
-    item: '', amount: '', notes: '',
+    item: '', amount: '', notes: '', ledger: 'personal', category: 'general',
     date: new Date().toISOString().split('T')[0],
   })
   const [saving, setSaving]   = useState(false)
@@ -23,8 +23,11 @@ export default function LogSalePage() {
         method: 'POST',
         body: { ...form, amount: parseFloat(form.amount) },
       })
+      if (entry?.status === 'error') {
+        throw new Error(entry.error || 'Unable to save sale')
+      }
       setSales(prev => [...prev, entry])
-      setForm({ item: '', amount: '', notes: '', date: new Date().toISOString().split('T')[0] })
+      setForm({ item: '', amount: '', notes: '', ledger: form.ledger, category: form.category, date: new Date().toISOString().split('T')[0] })
     } catch (e) {
       alert('Failed: ' + e.message)
     }
@@ -32,6 +35,8 @@ export default function LogSalePage() {
   }
 
   const total = sales.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const personalTotal = sales.filter((e) => (e.ledger || 'personal') === 'personal').reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
+  const businessTotal = sales.filter((e) => (e.ledger || 'personal') === 'business').reduce((s, e) => s + (parseFloat(e.amount) || 0), 0)
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -58,6 +63,27 @@ export default function LogSalePage() {
                 </div>
               ))}
               <div>
+                <label style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', display: 'block', marginBottom: 4 }}>Ledger</label>
+                <select
+                  value={form.ledger}
+                  onChange={e => setForm(f => ({ ...f, ledger: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                >
+                  <option value="personal">Personal</option>
+                  <option value="business">Business</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', display: 'block', marginBottom: 4 }}>Category</label>
+                <input
+                  type="text"
+                  value={form.category}
+                  onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                  placeholder={form.ledger === 'business' ? 'e.g. Product Sales' : 'e.g. Household'}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.85rem', outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div>
                 <label style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', display: 'block', marginBottom: 4 }}>Notes</label>
                 <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
                   rows={2} placeholder="Optional notes…"
@@ -83,6 +109,7 @@ export default function LogSalePage() {
             </div>
             <div style={{ textAlign: 'right' }}>
               <p style={{ fontSize: '0.72rem', color: 'var(--txt-mut)' }}>{sales.length} entries</p>
+              <p style={{ fontSize: '0.72rem', color: 'var(--txt-sec)' }}>Personal ${personalTotal.toFixed(2)} • Business ${businessTotal.toFixed(2)}</p>
             </div>
           </div>
 
@@ -91,7 +118,7 @@ export default function LogSalePage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Date', 'Item', 'Amount', 'Notes'].map(h => (
+                  {['Date', 'Item', 'Ledger', 'Category', 'Amount', 'Notes'].map(h => (
                     <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', fontWeight: 600 }}>{h}</th>
                   ))}
                 </tr>
@@ -101,13 +128,15 @@ export default function LogSalePage() {
                   <tr key={s.id} style={{ borderTop: i ? '1px solid var(--border)' : 'none' }}>
                     <td style={{ padding: '11px 16px', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-mut)', fontSize: '0.78rem' }}>{s.date}</td>
                     <td style={{ padding: '11px 16px', color: 'var(--txt-pri)' }}>{s.item}</td>
+                    <td style={{ padding: '11px 16px', color: s.ledger === 'business' ? 'var(--cyan)' : 'var(--txt-sec)', textTransform: 'capitalize', fontSize: '0.78rem' }}>{s.ledger || 'personal'}</td>
+                    <td style={{ padding: '11px 16px', color: 'var(--txt-sec)', fontSize: '0.78rem' }}>{s.category || 'general'}</td>
                     <td style={{ padding: '11px 16px', fontFamily: 'JetBrains Mono,monospace', color: 'var(--cyan)', fontWeight: 600 }}>${parseFloat(s.amount).toFixed(2)}</td>
                     <td style={{ padding: '11px 16px', color: 'var(--txt-sec)', fontSize: '0.78rem' }}>{s.notes || '–'}</td>
                   </tr>
                 ))}
                 {sales.length === 0 && (
                   <tr>
-                    <td colSpan={4} style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--txt-mut)' }}>No sales logged yet.</td>
+                    <td colSpan={6} style={{ padding: '24px 16px', textAlign: 'center', color: 'var(--txt-mut)' }}>No sales logged yet.</td>
                   </tr>
                 )}
               </tbody>

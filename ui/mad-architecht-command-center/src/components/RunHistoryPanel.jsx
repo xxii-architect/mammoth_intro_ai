@@ -37,6 +37,16 @@ export default function RunHistoryPanel({ entries, onReplay, onClear }) {
             <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
               {entry.status || 'unknown'} • {entry.created_at ? new Date(entry.created_at).toLocaleTimeString() : ''}
             </div>
+            {entry.coding_intent && (
+              <div style={{ color: 'var(--photon)', fontSize: '0.64rem', marginTop: 4 }}>
+                coding intent: {entry.coding_intent}
+              </div>
+            )}
+            {entry.replay && (
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
+                replay: {entry.replay.execution_mode || 'single'} • {entry.replay.plan_profile || entry.replay.intent || entry.replay.coding_intent || 'n/a'}
+              </div>
+            )}
           </div>
         ))
       ) : (

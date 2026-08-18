@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
-  Activity, Sparkles, CreditCard, ShieldCheck,
+  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare,
 } from 'lucide-react'
 
 import HomePage        from './pages/HomePage'
 import AgentPage       from './pages/AgentPage'
+import ChatPage        from './pages/ChatPage'
 import TerminalPage    from './pages/TerminalPage'
 import ManualPage      from './pages/ManualPage'
 import NotesPage       from './pages/NotesPage'
@@ -55,6 +56,7 @@ const NAV = [
   { section: 'Workspace' },
   { id: 'home',     label: 'Home',        Icon: LayoutDashboard },
   { id: 'agent',    label: 'Agent',       Icon: Bot },
+  { id: 'chat',     label: 'Chat',        Icon: MessageSquare, accent: 'var(--photon)' },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
   { id: 'manual',   label: 'Manual',      Icon: BookOpen },
 
@@ -83,6 +85,7 @@ const NAV = [
 const PAGE_COMPONENTS = {
   home:        HomePage,
   agent:       AgentPage,
+  chat:        ChatPage,
   terminal:    TerminalPage,
   manual:      ManualPage,
   notes:       NotesPage,

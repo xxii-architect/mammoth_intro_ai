@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff, BookOpen } from 'lucide-react'
 import { openTerminalWS } from '../api/client'
+import OnboardingGuide from '../components/OnboardingGuide'
 
 const QUICK_ACTIONS = [
   { label: 'Git Status',    cmd: 'git status',                   Icon: GitBranch,   color: 'var(--violet)' },
@@ -67,7 +68,7 @@ const BOOT_LINES = [
   { text: '[BOOT] Attempting WebSocket handshake (/ws/terminal)...', type: 'stdout' },
 ]
 
-export default function TerminalPage() {
+export default function TerminalPage({ setPage }) {
   const [lines, setLines]           = useState(BOOT_LINES)
   const [input, setInput]           = useState('')
   const [connected, setConnected]   = useState(false)
@@ -190,6 +191,8 @@ export default function TerminalPage() {
           </div>
         </div>
       </div>
+
+      <OnboardingGuide variant="banner" currentPage="terminal" setPage={setPage} />
 
       {/* Quick actions — single scrollable row, no wrapping */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 4, flexShrink: 0 }}>

@@ -8,6 +8,58 @@ function safeLocalStorage() {
   return window.localStorage
 }
 
+function normalizeCheck(check, index) {
+  if (!check || typeof check !== 'object') {
+    return {
+      label: `Check ${index + 1}`,
+      passed: false,
+      detail: 'Legacy audit entry did not include structured check data.',
+    }
+  }
+  return {
+    label: String(check.label || `Check ${index + 1}`),
+    passed: Boolean(check.passed),
+    detail: String(check.detail || ''),
+  }
+}
+
+function normalizeObservability(observability) {
+  const metrics = observability?.metrics && typeof observability.metrics === 'object'
+    ? observability.metrics
+    : (observability && typeof observability === 'object' ? observability : null)
+  if (!metrics) return null
+  return {
+    learner_pass_rate: Number(metrics.learner_pass_rate || 0),
+    eval_pass_rate: Number(metrics.eval_pass_rate || 0),
+    plan_runs: Number(metrics.plan_runs || 0),
+    eval_runs: Number(metrics.eval_runs || 0),
+    fab_guard_rate: Number(metrics.fab_guard_rate || 0),
+    sandbox_success_rate: Number(metrics.sandbox_success_rate || 0),
+    recent_attempts: Number(metrics.recent_attempts || 0),
+  }
+}
+
+export function normalizeSelfAuditEntry(entry) {
+  if (!entry || typeof entry !== 'object') return null
+  const checks = Array.isArray(entry.checks) ? entry.checks.map(normalizeCheck) : []
+  const recommendations = Array.isArray(entry.recommendations)
+    ? entry.recommendations.map(item => String(item)).filter(Boolean)
+    : []
+  return {
+    ...entry,
+    id: String(entry.id || `${Date.now()}`),
+    generatedAt: String(entry.generatedAt || entry.generatedAtIso || 'Unknown'),
+    generatedAtIso: String(entry.generatedAtIso || ''),
+    score: String(entry.score || (checks.length ? `${checks.filter(check => check.passed).length}/${checks.length}` : '0/0')),
+    tier: String(entry.tier || 'unknown'),
+    commandCount: Number(entry.commandCount ?? 0),
+    error: entry.error ? String(entry.error) : '',
+    checks,
+    recommendations,
+    observability: normalizeObservability(entry.observability),
+  }
+}
+
 export function loadSelfAuditHistory() {
   const storage = safeLocalStorage()
   if (!storage) return []
@@ -15,7 +67,10 @@ export function loadSelfAuditHistory() {
     const raw = storage.getItem(SELF_AUDIT_HISTORY_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
+    if (!Array.isArray(parsed)) return []
+    const normalized = parsed.map(normalizeSelfAuditEntry).filter(Boolean)
+    storage.setItem(SELF_AUDIT_HISTORY_KEY, JSON.stringify(normalized.slice(0, SELF_AUDIT_HISTORY_LIMIT)))
+    return normalized
   } catch {
     return []
   }
@@ -24,7 +79,8 @@ export function loadSelfAuditHistory() {
 export function saveSelfAuditHistory(history) {
   const storage = safeLocalStorage()
   if (!storage) return
-  storage.setItem(SELF_AUDIT_HISTORY_KEY, JSON.stringify(history.slice(0, SELF_AUDIT_HISTORY_LIMIT)))
+  const normalized = (Array.isArray(history) ? history : []).map(normalizeSelfAuditEntry).filter(Boolean)
+  storage.setItem(SELF_AUDIT_HISTORY_KEY, JSON.stringify(normalized.slice(0, SELF_AUDIT_HISTORY_LIMIT)))
 }
 
 export function clearSelfAuditHistory() {
@@ -135,7 +191,7 @@ export async function runSystemSelfAudit() {
   const auditLog = await api('/audit')
   const backendEntries = Array.isArray(auditLog?.entries) ? auditLog.entries : []
 
-  const result = {
+  const result = normalizeSelfAuditEntry({
     id: `${Date.now()}`,
     generatedAt: new Date().toLocaleString(),
     generatedAtIso: new Date().toISOString(),
@@ -154,7 +210,7 @@ export async function runSystemSelfAudit() {
     approvalStream: approvals.slice(0, 10),
     backendEntry: auditEntry?.entry || null,
     auditEntries: backendEntries,
-  }
+  })
 
   const history = [result, ...loadSelfAuditHistory()].slice(0, SELF_AUDIT_HISTORY_LIMIT)
   saveSelfAuditHistory(history)

@@ -12,15 +12,23 @@ export default function SettingsPage({ theme, setTheme }) {
   const [status, setStatus]   = useState(null)
   const [health, setHealth]   = useState(null)
   const [models, setModels]   = useState(null)
+  const [entitlements, setEntitlements] = useState(null)
+  const [profile, setProfile] = useState({ display_name: '', email: '', organization: '' })
   const [masked, setMasked]   = useState(true)
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg]   = useState('')
+  const [savingProfile, setSavingProfile] = useState(false)
+  const [tierSaving, setTierSaving] = useState(false)
+  const [profileMsg, setProfileMsg] = useState('')
+  const [tierMsg, setTierMsg] = useState('')
 
   useEffect(() => {
-    Promise.all([api('/status'), api('/health'), api('/models')]).then(([s, h, m]) => {
+    Promise.all([api('/status'), api('/health'), api('/models'), api('/entitlements'), api('/account/profile')]).then(([s, h, m, e, p]) => {
       setStatus(s)
       setHealth(h)
       setModels(m)
+      setEntitlements(e)
+      if (p?.profile) setProfile(p.profile)
     }).catch(() => {})
   }, [])
 
@@ -37,6 +45,50 @@ export default function SettingsPage({ theme, setTheme }) {
   }
 
   const envKeys = health?.env_keys || []
+  const currentTier = entitlements?.tier || 'explorer'
+  const developerAccess = Boolean(entitlements?.developer_access)
+
+  const saveProfile = async () => {
+    setSavingProfile(true)
+    try {
+      await api('/account/profile', { method: 'POST', body: profile })
+      setProfileMsg('Profile saved.')
+      const e = await api('/entitlements')
+      setEntitlements(e)
+    } catch (e) {
+      setProfileMsg('Profile save failed: ' + e.message)
+    }
+    setSavingProfile(false)
+    setTimeout(() => setProfileMsg(''), 2500)
+  }
+
+  const changeTier = async (nextTier) => {
+    setTierSaving(true)
+    try {
+      await api('/entitlements/tier', { method: 'POST', body: { tier: nextTier } })
+      const e = await api('/entitlements')
+      setEntitlements(e)
+      setTierMsg(`Tier set to ${nextTier}.`)
+    } catch (e) {
+      setTierMsg('Tier update failed: ' + e.message)
+    }
+    setTierSaving(false)
+    setTimeout(() => setTierMsg(''), 2500)
+  }
+
+  const toggleDeveloperAccess = async () => {
+    setTierSaving(true)
+    try {
+      await api('/account/developer-access', { method: 'POST', body: { enabled: !developerAccess } })
+      const e = await api('/entitlements')
+      setEntitlements(e)
+      setTierMsg(!developerAccess ? 'Developer full-access enabled.' : 'Developer full-access disabled.')
+    } catch (e) {
+      setTierMsg('Developer access update failed: ' + e.message)
+    }
+    setTierSaving(false)
+    setTimeout(() => setTierMsg(''), 2500)
+  }
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -162,6 +214,83 @@ export default function SettingsPage({ theme, setTheme }) {
                 {m.id}
               </span>
             ))}
+          </div>
+        </div>
+
+        {/* Account & Access */}
+        <div className="glass-card-solid" style={{ padding: 20 }}>
+          <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', marginBottom: 12, fontWeight: 600 }}>
+            Account & Access
+          </p>
+          <div style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
+            <input
+              value={profile.display_name || ''}
+              onChange={(e) => setProfile((p) => ({ ...p, display_name: e.target.value }))}
+              placeholder="Display name"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+            />
+            <input
+              value={profile.email || ''}
+              onChange={(e) => setProfile((p) => ({ ...p, email: e.target.value }))}
+              placeholder="Email"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+            />
+            <input
+              value={profile.organization || ''}
+              onChange={(e) => setProfile((p) => ({ ...p, organization: e.target.value }))}
+              placeholder="Organization"
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+            />
+            <button
+              onClick={saveProfile}
+              disabled={savingProfile}
+              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', fontSize: '0.8rem', cursor: 'pointer' }}
+            >
+              {savingProfile ? 'Saving profile…' : 'Save profile'}
+            </button>
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>
+              Tier: <span style={{ color: 'var(--cyan)', textTransform: 'capitalize', fontWeight: 700 }}>{entitlements?.effective_tier || currentTier}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {['explorer', 'pro', 'enterprise'].map((tier) => (
+                <button
+                  key={tier}
+                  onClick={() => changeTier(tier)}
+                  disabled={tierSaving}
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 8,
+                    border: `1px solid ${currentTier === tier ? 'var(--cyan)' : 'var(--border)'}`,
+                    background: currentTier === tier ? 'rgba(0,245,212,0.12)' : 'rgba(255,255,255,0.04)',
+                    color: currentTier === tier ? 'var(--cyan)' : 'var(--txt-sec)',
+                    fontSize: '0.75rem',
+                    textTransform: 'capitalize',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {tier}
+                </button>
+              ))}
+              <button
+                onClick={toggleDeveloperAccess}
+                disabled={tierSaving}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 8,
+                  border: `1px solid ${developerAccess ? '#22c55e' : 'var(--border)'}`,
+                  background: developerAccess ? 'rgba(34,197,94,0.12)' : 'rgba(255,255,255,0.04)',
+                  color: developerAccess ? '#22c55e' : 'var(--txt-sec)',
+                  fontSize: '0.75rem',
+                  cursor: 'pointer',
+                }}
+              >
+                {developerAccess ? 'Disable Dev Full Access' : 'Enable Dev Full Access'}
+              </button>
+            </div>
+            {profileMsg && <p style={{ margin: 0, fontSize: '0.76rem', color: profileMsg.includes('failed') ? '#f87171' : '#22c55e' }}>{profileMsg}</p>}
+            {tierMsg && <p style={{ margin: 0, fontSize: '0.76rem', color: tierMsg.includes('failed') ? '#f87171' : '#22c55e' }}>{tierMsg}</p>}
           </div>
         </div>
       </div>

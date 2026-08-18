@@ -1,8 +1,11 @@
 import asyncio
 import os
-from typing import Any, List, Dict
+from pathlib import Path
+from typing import Any, Dict, List
+
 from .openai_adapter import OpenAIAdapter
 from .ollama_adapter import OllamaAdapter, MODEL_ALIASES, check_ollama_running
+from .llm_parsing import extract_code_and_files
 
 
 class LLMClient:
@@ -11,18 +14,6 @@ class LLMClient:
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
         raise NotImplementedError()
-
-
-from .llm_parsing import extract_code_and_files
-
-
-def extract_code_from_text(text: str) -> str:
-    parsed = extract_code_and_files(text)
-    if "code" in parsed and parsed.get("code"):
-        return parsed.get("code")
-    if "files" in parsed and isinstance(parsed.get("files"), dict):
-        return "\n\n".join([f"# FILE: {n}\n{c}" for n, c in parsed["files"].items()])
-    return ""
 
 
 class LocalAdapter(LLMClient):
@@ -45,10 +36,9 @@ class LocalAdapter(LLMClient):
         return out
 
 
-# Models that route to Ollama even when named as the adapter
 _OLLAMA_ADAPTER_NAMES = {
     "ollama", "local-ollama",
-    *MODEL_ALIASES.keys(),         # e.g. "hermes", "deepseek", "codellama" …
+    *MODEL_ALIASES.keys(),
 }
 
 _DEEPSEEK_ADAPTER_NAMES = {
@@ -60,15 +50,61 @@ _DEEPSEEK_ADAPTER_NAMES = {
     "deepseek-flash",
 }
 
+_LOCAL_ENV_CACHE: Dict[str, str] | None = None
+
+
+def _env_file_path() -> Path:
+    return Path(__file__).resolve().parents[2] / ".env"
+
+
+def _read_local_env() -> Dict[str, str]:
+    global _LOCAL_ENV_CACHE
+    if _LOCAL_ENV_CACHE is not None:
+        return dict(_LOCAL_ENV_CACHE)
+    path = _env_file_path()
+    env_vars: Dict[str, str] = {}
+    if path.exists():
+        try:
+            for raw_line in path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                env_vars[key.strip()] = value.strip().strip('"').strip("'")
+        except Exception:
+            env_vars = {}
+    _LOCAL_ENV_CACHE = dict(env_vars)
+    return env_vars
+
+
+def _cfg_or_env(cfg: Dict[str, Any], key: str, default: str = "") -> str:
+    value = cfg.get(key)
+    if value not in (None, ""):
+        return str(value).strip()
+    env_value = os.environ.get(key)
+    if env_value not in (None, ""):
+        return str(env_value).strip()
+    local_env_value = _read_local_env().get(key)
+    if local_env_value not in (None, ""):
+        return str(local_env_value).strip()
+    return default
+
+
+def extract_code_from_text(text: str) -> str:
+    parsed = extract_code_and_files(text)
+    if "code" in parsed and parsed.get("code"):
+        return parsed.get("code")
+    if "files" in parsed and isinstance(parsed.get("files"), dict):
+        return "\n\n".join([f"# FILE: {name}\n{content}" for name, content in parsed["files"].items()])
+    return ""
+
 
 def _is_ollama_model_hint(model_name: str) -> bool:
-    """Return True when a model string clearly refers to a local Ollama model."""
     name = (model_name or "").strip().lower()
     if not name:
         return False
     if name in MODEL_ALIASES or name in MODEL_ALIASES.values():
         return True
-    # Most Ollama tags include a ":" version suffix (e.g., hermes3:8b).
     return ":" in name
 
 
@@ -118,9 +154,9 @@ class FallbackAdapter(LLMClient):
 
 
 def _build_deepseek_adapter(cfg: Dict[str, Any]) -> LLMClient | None:
-    deepseek_key = (cfg.get("api_key") or os.environ.get("DEEPSEEK_API_KEY", "")).strip()
-    deepseek_url = (cfg.get("base_url") or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")).strip()
-    deepseek_model = cfg.get("model") or os.environ.get("DEEPSEEK_MODEL") or "deepseek-chat"
+    deepseek_key = _cfg_or_env(cfg, "DEEPSEEK_API_KEY")
+    deepseek_url = _cfg_or_env(cfg, "DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+    deepseek_model = _cfg_or_env(cfg, "DEEPSEEK_MODEL", str(cfg.get("model") or "deepseek-chat"))
     if not deepseek_key:
         return None
     try:
@@ -130,11 +166,11 @@ def _build_deepseek_adapter(cfg: Dict[str, Any]) -> LLMClient | None:
 
 
 def _build_openai_adapter(cfg: Dict[str, Any]) -> LLMClient | None:
-    openai_key = (cfg.get("api_key") or os.environ.get("OPENAI_API_KEY", "")).strip()
+    openai_key = _cfg_or_env(cfg, "OPENAI_API_KEY")
     if not openai_key:
         return None
     try:
-        return OpenAIAdapter(config={**cfg, "api_key": openai_key, "model": cfg.get("model") or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")})
+        return OpenAIAdapter(config={**cfg, "api_key": openai_key, "model": _cfg_or_env(cfg, "OPENAI_MODEL", str(cfg.get("model") or "gpt-4o-mini")), "base_url": _cfg_or_env(cfg, "OPENAI_BASE_URL") or None})
     except Exception:
         return None
 
@@ -143,76 +179,55 @@ def _make_fallback_client(cfg: Dict[str, Any]) -> LLMClient:
     openai_client = _build_openai_adapter(cfg)
     if openai_client is not None:
         return openai_client
-    ollama_url = cfg.get("base_url") or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_url = _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")
     if check_ollama_running(ollama_url):
-        return OllamaAdapter(config=cfg)
+        return OllamaAdapter(config={**cfg, "base_url": ollama_url})
     return LocalAdapter(config=cfg)
 
 
 def get_llm_client(config: Dict[str, Any] | None = None):
     """Return the best available LLM client.
 
-    Selection priority (first match wins):
-      1. MAMMOTH_LLM_ADAPTER=local             → LocalAdapter (testing)
-      2. MAMMOTH_LLM_ADAPTER=ollama|hermes|    → OllamaAdapter (local models)
-         deepseek|codellama|llama|…
-      3. MAMMOTH_LLM_ADAPTER=deepseek|deepseek-api|... → DeepSeek cloud API
-      4. MAMMOTH_LLM_ADAPTER=openai            → OpenAIAdapter
-      5. OPENAI_API_KEY is set                 → OpenAIAdapter
-      6. DEEPSEEK_API_KEY is set               → DeepSeek cloud API
-      7. Ollama is running locally             → OllamaAdapter (auto-detect)
-      8. fallback                              → LocalAdapter
-
-    If a cloud provider rejects a request due to no balance / quota / auth errors,
-    MammothOS gracefully falls back to the next viable provider instead of crashing.
+    Reads explicit config first, then process env, then the repository .env file so
+    the runtime and UI use the same provider source of truth.
     """
     cfg = config or {}
-    adapter_name = (cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER", "")).lower().strip()
+    adapter_name = _cfg_or_env(cfg, "MAMMOTH_LLM_ADAPTER").lower().strip()
 
-    # 1. Explicit local/test adapter
     if adapter_name == "local":
         return LocalAdapter(config=cfg)
 
-    # 2. Explicit Ollama / named-model adapter
     if adapter_name in _OLLAMA_ADAPTER_NAMES:
         if adapter_name in MODEL_ALIASES or adapter_name not in {"ollama", "local-ollama"}:
             cfg = {**cfg, "model": adapter_name}
-        return OllamaAdapter(config=cfg)
+        return OllamaAdapter(config={**cfg, "base_url": _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")})
 
-    # 3. Explicit DeepSeek cloud adapter
     if adapter_name in _DEEPSEEK_ADAPTER_NAMES:
         deepseek_client = _build_deepseek_adapter(cfg)
         if deepseek_client is not None:
-            fallback_client = _make_fallback_client(cfg)
-            return FallbackAdapter(primary=deepseek_client, fallback=fallback_client)
+            return FallbackAdapter(primary=deepseek_client, fallback=_make_fallback_client(cfg))
 
-    # 4. Model hint implies Ollama (even when cloud API keys are present).
     requested_model = str(cfg.get("model", "")).strip()
+    if not requested_model:
+        requested_model = _cfg_or_env(cfg, "OPENAI_MODEL")
     if _is_ollama_model_hint(requested_model):
-        return OllamaAdapter(config=cfg)
+        return OllamaAdapter(config={**cfg, "model": requested_model, "base_url": _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")})
 
-    # 5. Explicit OpenAI
     if adapter_name == "openai":
         openai_client = _build_openai_adapter(cfg)
         if openai_client is not None:
             return openai_client
 
-    # 6. Preferred OpenAI path if configured
-    if os.environ.get("OPENAI_API_KEY", "").strip():
-        openai_client = _build_openai_adapter(cfg)
-        if openai_client is not None:
-            return openai_client
+    openai_client = _build_openai_adapter(cfg)
+    if openai_client is not None:
+        return openai_client
 
-    # 7. DeepSeek cloud API as a provider fallback when configured.
     deepseek_client = _build_deepseek_adapter(cfg)
     if deepseek_client is not None:
-        fallback_client = _make_fallback_client(cfg)
-        return FallbackAdapter(primary=deepseek_client, fallback=fallback_client)
+        return FallbackAdapter(primary=deepseek_client, fallback=_make_fallback_client(cfg))
 
-    # 8. Auto-detect Ollama
-    ollama_url = cfg.get("base_url") or os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    ollama_url = _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")
     if check_ollama_running(ollama_url):
-        return OllamaAdapter(config=cfg)
+        return OllamaAdapter(config={**cfg, "base_url": ollama_url})
 
-    # 9. Nothing available — use deterministic local adapter
     return LocalAdapter(config=cfg)

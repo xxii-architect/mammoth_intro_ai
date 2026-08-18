@@ -2,11 +2,14 @@ import { useState, useEffect } from 'react'
 import { Bot, Play, Info, ChevronRight, Brain, CheckCircle, AlertTriangle, XCircle, Loader } from 'lucide-react'
 import { api } from '../api/client'
 import RunHistoryPanel from '../components/RunHistoryPanel'
+import AutonomousRunPanel from '../components/AutonomousRunPanel'
+import OnboardingGuide from '../components/OnboardingGuide'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
   'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'summarize',
   'lesson_curriculum', 'lesson_coaching', 'grade_submission',
+  'generate_code', 'patch_existing', 'refactor_code', 'analyze_codebase', 'run_tests', 'write_docs',
 ]
 
 const INTENT_TO_AGENT = {
@@ -23,6 +26,12 @@ const INTENT_TO_AGENT = {
   lesson_curriculum:   'curriculum_agent',
   lesson_coaching:     'tutor_agent',
   grade_submission:    'tutor_agent',
+  generate_code:       'coding_agent',
+  patch_existing:      'coding_agent',
+  refactor_code:       'coding_agent',
+  analyze_codebase:    'coding_agent',
+  run_tests:           'coding_agent',
+  write_docs:          'coding_agent',
 }
 
 const AGENT_TO_INTENT = {
@@ -34,10 +43,20 @@ const AGENT_TO_INTENT = {
   research_agent:       'research_curriculum',
   curriculum_agent:     'lesson_curriculum',
   tutor_agent:          'lesson_coaching',
-  coding_agent:         'summarize',
+  coding_agent:         'generate_code',
   community_engine_agent: 'summarize',
   custodial_agent:      'summarize',
 }
+
+const CODING_INTENT_OPTIONS = [
+  { value: 'generate_code', label: 'Generate Code' },
+  { value: 'patch_existing', label: 'Patch Existing Files' },
+  { value: 'refactor_code', label: 'Refactor Code' },
+  { value: 'analyze_codebase', label: 'Analyze Codebase' },
+  { value: 'run_tests', label: 'Run Test Guidance' },
+  { value: 'write_docs', label: 'Write Docs' },
+  { value: 'summarize', label: 'Implementation Brief' },
+]
 
 const SMOKE_TESTS = [
   { agent_id: 'plant_the_seed_agent', intent: 'plant_seed', prompt: 'Smoke test: confirm plant seed agent is online in one sentence.' },
@@ -48,43 +67,48 @@ const SMOKE_TESTS = [
   { agent_id: 'research_agent', intent: 'research_curriculum', prompt: 'Smoke test: summarize one curriculum tip in one sentence.' },
   { agent_id: 'curriculum_agent', intent: 'lesson_curriculum', prompt: 'Smoke test: provide one sentence on lesson framing.' },
   { agent_id: 'tutor_agent', intent: 'lesson_coaching', prompt: 'Smoke test: provide one coaching checkpoint.' },
-  { agent_id: 'coding_agent', intent: 'summarize', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
+  { agent_id: 'coding_agent', intent: 'generate_code', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
 ]
 
 const PROMPT_PLAYBOOK = [
   {
     label: 'Quick one-liner',
     agent_id: 'coding_agent',
-    intent: 'summarize',
+    intent: 'generate_code',
+    codingIntent: 'generate_code',
     prompt: 'Upgrade NotesPanel to MammothOS style with neon accents and approval-safe edits.',
   },
   {
     label: 'Scoped build prompt',
     agent_id: 'coding_agent',
-    intent: 'summarize',
+    intent: 'patch_existing',
+    codingIntent: 'patch_existing',
     prompt: 'Create a user tutorial panel for the command center. Scope: ui\\mad-architecht-command-center\\src. Keep preview first on and preserve existing navigation.',
   },
   {
     label: 'Plan + Execute objective',
     planProfile: 'atlas',
+    codingIntent: 'summarize',
     executionMode: 'plan',
     prompt: 'Plan and implement an onboarding/manual experience for agent prompting, terminal usage, and safe approvals.',
   },
   {
     label: 'Health module split test',
     planProfile: 'coding',
+    codingIntent: 'patch_existing',
     executionMode: 'plan',
     prompt: 'Plan and implement Health page split: keep existing System Health, add Personal Health module with habit metrics and daily check-in. Scope: ui\\mad-architecht-command-center\\src\\pages\\HealthPage.jsx and related UI components only. Preserve existing backend health wiring and dark theme.',
   },
   {
     label: 'Finance split test',
     planProfile: 'coding',
+    codingIntent: 'patch_existing',
     executionMode: 'plan',
     prompt: 'Plan and implement Log Sale page split: Personal Finances and Business Finances sections with separate totals and entries. Scope: ui\\mad-architecht-command-center\\src\\pages\\LogSalePage.jsx and related local UI state only. Keep existing styling and current behavior intact.',
   },
 ]
 
-export default function AgentPage() {
+export default function AgentPage({ setPage }) {
   const [agents, setAgents] = useState([])
   const [selectedAgent, setSelected] = useState('')
   const [intent, setIntent] = useState('plant_seed')
@@ -111,6 +135,7 @@ export default function AgentPage() {
   const [smokeResults, setSmokeResults] = useState([])
   const [executionMode, setExecutionMode] = useState('single')
   const [planProfile, setPlanProfile] = useState('atlas')
+  const [codingIntent, setCodingIntent] = useState('generate_code')
   const [planRun, setPlanRun] = useState(null)
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
 
@@ -194,6 +219,7 @@ export default function AgentPage() {
     setIntent(i)
     setAgentPinned(false)
     const mapped = INTENT_TO_AGENT[i]
+    if (INTENT_TO_AGENT[i] === 'coding_agent') setCodingIntent(i)
     if (mapped) setSelected(mapped)
   }
 
@@ -201,12 +227,16 @@ export default function AgentPage() {
     setAgentPinned(true)
     setSelected(agentId)
     const mappedIntent = AGENT_TO_INTENT[agentId]
-    if (mappedIntent) setIntent(mappedIntent)
+    if (mappedIntent) {
+      setIntent(mappedIntent)
+      if (agentId === 'coding_agent') setCodingIntent(mappedIntent)
+    }
   }
 
   const loadCodingTemplate = (template) => {
     setSelected('coding_agent')
-    setIntent('summarize')
+    setIntent('generate_code')
+    setCodingIntent('generate_code')
     setAgentPinned(true)
     setApprovalMode(true)
     setPrompt(template)
@@ -216,10 +246,12 @@ export default function AgentPage() {
     if (entry.executionMode === 'plan') {
       setExecutionMode('plan')
       setPlanProfile(entry.planProfile || 'atlas')
+      setCodingIntent(entry.codingIntent || 'generate_code')
     } else {
       setExecutionMode('single')
       if (entry.agent_id) chooseAgent(entry.agent_id)
       if (entry.intent) chooseIntent(entry.intent)
+      if (entry.codingIntent) setCodingIntent(entry.codingIntent)
     }
     setApprovalMode(true)
     setPrompt(entry.prompt)
@@ -253,12 +285,23 @@ export default function AgentPage() {
     if (entry.execution_mode === 'plan' || String(entry.intent || '').startsWith('plan_execute')) {
       setExecutionMode('plan')
       if (entry.plan_profile) setPlanProfile(entry.plan_profile)
+      if (entry.coding_intent) setCodingIntent(entry.coding_intent)
     } else {
       setExecutionMode('single')
       if (entry.agent_id) chooseAgent(entry.agent_id)
       if (entry.intent) chooseIntent(entry.intent)
+      if (entry.coding_intent) setCodingIntent(entry.coding_intent)
     }
     setPrompt(entry.prompt || '')
+  }
+
+  const replayAutonomousRun = (run) => {
+    if (!run) return
+    setExecutionMode('plan')
+    setPlanProfile(run.plan_profile || 'atlas')
+    setCodingIntent(run.coding_intent || 'summarize')
+    setApprovalMode(Boolean(run.replay?.approval_mode ?? run.plan_status === 'pending_approval'))
+    setPrompt(run.objective || '')
   }
 
   const clearRunHistory = () => persistRunHistory([])
@@ -271,10 +314,20 @@ export default function AgentPage() {
     try {
       const res = await api('/run', {
         method: 'POST',
-        body: { intent, payload: { prompt }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
+        body: { intent, payload: { prompt, coding_intent: selectedAgent === 'coding_agent' ? codingIntent : undefined }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
       })
       if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
-      addRunHistoryEntry(res, prompt, selectedAgent, intent, { execution_mode: 'single' })
+      addRunHistoryEntry(res, prompt, selectedAgent, intent, {
+        execution_mode: 'single',
+        coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
+        replay: {
+          execution_mode: 'single',
+          prompt,
+          agent_id: selectedAgent,
+          intent,
+          coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
+        },
+      })
       setOutput(JSON.stringify(res, null, 2))
     } catch (e) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
@@ -293,6 +346,7 @@ export default function AgentPage() {
       status: 'ok',
       objective: prompt,
       plan_profile: planProfile,
+      coding_intent: codingIntent,
       plan_status: 'running',
       progress: { total: 0, executed: 0, completed: 0, pending_approval: 0, failed: 0 },
       plan_steps: [],
@@ -301,10 +355,21 @@ export default function AgentPage() {
     try {
       const res = await api('/plan-execute', {
         method: 'POST',
-        body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true, plan_profile: planProfile },
+        body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true, plan_profile: planProfile, coding_intent: codingIntent },
       })
-      setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile })
-      addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', { execution_mode: 'plan', plan_profile: res.plan_profile || planProfile })
+      setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile, coding_intent: res.coding_intent || codingIntent })
+      addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
+        execution_mode: 'plan',
+        plan_profile: res.plan_profile || planProfile,
+        coding_intent: res.coding_intent || codingIntent,
+        replay: {
+          execution_mode: 'plan',
+          objective: prompt,
+          plan_profile: res.plan_profile || planProfile,
+          coding_intent: res.coding_intent || codingIntent,
+          approval_mode: approvalMode,
+        },
+      })
       setOutput(JSON.stringify(res, null, 2))
       const summarizedThoughts = (res.plan_steps || []).map((step, idx) => ({
         ts: step.finished_at || new Date().toISOString(),
@@ -318,6 +383,7 @@ export default function AgentPage() {
         status: 'error',
         objective: prompt,
         plan_profile: planProfile,
+        coding_intent: codingIntent,
         plan_status: 'failed',
         progress: { total: 0, executed: 0, completed: 0, pending_approval: 0, failed: 1 },
         plan_steps: [],
@@ -397,6 +463,8 @@ export default function AgentPage() {
         <Bot size={20} color="var(--violet)" /> Agent Console
       </h1>
 
+      <OnboardingGuide variant="banner" currentPage="agent" setPage={setPage} />
+
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
         <div style={{ flex: '1 1 420px', minWidth: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16, marginBottom: 16 }}>
@@ -433,8 +501,19 @@ export default function AgentPage() {
                   <select className="filter-select" value={planProfile} onChange={e => setPlanProfile(e.target.value)} style={{ padding: '6px 10px', fontSize: '0.78rem' }}>
                     <option value="atlas">ATLAS-First</option>
                     <option value="coding">ATLAS + Coding Assistant</option>
+                    <option value="coding_only">Coding Agent Only</option>
                     <option value="balanced">Balanced</option>
                     <option value="autonomous">Autonomous Prep</option>
+                  </select>
+                </div>
+              )}
+              {((executionMode === 'single' && selectedAgent === 'coding_agent') || executionMode === 'plan') && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <label style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Coding Intent</label>
+                  <select className="filter-select" value={codingIntent} onChange={e => { setCodingIntent(e.target.value); if (executionMode === 'single') setIntent(e.target.value) }} style={{ padding: '6px 10px', fontSize: '0.78rem' }}>
+                    {CODING_INTENT_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
                   </select>
                 </div>
               )}
@@ -463,6 +542,9 @@ export default function AgentPage() {
               </div>
               <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', lineHeight: 1.6, marginBottom: 10 }}>
                 New: use <strong style={{ color: 'var(--txt-pri)' }}>Health module split test</strong> and <strong style={{ color: 'var(--txt-pri)' }}>Finance split test</strong> templates to task agents with your next module integrations.
+              </div>
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', lineHeight: 1.6, marginBottom: 10 }}>
+                For coding work, prefer <strong style={{ color: 'var(--txt-pri)' }}>Coding Intent</strong> = <strong style={{ color: 'var(--txt-pri)' }}>Patch Existing Files</strong> or <strong style={{ color: 'var(--txt-pri)' }}>Generate Code</strong> instead of the summarize-style brief.
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {PROMPT_PLAYBOOK.map((entry) => (
@@ -677,29 +759,11 @@ export default function AgentPage() {
               ) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>Switch Mode to Plan + Execute and run an objective to orchestrate multiple agents.</div>}
             </div>
 
-            <div style={{ marginTop: 16 }}>
-              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Autonomous Runs</p>
-              {autonomousRuns.summary ? (
-                <div>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 8 }}>
-                    total {autonomousRuns.summary.total_runs || 0} • completed {autonomousRuns.summary.completed || 0} • pending {autonomousRuns.summary.pending_approval || 0} • failed {autonomousRuns.summary.failed || 0}
-                  </div>
-                  {autonomousRuns.runs.slice(0, 4).map(run => (
-                    <div key={`${run.run_id}-${run.source}`} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                        <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem' }}>{(run.objective || 'Autonomous run').slice(0, 36)}</span>
-                        <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: run.plan_status === 'completed' ? '#22c55e' : run.plan_status === 'pending_approval' ? '#f59e0b' : run.plan_status === 'failed' ? '#f87171' : 'var(--photon)', fontFamily: 'JetBrains Mono,monospace' }}>
-                          {run.plan_status || 'unknown'}
-                        </span>
-                      </div>
-                      <div style={{ color: 'var(--txt-sec)', fontSize: '0.66rem', marginTop: 3 }}>
-                        {run.source} • {run.plan_profile || 'balanced'} • {run.progress?.completed || 0}/{run.progress?.total || 0}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No autonomous run data yet.</div>}
-            </div>
+            <AutonomousRunPanel
+              summary={autonomousRuns.summary}
+              runs={autonomousRuns.runs}
+              onReplayRun={replayAutonomousRun}
+            />
 
             <div style={{ marginTop: 16 }}>
               <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Task Queue</p>

@@ -5,11 +5,14 @@ Run: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 
 import ast
 import asyncio
+import base64
 import csv
 import io
 import json
+import math
 import os
 import re
+import shutil
 import socket
 import subprocess
 import sys
@@ -27,7 +30,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from mammoth_os.learner_model import build_learner_context, build_lesson_plan, load_learner_model, save_learner_model, set_onboarding_profile, update_learner_model
 
@@ -51,6 +54,7 @@ MAMMOTH_DIR.mkdir(exist_ok=True)
 NOTES_FILE    = MAMMOTH_DIR / "notes.json"
 BUILDLOG_FILE = MAMMOTH_DIR / "buildlog.json"
 SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
+OPERATOR_HEALTH_FILE = MAMMOTH_DIR / "operator_health.json"
 ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
 SNAPSHOTS_FILE = MAMMOTH_DIR / "snapshots.json"
 ATLAS_EVALS_FILE = MAMMOTH_DIR / "atlas_evals.json"
@@ -140,6 +144,23 @@ def _read_json(path: Path, default=None):
 
 def _write_json(path: Path, data):
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _coerce_float(value: Any, *, field: str) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be a number") from exc
+    if not math.isfinite(out):
+        raise ValueError(f"{field} must be a finite number")
+    return out
+
+
+def _coerce_int(value: Any, *, field: str) -> int:
+    out = _coerce_float(value, field=field)
+    if int(out) != out:
+        raise ValueError(f"{field} must be an integer")
+    return int(out)
 
 
 def _normalize_module_key(value: Any) -> str:
@@ -292,6 +313,20 @@ def _build_operation_preview(operation: str, payload: Dict[str, Any]) -> Dict[st
     return {"summary": "File operation", "file_path": file_path}
 
 
+def _build_non_coding_approval_preview(operation: str, payload: Dict[str, Any], result: Any) -> Dict[str, Any]:
+    preview: Dict[str, Any] = {
+        "summary": operation.replace("_", " ").strip().title() or "Approval request",
+        "operation": operation,
+        "target": str(payload.get("target") or payload.get("topic") or payload.get("content") or "").strip(),
+        "payload": payload,
+    }
+    if isinstance(result, dict):
+        preview["result"] = result
+    else:
+        preview["result"] = {"value": result}
+    return preview
+
+
 def _resolve_target_path(file_path: str) -> Path:
     target = Path(file_path)
     if not target.is_absolute():
@@ -347,6 +382,103 @@ def _restore_snapshot(snapshot_id: str) -> Dict[str, Any]:
     return {"status": "ok", "snapshot": snapshot}
 
 
+def _run_custodial_cleanup_approval(payload: Dict[str, Any], approval_id: str, agent_id: str) -> Dict[str, Any]:
+    from mammoth_os.agents.custodial_agent import CustodialAgent
+
+    agent = CustodialAgent(router=None, storage_root=str(MAMMOTH_DIR / "custodial"))
+    workspace = agent._resolve_workspace(str(payload.get("workspace") or payload.get("target") or ""))
+    targets = agent._walk_cleanup_targets(workspace)
+    snapshot = agent._create_snapshot(
+        workspace,
+        files=targets["files"],
+        dirs=targets["dirs"],
+        label=str(payload.get("label") or payload.get("reason") or "cleanup"),
+    )
+
+    removed_files: List[str] = []
+    for path in targets["files"]:
+        if path.exists():
+            path.unlink()
+            removed_files.append(path.relative_to(workspace).as_posix())
+
+    removed_dirs: List[str] = []
+    for path in targets["dirs"]:
+        if path.exists():
+            shutil.rmtree(path)
+            removed_dirs.append(path.relative_to(workspace).as_posix())
+
+    return {
+        "status": "ok",
+        "agent": agent_id or "custodial",
+        "action": "cleanup",
+        "workspace": str(workspace),
+        "snapshot_id": snapshot["snapshot_id"],
+        "removed_files": removed_files,
+        "removed_dirs": removed_dirs,
+    }
+
+
+def _run_custodial_restore_approval(payload: Dict[str, Any], approval_id: str, agent_id: str) -> Dict[str, Any]:
+    from mammoth_os.agents.custodial_agent import CustodialAgent
+
+    agent = CustodialAgent(router=None, storage_root=str(MAMMOTH_DIR / "custodial"))
+    workspace = agent._resolve_workspace(str(payload.get("workspace") or payload.get("target") or ""))
+    snapshot_id = str(payload.get("snapshot_id") or "").strip()
+    snapshot = agent._find_snapshot(snapshot_id)
+    if snapshot is None:
+        return {"status": "error", "message": "snapshot not found", "snapshot_id": snapshot_id}
+
+    restored_files: List[str] = []
+    for file_entry in snapshot.get("files", []):
+        relative_path = str(file_entry.get("relative_path") or "").strip()
+        if not relative_path:
+            continue
+        payload_bytes = base64.b64decode(str(file_entry.get("content_b64") or ""))
+        target_path = workspace / relative_path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_bytes(payload_bytes)
+        restored_files.append(relative_path)
+
+    restored_dirs: List[str] = []
+    for relative_dir in snapshot.get("dirs", []):
+        dir_path = workspace / str(relative_dir)
+        dir_path.mkdir(parents=True, exist_ok=True)
+        restored_dirs.append(str(relative_dir))
+
+    return {
+        "status": "ok",
+        "agent": agent_id or "custodial",
+        "action": "restore",
+        "workspace": str(workspace),
+        "snapshot_id": snapshot_id,
+        "restored_files": restored_files,
+        "restored_dirs": restored_dirs,
+    }
+
+
+def _run_custodial_snapshot_approval(payload: Dict[str, Any], approval_id: str, agent_id: str) -> Dict[str, Any]:
+    from mammoth_os.agents.custodial_agent import CustodialAgent
+
+    agent = CustodialAgent(router=None, storage_root=str(MAMMOTH_DIR / "custodial"))
+    workspace = agent._resolve_workspace(str(payload.get("workspace") or payload.get("target") or ""))
+    targets = agent._walk_cleanup_targets(workspace)
+    snapshot = agent._create_snapshot(
+        workspace,
+        files=targets["files"],
+        dirs=targets["dirs"],
+        label=str(payload.get("label") or payload.get("reason") or "snapshot"),
+    )
+    return {
+        "status": "ok",
+        "agent": agent_id or "custodial",
+        "action": "snapshot",
+        "workspace": str(workspace),
+        "snapshot_id": snapshot["snapshot_id"],
+        "files_captured": len(snapshot["files"]),
+        "dirs_captured": len(snapshot["dirs"]),
+    }
+
+
 def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
     operation = str(record.get("operation", "")).strip()
     payload = record.get("payload") or {}
@@ -368,6 +500,12 @@ def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
         return _apply_atlas_learner_reset()
     if operation == "atlas_session_reset":
         return _apply_atlas_session_reset()
+    if operation == "custodial_cleanup":
+        return _run_custodial_cleanup_approval(payload if isinstance(payload, dict) else {}, str(record.get("id", "") or ""), str(record.get("agent_id", "") or ""))
+    if operation == "custodial_restore":
+        return _run_custodial_restore_approval(payload if isinstance(payload, dict) else {}, str(record.get("id", "") or ""), str(record.get("agent_id", "") or ""))
+    if operation == "custodial_snapshot":
+        return _run_custodial_snapshot_approval(payload if isinstance(payload, dict) else {}, str(record.get("id", "") or ""), str(record.get("agent_id", "") or ""))
     return {"status": "error", "message": f"Unsupported approval operation {operation!r}"}
 
 
@@ -545,6 +683,75 @@ def _models_snapshot() -> Dict[str, Any]:
         "openai_key_present": openai_key_present,
         "local_models_installed": installed_local,
         "models": local_model_items + cloud_model_items,
+    }
+
+
+def _runtime_status_snapshot() -> Dict[str, Any]:
+    env = _read_env_vars()
+    models = _models_snapshot()
+    deepseek_key_present = bool((os.environ.get("DEEPSEEK_API_KEY") or env.get("DEEPSEEK_API_KEY") or "").strip())
+    openai_key_present = bool(models.get("openai_key_present"))
+    ollama_running = bool(models.get("ollama_running"))
+    active_adapter = str(models.get("active_adapter") or "local")
+    active_model = str(models.get("active_model") or "local-adapter")
+
+    providers = [
+        {
+            "provider": "deepseek",
+            "status": "ready" if deepseek_key_present else "missing_key",
+            "available": deepseek_key_present,
+            "detail": "DeepSeek cloud reasoning",
+        },
+        {
+            "provider": "openai",
+            "status": "ready" if openai_key_present else "missing_key",
+            "available": openai_key_present,
+            "detail": "OpenAI chat/runtime",
+        },
+        {
+            "provider": "ollama",
+            "status": "ready" if ollama_running else "offline",
+            "available": ollama_running,
+            "detail": models.get("ollama_base_url", "http://localhost:11434"),
+        },
+        {
+            "provider": "local",
+            "status": "ready",
+            "available": True,
+            "detail": "Local echo fallback",
+        },
+    ]
+
+    available_providers = [item["provider"] for item in providers if item["available"]]
+    if active_adapter == "local":
+        state = "degraded"
+    elif active_adapter in available_providers:
+        state = "ready"
+    elif available_providers:
+        state = "degraded"
+    else:
+        state = "degraded"
+
+    if state == "ready":
+        recommendation = f"{active_adapter} is ready"
+    elif ollama_running:
+        recommendation = "Switch to OpenAI or DeepSeek if the selected adapter is not responding."
+    else:
+        recommendation = "Add OPENAI_API_KEY or start Ollama to restore a cloud-capable runtime."
+
+    return {
+        "state": state,
+        "active_adapter": active_adapter,
+        "active_model": active_model,
+        "providers": providers,
+        "available_providers": available_providers,
+        "fallback_chain": ["deepseek", "openai", "ollama", "local"],
+        "recommendation": recommendation,
+        "summary": {
+            "openai_key_present": openai_key_present,
+            "deepseek_key_present": deepseek_key_present,
+            "ollama_running": ollama_running,
+        },
     }
 
 
@@ -823,6 +1030,11 @@ async def get_models():
     return _models_snapshot()
 
 
+@app.get("/api/runtime/status")
+async def get_runtime_status():
+    return _runtime_status_snapshot()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/activity + /api/tasks
 # ─────────────────────────────────────────────────────────────────────────────
@@ -877,6 +1089,12 @@ _INTENT_TO_AGENT_ID = {
     "lesson_coaching": "tutor_agent",
     "reasoning_help": "reasoning_agent",
     "debug_failure": "reasoning_agent",
+    "generate_code": "coding_agent",
+    "patch_existing": "coding_agent",
+    "refactor_code": "coding_agent",
+    "analyze_codebase": "coding_agent",
+    "run_tests": "coding_agent",
+    "write_docs": "coding_agent",
 }
 
 _AGENT_ID_TO_RUNTIME = {
@@ -1005,22 +1223,108 @@ def _ts() -> str:
 
 def _normalize_plan_profile(raw_profile: Any) -> str:
     profile = str(raw_profile or "balanced").strip().lower()
-    if profile not in {"atlas", "coding", "balanced", "autonomous"}:
+    if profile not in {"atlas", "coding", "coding_only", "balanced", "autonomous"}:
         return "balanced"
     return profile
 
 
-def _build_plan_steps(objective: str, plan_profile: str = "balanced") -> List[Dict[str, str]]:
+def _normalize_coding_intent(raw_intent: Any) -> str:
+    intent = str(raw_intent or "").strip().lower()
+    aliases = {
+        "analysis": "analyze_codebase",
+        "analyze": "analyze_codebase",
+        "docs": "write_docs",
+        "documentation": "write_docs",
+        "implement": "generate_code",
+        "implementation": "generate_code",
+        "patch": "patch_existing",
+        "refactor": "refactor_code",
+        "test": "run_tests",
+    }
+    intent = aliases.get(intent, intent)
+    if intent in {"summarize", "generate_code", "patch_existing", "refactor_code", "analyze_codebase", "run_tests", "write_docs"}:
+        return intent
+    return ""
+
+
+def _default_coding_intent_for_profile(plan_profile: str) -> str:
+    profile = _normalize_plan_profile(plan_profile)
+    if profile in {"coding", "coding_only"}:
+        return "generate_code"
+    return "summarize"
+
+
+def _extract_prompt_file_paths(text: str) -> List[str]:
+    matches = re.findall(r"[A-Za-z0-9_.-]+(?:[\\/][A-Za-z0-9_.-]+)+\.[A-Za-z0-9_.-]+", str(text or ""))
+    unique: List[str] = []
+    for match in matches:
+        if match not in unique:
+            unique.append(match)
+    return unique
+
+
+def _build_coding_step(objective: str, coding_intent: str) -> Dict[str, Any]:
+    normalized_intent = _normalize_coding_intent(coding_intent) or "generate_code"
+    file_paths = _extract_prompt_file_paths(objective)
+
+    if normalized_intent == "summarize":
+        title = "Draft implementation approach"
+        prompt = f"Provide a concise implementation plan and verification checklist for: {objective}"
+    elif normalized_intent == "patch_existing":
+        title = "Generate project-grounded patch"
+        prompt = (
+            "Patch the existing codebase in place for this objective. "
+            "Work only with the files explicitly named in the objective when they are provided. "
+            "Do not scaffold a new app, invent placeholder targets, or rewrite unrelated areas. "
+            f"Return structured code/tests/docs for: {objective}"
+        )
+    elif normalized_intent == "refactor_code":
+        title = "Draft refactor pass"
+        prompt = f"Refactor the existing implementation with the smallest safe changes needed for: {objective}"
+    elif normalized_intent == "analyze_codebase":
+        title = "Analyze implementation surface"
+        prompt = f"Analyze the current codebase surface, risks, and integration points for: {objective}"
+    elif normalized_intent == "run_tests":
+        title = "Run focused validation guidance"
+        prompt = f"Identify the smallest targeted validation and test plan for: {objective}"
+    elif normalized_intent == "write_docs":
+        title = "Draft implementation documentation"
+        prompt = f"Write implementation notes and usage guidance for: {objective}"
+    else:
+        title = "Generate implementation pass"
+        prompt = (
+            "Generate a project-grounded implementation pass for this objective. "
+            "Prefer editing the existing files named in the objective, preserve current behavior unless the objective changes it, "
+            f"and return structured code/tests/docs for: {objective}"
+        )
+
+    return {
+        "id": "coding-plan",
+        "title": title,
+        "agent_id": "coding_agent",
+        "intent": normalized_intent,
+        "coding_intent": normalized_intent,
+        "prompt": prompt,
+        "files": file_paths,
+        "target": file_paths[0] if file_paths else "",
+    }
+
+
+def _build_plan_steps(objective: str, plan_profile: str = "balanced", coding_intent: str = "") -> List[Dict[str, Any]]:
     objective = (objective or "").strip()
     lower = objective.lower()
     profile = _normalize_plan_profile(plan_profile)
-    include_coding = profile == "coding" or any(tok in lower for tok in ["build", "implement", "code", "patch", "create", "ui", "feature"])
+    effective_coding_intent = _normalize_coding_intent(coding_intent) or _default_coding_intent_for_profile(profile)
+    include_coding = profile in {"coding", "coding_only"} or any(tok in lower for tok in ["build", "implement", "code", "patch", "create", "ui", "feature"])
     include_market = profile == "atlas" or any(tok in lower for tok in ["market", "audience", "position", "messaging"])
     include_field_ops = profile == "atlas" or any(tok in lower for tok in ["ops", "operational", "runbook", "checklist", "launch"])
     include_community = profile == "autonomous"
     include_custodial = profile == "autonomous"
 
-    steps: List[Dict[str, str]] = [
+    if profile == "coding_only":
+        return [_build_coding_step(objective, effective_coding_intent)]
+
+    steps: List[Dict[str, Any]] = [
         {
             "id": "seed-direction",
             "title": "Plant ATLAS strategic direction",
@@ -1067,15 +1371,7 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced") -> List[Di
         )
 
     if include_coding:
-        steps.append(
-            {
-                "id": "coding-plan",
-                "title": "Draft implementation approach",
-                "agent_id": "coding_agent",
-                "intent": "summarize",
-                "prompt": f"Provide a concise implementation plan and verification checklist for: {objective}",
-            }
-        )
+        steps.append(_build_coding_step(objective, effective_coding_intent))
 
     if include_community:
         steps.append(
@@ -1223,7 +1519,12 @@ def _append_plan_history(state: Dict[str, Any], plan: Dict[str, Any]) -> None:
         "objective": plan.get("objective"),
         "plan_status": plan.get("plan_status"),
         "plan_profile": plan.get("plan_profile"),
+        "coding_intent": plan.get("coding_intent"),
         "progress": plan.get("progress"),
+        "current_lane": plan.get("current_lane"),
+        "approvals_needed": plan.get("approvals_needed"),
+        "approvals_needed_count": plan.get("approvals_needed_count"),
+        "replay": plan.get("replay"),
         "created_at": plan.get("created_at") or _ts(),
         "summary": ((plan.get("synthesis") or {}).get("learner_summary") or "")[:300],
         "next_action": ((plan.get("synthesis") or {}).get("next_action") or "")[:220],
@@ -1393,12 +1694,30 @@ async def _execute_plan_steps(
             details={"step": step, "owner": activity_agent_id},
         )
 
+        approval_contract = step.get("approval_contract") if isinstance(step.get("approval_contract"), dict) else {}
+        step_requires_approval = approval_mode and (
+            step["agent_id"] == "coding_agent" or bool(approval_contract)
+        )
         run_body = {
             "intent": step["intent"],
-            "payload": {"prompt": step["prompt"]},
+            "payload": {
+                "prompt": step["prompt"],
+                "coding_intent": step.get("coding_intent", ""),
+                "files": step.get("files") or [],
+                "target": step.get("target") or "",
+                "approval_contract": approval_contract,
+                "context": {
+                    "source": "atlas.plan_execute",
+                    "files": step.get("files") or [],
+                    "target": step.get("target") or "",
+                    "coding_intent": step.get("coding_intent", ""),
+                    "approval_contract": approval_contract,
+                },
+            },
             "temperature": temperature,
             "agent_id": step["agent_id"],
-            "approval_mode": approval_mode if step["agent_id"] == "coding_agent" else False,
+            "approval_mode": step_requires_approval,
+            "approval_contract": approval_contract,
         }
 
         response = await run_agent(run_body)
@@ -1420,11 +1739,15 @@ async def _execute_plan_steps(
             "agent_id": step["agent_id"],
             "intent": step["intent"],
             "prompt": step["prompt"],
+            "approval_contract": approval_contract,
             "started_at": started_at,
             "finished_at": finished_at,
             "duration_ms": duration_ms,
             "status": step_status,
             "response": response,
+            "approval": (result_obj or {}).get("approval") if isinstance(result_obj, dict) else None,
+            "preview": (result_obj or {}).get("preview") if isinstance(result_obj, dict) else None,
+            "step_requires_approval": step_requires_approval,
         }
         step_results.append(step_result)
 
@@ -1438,8 +1761,63 @@ async def _execute_plan_steps(
 
         if step_status == "failed" and stop_on_failure:
             break
+        if step_status == "pending_approval" and approval_mode:
+            break
 
     return step_results
+
+
+def _summarize_plan_run(step_results: List[Dict[str, Any]], *, objective: str, plan_profile: str, coding_intent: str, approval_mode: bool) -> Dict[str, Any]:
+    completed_steps = [step for step in step_results if step.get("status") == "completed"]
+    pending_steps = [step for step in step_results if step.get("status") == "pending_approval"]
+    failed_steps = [step for step in step_results if step.get("status") == "failed"]
+
+    lane_source = pending_steps[0] if pending_steps else (failed_steps[0] if failed_steps else (step_results[-1] if step_results else {}))
+    current_lane = {
+        "step_id": lane_source.get("id") or "",
+        "title": lane_source.get("title") or "",
+        "agent_id": lane_source.get("agent_id") or "",
+        "status": lane_source.get("status") or ("idle" if not step_results else "completed"),
+        "started_at": lane_source.get("started_at") or "",
+        "finished_at": lane_source.get("finished_at") or "",
+        "duration_ms": int(lane_source.get("duration_ms") or 0),
+        "approval_contract": lane_source.get("approval_contract") or {},
+        "approval": lane_source.get("approval") or {},
+        "preview": lane_source.get("preview") or {},
+    }
+
+    approvals_needed = [
+        {
+            "step_id": step.get("id") or "",
+            "title": step.get("title") or "",
+            "agent_id": step.get("agent_id") or "",
+            "status": step.get("status") or "unknown",
+            "operation": str((step.get("approval_contract") or {}).get("operation") or (step.get("approval") or {}).get("operation") or ""),
+            "target": str((step.get("approval_contract") or {}).get("target") or (step.get("approval") or {}).get("target") or ""),
+            "approval_id": str((step.get("approval") or {}).get("id") or ""),
+            "preview": (step.get("preview") or {}),
+        }
+        for step in pending_steps
+    ]
+
+    replay = {
+        "execution_mode": "plan",
+        "objective": objective,
+        "plan_profile": plan_profile,
+        "coding_intent": coding_intent,
+        "approval_mode": approval_mode,
+        "step_count": len(step_results),
+    }
+
+    return {
+        "current_lane": current_lane,
+        "approvals_needed": approvals_needed,
+        "approvals_needed_count": len(approvals_needed),
+        "completed_steps": len(completed_steps),
+        "pending_steps": len(pending_steps),
+        "failed_steps": len(failed_steps),
+        "replay": replay,
+    }
 
 
 @app.post("/api/plan-execute")
@@ -1449,12 +1827,13 @@ async def plan_execute(body: Dict[str, Any]):
     approval_mode = bool(body.get("approval_mode"))
     stop_on_failure = bool(body.get("stop_on_failure", True))
     plan_profile = _normalize_plan_profile(body.get("plan_profile"))
+    coding_intent = _normalize_coding_intent(body.get("coding_intent")) or _default_coding_intent_for_profile(plan_profile)
 
     if not objective:
         return {"status": "error", "error": "objective is required"}
 
     plan_id = f"plan-{uuid.uuid4().hex[:8]}"
-    steps = _build_plan_steps(objective, plan_profile)
+    steps = _build_plan_steps(objective, plan_profile, coding_intent)
 
     _upsert_task(
         plan_id,
@@ -1462,14 +1841,20 @@ async def plan_execute(body: Dict[str, Any]):
         status="active",
         agent_id="orchestrator",
         description=objective,
-        details={"objective": objective, "step_count": len(steps), "approval_mode": approval_mode, "plan_profile": plan_profile},
+        details={
+            "objective": objective,
+            "step_count": len(steps),
+            "approval_mode": approval_mode,
+            "plan_profile": plan_profile,
+            "coding_intent": coding_intent,
+        },
     )
     _append_activity(
         "Started plan+execute run",
         agent_id="orchestrator",
         task_id=plan_id,
         kind="plan_started",
-        details={"objective": objective, "step_count": len(steps), "plan_profile": plan_profile},
+        details={"objective": objective, "step_count": len(steps), "plan_profile": plan_profile, "coding_intent": coding_intent},
     )
 
     step_results = await _execute_plan_steps(
@@ -1487,6 +1872,13 @@ async def plan_execute(body: Dict[str, Any]):
     completed_count = sum(1 for s in step_results if s["status"] == "completed")
     executed_count = len(step_results)
     total_count = len(steps)
+    runtime_snapshot = _summarize_plan_run(
+        step_results,
+        objective=objective,
+        plan_profile=plan_profile,
+        coding_intent=coding_intent,
+        approval_mode=approval_mode,
+    )
 
     if failed_count > 0:
         plan_status = "failed"
@@ -1504,11 +1896,16 @@ async def plan_execute(body: Dict[str, Any]):
         details={
             "objective": objective,
             "plan_profile": plan_profile,
+            "coding_intent": coding_intent,
             "total": total_count,
             "executed": executed_count,
             "completed": completed_count,
             "pending_approval": pending_count,
             "failed": failed_count,
+            "current_lane": runtime_snapshot.get("current_lane") or {},
+            "approvals_needed": runtime_snapshot.get("approvals_needed") or [],
+            "approvals_needed_count": runtime_snapshot.get("approvals_needed_count") or 0,
+            "replay": runtime_snapshot.get("replay") or {},
         },
     )
 
@@ -1517,7 +1914,7 @@ async def plan_execute(body: Dict[str, Any]):
         agent_id="orchestrator",
         task_id=plan_id,
         kind="plan_completed" if plan_status != "failed" else "plan_failed",
-        details={"objective": objective, "plan_profile": plan_profile, "executed": executed_count, "failed": failed_count},
+        details={"objective": objective, "plan_profile": plan_profile, "coding_intent": coding_intent, "executed": executed_count, "failed": failed_count},
     )
 
     return {
@@ -1525,6 +1922,7 @@ async def plan_execute(body: Dict[str, Any]):
         "plan_id": plan_id,
         "objective": objective,
         "plan_profile": plan_profile,
+        "coding_intent": coding_intent,
         "plan_status": plan_status,
         "progress": {
             "total": total_count,
@@ -1534,6 +1932,7 @@ async def plan_execute(body: Dict[str, Any]):
             "failed": failed_count,
         },
         "plan_steps": step_results,
+        **runtime_snapshot,
     }
 
 
@@ -1551,11 +1950,14 @@ async def get_autonomous_runs():
     ]
     for task in plan_tasks[-12:]:
         details = task.get("details") if isinstance(task.get("details"), dict) else {}
+        approvals_needed = details.get("approvals_needed") if isinstance(details.get("approvals_needed"), list) else []
+        current_lane = details.get("current_lane") if isinstance(details.get("current_lane"), dict) else {}
         recent_runs.append({
             "run_id": task.get("id"),
             "source": "plan_execute",
             "objective": details.get("objective") or task.get("description") or "",
             "plan_profile": _normalize_plan_profile(details.get("plan_profile")),
+            "coding_intent": _normalize_coding_intent(details.get("coding_intent")) or _default_coding_intent_for_profile(details.get("plan_profile")),
             "plan_status": task.get("status") or "unknown",
             "created_at": task.get("created_at") or task.get("updated_at") or "",
             "updated_at": task.get("updated_at") or task.get("created_at") or "",
@@ -1566,15 +1968,29 @@ async def get_autonomous_runs():
                 "pending_approval": int(details.get("pending_approval") or 0),
                 "failed": int(details.get("failed") or 0),
             },
+            "current_lane": current_lane,
+            "approvals_needed": approvals_needed,
+            "approvals_needed_count": int(details.get("approvals_needed_count") or len(approvals_needed)),
+            "replay": details.get("replay") or {
+                "execution_mode": "plan",
+                "objective": details.get("objective") or task.get("description") or "",
+                "plan_profile": _normalize_plan_profile(details.get("plan_profile")),
+                "coding_intent": _normalize_coding_intent(details.get("coding_intent")) or _default_coding_intent_for_profile(details.get("plan_profile")),
+                "approval_mode": bool(details.get("pending_approval") or details.get("approval_mode")),
+                "step_count": int(details.get("step_count") or details.get("total") or 0),
+            },
         })
 
     for plan in [item for item in (state.get("plan_history") or []) if isinstance(item, dict)][-12:]:
         progress = plan.get("progress") if isinstance(plan.get("progress"), dict) else {}
+        approvals_needed = plan.get("approvals_needed") if isinstance(plan.get("approvals_needed"), list) else []
+        current_lane = plan.get("current_lane") if isinstance(plan.get("current_lane"), dict) else {}
         recent_runs.append({
             "run_id": plan.get("plan_id"),
             "source": "atlas_plan",
             "objective": plan.get("objective") or "",
             "plan_profile": _normalize_plan_profile(plan.get("plan_profile")),
+            "coding_intent": _normalize_coding_intent(plan.get("coding_intent")) or _default_coding_intent_for_profile(plan.get("plan_profile")),
             "plan_status": plan.get("plan_status") or "unknown",
             "created_at": plan.get("created_at") or "",
             "updated_at": plan.get("created_at") or "",
@@ -1584,6 +2000,17 @@ async def get_autonomous_runs():
                 "completed": int(progress.get("completed") or 0),
                 "pending_approval": int(progress.get("pending_approval") or 0),
                 "failed": int(progress.get("failed") or 0),
+            },
+            "current_lane": current_lane,
+            "approvals_needed": approvals_needed,
+            "approvals_needed_count": int(plan.get("approvals_needed_count") or len(approvals_needed)),
+            "replay": plan.get("replay") or {
+                "execution_mode": "plan",
+                "objective": plan.get("objective") or "",
+                "plan_profile": _normalize_plan_profile(plan.get("plan_profile")),
+                "coding_intent": _normalize_coding_intent(plan.get("coding_intent")) or _default_coding_intent_for_profile(plan.get("plan_profile")),
+                "approval_mode": bool(progress.get("pending_approval")),
+                "step_count": int(progress.get("total") or 0),
             },
         })
 
@@ -1595,13 +2022,15 @@ async def get_autonomous_runs():
         "completed": sum(1 for run in recent_runs if run.get("plan_status") == "completed"),
         "pending_approval": sum(1 for run in recent_runs if run.get("plan_status") == "pending_approval"),
         "failed": sum(1 for run in recent_runs if run.get("plan_status") == "failed"),
+        "active": sum(1 for run in recent_runs if run.get("plan_status") in {"active", "running", "pending_approval"}),
         "latest_run_at": recent_runs[0].get("created_at") if recent_runs else "",
+        "awaiting_approval": sum(int(run.get("approvals_needed_count") or 0) for run in recent_runs),
     }
 
     return {
         "status": "ok",
         "contract_version": "v1",
-        "profiles": ["atlas", "coding", "balanced", "autonomous"],
+        "profiles": ["atlas", "coding", "coding_only", "balanced", "autonomous"],
         "summary": summary,
         "runs": recent_runs,
     }
@@ -1616,6 +2045,7 @@ async def run_agent(body: Dict[str, Any]):
     tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
     prompt_text = str(payload.get("prompt", "") or "").strip()
     approval_mode = bool(body.get("approval_mode") or payload.get("approval_mode") or payload.get("preview_only"))
+    coding_intent = _normalize_coding_intent(payload.get("coding_intent") if isinstance(payload, dict) else "") or _normalize_coding_intent(intent)
 
     thought_steps: List[Dict[str, Any]] = []
 
@@ -1720,7 +2150,9 @@ async def run_agent(body: Dict[str, Any]):
                     "operation": coding_op,
                     "output": raw_result,
                 }
-        elif runtime_agent and _agent_registry_ok and runtime_agent in AGENTS:
+        elif runtime_agent and (runtime_agent == "custodial" or (_agent_registry_ok and runtime_agent in AGENTS)):
+            handled_special_result = False
+            payload_for_agent: Any = prompt_text or json.dumps(payload)
             payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
@@ -1732,6 +2164,8 @@ async def run_agent(body: Dict[str, Any]):
                         payload_for_agent.setdefault("task", prompt_text)
                         payload_for_agent.setdefault("files", [])
                         payload_for_agent.setdefault("context", {})
+                        if coding_intent:
+                            payload_for_agent.setdefault("coding_intent", coding_intent)
                     elif runtime_agent == "brand_voice":
                         payload_for_agent.setdefault("content", prompt_text)
                         payload_for_agent.setdefault("prompt", prompt_text)
@@ -1751,44 +2185,175 @@ async def run_agent(body: Dict[str, Any]):
                     payload_for_agent["context"] = dict(payload_for_agent.get("context") or {})
                     payload_for_agent["context"].setdefault("source", prompt_text or payload_for_agent.get("task") or "")
                     payload_for_agent["context"].setdefault("files", payload_for_agent.get("files") or [])
-            elif runtime_agent in {"curriculum", "research", "field_ops", "custodial"}:
-                payload_for_agent = prompt_text or json.dumps(payload)
-            else:
-                payload_for_agent = prompt_text or json.dumps(payload)
-
-            _think("Dispatching to agent", f"runtime_agent={runtime_agent!r}")
-            raw_result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: registry_run_agent(runtime_agent, payload_for_agent)
-            )
-            _think("Agent returned", f"type={type(raw_result).__name__}  preview={str(raw_result)[:120]!r}", "success")
-            result = {
-                "status": "ok",
-                "runtime_agent": runtime_agent,
-                "output": raw_result,
-            }
-            attach_reasoning = runtime_agent == "tutor" and (
-                intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(raw_result))
-            )
-            if attach_reasoning:
-                if _is_failure_payload(raw_result):
-                    _think("Tutor failure detected", "Preparing reasoning guidance for the learner", "warning")
-                else:
-                    _think("Coaching extension", "Attaching Socratic reasoning guidance", "info")
-                reasoning_payload = {
-                    "problem": prompt_text or "Explain the tutoring failure and offer a micro-lesson.",
-                    "context": {
-                        "intent": intent,
-                        "prompt": prompt_text,
-                        "tutor_result": raw_result,
-                        "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
-                    },
-                    "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
-                }
-                reasoning_result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: registry_run_agent("reasoning", reasoning_payload)
+                    if payload_for_agent.get("target"):
+                        payload_for_agent["context"].setdefault("target", payload_for_agent.get("target"))
+                    if coding_intent:
+                        payload_for_agent["context"]["coding_intent"] = coding_intent
+                        payload_for_agent["intent"] = coding_intent
+            approval_contract = body.get("approval_contract") if isinstance(body.get("approval_contract"), dict) else {}
+            if not approval_contract and isinstance(payload_for_agent, dict) and isinstance(payload_for_agent.get("approval_contract"), dict):
+                approval_contract = payload_for_agent.get("approval_contract") or {}
+            if approval_mode and runtime_agent in {"brand_voice", "community_engine"} and approval_contract:
+                operation = str(approval_contract.get("operation") or f"{runtime_agent}_publish").strip()
+                target = str(
+                    approval_contract.get("target")
+                    or payload_for_agent.get("target")
+                    or prompt_text
+                    or runtime_agent
+                ).strip()
+                _think("Previewing approval-aware content", f"operation={operation!r}  target={target!r}")
+                raw_result = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: registry_run_agent(runtime_agent, payload_for_agent)
                 )
-                _think("Reasoning guidance attached", f"preview={str(reasoning_result)[:120]!r}", "success")
-                result["reasoning"] = reasoning_result
+                preview = _build_non_coding_approval_preview(operation, payload_for_agent, raw_result)
+                approval = _create_approval_record(
+                    task_id,
+                    agent_id=tracked_agent_id or f"{runtime_agent}_agent",
+                    operation=operation,
+                    target=target or runtime_agent,
+                    preview=preview,
+                    payload={**payload_for_agent, "approval_contract": approval_contract},
+                    requested_by="user",
+                )
+                _upsert_task(
+                    task_id,
+                    task["title"],
+                    status="pending_approval",
+                    agent_id=tracked_agent_id,
+                    description=prompt_text or f"Approval required for {runtime_agent}",
+                    details={"intent": intent, "temperature": temperature, "approval_id": approval["id"]},
+                )
+                _append_activity(
+                    f"Requested approval for {runtime_agent}",
+                    agent_id=tracked_agent_id,
+                    task_id=task_id,
+                    kind="approval_requested",
+                    details={"approval_id": approval["id"], "target": approval["target"]},
+                )
+                _think("Queued for approval", f"approval_id={approval['id']}  operation={operation!r}  target={approval['target']!r}", "warning")
+                result = {
+                    "status": "pending_approval",
+                    "runtime_agent": runtime_agent,
+                    "operation": operation,
+                    "approval": approval,
+                    "preview": preview,
+                }
+                handled_special_result = True
+            if runtime_agent == "custodial":
+                from mammoth_os.agents.custodial_agent import CustodialAgent
+
+                custodial_agent = CustodialAgent(router=None, storage_root=str(MAMMOTH_DIR / "custodial"))
+                payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
+                if prompt_text and not payload_for_agent.get("prompt"):
+                    payload_for_agent["prompt"] = prompt_text
+                custodial_prompt = prompt_text or str(payload_for_agent.get("prompt") or payload_for_agent.get("topic") or "").strip()
+                action = str(
+                    payload_for_agent.get("action")
+                    or payload_for_agent.get("operation")
+                    or custodial_agent._infer_intent(custodial_prompt or json.dumps(payload_for_agent))
+                ).strip().lower() or "lifecycle"
+                workspace = str(payload_for_agent.get("workspace") or payload_for_agent.get("target") or "").strip() or str(Path.cwd())
+                action_payload = dict(payload_for_agent.get("details") or {}) if isinstance(payload_for_agent.get("details"), dict) else {}
+                if payload_for_agent.get("snapshot_id"):
+                    action_payload["snapshot_id"] = str(payload_for_agent.get("snapshot_id") or "").strip()
+
+                mutation_actions = {"cleanup", "clean", "prune", "restore", "rollback", "snapshot", "checkpoint"}
+                if approval_mode and action in mutation_actions:
+                    preview_payload = dict(action_payload)
+                    preview_payload["dry_run"] = True
+                    if action in {"restore", "rollback"} and not preview_payload.get("snapshot_id"):
+                        preview_payload["snapshot_id"] = str(payload_for_agent.get("snapshot_id") or "").strip()
+                    preview = await custodial_agent.execute_action(action, workspace, preview_payload)
+                    if action in {"cleanup", "clean", "prune"}:
+                        approval_operation = "custodial_cleanup"
+                    elif action in {"restore", "rollback"}:
+                        approval_operation = "custodial_restore"
+                    else:
+                        approval_operation = "custodial_snapshot"
+                    approval = _create_approval_record(
+                        task_id,
+                        agent_id=tracked_agent_id or "custodial_agent",
+                        operation=approval_operation,
+                        target=workspace,
+                        preview=preview,
+                        payload={
+                            "action": action,
+                            "workspace": workspace,
+                            "details": action_payload,
+                            "snapshot_id": payload_for_agent.get("snapshot_id"),
+                        },
+                        requested_by="user",
+                    )
+                    _upsert_task(
+                        task_id,
+                        task["title"],
+                        status="pending_approval",
+                        agent_id=tracked_agent_id,
+                        description=prompt_text or f"Approval required for {action}",
+                        details={"intent": intent, "temperature": temperature, "approval_id": approval["id"]},
+                    )
+                    _append_activity(
+                        f"Requested approval for custodial {action}",
+                        agent_id=tracked_agent_id,
+                        task_id=task_id,
+                        kind="approval_requested",
+                        details={"approval_id": approval["id"], "target": approval["target"]},
+                    )
+                    _think("Queued for approval", f"approval_id={approval['id']}  action={action!r}  target={approval['target']!r}", "warning")
+                    result = {
+                        "status": "pending_approval",
+                        "runtime_agent": runtime_agent,
+                        "operation": action,
+                        "approval": approval,
+                        "preview": preview,
+                    }
+                    handled_special_result = True
+                else:
+                    _think("Executing custodial action", f"action={action!r}  workspace={workspace!r}")
+                    raw_result = await custodial_agent.execute_action(action, workspace, action_payload)
+                    _think("Custodial action done", f"status={raw_result.get('status','?')!r}  action={raw_result.get('action', action)!r}", "success")
+                    result = {
+                        "status": raw_result.get("status", "ok"),
+                        "runtime_agent": runtime_agent,
+                        "operation": action,
+                        "output": raw_result,
+                    }
+                    handled_special_result = True
+
+            if runtime_agent != "custodial" and not handled_special_result:
+                _think("Dispatching to agent", f"runtime_agent={runtime_agent!r}")
+                raw_result = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: registry_run_agent(runtime_agent, payload_for_agent)
+                )
+                _think("Agent returned", f"type={type(raw_result).__name__}  preview={str(raw_result)[:120]!r}", "success")
+                result = {
+                    "status": "ok",
+                    "runtime_agent": runtime_agent,
+                    "output": raw_result,
+                }
+                attach_reasoning = runtime_agent == "tutor" and (
+                    intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(raw_result))
+                )
+                if attach_reasoning:
+                    if _is_failure_payload(raw_result):
+                        _think("Tutor failure detected", "Preparing reasoning guidance for the learner", "warning")
+                    else:
+                        _think("Coaching extension", "Attaching Socratic reasoning guidance", "info")
+                    reasoning_payload = {
+                        "problem": prompt_text or "Explain the tutoring failure and offer a micro-lesson.",
+                        "context": {
+                            "intent": intent,
+                            "prompt": prompt_text,
+                            "tutor_result": raw_result,
+                            "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
+                        },
+                        "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
+                    }
+                    reasoning_result = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: registry_run_agent("reasoning", reasoning_payload)
+                    )
+                    _think("Reasoning guidance attached", f"preview={str(reasoning_result)[:120]!r}", "success")
+                    result["reasoning"] = reasoning_result
         else:
             _think("Falling back to CortexRouter", f"intent={intent!r}  no matching AGENTS key", "warning")
             from mammoth_os.cortex.router import CortexRouter
@@ -2581,7 +3146,7 @@ def _run_atlas_evals(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding") -> List[Dict[str, Any]]:
+def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding", coding_intent: str = "") -> List[Dict[str, Any]]:
     lesson = state.get("current_lesson") or {}
     exercise = state.get("current_exercise") or {}
     learner_context = state.get("learner_context") or {}
@@ -2590,9 +3155,14 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding")
     prompt = str(exercise.get("prompt") or "").strip()
     objective = prompt or f"Complete the {topic} lesson with a clear plan and safe next steps."
     profile = _normalize_plan_profile(plan_profile)
+    coding_intent = _normalize_coding_intent(coding_intent) or _default_coding_intent_for_profile(profile)
     difficulty = str(learner_context.get("recommended_difficulty") or "beginner")
     weakest = [str(item.get("concept") or "").replace("-", " ") for item in (learner_context.get("weakest_concepts") or []) if isinstance(item, dict)]
     weakest_summary = ", ".join([item for item in weakest[:3] if item]) or "the current lesson objective"
+
+    if profile == "coding_only":
+        return [_build_coding_step(objective, coding_intent)]
+
     steps: List[Dict[str, Any]] = [
         {
             "id": "atlas-curriculum",
@@ -2619,13 +3189,7 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding")
             "intent": "research_curriculum",
             "prompt": f"Summarize the likely constraints and pitfalls for this lesson objective, especially around {weakest_summary}: {objective}",
         },
-        {
-            "id": "atlas-build",
-            "title": "Draft a concrete build plan",
-            "agent_id": "coding_agent",
-            "intent": "summarize",
-            "prompt": f"Draft a short implementation plan, lightweight code sketch guidance, and verification checklist for: {objective}",
-        },
+        _build_coding_step(objective, coding_intent),
         {
             "id": "atlas-coach",
             "title": "Translate the plan into coaching checkpoints",
@@ -2658,6 +3222,10 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding")
                     "agent_id": "community_engine_agent",
                     "intent": "summarize",
                     "prompt": f"Draft a short progress update and expectation-setting note for this lesson objective: {objective}",
+                    "approval_contract": {
+                        "operation": "community_publish",
+                        "target": "atlas/community-update",
+                    },
                 },
                 {
                     "id": "atlas-custodial",
@@ -2994,8 +3562,9 @@ async def atlas_plan(body: Optional[Dict[str, Any]] = None):
     _hydrate_learner_state(state, user_id="default_user")
     body = body or {}
     plan_profile = _normalize_plan_profile(body.get("plan_profile") or "coding")
+    coding_intent = _normalize_coding_intent(body.get("coding_intent")) or _default_coding_intent_for_profile(plan_profile)
     approval_mode = bool(body.get("approval_mode", False))
-    steps = _build_atlas_plan_steps(state, plan_profile)
+    steps = _build_atlas_plan_steps(state, plan_profile, coding_intent)
     plan_id = f"atlas-plan-{uuid.uuid4().hex[:8]}"
     objective = str((state.get("current_exercise") or {}).get("prompt") or state.get("topic") or "Current lesson")
     step_results = await _execute_plan_steps(
@@ -3022,6 +3591,7 @@ async def atlas_plan(body: Optional[Dict[str, Any]] = None):
         "plan_id": plan_id,
         "objective": objective,
         "plan_profile": plan_profile,
+        "coding_intent": coding_intent,
         "plan_status": plan_status,
         "progress": {
             "total": total_count,
@@ -3033,6 +3603,13 @@ async def atlas_plan(body: Optional[Dict[str, Any]] = None):
         "plan_steps": step_results,
         "synthesis": synthesis,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        **_summarize_plan_run(
+            step_results,
+            objective=objective,
+            plan_profile=plan_profile,
+            coding_intent=coding_intent,
+            approval_mode=approval_mode,
+        ),
     }
     state["active_plan"] = plan
     _append_plan_history(state, plan)
@@ -3042,12 +3619,12 @@ async def atlas_plan(body: Optional[Dict[str, Any]] = None):
         agent_id="tutor_agent",
         task_id=plan["plan_id"],
         kind="atlas_plan_generated",
-        details={"plan_status": plan_status, "step_count": total_count, "plan_profile": plan_profile},
+        details={"plan_status": plan_status, "step_count": total_count, "plan_profile": plan_profile, "coding_intent": coding_intent},
     )
     _append_audit_event(
         kind="atlas_plan",
         message="ATLAS plan generated",
-        details={"plan_id": plan_id, "plan_profile": plan_profile, "plan_status": plan_status},
+        details={"plan_id": plan_id, "plan_profile": plan_profile, "coding_intent": coding_intent, "plan_status": plan_status},
         source="atlas",
         actor="system",
     )
@@ -3317,6 +3894,7 @@ async def atlas_chat(body: Dict[str, Any]):
     llm_reply = ""
     active_model = ""
     active_adapter = ""
+    runtime_status = _runtime_status_snapshot()
     try:
         from mammoth_os.llm_client import get_llm_client
         cfg: Dict[str, Any] = {}
@@ -3338,15 +3916,17 @@ async def atlas_chat(body: Dict[str, Any]):
         active_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
         llm_reply = await client.generate(tutor_prompt, temperature=temperature)
     except Exception as e:
+        runtime_status = _runtime_status_snapshot()
         llm_reply = (
-            "I could not reach the configured LLM runtime. "
-            f"Here is a local fallback tip:\n{str(e)}\n\n"
-            "Try: check your function signature, return value, and failing assertion line."
+            "I could not reach the configured LLM runtime right now. "
+            "MammothOS switched to a safe fallback path. "
+            f"{runtime_status.get('recommendation')}"
         )
         if not active_model:
             active_model = "fallback-local"
         if not active_adapter:
             active_adapter = "fallback-local"
+        runtime_status["error_type"] = type(e).__name__
 
     history.append({
         "role": "assistant",
@@ -3374,6 +3954,339 @@ async def atlas_chat(body: Dict[str, Any]):
         "chat_history": state[history_key],
         "guard_triggered": False,
         "mode": mode,
+        "runtime_status": runtime_status,
+        "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
+    }
+
+
+
+
+def _render_chat_result(value: Any) -> str:
+    if value is None:
+        return "No response produced."
+    if isinstance(value, str):
+        return value.strip() or "No response produced."
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, dict):
+        for key in ("reply", "message", "summary", "analysis", "content"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        if isinstance(value.get("output"), str) and value.get("output", "").strip():
+            return value["output"].strip()
+        if isinstance(value.get("output"), dict):
+            return _render_chat_result(value.get("output"))
+        if isinstance(value.get("result"), dict):
+            return _render_chat_result(value.get("result"))
+    return json.dumps(value, indent=2, default=str)[:4000]
+
+
+def _render_evidence_summary(value: Any) -> str:
+    if isinstance(value, dict):
+        for key in ("summary", "reply", "message", "analysis", "content"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        output = value.get("output")
+        if isinstance(output, dict):
+            return _render_evidence_summary(output)
+        if isinstance(output, str) and output.strip():
+            return output.strip()
+    return _render_chat_result(value)
+
+
+@app.post("/api/mammoth/chat/stream")
+async def mammoth_chat_stream(body: Dict[str, Any]):
+    result = await mammoth_chat(body)
+    if not isinstance(result, dict):
+        return result
+
+    async def event_stream():
+        meta_payload = {k: result.get(k) for k in ("agent_id", "adapter", "model", "mode", "task_id", "dispatched", "runtime_status", "runtime_notice")}
+        yield f"event: meta\ndata: {json.dumps(meta_payload, default=str)}\n\n"
+        for step in result.get("thought_steps") or []:
+            yield f"event: thought\ndata: {json.dumps(step, default=str)}\n\n"
+            await asyncio.sleep(0.03)
+        reply_text = str(result.get("reply") or "") or "No response produced."
+        chunks = [reply_text[i:i + 48] for i in range(0, len(reply_text), 48)] or [reply_text]
+        for chunk in chunks:
+            yield f"event: chunk\ndata: {json.dumps({'text': chunk}, default=str)}\n\n"
+            await asyncio.sleep(0.02)
+        yield f"event: done\ndata: {json.dumps(result, default=str)}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.get("/api/mammoth/chat/history")
+async def get_mammoth_chat_history():
+    state = _load_atlas_state()
+    history = state.get("mammoth_chat_history") or []
+    if not isinstance(history, list):
+        history = []
+    return {"status": "ok", "chat_history": history[-80:]}
+
+
+
+
+@app.post("/api/mammoth/chat")
+async def mammoth_chat(body: Dict[str, Any]):
+    message = str(body.get("message", "")).strip()
+    if not message:
+        return {"status": "error", "error": "message is required"}
+
+    state = _load_atlas_state()
+    page_context = body.get("page_context") if isinstance(body.get("page_context"), dict) else {}
+    agent_id = str(body.get("agent_id") or "assistant").strip() or "assistant"
+    mode = str(body.get("mode") or "chat").strip().lower() or "chat"
+    adapter = str(body.get("adapter", "")).strip()
+    model = str(body.get("model", "")).strip()
+    temperature = float(body.get("temperature", 0.3))
+    history = state.get("mammoth_chat_history") or []
+    if not isinstance(history, list):
+        history = []
+    runtime_status = _runtime_status_snapshot()
+
+    user_entry = {
+        "role": "user",
+        "message": message,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "agent_id": agent_id,
+        "mode": mode,
+        "page": str(page_context.get("current_page") or ""),
+    }
+    history.append(user_entry)
+
+    thought_steps: List[Dict[str, Any]] = [
+        {"ts": _ts(), "label": "Hearing hoofbeats", "detail": f"agent={agent_id} mode={mode}", "status": "info"},
+        {"ts": _ts(), "label": "Bribing the hamster", "detail": "Spinning up MammothOS reasoning lanes", "status": "info"},
+    ]
+
+    reply = ""
+    active_model = ""
+    active_adapter = ""
+    task_id = ""
+    dispatched = False
+    evidence_items: List[Dict[str, Any]] = []
+    fanout_agents = body.get("fanout_agents") if isinstance(body.get("fanout_agents"), list) else []
+    orchestrate = bool(body.get("orchestrate") or body.get("multi_agent") or body.get("fanout")) or len(fanout_agents) > 1 or agent_id in {"herd", "orchestrator", "multi_agent"}
+
+    async def _run_native_assistant() -> Dict[str, Any]:
+        from mammoth_os.llm_client import get_llm_client
+
+        convo_window = history[-8:]
+        convo_text = "\n".join(
+            f"{item.get('role', 'unknown')}: {str(item.get('message', ''))[:500]}"
+            for item in convo_window
+            if isinstance(item, dict)
+        )
+        prompt = (
+            "You are MammothOS Chat, the native operating intelligence layer for MammothOS. "
+            "Be sharp, helpful, practical, and slightly playful in a rugged builder tone. "
+            "You may occasionally use short branded quips like 'checking the herd', 'bribing the hamster', or 'charging the tusks', "
+            "but keep them rare and tasteful.\n\n"
+            "Your job is to help with product building, debugging, planning, coding direction, and operator workflow. "
+            "When useful, structure your response into: quick read, what I'm seeing, next move.\n\n"
+            f"Observed page context: {json.dumps(page_context, default=str)[:1400]}\n\n"
+            f"Recent conversation:\n{convo_text}\n\n"
+            f"User message: {message}"
+        )
+        cfg: Dict[str, Any] = {}
+        if adapter:
+            cfg["adapter"] = adapter
+        if model:
+            cfg["model"] = model
+        thought_steps.append({"ts": _ts(), "label": "Consulting the herd", "detail": "Running native MammothOS assistant response", "status": "info"})
+        client = get_llm_client(config=cfg)
+        assistant_reply = await client.generate(prompt, temperature=temperature)
+        client_name = type(client).__name__.lower()
+        if "openai" in client_name:
+            assistant_adapter = "openai"
+        elif "ollama" in client_name:
+            assistant_adapter = "ollama"
+        elif "local" in client_name:
+            assistant_adapter = "local"
+        elif "fallback" in client_name:
+            assistant_adapter = "fallback"
+        else:
+            assistant_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
+        assistant_model = str(getattr(client, "model", model or "unknown"))
+        thought_steps.append({"ts": _ts(), "label": "Tusks charged", "detail": f"adapter={assistant_adapter} model={assistant_model}", "status": "success"})
+        runtime_status = _runtime_status_snapshot()
+        return {
+            "agent_id": "assistant",
+            "adapter": assistant_adapter,
+            "model": assistant_model,
+            "reply": assistant_reply,
+            "thought_steps": [],
+            "evidence": {"agent_id": "assistant", "summary": _render_evidence_summary(assistant_reply), "source": "native-chat"},
+            "task_id": "",
+            "dispatched": False,
+            "runtime_status": runtime_status,
+            "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
+        }
+
+    async def _run_lane(lane_agent: str) -> Dict[str, Any]:
+        if lane_agent in {"assistant", "mammoth_assistant", "atlas_assistant"}:
+            return await _run_native_assistant()
+
+        lane_intent = str(body.get("intent") or "").strip()
+        lane_coding_intent = _normalize_coding_intent(body.get("coding_intent"))
+        if not lane_intent:
+            if lane_agent == "coding_agent":
+                lane_intent = lane_coding_intent or "generate_code"
+            elif lane_agent == "reasoning_agent":
+                lane_intent = "reason"
+            elif lane_agent == "tutor_agent":
+                lane_intent = "lesson_coaching"
+            elif lane_agent == "shell_agent":
+                lane_intent = "shell"
+            else:
+                lane_intent = "summarize"
+        lane_payload = {
+            "prompt": message,
+            "task": message,
+            "coding_intent": lane_coding_intent or _normalize_coding_intent(lane_intent),
+            "files": body.get("files") if isinstance(body.get("files"), list) else [],
+            "target": str(body.get("target") or "").strip(),
+            "context": {
+                "source": "mammoth.chat",
+                "page_context": page_context,
+                "conversation_mode": mode,
+                "agent_id": lane_agent,
+                "orchestrated": True,
+            },
+        }
+        thought_steps.append({"ts": _ts(), "label": "Routing through the herd", "detail": f"intent={lane_intent} agent={lane_agent}", "status": "info"})
+        lane_run = await run_agent({
+            "agent_id": lane_agent,
+            "intent": lane_intent,
+            "payload": lane_payload,
+            "temperature": temperature,
+            "approval_mode": bool(body.get("approval_mode", False)),
+        })
+        lane_result = lane_run.get("result")
+        lane_reply = _render_chat_result(lane_result)
+        lane_thoughts = list(lane_run.get("thought_steps") or [])
+        lane_thoughts.append({"ts": _ts(), "label": "Lane complete", "detail": f"task_id={lane_run.get('task_id') or 'n/a'}", "status": "success"})
+        evidence = {
+            "agent_id": lane_agent,
+            "intent": lane_intent,
+            "summary": _render_evidence_summary(lane_result),
+            "task_id": lane_run.get("task_id") or "",
+            "status": lane_run.get("status") or "ok",
+            "source": "agent-runtime",
+        }
+        if isinstance(lane_result, dict):
+            for key in ("files", "source_files", "references", "evidence", "diff"):
+                if lane_result.get(key):
+                    evidence[key] = lane_result.get(key)
+        return {
+            "agent_id": lane_agent,
+            "adapter": "agent-runtime",
+            "model": str(lane_run.get("agent_id") or lane_agent),
+            "reply": lane_reply,
+            "task_id": lane_run.get("task_id") or "",
+            "dispatched": True,
+            "thought_steps": lane_thoughts,
+            "evidence": evidence,
+            "raw": lane_run,
+        }
+
+    try:
+        if orchestrate:
+            selected_agents = [str(item).strip() for item in fanout_agents if str(item).strip()] if fanout_agents else []
+            if not selected_agents:
+                selected_agents = ["assistant", "reasoning_agent", "coding_agent"]
+            if agent_id not in selected_agents and agent_id not in {"herd", "orchestrator", "multi_agent"}:
+                selected_agents.insert(0, agent_id)
+            seen_agents: List[str] = []
+            for lane in selected_agents:
+                if lane not in seen_agents:
+                    seen_agents.append(lane)
+            thought_steps.append({"ts": _ts(), "label": "Splitting the herd", "detail": f"lanes={', '.join(seen_agents)}", "status": "info"})
+            lane_results = await asyncio.gather(*[_run_lane(lane) for lane in seen_agents])
+            thought_steps.append({"ts": _ts(), "label": "Merging the herd", "detail": f"lanes_completed={len(lane_results)}", "status": "info"})
+            assistant_lane = next((lane for lane in lane_results if lane.get("agent_id") == "assistant"), lane_results[0])
+            active_adapter = assistant_lane.get("adapter") or "agent-runtime"
+            active_model = assistant_lane.get("model") or seen_agents[0]
+            task_id = assistant_lane.get("task_id") or task_id
+            reply_parts = [assistant_lane.get("reply") or "No response produced."]
+            for lane in lane_results:
+                evidence = lane.get("evidence") or {}
+                evidence_items.append({
+                    "agent_id": lane.get("agent_id"),
+                    "intent": evidence.get("intent") or ("chat" if lane.get("agent_id") == "assistant" else "unknown"),
+                    "summary": evidence.get("summary") or lane.get("reply") or "No summary.",
+                    "task_id": lane.get("task_id") or "",
+                    "status": evidence.get("status") or "ok",
+                    "source": evidence.get("source") or ("native-chat" if lane.get("agent_id") == "assistant" else "agent-runtime"),
+                })
+                if lane.get("agent_id") != "assistant" and lane.get("reply"):
+                    reply_parts.append(f"\n\n**{lane.get('agent_id').replace('_', ' ').title()}**\n{lane.get('reply')}")
+                thought_steps.extend(lane.get("thought_steps") or [])
+            reply = "\n\n".join(reply_parts)
+            thought_steps.append({"ts": _ts(), "label": "Herd merged", "detail": f"evidence_items={len(evidence_items)}", "status": "success"})
+        else:
+            lane_result = await _run_lane(agent_id)
+            dispatched = bool(lane_result.get("dispatched"))
+            active_adapter = lane_result.get("adapter") or active_adapter
+            active_model = lane_result.get("model") or active_model
+            task_id = lane_result.get("task_id") or task_id
+            reply = lane_result.get("reply") or "No response produced."
+            thought_steps.extend(lane_result.get("thought_steps") or [])
+            if lane_result.get("evidence"):
+                evidence_items.append(lane_result["evidence"])
+            if lane_result.get("agent_id") != "assistant":
+                thought_steps.append({"ts": _ts(), "label": "Packaged response", "detail": f"task_id={task_id or 'n/a'}", "status": "success"})
+    except Exception as exc:
+        runtime_status = _runtime_status_snapshot()
+        runtime_status["error_type"] = type(exc).__name__
+        reply = (
+            "I hit a MammothOS chat routing problem. "
+            "The good news is the shell is still up; the bad news is the hamster wants better wiring. "
+            "MammothOS switched to a safe fallback path. "
+            f"{runtime_status.get('recommendation')}"
+        )
+        active_adapter = active_adapter or "fallback-local"
+        active_model = active_model or "fallback-local"
+        thought_steps.append({"ts": _ts(), "label": "Hamster escaped", "detail": str(exc)[:240], "status": "error"})
+
+    assistant_entry = {
+        "role": "assistant",
+        "message": reply,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "agent_id": agent_id,
+        "mode": mode,
+        "adapter": active_adapter,
+        "model": active_model,
+        "thought_steps": thought_steps[-12:],
+        "task_id": task_id,
+        "dispatched": dispatched,
+        "evidence_items": evidence_items,
+        "orchestrated": orchestrate,
+        "runtime_status": runtime_status,
+        "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
+    }
+    history.append(assistant_entry)
+    state["mammoth_chat_history"] = history[-80:]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {
+        "status": "ok",
+        "reply": reply,
+        "chat_history": state["mammoth_chat_history"],
+        "thought_steps": thought_steps[-12:],
+        "agent_id": agent_id,
+        "adapter": active_adapter,
+        "model": active_model,
+        "mode": mode,
+        "task_id": task_id,
+        "dispatched": dispatched,
+        "evidence_items": evidence_items,
+        "orchestrated": orchestrate,
+        "runtime_status": runtime_status,
+        "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
     }
 
 
@@ -3454,25 +4367,171 @@ async def append_buildlog(body: Dict[str, Any]):
 # /api/logsale
 # ─────────────────────────────────────────────────────────────────────────────
 
+_DEFAULT_OPERATOR_HEALTH = {
+    "energy": 50,
+    "focus": 50,
+    "mood": 50,
+    "stress": 50,
+    "sleep": 50,
+    "uptime": 0,
+    "fatigue": 0,
+}
+
+_PERCENT_HEALTH_FIELDS = {"energy", "focus", "mood", "stress", "sleep", "fatigue"}
+_NUMERIC_HEALTH_FIELDS = {"uptime"}
+_VALID_LEDGERS = {"personal", "business"}
+
+
+def _normalize_operator_health(data: Any) -> Dict[str, Any]:
+    merged = dict(_DEFAULT_OPERATOR_HEALTH)
+    if isinstance(data, dict):
+        for key in _PERCENT_HEALTH_FIELDS:
+            if key in data:
+                try:
+                    value = _coerce_int(data.get(key), field=key)
+                except ValueError:
+                    continue
+                merged[key] = max(0, min(100, value))
+        if "uptime" in data:
+            try:
+                merged["uptime"] = max(0, _coerce_int(data.get("uptime"), field="uptime"))
+            except ValueError:
+                pass
+    return merged
+
+
+def _normalize_sale_entry(raw: Any, *, idx: int = 0) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    item = str(raw.get("item") or "").strip()
+    if not item:
+        return None
+    amount = _coerce_float(raw.get("amount", 0), field="amount")
+    ledger = str(raw.get("ledger") or "personal").strip().lower()
+    if ledger not in _VALID_LEDGERS:
+        ledger = "personal"
+    category = str(raw.get("category") or "general").strip() or "general"
+    return {
+        "id": str(raw.get("id") or f"sale-{idx}"),
+        "item": item,
+        "amount": round(amount, 2),
+        "ledger": ledger,
+        "category": category,
+        "notes": str(raw.get("notes") or ""),
+        "date": str(raw.get("date") or datetime.now(timezone.utc).date().isoformat()),
+        "created_at": str(raw.get("created_at") or datetime.now(timezone.utc).isoformat()),
+    }
+
+
+def _sales_summary(entries: List[Dict[str, Any]]) -> Dict[str, Any]:
+    summary: Dict[str, Any] = {
+        "total_revenue": 0.0,
+        "entry_count": len(entries),
+        "ledger_totals": {"personal": 0.0, "business": 0.0},
+        "category_totals": {"personal": {}, "business": {}},
+    }
+    for entry in entries:
+        amount = _coerce_float(entry.get("amount", 0), field="amount")
+        ledger = str(entry.get("ledger") or "personal").strip().lower()
+        if ledger not in _VALID_LEDGERS:
+            ledger = "personal"
+        category = str(entry.get("category") or "general").strip() or "general"
+        summary["total_revenue"] = round(summary["total_revenue"] + amount, 2)
+        summary["ledger_totals"][ledger] = round(summary["ledger_totals"][ledger] + amount, 2)
+        category_totals = summary["category_totals"][ledger]
+        category_totals[category] = round(float(category_totals.get(category, 0.0)) + amount, 2)
+    return summary
+
+
+def _load_normalized_sales() -> List[Dict[str, Any]]:
+    sales_raw = _read_json(SALES_FILE, default=[])
+    if not isinstance(sales_raw, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for idx, raw in enumerate(sales_raw):
+        try:
+            entry = _normalize_sale_entry(raw, idx=idx)
+        except ValueError:
+            continue
+        if entry:
+            normalized.append(entry)
+    return normalized
+
+
+@app.get("/api/operator/health")
+async def get_operator_health():
+    data = _read_json(OPERATOR_HEALTH_FILE, default={})
+    payload = data if isinstance(data, dict) else {}
+    normalized = _normalize_operator_health(payload)
+    return {
+        "status": "ok",
+        "data": normalized,
+        "updated_at": payload.get("updated_at"),
+    }
+
+
+@app.post("/api/operator/health")
+async def set_operator_health(body: Dict[str, Any]):
+    current = _read_json(OPERATOR_HEALTH_FILE, default={})
+    if not isinstance(current, dict):
+        current = {}
+    allowed_keys = _PERCENT_HEALTH_FIELDS | _NUMERIC_HEALTH_FIELDS
+    unknown = [k for k in body.keys() if k not in allowed_keys]
+    if unknown:
+        return {"status": "error", "error": f"Unknown operator health fields: {', '.join(sorted(unknown))}"}
+    merged = dict(_normalize_operator_health(current))
+    try:
+        for key in _PERCENT_HEALTH_FIELDS:
+            if key in body:
+                value = _coerce_int(body.get(key), field=key)
+                merged[key] = max(0, min(100, value))
+        if "uptime" in body:
+            merged["uptime"] = max(0, _coerce_int(body.get("uptime"), field="uptime"))
+    except ValueError as exc:
+        return {"status": "error", "error": str(exc)}
+    merged["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _write_json(OPERATOR_HEALTH_FILE, merged)
+    return {"status": "ok", "data": _normalize_operator_health(merged), "updated_at": merged["updated_at"]}
+
+
 @app.get("/api/logsale")
 async def get_sales():
-    return _read_json(SALES_FILE)
+    return _load_normalized_sales()
 
 
 @app.post("/api/logsale")
 async def log_sale(body: Dict[str, Any]):
-    sales = _read_json(SALES_FILE)
+    sales = _load_normalized_sales()
+    item = str(body.get("item") or "").strip()
+    if not item:
+        return {"status": "error", "error": "item is required"}
+    try:
+        amount = _coerce_float(body.get("amount"), field="amount")
+    except ValueError as exc:
+        return {"status": "error", "error": str(exc)}
+    ledger = str(body.get("ledger") or "personal").strip().lower()
+    if ledger not in _VALID_LEDGERS:
+        return {"status": "error", "error": "ledger must be personal or business"}
+    category = str(body.get("category") or "general").strip() or "general"
     entry = {
         "id":         str(uuid.uuid4()),
-        "item":       body.get("item", ""),
-        "amount":     body.get("amount", 0),
-        "notes":      body.get("notes", ""),
+        "item":       item,
+        "amount":     round(amount, 2),
+        "ledger":     ledger,
+        "category":   category,
+        "notes":      str(body.get("notes", "")),
         "date":       body.get("date", datetime.now(timezone.utc).date().isoformat()),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     sales.append(entry)
     _write_json(SALES_FILE, sales)
     return entry
+
+
+@app.get("/api/logsale/summary")
+async def get_sales_summary():
+    sales = _load_normalized_sales()
+    return {"status": "ok", "summary": _sales_summary(sales)}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4064,6 +5123,8 @@ async def get_entitlements():
     tier = str(state.get("tier") or "explorer").strip().lower()
     if tier not in {"explorer", "pro", "enterprise"}:
         tier = "explorer"
+    developer_access = bool(state.get("developer_access", False))
+    effective_tier = "enterprise" if developer_access else tier
     base_features = {
         "atlas_tutor": True,
         "adaptive_pacing": True,
@@ -4073,24 +5134,32 @@ async def get_entitlements():
         "local_storage": True,
     }
     pro_features = {
-        "multi_agent_orchestration": tier in {"pro", "enterprise"},
-        "plan_execute_all_profiles": tier in {"pro", "enterprise"},
-        "supabase_sync": tier in {"pro", "enterprise"},
-        "eval_history_dashboard": tier in {"pro", "enterprise"},
-        "audit_log_export": tier in {"pro", "enterprise"},
-        "coding_agent_approval": tier in {"pro", "enterprise"},
+        "multi_agent_orchestration": effective_tier in {"pro", "enterprise"},
+        "plan_execute_all_profiles": effective_tier in {"pro", "enterprise"},
+        "supabase_sync": effective_tier in {"pro", "enterprise"},
+        "eval_history_dashboard": effective_tier in {"pro", "enterprise"},
+        "audit_log_export": effective_tier in {"pro", "enterprise"},
+        "coding_agent_approval": effective_tier in {"pro", "enterprise"},
     }
     enterprise_features = {
-        "team_dashboards": tier == "enterprise",
-        "custom_curriculum": tier == "enterprise",
-        "lms_integration": tier == "enterprise",
-        "white_label": tier == "enterprise",
+        "team_dashboards": effective_tier == "enterprise",
+        "custom_curriculum": effective_tier == "enterprise",
+        "lms_integration": effective_tier == "enterprise",
+        "white_label": effective_tier == "enterprise",
     }
+    profile = state.get("account_profile") if isinstance(state.get("account_profile"), dict) else {}
     return {
         "status": "ok",
         "tier": tier,
+        "effective_tier": "developer" if developer_access else effective_tier,
+        "developer_access": developer_access,
+        "account_profile": {
+            "display_name": str(profile.get("display_name") or "Operator"),
+            "email": str(profile.get("email") or ""),
+            "organization": str(profile.get("organization") or ""),
+        },
         "features": {**base_features, **pro_features, **enterprise_features},
-        "upgrade_cta": "pricing" if tier == "explorer" else None,
+        "upgrade_cta": "pricing" if tier == "explorer" and not developer_access else None,
     }
 
 
@@ -4107,12 +5176,67 @@ async def set_tier(body: Dict[str, Any]):
     _append_audit_event(
         kind="tier_change",
         message="Entitlement tier updated",
-        details={"tier": tier},
+        details={"tier": tier, "developer_access": bool(state.get("developer_access", False))},
         source="entitlements",
         actor="user",
         tier=tier,
     )
     return {"status": "ok", "tier": tier}
+
+
+@app.get("/api/account/profile")
+async def get_account_profile():
+    state = _load_atlas_state()
+    profile = state.get("account_profile") if isinstance(state.get("account_profile"), dict) else {}
+    return {
+        "status": "ok",
+        "profile": {
+            "display_name": str(profile.get("display_name") or "Operator"),
+            "email": str(profile.get("email") or ""),
+            "organization": str(profile.get("organization") or ""),
+        },
+        "tier": str(state.get("tier") or "explorer").strip().lower(),
+        "developer_access": bool(state.get("developer_access", False)),
+    }
+
+
+@app.post("/api/account/profile")
+async def set_account_profile(body: Dict[str, Any]):
+    state = _load_atlas_state()
+    profile = state.get("account_profile") if isinstance(state.get("account_profile"), dict) else {}
+    for key in ("display_name", "email", "organization"):
+        if key in body:
+            profile[key] = str(body.get(key) or "").strip()
+    state["account_profile"] = profile
+    state["account_profile_updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    _append_audit_event(
+        kind="profile_update",
+        message="Account profile updated",
+        details={"profile_fields": sorted(list(profile.keys()))},
+        source="account",
+        actor="user",
+        tier=str(state.get("tier") or "explorer"),
+    )
+    return {"status": "ok", "profile": profile}
+
+
+@app.post("/api/account/developer-access")
+async def set_developer_access(body: Dict[str, Any]):
+    enabled = bool(body.get("enabled"))
+    state = _load_atlas_state()
+    state["developer_access"] = enabled
+    state["developer_access_updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    _append_audit_event(
+        kind="developer_access",
+        message="Developer full-access mode toggled",
+        details={"enabled": enabled},
+        source="entitlements",
+        actor="user",
+        tier="enterprise" if enabled else str(state.get("tier") or "explorer"),
+    )
+    return {"status": "ok", "developer_access": enabled}
 
 
 @app.websocket("/ws/terminal")

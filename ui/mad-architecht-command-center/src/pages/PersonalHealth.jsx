@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../api/client'
 
 const save = async (payload) => {
   await api('/operator/health', {
     method: 'POST',
-    body: JSON.stringify(payload)
+    body: payload
   })
 }
 
@@ -16,10 +16,30 @@ export default function PersonalHealth() {
   const [sleep, setSleep] = useState(50);
   const [uptime, setUptime] = useState(0);
   const [fatigue, setFatigue] = useState(0);
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    api('/operator/health')
+      .then((res) => {
+        const data = res?.data || {}
+        setEnergy(Number(data.energy ?? 50))
+        setFocus(Number(data.focus ?? 50))
+        setMood(Number(data.mood ?? 50))
+        setStress(Number(data.stress ?? 50))
+        setSleep(Number(data.sleep ?? 50))
+        setUptime(Number(data.uptime ?? 0))
+        setFatigue(Number(data.fatigue ?? 0))
+        setLoaded(true)
+      })
+      .catch(() => {
+        setLoaded(true)
+      })
+  }, [])
 
   return (
     <div className='glass-card-solid neon-card' style={{ padding: 20, borderRadius: 12 }}>
       <h2 style={{ marginBottom: 12, color: 'var(--cyan)' }}>Personal Health</h2>
+      {!loaded && <p style={{ color: 'var(--txt-mut)', fontSize: '0.78rem' }}>Loading health profile…</p>}
 
       <label>Energy: {energy}</label>
       <input type='range' min='0' max='100' value={energy} onChange={e => {

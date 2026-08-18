@@ -38,13 +38,35 @@ class CodingAgent(BaseAgent):
             context = prompt.get("context") or {}
             files = prompt.get("files") or context.get("files") or []
             target = str(prompt.get("target") or prompt.get("file_path") or context.get("target") or self._extract_target_from_prompt(prompt_text) or "unknown").strip()
+            explicit_intent = str(prompt.get("coding_intent") or prompt.get("intent") or context.get("coding_intent") or "").strip().lower()
         else:
             prompt_text = str(prompt or "").strip()
             context = {}
             files = []
             target = self._extract_target_from_prompt(prompt_text)
+            explicit_intent = ""
 
         prompt_lower = prompt_text.lower()
+
+        if explicit_intent in {"generate_code", "patch_existing"}:
+            result = asyncio.run(self.generate_code(prompt_text, context=context))
+            return {"agent": "coding", "task_kind": "generate_code", "target": target, "prompt": prompt_text, "files": files, "output": result}
+
+        if explicit_intent == "refactor_code":
+            result = asyncio.run(self.refactor(target or "unknown", "default"))
+            return {"agent": "coding", "task_kind": "refactor", "target": target, "prompt": prompt_text, "files": files, "output": result}
+
+        if explicit_intent == "analyze_codebase":
+            result = asyncio.run(self.analyze_codebase("."))
+            return {"agent": "coding", "task_kind": "analysis", "target": target, "prompt": prompt_text, "files": files, "output": result}
+
+        if explicit_intent == "run_tests":
+            result = asyncio.run(self.run_tests("."))
+            return {"agent": "coding", "task_kind": "test", "target": target, "prompt": prompt_text, "files": files, "output": result}
+
+        if explicit_intent == "write_docs":
+            result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
+            return {"agent": "coding", "task_kind": "documentation", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
         if "refactor" in prompt_lower:
             target = target if target and target.lower() != "unknown" else "unknown"

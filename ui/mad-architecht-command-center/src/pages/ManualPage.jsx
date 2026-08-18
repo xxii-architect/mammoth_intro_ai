@@ -1,4 +1,5 @@
 import { BookOpen, Bot, Terminal, ShieldCheck, Sparkles } from 'lucide-react'
+import OnboardingGuide from '../components/OnboardingGuide'
 
 const sectionStyle = {
   padding: 16,
@@ -58,12 +59,14 @@ const firstRunChecklist = [
   },
 ]
 
-export default function ManualPage() {
+export default function ManualPage({ setPage }) {
   return (
     <div className="page-enter" style={{ padding: 24 }}>
       <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
         <BookOpen size={20} color="var(--cyan)" /> Operator Manual
       </h1>
+
+      <OnboardingGuide variant="banner" currentPage="manual" setPage={setPage} />
 
       <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '2px solid var(--cyan)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
@@ -132,7 +135,7 @@ export default function ManualPage() {
           <li>Use the Terminal page for concrete CLI actions like status, atlas code, atlas ui, and build commands.</li>
           <li>Use the Agent page for natural-language objectives, especially if you want Plan + Execute or preview-first coding edits.</li>
           <li>Keep Preview first on for changes that write files or mutate project state.</li>
-          <li>Use the Manual page as the user-facing starter guide until a richer onboarding/tutorial flow ships.</li>
+          <li>Use the Manual page as step one of the onboarding/tutorial flow before switching to Terminal and Agent.</li>
         </ol>
       </div>
     </div>

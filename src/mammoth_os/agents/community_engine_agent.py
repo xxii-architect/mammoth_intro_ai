@@ -31,35 +31,76 @@ class CommunityEngineAgent:
         theme = str(payload.get("theme", "mindset")).strip() or "mindset"
         difficulty = str(payload.get("difficulty", "easy")).strip() or "easy"
         group_size = payload.get("group_size", "open")
+        mode = str(payload.get("mode") or payload.get("format") or "challenge").strip() or "challenge"
+        audience = str(payload.get("audience") or "community").strip() or "community"
         team_context = str(payload.get("team_context") or "").strip() or None
         learner_context = str(payload.get("learner_context") or "").strip() or None
         engagement_goal = str(payload.get("engagement_goal") or "").strip() or None
         learner_signals = self._normalize_list(payload.get("learner_signals") or payload.get("signals"))
+        constraints = self._normalize_list(payload.get("constraints") or payload.get("guardrails"))
+        approval_contract = self._normalize_contract(payload.get("approval_contract"))
 
         challenge = self._generate_challenge(theme, difficulty, team_context, learner_context, engagement_goal)
         prompt = self._generate_prompt(theme, team_context, learner_context)
         reward = self._generate_reward(difficulty, group_size, learner_signals)
         social = self._generate_social_callout(group_size, team_context)
+        checkpoints = self._build_checkpoints(theme, difficulty, group_size, engagement_goal)
+        context_summary = self._build_context_summary(theme, difficulty, team_context, learner_context, learner_signals)
+        next_actions = self._build_next_actions(theme, difficulty, group_size, learner_signals)
+        tags = self._build_tags(theme, difficulty, team_context, learner_context, learner_signals)
+        signal_confidence = self._estimate_confidence(theme, difficulty, learner_signals)
 
         return {
             "agent": "community_engine",
             "status": "ok",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "structured_output_version": "v2",
+            "approval_safe": True,
             "theme": theme,
             "difficulty": difficulty,
             "group_size": group_size,
+            "mode": mode,
+            "audience": audience,
             "team_context": team_context,
             "learner_context": learner_context,
             "engagement_goal": engagement_goal,
+            "constraints": constraints,
+            "approval_contract": approval_contract,
             "challenge": challenge,
             "prompt": prompt,
             "reward": reward,
             "social_callout": social,
-            "engagement_checkpoints": self._build_checkpoints(theme, difficulty, group_size, engagement_goal),
-            "context_summary": self._build_context_summary(theme, difficulty, team_context, learner_context, learner_signals),
-            "next_actions": self._build_next_actions(theme, difficulty, group_size, learner_signals),
-            "tags": self._build_tags(theme, difficulty, team_context, learner_context, learner_signals),
-            "signal_confidence": self._estimate_confidence(theme, difficulty, learner_signals),
+            "engagement_checkpoints": checkpoints,
+            "context_summary": context_summary,
+            "next_actions": next_actions,
+            "tags": tags,
+            "signal_confidence": signal_confidence,
+            "task_card": {
+                "title": f"Community task: {theme}",
+                "summary": challenge,
+                "prompt": prompt,
+                "next_actions": next_actions[:2],
+                "tags": tags[:4],
+                "mode": mode,
+                "audience": audience,
+            },
+            "observability": {
+                "structured_output_version": "v2",
+                "theme": theme,
+                "difficulty": difficulty,
+                "group_size": group_size,
+                "mode": mode,
+                "audience": audience,
+                "signal_count": len(learner_signals),
+                "checkpoint_count": len(checkpoints),
+                "signal_confidence": signal_confidence,
+            },
+            "publish_preview": {
+                "title": f"Community challenge: {theme}",
+                "summary": challenge,
+                "prompt": prompt,
+                "reward": reward,
+                "social_callout": social,
+            },
         }
 
     def _normalize_list(self, value: Any) -> List[str]:
@@ -73,6 +114,13 @@ class CommunityEngineAgent:
             if text:
                 result.append(text)
         return list(dict.fromkeys(result))
+
+    def _normalize_contract(self, value: Any) -> Dict[str, Any]:
+        if not value:
+            return {}
+        if isinstance(value, dict):
+            return dict(value)
+        return {"value": str(value)}
 
     def _generate_challenge(
         self,

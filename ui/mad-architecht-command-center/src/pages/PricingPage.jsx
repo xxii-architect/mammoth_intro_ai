@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { api } from '../api/client'
 
 const TIERS = [
   {
@@ -89,6 +90,46 @@ const TRUST_BADGES = [
 
 export default function PricingPage({ setPage }) {
   const [openFaq, setOpenFaq] = useState(null)
+  const [entitlements, setEntitlements] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [msg, setMsg] = useState('')
+
+  const refreshEntitlements = async () => {
+    try {
+      const data = await api('/entitlements')
+      setEntitlements(data)
+    } catch (_) {}
+  }
+
+  useEffect(() => {
+    refreshEntitlements()
+  }, [])
+
+  const changeTier = async (tier) => {
+    setSaving(true)
+    try {
+      await api('/entitlements/tier', { method: 'POST', body: { tier } })
+      await refreshEntitlements()
+      setMsg(`Tier switched to ${tier}.`)
+    } catch (e) {
+      setMsg('Tier update failed: ' + e.message)
+    }
+    setSaving(false)
+    setTimeout(() => setMsg(''), 2400)
+  }
+
+  const toggleDeveloperAccess = async () => {
+    setSaving(true)
+    try {
+      await api('/account/developer-access', { method: 'POST', body: { enabled: !Boolean(entitlements?.developer_access) } })
+      await refreshEntitlements()
+      setMsg(Boolean(entitlements?.developer_access) ? 'Developer full access disabled.' : 'Developer full access enabled.')
+    } catch (e) {
+      setMsg('Developer access update failed: ' + e.message)
+    }
+    setSaving(false)
+    setTimeout(() => setMsg(''), 2400)
+  }
 
   return (
     <div className="page-enter" style={{ padding: '40px 28px 80px', maxWidth: 1100, margin: '0 auto' }}>
@@ -99,6 +140,37 @@ export default function PricingPage({ setPage }) {
         <p style={{ fontSize: '0.95rem', color: 'var(--txt-sec)', maxWidth: 520, margin: '0 auto' }}>
           ATLAS is free to explore. Pro features unlock the full cognitive tutor stack.
         </p>
+      </div>
+
+      <div className="glass-card-solid" style={{ padding: '16px 18px', marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Current access</div>
+            <div style={{ fontSize: '1rem', color: 'var(--cyan)', fontWeight: 700, textTransform: 'capitalize' }}>
+              {entitlements?.effective_tier || entitlements?.tier || 'explorer'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {['explorer', 'pro', 'enterprise'].map((tier) => (
+              <button
+                key={tier}
+                onClick={() => changeTier(tier)}
+                disabled={saving}
+                style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.05)', color: 'var(--txt-sec)', cursor: 'pointer', textTransform: 'capitalize', fontSize: '0.78rem' }}
+              >
+                Set {tier}
+              </button>
+            ))}
+            <button
+              onClick={toggleDeveloperAccess}
+              disabled={saving}
+              style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.1)', color: '#22c55e', cursor: 'pointer', fontSize: '0.78rem' }}
+            >
+              {entitlements?.developer_access ? 'Disable Dev Full Access' : 'Enable Dev Full Access'}
+            </button>
+          </div>
+        </div>
+        {msg && <p style={{ margin: '10px 0 0', fontSize: '0.78rem', color: msg.includes('failed') ? '#f87171' : '#22c55e' }}>{msg}</p>}
       </div>
 
       {/* Tier grid */}

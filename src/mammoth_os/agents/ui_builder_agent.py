@@ -22,6 +22,134 @@ class UIBuilderAgent(BaseAgent):
     def __init__(self, router: Optional[Any] = None):
         super().__init__(router)
 
+    def _resolve_preview_dir(self, target_dir: Optional[str], prompt_text: str) -> Path:
+        if target_dir:
+            base_dir = Path(target_dir).expanduser()
+            if not base_dir.is_absolute():
+                base_dir = (Path.cwd() / base_dir).resolve()
+            return base_dir
+        try:
+            return self._resolve_target_ui_dir(None)
+        except Exception:
+            return (Path.cwd() / "ui" / self._slugify(prompt_text or "atlas-ui")).resolve()
+
+    def _normalized_action(self, request: Dict[str, Any], prompt_text: str) -> str:
+        action = str(request.get("action") or request.get("operation") or request.get("kind") or "").strip().lower()
+        if action in {"generate_component", "component"}:
+            return "component"
+        if action in {"generate_style", "style"}:
+            return "style"
+        if action in {"generate_backend", "backend", "hook"}:
+            return "backend"
+        if action in {"generate_graph", "graph"}:
+            return "graph"
+        if action in {"generate_palette", "palette"}:
+            return "palette"
+        if action == "scaffold":
+            return "scaffold"
+        lowered = prompt_text.lower()
+        if any(token in lowered for token in ["scaffold", "starter app", "new app", "new ui"]):
+            return "scaffold"
+        if "palette" in lowered:
+            return "palette"
+        if "graph" in lowered:
+            return "graph"
+        if "hook" in lowered or "state" in lowered:
+            return "backend"
+        if "style" in lowered or "token" in lowered:
+            return "style"
+        return "component"
+
+    async def run(self, payload: Any) -> Dict[str, Any]:
+        request = payload if isinstance(payload, dict) else {"prompt": str(payload or "")}
+        prompt_text = str(request.get("prompt") or request.get("task") or request.get("description") or request.get("content") or "").strip()
+        approval_mode = bool(request.get("approval_mode") or request.get("preview_only"))
+        target_dir = request.get("target_dir") if isinstance(request.get("target_dir"), str) else None
+        action = self._normalized_action(request, prompt_text)
+        preview_dir = self._resolve_preview_dir(target_dir, prompt_text)
+        approval_contract = {
+            "operation": f"ui_{action}",
+            "target": str(preview_dir),
+            "requires_write": True,
+        }
+        task_card = {
+            "title": f"UIBuilder {action}",
+            "action": action,
+            "prompt": prompt_text,
+            "target_dir": str(preview_dir),
+            "approval_mode": approval_mode,
+        }
+        observability = {
+            "structured_output_version": "v2",
+            "action": action,
+            "approval_mode": approval_mode,
+            "target_dir": str(preview_dir),
+            "prompt_length": len(prompt_text),
+        }
+        if approval_mode:
+            files = []
+            if action == "scaffold":
+                scaffold_app = self._slugify(prompt_text or "atlas-ui")
+                title = self._title_case(prompt_text or "ATLAS UI")
+                if title.lower().startswith("atlas"):
+                    title = title.replace("Atlas", "ATLAS", 1)
+                scaffold_files = self._scaffold_files(scaffold_app, title, prompt_text)
+                files = [{"path": rel_path, "size": len(content)} for rel_path, content in scaffold_files.items()]
+            else:
+                filename = self._extract_filename(prompt_text)
+                if action == "style":
+                    files = [{"path": f"src/styles/{self._extract_css_filename(prompt_text)}", "size": 0}]
+                elif action == "backend":
+                    files = [{"path": f"src/hooks/{self._extract_hook_name(prompt_text)}.js", "size": 0}]
+                elif action == "graph":
+                    stem = Path(filename).stem
+                    files = [{"path": f"src/components/graphs/{stem}.jsx", "size": 0}]
+                elif action == "palette":
+                    files = [{"path": f"src/components/palette/{filename}.tsx", "size": 0}]
+                else:
+                    files = [{"path": f"src/components/{filename}", "size": 0}]
+            return {
+                "status": "pending_approval",
+                "agent": "ui_builder",
+                "structured_output_version": "v2",
+                "approval_safe": True,
+                "action": action,
+                "prompt": prompt_text,
+                "target_dir": str(preview_dir),
+                "approval_contract": approval_contract,
+                "preview": {
+                    "summary": f"Preview {action} changes for {prompt_text or 'UI builder task'}",
+                    "files": files,
+                    "task_card": task_card,
+                },
+                "task_card": task_card,
+                "observability": observability,
+            }
+
+        if action == "scaffold":
+            result = await self.scaffold(prompt_text, target_dir=str(preview_dir))
+        elif action == "style":
+            result = await self.generate_style(prompt_text, target_dir=str(preview_dir))
+        elif action == "backend":
+            result = await self.generate_backend(prompt_text, target_dir=str(preview_dir))
+        elif action == "graph":
+            result = await self.generate_graph(prompt_text, target_dir=str(preview_dir))
+        elif action == "palette":
+            result = await self.generate_palette(prompt_text, target_dir=str(preview_dir))
+        else:
+            result = await self.generate_component(prompt_text, target_dir=str(preview_dir))
+
+        result.update({
+            "agent": "ui_builder",
+            "action": action,
+            "approval_safe": True,
+            "approval_contract": approval_contract,
+            "task_card": task_card,
+            "observability": observability,
+            "structured_output_version": "v2",
+        })
+        return result
+
     def log(self, level: str, message: str) -> None:
         print(f"[{self.name}:{level}] {message}")
 
@@ -144,6 +272,9 @@ class UIBuilderAgent(BaseAgent):
 
         return {
             "status": "ok",
+            "agent": "ui_builder",
+            "structured_output_version": "v2",
+            "approval_safe": True,
             "app_name": app_name,
             "title": title,
             "target_dir": str(base_dir),
@@ -160,6 +291,18 @@ class UIBuilderAgent(BaseAgent):
                 "npm install",
                 "npm run dev",
             ],
+            "task_card": {
+                "title": f"Scaffold {app_name}",
+                "summary": f"Generate a starter UI for {title}.",
+                "target_dir": str(base_dir),
+                "file_count": len(files),
+            },
+            "observability": {
+                "structured_output_version": "v2",
+                "kind": "scaffold",
+                "file_count": len(files),
+                "target_dir": str(base_dir),
+            },
         }
 
     async def _write_stub_file(
@@ -182,11 +325,27 @@ class UIBuilderAgent(BaseAgent):
         self._set_active_ui_dir(base_dir)
         return {
             "status": "ok",
+            "agent": "ui_builder",
+            "structured_output_version": "v2",
+            "approval_safe": True,
             "kind": kind,
             "prompt": prompt_text,
             "target_dir": str(base_dir),
             "file": str(target_path),
             "relative_file": relative_path.replace("\\", "/"),
+            "task_card": {
+                "title": f"{kind.title()} {target_path.name}",
+                "summary": prompt_text,
+                "target_dir": str(base_dir),
+                "file": str(target_path),
+            },
+            "observability": {
+                "structured_output_version": "v2",
+                "kind": kind,
+                "prompt_length": len(prompt_text),
+                "target_dir": str(base_dir),
+                "file": str(target_path),
+            },
         }
 
     def _scaffold_files(self, app_name: str, title: str, prompt_text: str) -> Dict[str, str]:

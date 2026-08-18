@@ -94,6 +94,9 @@ export default function DiagnosticsPage() {
 
   const selectedAudit = history.find(item => item.id === selectedId) || history[0] || null
   const services = Array.isArray(health?.services) ? health.services : []
+  const selectedChecks = Array.isArray(selectedAudit?.checks) ? selectedAudit.checks : []
+  const selectedRecommendations = Array.isArray(selectedAudit?.recommendations) ? selectedAudit.recommendations : []
+  const selectedObservability = selectedAudit?.observability || null
 
   return (
     <div className="page-enter" style={{ padding: '28px 24px 80px' }}>
@@ -247,7 +250,7 @@ export default function DiagnosticsPage() {
               <div style={{ display: 'grid', gap: 14 }}>
                 <div style={{ fontSize: '0.76rem', color: 'var(--txt-mut)' }}>Generated {selectedAudit.generatedAt}</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
-                  {selectedAudit.checks.map(check => (
+                  {selectedChecks.map(check => (
                     <div
                       key={check.label}
                       style={{
@@ -267,11 +270,11 @@ export default function DiagnosticsPage() {
                     </div>
                   ))}
                 </div>
-                {selectedAudit.observability ? (
+                {selectedObservability ? (
                   <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(77,166,255,0.2)', background: 'rgba(77,166,255,0.05)' }}>
                     <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--txt-pri)', marginBottom: 6 }}>ATLAS observability</div>
                     <div style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
-                      Learner pass rate {selectedAudit.observability.learner_pass_rate || 0}% • Eval pass rate {selectedAudit.observability.eval_pass_rate || 0}% • Plan runs {selectedAudit.observability.plan_runs || 0} • Eval runs {selectedAudit.observability.eval_runs || 0} • Guard rate {selectedAudit.observability.fab_guard_rate || 0}%
+                      Learner pass rate {selectedObservability.learner_pass_rate || 0}% • Eval pass rate {selectedObservability.eval_pass_rate || 0}% • Plan runs {selectedObservability.plan_runs || 0} • Eval runs {selectedObservability.eval_runs || 0} • Guard rate {selectedObservability.fab_guard_rate || 0}%
                     </div>
                   </div>
                 ) : null}
@@ -280,7 +283,7 @@ export default function DiagnosticsPage() {
                     Suggested next upgrades
                   </div>
                   <div style={{ display: 'grid', gap: 8 }}>
-                    {selectedAudit.recommendations.map(item => (
+                    {selectedRecommendations.map(item => (
                       <div key={item} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)' }}>
                         {item}
                       </div>

@@ -36,6 +36,13 @@ Then refresh the UI.
 - Keep changes composable: small UI surfaces now, deeper backend logic later.
 - Avoid introducing fragile dependencies when the same goal can be done with existing endpoints.
 
+### New local operator controls
+- **Health page** now persists personal operator metrics through `/api/operator/health`.
+- **Log Sale** now supports personal vs business ledger tracking plus category splits.
+- **Settings** and **Pricing** now expose local profile + tier controls:
+  - set `explorer`, `pro`, or `enterprise`
+  - toggle **Developer Full Access** for full feature entitlements without paid billing wiring
+
 ## Main operator workflows
 
 ### First-run onboarding
@@ -45,13 +52,21 @@ Then refresh the UI.
   3) Agent template run
 - Progress is stored locally in browser storage and can be hidden after completion.
 
+### MammothOS Chat
+- A new dedicated **Chat** page now gives you a separate native MammothOS conversation surface outside the lesson tutor loop.
+- Route messages through the built-in Mammoth assistant or dispatch them to agents like **Coding Agent** and **Reasoning Agent**.
+- Review a visible **Thought Trail** with branded routing steps such as request intake, herd routing, and response packaging.
+
 ### Agent Console
 - Select an agent and run prompts against the live backend.
 - Switch to **Plan + Execute** mode to orchestrate a multi-agent plan from one objective.
 - Pick a **Plan Profile**:
   - **ATLAS-First**: plant seed + research/reflection + ops/market framing
-  - **ATLAS + Coding Assistant**: keep ATLAS framing while prioritizing implementation planning
+  - **ATLAS + Coding Assistant**: keep ATLAS framing while prioritizing implementation output
+  - **Coding Agent Only**: skip the ATLAS pre-brief and run a direct coding pass
   - **Balanced**: neutral orchestration profile
+- For coding work, choose a **Coding Intent** such as **Patch Existing Files** or
+  **Generate Code** to avoid getting only a summarize-style implementation brief.
 - Use prompt templates for next implementation tests:
   - **Health module split test**
   - **Finance split test**
