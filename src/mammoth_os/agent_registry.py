@@ -195,7 +195,7 @@ def load_agent(agent_name: str, router=None):
 
 def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
     if isinstance(payload, dict):
-        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning"}:
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding"}:
             normalized = dict(payload)
             if agent_name == "tutor" and isinstance(normalized.get("prompt"), str) and not normalized.get("topic"):
                 normalized["topic"] = normalized["prompt"]
@@ -203,8 +203,12 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                 normalized["problem"] = normalized["prompt"]
             elif "topic" not in normalized and isinstance(normalized.get("prompt"), str):
                 normalized["topic"] = normalized["prompt"]
+            if agent_name == "coding" and not normalized.get("prompt"):
+                prompt_value = normalized.get("task") or normalized.get("description") or normalized.get("content")
+                if isinstance(prompt_value, str):
+                    normalized["prompt"] = prompt_value
             return normalized
-        if agent_name in {"curriculum", "research", "field_ops", "coding", "custodial"}:
+        if agent_name in {"curriculum", "research", "field_ops", "custodial"}:
             if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
                 return payload["prompt"]
             if isinstance(payload.get("topic"), str) and payload.get("topic").strip():

@@ -8,6 +8,7 @@ import {
 import HomePage        from './pages/HomePage'
 import AgentPage       from './pages/AgentPage'
 import TerminalPage    from './pages/TerminalPage'
+import ManualPage      from './pages/ManualPage'
 import NotesPage       from './pages/NotesPage'
 import ModulesPage     from './pages/ModulesPage'
 import HealthPage      from './pages/HealthPage'
@@ -33,6 +34,7 @@ const NAV = [
   { id: 'home',     label: 'Home',        Icon: LayoutDashboard },
   { id: 'agent',    label: 'Agent',       Icon: Bot },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
+  { id: 'manual',   label: 'Manual',      Icon: BookOpen },
 
   { section: 'Tools' },
   { id: 'notes',    label: 'Notes',       Icon: FileText },
@@ -60,6 +62,7 @@ const PAGE_COMPONENTS = {
   home:        HomePage,
   agent:       AgentPage,
   terminal:    TerminalPage,
+  manual:      ManualPage,
   notes:       NotesPage,
   modules:     ModulesPage,
   health:      HealthPage,

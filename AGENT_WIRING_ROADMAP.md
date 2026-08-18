@@ -51,3 +51,9 @@ Get every major agent from the MammothOS registry into a visible, understandable
 - `OPENAI_API_KEY` → OpenAI coding path (`gpt-4o-mini` by default).
 - If a provider is unavailable due to no balance, quota exhaustion, auth failure, or billing issues, the runtime should move to the next provider without crashing the workflow.
 - If all cloud providers fail, the runtime must land on the local deterministic fallback so the app stays usable for testing and recovery.
+
+## Output-contract upgrade
+- Preserve structured payloads for `coding` and `brand_voice` responses instead of flattening everything to a raw string.
+- Reject placeholder documentation targets like `unknown` unless the prompt includes real source or a real file path.
+- Require prompt-shaping inputs such as objective + target + constraints for agent tasks that are meant to be source-aware and operator-safe.
+- Keep `needs_context` or `requires_approval` results explicit so the UI can surface a real next step instead of a vague generic output.

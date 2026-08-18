@@ -51,6 +51,27 @@ const SMOKE_TESTS = [
   { agent_id: 'coding_agent', intent: 'summarize', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
 ]
 
+const PROMPT_PLAYBOOK = [
+  {
+    label: 'Quick one-liner',
+    agent_id: 'coding_agent',
+    intent: 'summarize',
+    prompt: 'Upgrade NotesPanel to MammothOS style with neon accents and approval-safe edits.',
+  },
+  {
+    label: 'Scoped build prompt',
+    agent_id: 'coding_agent',
+    intent: 'summarize',
+    prompt: 'Create a user tutorial panel for the command center. Scope: ui\\mad-architecht-command-center\\src. Keep preview first on and preserve existing navigation.',
+  },
+  {
+    label: 'Plan + Execute objective',
+    planProfile: 'atlas',
+    executionMode: 'plan',
+    prompt: 'Plan and implement an onboarding/manual experience for agent prompting, terminal usage, and safe approvals.',
+  },
+]
+
 export default function AgentPage() {
   const [agents, setAgents] = useState([])
   const [selectedAgent, setSelected] = useState('')
@@ -177,6 +198,19 @@ export default function AgentPage() {
     setAgentPinned(true)
     setApprovalMode(true)
     setPrompt(template)
+  }
+
+  const loadPromptPlaybookEntry = (entry) => {
+    if (entry.executionMode === 'plan') {
+      setExecutionMode('plan')
+      setPlanProfile(entry.planProfile || 'atlas')
+    } else {
+      setExecutionMode('single')
+      if (entry.agent_id) chooseAgent(entry.agent_id)
+      if (entry.intent) chooseIntent(entry.intent)
+    }
+    setApprovalMode(true)
+    setPrompt(entry.prompt)
   }
 
   const persistRunHistory = (entries) => {
@@ -409,8 +443,27 @@ export default function AgentPage() {
               ))}
             </div>
 
+            <div className="glass-card-solid" style={{ padding: 12, marginBottom: 12, borderLeft: '2px solid var(--violet)' }}>
+              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Prompt guide</p>
+              <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.7, marginBottom: 10 }}>
+                Short prompts are fine. Best results usually include: <strong style={{ color: 'var(--txt-pri)' }}>outcome</strong>, <strong style={{ color: 'var(--txt-pri)' }}>scope/files</strong>, and <strong style={{ color: 'var(--txt-pri)' }}>constraints</strong>.
+                For bigger work, switch to <strong style={{ color: 'var(--txt-pri)' }}>Plan + Execute</strong>.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {PROMPT_PLAYBOOK.map((entry) => (
+                  <button
+                    key={entry.label}
+                    onClick={() => loadPromptPlaybookEntry(entry)}
+                    style={{ fontSize: '0.72rem', padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', cursor: 'pointer' }}
+                  >
+                    {entry.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
-              placeholder="Optional: additional prompt payload…"
+              placeholder="Start with one sentence, then add scope or constraints if needed…"
               style={{ width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.85rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', resize: 'none', height: 80, boxSizing: 'border-box', marginBottom: 12 }}
             />
 

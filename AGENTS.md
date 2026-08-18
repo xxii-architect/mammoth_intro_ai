@@ -32,3 +32,9 @@ Use this file when wiring or extending MammothOS agents.
 3. UI module card state
 4. Workflow integration (plan/execute and task routing)
 5. Observability (activity, health, approvals)
+
+## Source-aware quality rules
+- Keep runtime payloads structured when an agent is meant to return a real programmatic result.
+- Do not let coding/documentation flows invent content from a placeholder target like `unknown`.
+- Prefer explicit `mode`, `audience`, and `constraints` for brand-voice rewrites and tutorial output.
+- Validate outputs against expected shape before calling a task complete.

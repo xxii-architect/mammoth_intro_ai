@@ -47,6 +47,16 @@ OPENAI_API_KEY            = <your OpenAI key>          # optional if using Ollam
 - Record major runs in Build Log and Diagnostics export so work remains portfolio-verifiable.
 - Avoid mixing legal claims with roadmap intent; document "current posture" vs "planned posture."
 
+### Source-aware output contracts and prompt shaping
+
+The runtime now keeps structured payloads intact for coding and brand-voice work instead of flattening everything into a raw string, which was the root cause of low-grade generic outputs.
+
+**Core rules:**
+- `coding` tasks should always carry a clear `prompt`, `target`, and optional `context.files` or `context.source`.
+- Documentation-only requests without a real file path or source snippet return a `needs_context` response rather than fake “generated docs.”
+- `brand_voice` tasks should specify `mode`, `audience`, `tone`, and optional `constraints` so the rewrite stays on-message.
+- The UI prompt box works best when the user enters: objective + scope + constraints + expected output.
+
 ### Additive agent bridge
 
 MammothOS keeps the native runtime-first flow and adds an optional HTTP bridge for external orchestrators such as Copilot Tasks.
@@ -414,8 +424,9 @@ Open **http://localhost:5173**
 | Page | What it does |
 |---|---|
 | **Home** | Live dashboard: agent status, health dots, build log feed, sales total, quick-copy commands |
-| **Agent** | Run any CortexRouter intent (plant_seed, field_ops, research_*, etc.) with live thought stream, approval queue, snapshot rollback, and coding shortcuts |
-| **Terminal** | WebSocket terminal wired to the backend. HTTP fallback mode when WS is offline. Quick-action buttons for common commands |
+| **Agent** | Run any CortexRouter intent (plant_seed, field_ops, research_*, etc.) with live thought stream, approval queue, snapshot rollback, coding shortcuts, and prompt playbook examples |
+| **Terminal** | WebSocket terminal wired to the backend. HTTP fallback mode when WS is offline. Quick-action buttons plus ATLAS CLI examples for safe `python -m cli.main ...` runs |
+| **Manual** | In-app operator guide for terminal usage, prompt patterns, and recommended workflow habits |
 | **Notes** | Full CRUD note-taking, auto-saved to `.mammoth/notes.json` |
 | **Modules** | Live scan of all agents in `src/mammoth_os/agents/` |
 | **Health** | Real-time service health: Ollama, Supabase, OpenAI, API server — polls every 10s |
@@ -445,6 +456,23 @@ available for:
 
 These are the safest way to teach yourself the command shapes while keeping
 approval mode on.
+
+### Prompting guidance
+- A short sentence is valid in the Agent Console.
+- Better prompts usually include:
+  1. the outcome you want
+  2. the files, module, or page in scope
+  3. any constraints like "keep preview first on" or "preserve existing navigation"
+- Use **Plan + Execute** for multi-step objectives, tutorials, onboarding, or cross-surface changes.
+
+### Terminal CLI guidance
+- The UI terminal is meant to support the same safe MammothOS commands you would run in PowerShell.
+- Supported examples now include:
+  - `python -m cli.main atlas status`
+  - `python -m cli.main atlas code generate "build a MammothOS notes panel"`
+  - `python -m cli.main atlas ui component "create a neon command-center status card"`
+- For safety, chained shell expressions and metacharacter-heavy commands are blocked in the UI terminal.
+- Long-running `atlas code` and `atlas ui` commands get longer backend timeouts than simple status/health calls.
 
 ### ATLAS learning memory
 The ATLAS Tutor sidebar now shows:
@@ -672,6 +700,7 @@ The CodingAgent is ATLAS's teaching assistant. These upgrades make it a better o
 | check constraint adaptive_metrics | Already fixed — difficulty maps to easy/medium/hard |
 | UI shows blank / no data | Start the FastAPI backend first: `uvicorn api_server:app --reload` on port 8000 |
 | Terminal says DISCONNECTED | Backend not running. UI auto-switches to HTTP fallback mode — commands still work via POST /api/terminal/exec |
+| `atlas code` feels unsupported in the UI terminal | Use the full CLI form like `python -m cli.main atlas code generate "..."`. The terminal now supports safe ATLAS CLI command trees and gives code/UI flows longer timeouts |
 
 ---
 

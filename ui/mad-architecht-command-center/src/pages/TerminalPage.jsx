@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff } from 'lucide-react'
+import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff, BookOpen } from 'lucide-react'
 import { openTerminalWS } from '../api/client'
 
 const QUICK_ACTIONS = [
@@ -7,9 +7,28 @@ const QUICK_ACTIONS = [
   { label: 'Agent List',    cmd: 'python -m cli.main agent-list', Icon: Bot,         color: 'var(--photon)' },
   { label: 'CLI Status',    cmd: 'python -m cli.main status',    Icon: CheckCircle,  color: '#22c55e' },
   { label: 'CLI Health',    cmd: 'python -m cli.main health',    Icon: FlaskConical, color: '#22c55e' },
+  { label: 'ATLAS Status',  cmd: 'python -m cli.main atlas status', Icon: Bot, color: 'var(--violet)' },
   { label: 'Git Log',       cmd: 'git log --oneline -20',        Icon: GitBranch,    color: '#eab308' },
   { label: 'Git Branch',    cmd: 'git branch',                   Icon: GitBranch,    color: 'var(--cyan)' },
   { label: 'npm Build',     cmd: 'npm run build',                Icon: Hammer,       color: '#eab308' },
+]
+
+const COMMAND_PLAYBOOK = [
+  {
+    label: 'ATLAS Code Generate',
+    cmd: 'python -m cli.main atlas code generate "build a MammothOS notes panel"',
+    note: 'Runs the coding workflow from inside the UI terminal.',
+  },
+  {
+    label: 'ATLAS Code Scan',
+    cmd: 'python -m cli.main atlas code scan src\\mammoth_os\\agents\\coding_agent.py',
+    note: 'Asks the coding workflow for a structured scan of one file.',
+  },
+  {
+    label: 'ATLAS UI Component',
+    cmd: 'python -m cli.main atlas ui component "create a neon command-center status card"',
+    note: 'Uses UIBuilderAgent from the UI terminal.',
+  },
 ]
 
 const BOOT_LINES = [
@@ -150,6 +169,33 @@ export default function TerminalPage() {
         ))}
       </div>
 
+      <div className="glass-card-solid" style={{ padding: 14, marginBottom: 16, borderLeft: '2px solid var(--cyan)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, color: 'var(--txt-pri)', fontSize: '0.84rem', fontWeight: 600 }}>
+          <BookOpen size={14} color="var(--cyan)" /> Terminal playbook
+        </div>
+        <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.7, marginBottom: 10 }}>
+          ATLAS CLI commands are supported here too, including <code style={{ color: 'var(--photon)' }}>python -m cli.main atlas code ...</code>.
+          Longer ATLAS code and UI commands get an extended backend timeout so they do not fail like a short status check.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {COMMAND_PLAYBOOK.map((item) => (
+            <button
+              key={item.cmd}
+              onClick={() => {
+                setInput(item.cmd)
+                send(item.cmd)
+              }}
+              className="glass-card-solid"
+              style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', background: 'rgba(255,255,255,0.03)' }}
+            >
+              <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 4 }}>{item.label}</div>
+              <code style={{ color: 'var(--photon)', fontSize: '0.72rem', whiteSpace: 'pre-wrap' }}>{item.cmd}</code>
+              <div style={{ color: 'var(--txt-sec)', fontSize: '0.72rem', marginTop: 4 }}>{item.note}</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden' }}>
         {/* title bar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>
@@ -178,7 +224,7 @@ export default function TerminalPage() {
         {/* input */}
         <form onSubmit={submit} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border)', background: '#050608' }}>
           <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>$</span>
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder="Enter allowed command…"
+          <input value={input} onChange={e => setInput(e.target.value)} placeholder='Try: python -m cli.main atlas code generate "upgrade my notes panel"'
             style={{ flex: 1, background: 'none', border: 'none', color: '#4ade80', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.85rem', outline: 'none' }} />
           <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cyan)' }}>
             <Play size={14} />

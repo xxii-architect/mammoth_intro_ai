@@ -26,121 +26,105 @@ class CodingAgent(BaseAgent):
     # HYBRID ROUTING: Natural-language entrypoint
     # ---------------------------------------------------------
 
-    def run(self, prompt: str) -> str:
+    def run(self, prompt: str | Dict[str, Any]) -> Dict[str, Any]:
         """
         Hybrid natural-language router for CodingAgent.
         - Fast keyword routing for obvious cases
         - LLM reasoning for ambiguous cases
-        - Pretty formatted output for Mammoth CLI
+        - Safer source-grounded output for documentation requests
         """
+        if isinstance(prompt, dict):
+            prompt_text = str(prompt.get("prompt") or prompt.get("task") or prompt.get("description") or prompt.get("content") or "").strip()
+            context = prompt.get("context") or {}
+            files = prompt.get("files") or context.get("files") or []
+            target = str(prompt.get("target") or prompt.get("file_path") or context.get("target") or self._extract_target_from_prompt(prompt_text) or "unknown").strip()
+        else:
+            prompt_text = str(prompt or "").strip()
+            context = {}
+            files = []
+            target = self._extract_target_from_prompt(prompt_text)
 
-        prompt_lower = prompt.lower()
-
-        # ─────────────────────────────────────────────
-        # 1. Keyword Routing (fast path)
-        # ─────────────────────────────────────────────
+        prompt_lower = prompt_text.lower()
 
         if "refactor" in prompt_lower:
-            target = "unknown"
+            target = target if target and target.lower() != "unknown" else "unknown"
             strategy = "default"
             result = asyncio.run(self.refactor(target, strategy))
-            return (
-                "🧠 Refactor (keyword routed)\n"
-                f"Refactored:\n{result.get('refactored','')}\n\n"
-                f"Diff:\n{result.get('diff','')}\n\n"
-                f"Confidence: {result.get('confidence',0.0):.2f}"
-            )
+            return {
+                "agent": "coding",
+                "task_kind": "refactor",
+                "target": target,
+                "prompt": prompt_text,
+                "files": files,
+                "output": result,
+            }
 
         if "analyze" in prompt_lower or "analysis" in prompt_lower:
-            path = "."
-            result = asyncio.run(self.analyze_codebase(path))
-            return (
-                "🧠 Codebase Analysis (keyword routed)\n"
-                f"{json.dumps(result, indent=2)}"
-            )
+            result = asyncio.run(self.analyze_codebase("."))
+            return {"agent": "coding", "task_kind": "analysis", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
         if "test" in prompt_lower:
             result = asyncio.run(self.run_tests(project_path="."))
-            return (
-                "🧪 Test Results (keyword routed)\n"
-                f"{json.dumps(result, indent=2)}"
-            )
+            return {"agent": "coding", "task_kind": "test", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
         if "docs" in prompt_lower or "documentation" in prompt_lower:
-            result = asyncio.run(self.write_docs(target="unknown"))
-            return (
-                "📘 Documentation (keyword routed)\n"
-                f"{json.dumps(result, indent=2)}"
-            )
+            result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
+            return {"agent": "coding", "task_kind": "documentation", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
         if "commit" in prompt_lower:
-            return (
-                "🧷 Code Commit requires interactive mode.\n"
-                "Use: code commit:\n"
-            )
-
-        # ─────────────────────────────────────────────
-        # 2. LLM Routing (intelligent fallback)
-        # ─────────────────────────────────────────────
+            return {
+                "agent": "coding",
+                "task_kind": "commit",
+                "target": target,
+                "prompt": prompt_text,
+                "files": files,
+                "output": {"status": "requires_interaction", "message": "Code commit requires interactive approval."},
+            }
 
         try:
             decision = asyncio.run(
                 self._call_reasoning_engine(
-                    f"Decide which CodingAgent tool should handle this prompt:\n\n{prompt}\n\n"
+                    f"Decide which CodingAgent tool should handle this prompt:\n\n{prompt_text}\n\n"
                     "Options: generate_code, refactor, analyze_codebase, run_tests, write_docs.\n"
                     "Return ONLY the tool name."
                 )
             )
         except Exception:
-            decision = "generate_code"  # safe fallback
+            decision = "generate_code"
 
         decision = decision.strip().lower()
 
-        # ─────────────────────────────────────────────
-        # 3. Execute chosen tool
-        # ─────────────────────────────────────────────
-
         if "refactor" in decision:
-            result = asyncio.run(self.refactor("unknown", "default"))
-            return (
-                "🧠 Refactor (LLM routed)\n"
-                f"{json.dumps(result, indent=2)}"
-            )
+            result = asyncio.run(self.refactor(target or "unknown", "default"))
+            return {"agent": "coding", "task_kind": "refactor", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
         if "analyze" in decision:
             result = asyncio.run(self.analyze_codebase("."))
-            return (
-                "🧠 Codebase Analysis (LLM routed)\n"
-                f"{json.dumps(result, indent=2)}"
-            )
+            return {"agent": "coding", "task_kind": "analysis", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
         if "test" in decision:
             result = asyncio.run(self.run_tests("."))
-            return (
-                "🧪 Test Results (LLM routed)\n"
-                f"{json.dumps(result, indent=2)}"
-            )
+            return {"agent": "coding", "task_kind": "test", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
         if "docs" in decision:
-            result = asyncio.run(self.write_docs("unknown"))
-            return (
-                "📘 Documentation (LLM routed)\n"
-                f"{json.dumps(result, indent=2)}"
-            )
+            result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
+            return {"agent": "coding", "task_kind": "documentation", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
-        # ─────────────────────────────────────────────
-        # 4. Default: generate code
-        # ─────────────────────────────────────────────
+        result = asyncio.run(self.generate_code(prompt_text, context=context))
+        return {"agent": "coding", "task_kind": "generate_code", "target": target, "prompt": prompt_text, "files": files, "output": result}
 
-        result = asyncio.run(self.generate_code(prompt, context={}))
-        return (
-            "🧠 Code Generation (LLM routed)\n"
-            f"Code:\n{result.get('code','')}\n\n"
-            f"Tests:\n{result.get('tests','')}\n\n"
-            f"Docs:\n{result.get('docs','')}\n\n"
-            f"Confidence: {result.get('confidence',0.0):.2f}\n"
-            f"Warnings: {result.get('warnings',[])}"
-        )
+    def _extract_target_from_prompt(self, prompt_text: str) -> str:
+        text = str(prompt_text or "").strip()
+        if not text:
+            return "unknown"
+        matches = re.findall(r"(?:[A-Za-z]:)?[\\/](?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.[A-Za-z0-9_.-]+", text)
+        if matches:
+            return matches[0]
+        if " for " in text:
+            tail = text.split(" for ", 1)[1].strip()
+            if tail and tail.lower() != "the code":
+                return tail
+        return "unknown"
 
 
     def __init__(
@@ -605,19 +589,31 @@ sys.exit(failed)
             "duration_ms": result.get("duration_ms"),
         }
 
-    async def write_docs(self, target: str, doc_style: str = "google") -> dict:
+    async def write_docs(self, target: str, doc_style: str = "google", source: str = "") -> dict:
         """Create a lightweight documentation block without depending on a separate engine."""
-        source = target.strip() if isinstance(target, str) else ""
-        try:
-            if os.path.exists(source):
-                with open(source, "r", encoding="utf-8") as fh:
-                    source_text = fh.read()
-            else:
-                source_text = str(target)
-        except Exception:
-            source_text = str(target)
+        normalized_target = (str(target or "").strip() if isinstance(target, str) else "")
+        source_text = str(source or "").strip()
 
-        header = os.path.basename(source) if source and os.path.basename(source) else "Generated module"
+        if not source_text and normalized_target:
+            try:
+                if os.path.exists(normalized_target):
+                    with open(normalized_target, "r", encoding="utf-8") as fh:
+                        source_text = fh.read()
+                else:
+                    source_text = normalized_target
+            except Exception:
+                source_text = normalized_target
+
+        if not source_text or normalized_target.lower() in {"unknown", "", "none"}:
+            return {
+                "status": "needs_context",
+                "message": "Write_docs requires a real file path or source snippet. Unknown targets are rejected to avoid low-value placeholder docs.",
+                "documented_code": "# missing\n\n## Overview\n\nNo source text or target file was provided for documentation generation.",
+                "doc_coverage_pct": 0.0,
+                "style": doc_style,
+            }
+
+        header = os.path.basename(normalized_target) if normalized_target and os.path.basename(normalized_target) else "Generated module"
         summary = source_text[:220].replace("\n", " ").strip()
         if not summary:
             summary = "Implementation generated for the request."
@@ -631,7 +627,7 @@ sys.exit(failed)
             f"- Prefer small, explicit functions with clear input/output contracts.\n"
         )
 
-        return {"documented_code": generated, "doc_coverage_pct": 85.0, "style": doc_style}
+        return {"status": "ok", "documented_code": generated, "doc_coverage_pct": 85.0, "style": doc_style}
 
     async def commit_changes(
         self,

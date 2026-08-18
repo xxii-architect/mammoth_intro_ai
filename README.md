@@ -45,6 +45,8 @@ UI: http://localhost:5173
 ## Safety-first agent workflow
 
 - In Agent Console, keep **Preview first** enabled for coding edits.
+- The Agent Console prompt box accepts short one-line prompts, but best results come from: objective + scope + constraints.
+- The Command Center now includes an in-app **Manual** page with terminal examples and prompt patterns for new users.
 - Review changes in **Pending Approvals**.
 - Approve only what you want applied.
 - If needed, undo with **Rollback Snapshots** (Restore button).
@@ -52,6 +54,17 @@ UI: http://localhost:5173
   - `POST /api/atlas/onboard` with `approval_mode: true`
   - `POST /api/atlas/learner/reset` with `approval_mode: true`
   - `POST /api/atlas/reset` with `approval_mode: true`
+
+## Source-aware output contracts
+
+The runtime now treats output quality as a real contract instead of a loose text blob.
+
+- `coding` responses preserve structured payloads instead of flattening everything to raw strings.
+- Documentation requests require a real path or source snippet; placeholder values like `unknown` now fail with a `needs_context` result instead of fake docs.
+- `brand_voice` accepts explicit modes such as `stakeholder_summary`, `tutorial_copy`, and `rewrite_with_constraints` so the tone and audience stay consistent.
+- UI prompts should specify: objective, target file or scope, audience, and guardrails.
+
+This keeps the output source-aware, easier to validate, and far less likely to devolve into generic product copy.
 
 ## Additive agent bridge (Copilot Tasks optional)
 
@@ -151,6 +164,11 @@ This keeps development moving but is less isolated than Docker sandboxing.
 - `ATLAS_MANUAL.md` — full CLI + UI operating guide
 - `ui\mad-architecht-command-center\README.md` — UI-specific workflows
 
+## UI terminal note
+
+- The Command Center terminal supports safe `python -m cli.main ...` flows, including `atlas code` and `atlas ui` commands.
+- Long-running ATLAS coding/UI commands now receive extended backend timeouts so they behave more like a real operator terminal session.
+
 ## Scope + suggestions (credit-efficient path)
 
 ### Current scope
@@ -168,4 +186,3 @@ This keeps development moving but is less isolated than Docker sandboxing.
 - Always start from `.\start-mammothos.bat` first to avoid false "disconnected" states.
 - Port 8000 conflicts can mimic backend failures; clear listeners before retrying.
 - Track meaningful work in Build Log + Diagnostics so progress is provable and reviewable.
-

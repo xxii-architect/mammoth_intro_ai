@@ -652,7 +652,7 @@ def _coerce_http_agent_prompt(payload: Any) -> str:
     if isinstance(payload, str):
         return payload.strip()
     if isinstance(payload, dict):
-        for key in ("prompt", "message", "query", "task", "goal", "instruction"):
+        for key in ("command", "cmd", "prompt", "message", "query", "task", "goal", "instruction"):
             value = payload.get(key)
             if value is None:
                 continue
@@ -702,17 +702,21 @@ async def run_coding_agent_endpoint(payload: Any):
 async def run_shell_agent_endpoint(payload: Any):
     prompt = _coerce_http_agent_prompt(payload)
     if not prompt:
-        return {"status": "error", "error": "command is required"}
+        return {"status": "error", "error": "command is required", "agent": "shell"}
+
+    payload_dict = payload if isinstance(payload, dict) else {}
+    cwd = str(payload_dict.get("cwd") or ROOT)
+    timeout = int(payload_dict.get("timeout") or 120)
+    allow_mutating = bool(payload_dict.get("allow_mutating") or False)
+
     try:
-        completed = subprocess.run(prompt, shell=True, capture_output=True, text=True, cwd=str(ROOT), timeout=120)
+        from mammoth_os.agents.shell_agent import ShellAgent
+        agent = ShellAgent()
+        result = await agent.run(prompt, cwd=cwd, allow_mutating=allow_mutating, timeout=timeout)
         return {
-            "status": "ok",
+            "status": result.get("status", "ok"),
             "agent": "shell",
-            "result": {
-                "returncode": completed.returncode,
-                "stdout": completed.stdout,
-                "stderr": completed.stderr,
-            },
+            "result": result,
         }
     except Exception as exc:
         return {"status": "error", "error": str(exc), "agent": "shell"}
@@ -1717,16 +1721,37 @@ async def run_agent(body: Dict[str, Any]):
                     "output": raw_result,
                 }
         elif runtime_agent and _agent_registry_ok and runtime_agent in AGENTS:
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
-                if prompt_text and not payload_for_agent.get("topic") and not payload_for_agent.get("prompt") and not payload_for_agent.get("problem"):
-                    payload_for_agent["topic"] = prompt_text
-                if runtime_agent == "tutor" and prompt_text and not payload_for_agent.get("prompt"):
-                    payload_for_agent["prompt"] = prompt_text
-                if runtime_agent == "reasoning" and prompt_text and not payload_for_agent.get("problem"):
-                    payload_for_agent["problem"] = prompt_text
-            elif runtime_agent in {"curriculum", "research", "field_ops", "coding", "custodial"}:
+                if not isinstance(payload_for_agent, dict):
+                    payload_for_agent = {}
+                if prompt_text:
+                    if runtime_agent == "coding":
+                        payload_for_agent.setdefault("prompt", prompt_text)
+                        payload_for_agent.setdefault("task", prompt_text)
+                        payload_for_agent.setdefault("files", [])
+                        payload_for_agent.setdefault("context", {})
+                    elif runtime_agent == "brand_voice":
+                        payload_for_agent.setdefault("content", prompt_text)
+                        payload_for_agent.setdefault("prompt", prompt_text)
+                        payload_for_agent.setdefault("mode", "stakeholder_summary")
+                        payload_for_agent.setdefault("tone", "rugged")
+                        payload_for_agent.setdefault("audience", "operator")
+                    else:
+                        if not payload_for_agent.get("topic") and not payload_for_agent.get("prompt") and not payload_for_agent.get("problem"):
+                            payload_for_agent["topic"] = prompt_text
+                        if runtime_agent == "tutor" and not payload_for_agent.get("prompt"):
+                            payload_for_agent["prompt"] = prompt_text
+                        if runtime_agent == "reasoning" and not payload_for_agent.get("problem"):
+                            payload_for_agent["problem"] = prompt_text
+                elif isinstance(payload, dict):
+                    payload_for_agent.setdefault("prompt", payload.get("prompt") or payload.get("content") or payload.get("task") or "")
+                if runtime_agent == "coding":
+                    payload_for_agent["context"] = dict(payload_for_agent.get("context") or {})
+                    payload_for_agent["context"].setdefault("source", prompt_text or payload_for_agent.get("task") or "")
+                    payload_for_agent["context"].setdefault("files", payload_for_agent.get("files") or [])
+            elif runtime_agent in {"curriculum", "research", "field_ops", "custodial"}:
                 payload_for_agent = prompt_text or json.dumps(payload)
             else:
                 payload_for_agent = prompt_text or json.dumps(payload)
@@ -3802,6 +3827,9 @@ async def terminal_exec(body: Dict[str, Any]):
         "stdout": result["stdout"],
         "stderr": result["stderr"],
         "exit_code": result["exit_code"],
+        "cwd": result.get("cwd", ""),
+        "resolved": result.get("resolved", cmd),
+        "timeout_seconds": result.get("timeout_seconds"),
     }
 
 
@@ -3832,8 +3860,6 @@ ALLOW_LIST = {
 }
 
 ALLOW_PREFIXES = (
-    "python -m cli.main",
-    "py -m cli.main",
     "npm ",
     "uvicorn ",
     "cat ",
@@ -3843,10 +3869,68 @@ ALLOW_PREFIXES = (
 )
 
 
+TERMINAL_BLOCKED_SEQUENCES = ("&&", "||", ";", "|", ">", "<", "`")
+CLI_ROOTS = ("python -m cli.main", "py -m cli.main")
+CLI_TOP_LEVEL_COMMANDS = {"version", "engine-list", "agent-list", "health", "status", "diagnostics", "check", "schema-describe"}
+ATLAS_COMMANDS = {"status", "lesson", "submit", "next", "reset", "ui", "code"}
+ATLAS_UI_COMMANDS = {"scaffold", "component", "style", "backend", "graph", "palette"}
+ATLAS_CODE_COMMANDS = {"generate", "refactor", "explain", "debug", "scan", "patch"}
+
+
+def _has_blocked_terminal_sequence(cmd: str) -> bool:
+    return any(token in cmd for token in TERMINAL_BLOCKED_SEQUENCES)
+
+
+def _is_allowed_cli_command(cmd: str) -> bool:
+    stripped = cmd.strip()
+    cli_root = next((root for root in CLI_ROOTS if stripped.startswith(root)), "")
+    if not cli_root:
+        return False
+    if _has_blocked_terminal_sequence(stripped):
+        return False
+
+    remainder = stripped[len(cli_root):].strip()
+    if not remainder:
+        return False
+
+    tokens = remainder.split()
+    if not tokens:
+        return False
+    if "--help" in tokens or "-h" in tokens:
+        return True
+
+    top_level = tokens[0]
+    if top_level in CLI_TOP_LEVEL_COMMANDS:
+        return True
+    if top_level != "atlas":
+        return False
+    if len(tokens) < 2:
+        return False
+
+    atlas_command = tokens[1]
+    if atlas_command not in ATLAS_COMMANDS:
+        return False
+    if atlas_command in {"status", "lesson", "submit", "next", "reset"}:
+        return True
+    if len(tokens) < 3:
+        return False
+
+    atlas_subcommand = tokens[2]
+    if atlas_command == "ui":
+        return atlas_subcommand in ATLAS_UI_COMMANDS
+    if atlas_command == "code":
+        return atlas_subcommand in ATLAS_CODE_COMMANDS
+    return False
+
+
 def _is_allowed(cmd: str) -> bool:
     s = cmd.strip()
+    if _is_allowed_cli_command(s):
+        return True
     if s in ALLOW_LIST:
         return True
+    if _has_blocked_terminal_sequence(s):
+        return False
     for prefix in ALLOW_PREFIXES:
         if s.startswith(prefix):
             return True
@@ -3926,10 +4010,22 @@ def _run_command_sync(resolved: str, run_cwd: Path, env: dict, timeout: int) -> 
         }
 
 
-async def _execute_terminal_command(cmd: str, timeout: int = 60) -> Dict[str, Any]:
+def _terminal_timeout_for(cmd: str) -> int:
+    stripped = cmd.strip()
+    if stripped.startswith("python -m cli.main atlas code ") or stripped.startswith("py -m cli.main atlas code "):
+        return 180
+    if stripped.startswith("python -m cli.main atlas ui ") or stripped.startswith("py -m cli.main atlas ui "):
+        return 120
+    return 60
+
+
+async def _execute_terminal_command(cmd: str, timeout: Optional[int] = None) -> Dict[str, Any]:
     resolved, run_cwd = _normalize_terminal_command(cmd)
     env = _make_env()
-    return await asyncio.to_thread(_run_command_sync, resolved, run_cwd, env, timeout)
+    resolved_timeout = timeout if timeout is not None else _terminal_timeout_for(cmd)
+    result = await asyncio.to_thread(_run_command_sync, resolved, run_cwd, env, resolved_timeout)
+    result["timeout_seconds"] = resolved_timeout
+    return result
 
 
 @app.get("/api/audit")
