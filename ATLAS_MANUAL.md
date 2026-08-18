@@ -14,7 +14,7 @@ This repo is now in a strong “operator-grade prototype” position rather than
 |---|---:|---|
 | System overall | 8.2 / 10 | Strong workflow surface and core runtime, but still not fully hardened for cloud outage UX |
 | MammothOS Chat | 8.4 / 10 | Native chat, multi-agent routing, task cards, approvals, and source-aware evidence cards are in place |
-| CodingAgent | 8.5 / 10 | Best-validated lane; structured and predictable |
+| CodingAgent | 8.7 / 10 | Asyncio safety pass completed; structured logging and exception handling now robust |
 | TutorAgent | 8.2 / 10 | Adaptive tutoring and review flow are strong |
 | ShellAgent | 8.0 / 10 | Safety controls are solid and approval-aware |
 | API Server / Orchestration | 7.8 / 10 | Good runtime contract, needs smoother error UX and more explicit runtime-state surfaces |
@@ -86,6 +86,24 @@ The runtime now keeps structured payloads intact for coding and brand-voice work
 - Documentation-only requests without a real file path or source snippet return a `needs_context` response rather than fake “generated docs.”
 - `brand_voice` tasks should specify `mode`, `audience`, `tone`, and optional `constraints` so the rewrite stays on-message.
 - The UI prompt box works best when the user enters: objective + scope + constraints + expected output.
+
+### CodingAgent hardening: Asyncio safety & exception handling (v1.2)
+
+**Problem:** CodingAgent was calling `asyncio.run()` in multiple places, which raised a `RuntimeError` when the agent was invoked from an already-running event loop. This was especially common during concurrent AI requests or when orchestrating multiple coding tasks.
+
+**Solution:** Added a robust `_run_async()` bridge method that:
+1. **Detects** if an event loop is already running with `asyncio.get_running_loop()`.
+2. **Routes** safe calls: if no loop is running, call `asyncio.run()` directly.
+3. **Bridges** event loop conflicts: if a loop is already running, use a thread pool executor to run the coroutine in a fresh thread.
+4. **Logs and re-raises** exceptions for visibility: all errors in async task execution now appear in the standard logging stream.
+
+**Additional improvements:**
+- Wired `log()` method to Python's standard `logging` module (not `print()`), so all CodingAgent activity is now part of the operator audit trail.
+- Added input validation: `commit_changes()` now checks for empty file lists to prevent silent git command failures.
+- Fixed type hints for Python <3.10 compatibility (replaced `str | Dict` with `Union[str, Dict]`).
+- Standardized log levels: replaced non-standard `"WARN"` with `"WARNING"`.
+
+**Result:** CodingAgent now safely handles nested async contexts, provides better debugging visibility, and is much less likely to crash when called during concurrent multi-agent orchestration.
 
 ### Additive agent bridge
 
@@ -244,11 +262,17 @@ python -m cli.main atlas lesson "Recursion" --module 2 --lesson 1
 python -m cli.main atlas lesson "Functions" --llm   # LLM-generated exercise
 ```
 
+ATLAS will persist lesson chunks into RAG storage when Supabase is configured, so generated or imported lessons can be reused later instead of being re-authored every time.
+
 ### Check your current session
 ```powershell
 python -m cli.main atlas status           # shows active lesson + exercise prompt
 python -m cli.main atlas status --db      # also fetches the latest mammoth.ai_sessions row
 ```
+
+### Inspect the curriculum library
+- Open **Lessons → Curriculum Library** in the UI.
+- It shows the current lesson snapshot, which lessons have persisted chunks, and which ones are still only living in the in-memory curriculum state.
 
 ### Submit a solution
 ```powershell

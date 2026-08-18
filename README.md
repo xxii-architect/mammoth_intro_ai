@@ -10,7 +10,7 @@ This build is materially stronger than the original prototype. The highest-value
 
 - System overall: 8.2 / 10
 - Most production-ready lanes:
-  - CodingAgent: 8.5
+  - CodingAgent: 8.7 (upgraded: asyncio safety, structured logging, exception handling)
   - TutorAgent: 8.2
   - ShellAgent: 8.0
   - Operator Health / Finance Backend: 8.0
@@ -27,6 +27,7 @@ This build is materially stronger than the original prototype. The highest-value
 - Source-aware outputs for research/market/reflection flows
 - Approval gates and rollback-friendly workflow posture
 - Health, diagnostics, and export paths for operator validation
+- Lessons page now supports an expanded multi-domain track catalog plus an adaptive exercise UI toggle for future non-code lesson surfaces
 
 ### What still needs attention before “production grade”
 
@@ -86,6 +87,17 @@ UI: http://localhost:5173
   - `POST /api/atlas/onboard` with `approval_mode: true`
   - `POST /api/atlas/learner/reset` with `approval_mode: true`
   - `POST /api/atlas/reset` with `approval_mode: true`
+
+## CodingAgent hardening pass (v1.2)
+
+Latest improvements to CodingAgent stability and error handling:
+- **Asyncio safety**: Replaced unsafe `asyncio.run()` calls with a robust `_run_async()` bridge that detects and handles already-running event loops gracefully.
+- **Structured logging**: Wired `log()` method to the standard Python `logging` module for consistent log levels and operator visibility.
+- **Exception safety**: Added proper exception handling in async task execution and commit operations with detailed logging for debugging.
+- **Type hints**: Fixed Python <3.10 compatibility by using `Union` instead of `|` type syntax.
+- **Input validation**: Added guards for empty file lists in `commit_changes()` to prevent silent git errors.
+
+These changes reduce the risk of runtime `RuntimeError` exceptions when CodingAgent is called from async contexts or when handling large workloads.
 
 ## Source-aware output contracts
 
@@ -200,6 +212,12 @@ This keeps development moving but is less isolated than Docker sandboxing.
 
 - The Command Center terminal supports safe `python -m cli.main ...` flows, including `atlas code` and `atlas ui` commands.
 - Long-running ATLAS coding/UI commands now receive extended backend timeouts so they behave more like a real operator terminal session.
+
+## Lessons + curriculum note
+
+- `GET /api/atlas/modules` now exposes a broader module catalog across outdoors, emergency, business, health, technology, creative, and life-skills tracks.
+- The Lessons page includes an **Adaptive UI** toggle that morphs the exercise surface by lesson type (`code`, `knowledge`, `writing`, `checklist`, `scenario`).
+- Until deeper non-code submission contracts land, non-coding lessons still use a Python-backed helper exercise under the hood, but the prompt/test scaffolding is now topic-aware instead of a one-size-fits-all generic coding task.
 
 ## Scope + suggestions (credit-efficient path)
 

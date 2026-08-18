@@ -1,10 +1,11 @@
 import asyncio
+import concurrent.futures
 import json
 import logging
 import os
 import re
 import urllib.request
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, Union
 
 from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
 from mammoth_os.llm_client import get_llm_client, extract_code_from_text  # type: ignore
@@ -44,7 +45,7 @@ class CodingAgent(BaseAgent):
         }
         return normalized
 
-    def run(self, prompt: str | Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, prompt: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         """
         Hybrid natural-language router for CodingAgent.
         - Fast keyword routing for obvious cases
@@ -67,41 +68,41 @@ class CodingAgent(BaseAgent):
         prompt_lower = prompt_text.lower()
 
         if explicit_intent in {"generate_code", "patch_existing"}:
-            result = asyncio.run(self.generate_code(prompt_text, context=context))
+            result = self._run_async(self.generate_code(prompt_text, context=context))
             return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "refactor_code":
-            result = asyncio.run(self.refactor(target or "unknown", "default"))
+            result = self._run_async(self.refactor(target or "unknown", "default"))
             return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "analyze_codebase":
-            result = asyncio.run(self.analyze_codebase("."))
+            result = self._run_async(self.analyze_codebase("."))
             return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "run_tests":
-            result = asyncio.run(self.run_tests("."))
+            result = self._run_async(self.run_tests("."))
             return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "write_docs":
-            result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
+            result = self._run_async(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
             return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
         if "refactor" in prompt_lower:
             target = target if target and target.lower() != "unknown" else "unknown"
             strategy = "default"
-            result = asyncio.run(self.refactor(target, strategy))
+            result = self._run_async(self.refactor(target, strategy))
             return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
         if "analyze" in prompt_lower or "analysis" in prompt_lower:
-            result = asyncio.run(self.analyze_codebase("."))
+            result = self._run_async(self.analyze_codebase("."))
             return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
         if "test" in prompt_lower:
-            result = asyncio.run(self.run_tests(project_path="."))
+            result = self._run_async(self.run_tests(project_path="."))
             return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
         if "docs" in prompt_lower or "documentation" in prompt_lower:
-            result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
+            result = self._run_async(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
             return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
         if "commit" in prompt_lower:
@@ -118,7 +119,7 @@ class CodingAgent(BaseAgent):
             return self._standardize_result(payload, task_kind="commit", target=target, prompt=prompt_text, files=files)
 
         try:
-            decision = asyncio.run(
+            decision = self._run_async(
                 self._call_reasoning_engine(
                     f"Decide which CodingAgent tool should handle this prompt:\n\n{prompt_text}\n\n"
                     "Options: generate_code, refactor, analyze_codebase, run_tests, write_docs.\n"
@@ -131,22 +132,22 @@ class CodingAgent(BaseAgent):
         decision = decision.strip().lower()
 
         if "refactor" in decision:
-            result = asyncio.run(self.refactor(target or "unknown", "default"))
+            result = self._run_async(self.refactor(target or "unknown", "default"))
             return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
         if "analyze" in decision:
-            result = asyncio.run(self.analyze_codebase("."))
+            result = self._run_async(self.analyze_codebase("."))
             return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
         if "test" in decision:
-            result = asyncio.run(self.run_tests("."))
+            result = self._run_async(self.run_tests("."))
             return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
         if "docs" in decision:
-            result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
+            result = self._run_async(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
             return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
-        result = asyncio.run(self.generate_code(prompt_text, context=context))
+        result = self._run_async(self.generate_code(prompt_text, context=context))
         return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
 
     def _extract_target_from_prompt(self, prompt_text: str) -> str:
@@ -175,7 +176,7 @@ class CodingAgent(BaseAgent):
         self.config = config or {}
 
         # Safe logging
-        self.log("WARN", "CodingAgent initialized without sub-engines.")
+        self.log("WARNING", "CodingAgent initialized without sub-engines.")
 
     def _build_task_plan(self, prompt: str, context: Optional[dict] = None) -> dict:
         """Return a compact execution brief so the agent is more predictable."""
@@ -214,10 +215,41 @@ class CodingAgent(BaseAgent):
 
     def log(self, level: str, message: str):
         """
-        Simple logging wrapper so CodingAgent never crashes
-        when BaseAgent does not provide a log() method.
+        Structured logging via the standard logging module.
         """
-        print(f"[CodingAgent:{level}] {message}")
+        level_upper = level.upper()
+        if level_upper == "DEBUG":
+            logger.debug(message)
+        elif level_upper == "INFO":
+            logger.info(message)
+        elif level_upper == "WARN" or level_upper == "WARNING":
+            logger.warning(message)
+        elif level_upper == "ERROR":
+            logger.error(message)
+        else:
+            logger.info(message)
+
+    def _run_async(self, coro):
+        """
+        Safe bridge for calling async methods from sync context.
+        Handles both already-running and fresh event loops gracefully.
+        """
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                return asyncio.run(coro)
+            except Exception as e:
+                logger.error(f"Error running async task: {e}")
+                raise
+        else:
+            try:
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, coro)
+                    return future.result()
+            except Exception as e:
+                logger.error(f"Error running async task in thread pool: {e}")
+                raise
 
     # ---------------------------------------------------------
     # Initialization
@@ -428,7 +460,7 @@ class CodingAgent(BaseAgent):
             with urllib.request.urlopen(req, timeout=8):
                 return
         except Exception as exc:
-            self.log("WARN", f"ai_sessions write failed: {exc}")
+            self.log("WARNING", f"ai_sessions write failed: {exc}")
 
     async def refactor(self, target: str, strategy: str) -> dict:
         """Refactor target file or code using the LLM adapter as a helper.
@@ -676,6 +708,9 @@ sys.exit(failed)
         """
         This one CAN work because it uses shell commands.
         """
+        if not files:
+            return {"error": "No files specified for commit", "commit_hash": None, "pushed": False}
+        
         staged = " ".join(files)
         await self._run_shell(f"cd {project_path} && git add {staged}")
         await self._run_shell(f'cd {project_path} && git commit -m "{message}"')
@@ -702,7 +737,7 @@ sys.exit(failed)
         import os
 
         if not os.path.exists(path):
-            self.log("WARN", f"_get_files: path not found: {path}")
+            self.log("WARNING", f"_get_files: path not found: {path}")
             return []
 
         # If it's a single file, just return it directly
@@ -719,10 +754,10 @@ sys.exit(failed)
             with open(path, "r", encoding="utf-8") as f:
                 return f.read()
         except FileNotFoundError:
-            self.log("WARN", f"_read_file: file not found: {path}")
+            self.log("WARNING", f"_read_file: file not found: {path}")
             return ""
         except Exception as exc:
-            self.log("WARN", f"_read_file failed for {path}: {exc}")
+            self.log("WARNING", f"_read_file failed for {path}: {exc}")
             return ""
 
     def _build_prompt(
@@ -761,7 +796,7 @@ sys.exit(failed)
             )
             return (response or "generate_code").strip()
         except Exception as exc:
-            self.log("WARN", f"_call_reasoning_engine failed: {exc}")
+            self.log("WARNING", f"_call_reasoning_engine failed: {exc}")
             return "generate_code"
 
     async def _run_tests_sandboxed(self, tests: str, code: str, language: str) -> dict:
@@ -999,7 +1034,7 @@ sys.exit(failed)
             result = await handler(event)
             await self.emit_event(f"{event.event_type}_RESULT", result)# type: ignore
         else:
-            self.log("WARN", f"Unhandled event type: {event.event_type}")
+            self.log("WARNING", f"Unhandled event type: {event.event_type}")
 
     async def shutdown(self) -> None:
         self.log("INFO", "CodingAgent shutting down.")
