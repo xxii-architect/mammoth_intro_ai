@@ -174,22 +174,26 @@ export default function TerminalPage({ setPage }) {
   const modeLabel = connected ? 'Live WebSocket lane' : httpMode ? 'HTTP fallback lane' : 'Disconnected lane'
 
   return (
-    <div className="page-enter" style={{ padding: 24, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h1 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Terminal size={20} color="var(--cyan)" /> Terminal
+    <div className="page-enter" style={{ padding: '16px 24px', display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden', gap: 8 }}>
+      {/* Compact header bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <h1 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+          <Terminal size={18} color="var(--cyan)" /> Terminal
+          <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 400, marginLeft: 4 }}>
+            live operator shell · ATLAS CLI routing
+          </span>
         </h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {!connected && (
             <button onClick={() => setHttpMode(m => !m)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 8, border: `1px solid ${httpMode ? 'var(--cyan)' : 'var(--border)'}`, background: httpMode ? 'rgba(0,212,255,0.1)' : 'transparent', color: httpMode ? 'var(--cyan)' : 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}>
-              <WifiOff size={12} /> {httpMode ? 'HTTP MODE' : 'Use HTTP fallback'}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, border: `1px solid ${httpMode ? 'var(--cyan)' : 'var(--border)'}`, background: httpMode ? 'rgba(0,212,255,0.1)' : 'transparent', color: httpMode ? 'var(--cyan)' : 'var(--txt-sec)', fontSize: '0.7rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}>
+              <WifiOff size={11} /> {httpMode ? 'HTTP' : 'HTTP fallback'}
             </button>
           )}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: connected ? '#22c55e' : (httpMode ? 'var(--cyan)' : '#ef4444') }} />
-            <span style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: connected ? '#22c55e' : (httpMode ? 'var(--cyan)' : '#ef4444') }}>
-              {connected ? 'CONNECTED' : httpMode ? 'HTTP MODE' : 'DISCONNECTED'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: statusTone }} />
+            <span style={{ fontSize: '0.7rem', fontFamily: 'JetBrains Mono,monospace', color: statusTone, fontWeight: 700 }}>
+              {connected ? 'WS LIVE' : httpMode ? 'HTTP' : 'OFFLINE'}
             </span>
           </div>
         </div>
@@ -197,91 +201,48 @@ export default function TerminalPage({ setPage }) {
 
       <OnboardingGuide variant="banner" currentPage="terminal" setPage={setPage} />
 
-      <div className="glass-card-solid" style={{ padding: 14, marginBottom: 10, border: '1px solid rgba(77,166,255,0.18)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <div className="eyebrow" style={{ marginBottom: 6 }}>Command Center terminal</div>
-            <div style={{ color: 'var(--txt-pri)', fontSize: '0.92rem', fontWeight: 700, marginBottom: 6 }}>
-              Live operator shell with ATLAS CLI routing
-            </div>
-            <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.6, maxWidth: 700 }}>
-              Use quick actions for fast checks, then drop into the playbook for longer ATLAS code/UI flows without leaving the command center.
-            </div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(120px, 1fr))', gap: 8, minWidth: 280 }}>
-            <div className="glass-card" style={{ padding: '10px 12px' }}>
-              <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Connection</div>
-              <div style={{ color: statusTone, fontSize: '0.84rem', fontWeight: 700, marginTop: 4 }}>{connected ? 'Connected' : httpMode ? 'HTTP fallback' : 'Offline'}</div>
-            </div>
-            <div className="glass-card" style={{ padding: '10px 12px' }}>
-              <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Mode</div>
-              <div style={{ color: 'var(--txt-pri)', fontSize: '0.84rem', fontWeight: 700, marginTop: 4 }}>{modeLabel}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 8, flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
-          <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Quick actions</div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--txt-sec)' }}>Tap a card to dispatch immediately</div>
-        </div>
-        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, flexShrink: 0 }}>
-        {QUICK_ACTIONS.map(a => (
-          <button key={a.cmd} onClick={() => send(a.cmd)} className="glass-card-solid"
-            style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', borderRadius: 12, border: '1px solid var(--border)', cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))', opacity: httpBusy ? 0.6 : 1, flexShrink: 0, minWidth: 180, textAlign: 'left' }}>
-            <a.Icon size={15} color={a.color} style={{ marginTop: 2, flexShrink: 0 }} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', fontWeight: 700, marginBottom: 3 }}>{a.label}</div>
-              <div style={{ color: 'var(--txt-mut)', fontSize: '0.68rem', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{a.note}</div>
-              <code style={{ color: 'var(--photon)', fontSize: '0.67rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{a.cmd}</code>
-            </div>
-          </button>
-        ))}
+      {/* Compact quick actions */}
+      <div style={{ flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
+          {QUICK_ACTIONS.map(a => (
+            <button key={a.cmd} onClick={() => send(a.cmd)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 11px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', background: 'rgba(255,255,255,0.04)', opacity: httpBusy ? 0.6 : 1, flexShrink: 0, whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
+              <a.Icon size={13} color={a.color} />
+              <span style={{ color: 'var(--txt-pri)', fontSize: '0.75rem', fontWeight: 600 }}>{a.label}</span>
+            </button>
+          ))}
         </div>
       </div>
 
       {/* Collapsible playbook */}
-      <div className="glass-card-solid" style={{ marginBottom: 10, borderLeft: '2px solid var(--cyan)', flexShrink: 0, boxShadow: '0 10px 32px rgba(0,0,0,0.18)' }}>
+      <div className="glass-card-solid" style={{ flexShrink: 0, borderLeft: '2px solid var(--cyan)' }}>
         <button
           onClick={() => setPlaybookOpen(o => !o)}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-pri)' }}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-pri)' }}
         >
-          <div>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.84rem', fontWeight: 600 }}>
-              <BookOpen size={14} color="var(--cyan)" /> Terminal playbook
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', fontWeight: 600 }}>
+            <BookOpen size={13} color="var(--cyan)" /> Terminal Playbook
+            <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontWeight: 400, fontFamily: 'JetBrains Mono,monospace' }}>
+              · {COMMAND_PLAYBOOK.length} commands
             </span>
-            <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginTop: 4 }}>
-              Curated command paths for runtime checks, scans, builds, and ATLAS generation lanes
-            </div>
-          </div>
-          <span style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
-            {playbookOpen ? '▲ collapse' : '▼ expand'}
+          </span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
+            {playbookOpen ? '▲' : '▼ expand'}
           </span>
         </button>
         {playbookOpen && (
-          <div style={{ padding: '0 14px 14px' }}>
-            <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.7, marginBottom: 10 }}>
-              ATLAS CLI commands are supported here too, including <code style={{ color: 'var(--photon)' }}>python -m cli.main atlas code ...</code>.
-              Longer ATLAS code and UI commands get an extended backend timeout.
-            </div>
-            <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', lineHeight: 1.6, marginBottom: 10 }}>
-              Tip: click a card to run immediately. Use scans first, then generate/edit commands, then run build.
-            </div>
-            <div style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 10 }}>
-              {COMMAND_PLAYBOOK.length} playbook commands
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10, maxHeight: '34vh', overflowY: 'auto', paddingRight: 4 }}>
+          <div style={{ padding: '0 14px 12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8, maxHeight: '28vh', overflowY: 'auto', paddingRight: 2 }}>
               {COMMAND_PLAYBOOK.map((item) => (
                 <button
                   key={item.cmd}
                   onClick={() => { setInput(item.cmd); send(item.cmd) }}
                   className="glass-card-solid"
-                  style={{ textAlign: 'left', padding: 12, borderRadius: 12, border: '1px solid var(--border)', cursor: 'pointer', background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))', minWidth: 0 }}
+                  style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', cursor: 'pointer', background: 'rgba(255,255,255,0.03)', minWidth: 0 }}
                 >
-                  <div style={{ color: 'var(--txt-pri)', fontSize: '0.8rem', marginBottom: 6, fontWeight: 700 }}>{item.label}</div>
-                  <code style={{ color: 'var(--photon)', fontSize: '0.72rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.cmd}</code>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.72rem', marginTop: 6, lineHeight: 1.55 }}>{item.note}</div>
+                  <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 4, fontWeight: 700 }}>{item.label}</div>
+                  <code style={{ color: 'var(--photon)', fontSize: '0.68rem', whiteSpace: 'pre-wrap', wordBreak: 'break-all', display: 'block', marginBottom: 5 }}>{item.cmd}</code>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', lineHeight: 1.45 }}>{item.note}</div>
                 </button>
               ))}
             </div>
@@ -289,7 +250,7 @@ export default function TerminalPage({ setPage }) {
         )}
       </div>
 
-      <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden' }}>
+      <div className="glass-card-solid" style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', borderRadius: 12, overflow: 'hidden' }}>
         {/* title bar */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
