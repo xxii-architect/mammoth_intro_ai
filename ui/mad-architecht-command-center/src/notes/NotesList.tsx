@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { NoteRecord } from './types/NoteRecord'
 
 const listStyle: React.CSSProperties = {
@@ -29,11 +29,26 @@ const deleteButtonStyle: React.CSSProperties = {
   fontWeight: 600,
 }
 
+const previewText = (note: NoteRecord) => {
+  const text = (note.content || note.body || '').trim()
+  if (!text) return 'Empty note'
+  return text.length > 160 ? `${text.slice(0, 157)}...` : text
+}
+
+const formatTimestamp = (note: NoteRecord) => {
+  const raw = note.updated_at || note.created_at
+  if (!raw) return 'No timestamp yet'
+  const parsed = new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? 'No timestamp yet' : parsed.toLocaleString()
+}
+
 const NotesList: React.FC<{ notes: NoteRecord[]; onDelete: (id: string) => void; busy?: boolean }> = ({
   notes,
   onDelete,
   busy = false,
 }) => {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
   if (notes.length === 0) {
     return (
       <div className="glass-card-solid" style={{ padding: 18, color: 'var(--txt-sec)', lineHeight: 1.7 }}>
@@ -47,15 +62,23 @@ const NotesList: React.FC<{ notes: NoteRecord[]; onDelete: (id: string) => void;
       {notes.map((note) => (
         <li key={note.id} style={noteCardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <button
+              onClick={() => setExpandedId((current) => current === note.id ? null : note.id)}
+              style={{ flex: 1, minWidth: 0, background: 'transparent', border: 0, textAlign: 'left', padding: 0, cursor: 'pointer' }}
+            >
               <div className="eyebrow" style={{ marginBottom: 6 }}>
-                {note.type || 'note'} {note.priority ? `• ${note.priority}` : ''}
+                {(note.source === 'agent' ? (note.agent_id || 'agent') : 'personal')} • {note.priority || 'normal'}
               </div>
-              <p style={{ color: 'var(--txt-pri)', fontSize: '0.9rem', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{note.content}</p>
+              <div style={{ color: 'var(--txt-pri)', fontSize: '0.88rem', fontWeight: 700, marginBottom: 6 }}>
+                {note.title || 'Untitled'}
+              </div>
+              <p style={{ color: 'var(--txt-pri)', fontSize: '0.9rem', lineHeight: 1.7, whiteSpace: 'pre-wrap', margin: 0 }}>
+                {expandedId === note.id ? (note.content || note.body || 'Empty note') : previewText(note)}
+              </p>
               <div style={{ marginTop: 10, color: 'var(--txt-mut)', fontSize: '0.72rem' }}>
-                {note.subsystem || 'general'} • {new Date(note.created_at).toLocaleString()}
+                {note.subsystem || 'general'} • {formatTimestamp(note)} • {expandedId === note.id ? 'Click to collapse' : 'Click to expand'}
               </div>
-            </div>
+            </button>
             <button onClick={() => onDelete(note.id)} style={deleteButtonStyle} disabled={busy}>
               Delete
             </button>

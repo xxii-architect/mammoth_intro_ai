@@ -243,6 +243,14 @@ export default function ChatPage({ setPage }) {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined
+    document.body.style.overflow = rightRailOpen && isNarrowLayout ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [rightRailOpen, isNarrowLayout])
+
   const selectedAgent = useMemo(() => AGENT_OPTIONS.find((item) => item.id === agentId) || AGENT_OPTIONS[0], [agentId])
   const showRightRail = rightRailOpen
   const showInlineRightRail = showRightRail && !isNarrowLayout
@@ -422,11 +430,13 @@ export default function ChatPage({ setPage }) {
       if (slash.kind === 'runs') {
         const ops = await refreshOps()
         const latestRun = ops.autonomousRuns.runs[0]
+        const summaryStatus = ops.autonomousRuns.summary?.latest_run_status || latestRun?.plan_status || 'unknown'
+        const label = ops.autonomousRuns.summary?.latest_run_label || latestRun?.run_label || latestRun?.objective || 'Autonomous run'
         appendSystemMessage(
           latestRun
-            ? `Latest autonomous run: ${latestRun.objective || 'Unnamed run'} • ${latestRun.plan_status || 'unknown'} • ${(latestRun.progress?.completed || 0)}/${(latestRun.progress?.total || 0)} complete.`
+            ? `Latest autonomous run: ${label} • ${(latestRun.progress?.completed || 0)}/${(latestRun.progress?.total || 0)} complete. Current status: ${summaryStatus}.`
             : 'No autonomous runs recorded yet.',
-          { evidence_items: ops.autonomousRuns.runs.slice(0, 3).map((run) => ({ agent_id: run.current_lane?.agent_id || 'orchestrator', summary: `${run.objective || 'Autonomous run'} • ${run.plan_status}`, source: run.source || 'autonomous-run', status: run.plan_status })) },
+          { evidence_items: ops.autonomousRuns.runs.slice(0, 3).map((run) => ({ agent_id: run.current_lane?.agent_id || 'orchestrator', summary: `${run.run_label || run.objective || 'Autonomous run'} • ${run.plan_status || 'unknown'}`, source: run.source || 'autonomous-run', status: run.plan_status })) },
         )
         return
       }
@@ -780,11 +790,11 @@ export default function ChatPage({ setPage }) {
             type="button"
             onClick={() => setRightRailOpen(false)}
             aria-label="Close right rail"
-            style={{ position: 'fixed', inset: 0, border: 'none', background: 'rgba(4,8,12,0.56)', zIndex: 35, cursor: 'pointer' }}
+            style={{ position: 'fixed', inset: 0, border: 'none', background: 'rgba(2, 6, 12, 0.72)', backdropFilter: 'blur(2px)', zIndex: 35, cursor: 'pointer' }}
           />
         )}
         {showRightRail && (
-        <div style={showDrawerRightRail ? { position: 'fixed', top: 86, right: 18, width: 'min(420px, calc(100vw - 36px))', maxHeight: 'calc(100vh - 110px)', zIndex: 40, display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', paddingRight: 4 } : { display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', maxHeight: isShortViewport ? '80vh' : '84vh', paddingRight: 4 }}>
+        <div style={showDrawerRightRail ? { position: 'fixed', top: 86, right: 18, width: 'min(420px, calc(100vw - 36px))', maxHeight: 'calc(100vh - 110px)', zIndex: 40, display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', paddingRight: 4, background: 'rgba(7, 12, 18, 0.9)', border: '1px solid var(--border)', borderRadius: 18, boxShadow: '0 24px 60px rgba(0,0,0,0.38)', padding: 12 } : { display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', maxHeight: isShortViewport ? '80vh' : '84vh', paddingRight: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="button"

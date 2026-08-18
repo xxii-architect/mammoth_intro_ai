@@ -58,7 +58,7 @@ const NotesComposer: React.FC<{ onCreate: (content: string) => Promise<void>; bu
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12, alignItems: 'center' }}>
         <div>
           <div className="eyebrow" style={{ marginBottom: 4 }}>Quick capture</div>
-          <h3 style={{ fontSize: '0.95rem' }}>Drop a note into the queue</h3>
+          <h3 style={{ fontSize: '0.95rem' }}>Save a personal note</h3>
         </div>
         <button style={submitStyle} onClick={handleSubmit} disabled={busy || isSubmitting}>
           {busy || isSubmitting ? 'Saving…' : 'Create note'}
@@ -72,7 +72,7 @@ const NotesComposer: React.FC<{ onCreate: (content: string) => Promise<void>; bu
         disabled={busy || isSubmitting}
       />
       <div style={{ marginTop: 10, color: 'var(--txt-mut)', fontSize: '0.74rem' }}>
-        High-contrast editor, Command Center theme, and safe inline save.
+        The first line becomes the note title, and the full text is saved for preview + expansion in the list.
       </div>
     </div>
   )

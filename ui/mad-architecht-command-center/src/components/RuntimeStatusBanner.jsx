@@ -32,6 +32,8 @@ export default function RuntimeStatusBanner({ title = 'Runtime status', compact 
   const state = runtime?.state || 'blocked'
   const tone = statusTone(state)
   const providers = Array.isArray(runtime?.providers) ? runtime.providers : []
+  const issueText = runtime?.issue || runtime?.recommendation || 'Checking provider health…'
+  const nextActionText = runtime?.next_action || runtime?.recommendation || 'Checking provider health…'
 
   return (
     <div className="glass-card-solid" style={{ padding: compact ? 12 : 14, borderLeft: `2px solid ${tone}`, marginBottom: compact ? 12 : 16 }}>
@@ -42,8 +44,13 @@ export default function RuntimeStatusBanner({ title = 'Runtime status', compact 
             <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{title}</span>
           </div>
           <p style={{ margin: 0, color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.6 }}>
-            {runtime?.recommendation || 'Checking provider health…'}
+            {issueText}
           </p>
+          {nextActionText && nextActionText !== issueText && (
+            <p style={{ margin: '4px 0 0', color: 'var(--txt-mut)', fontSize: '0.72rem', lineHeight: 1.5 }}>
+              Next action: {nextActionText}
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: '0.68rem', color: tone, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>

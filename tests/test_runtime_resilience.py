@@ -20,6 +20,9 @@ def test_runtime_status_snapshot_marks_local_fallback_as_degraded(monkeypatch):
     assert snapshot['state'] == 'degraded'
     assert snapshot['active_adapter'] == 'local'
     assert snapshot['available_providers'] == ['local']
+    assert 'issue' in snapshot
+    assert 'next_action' in snapshot
+    assert 'local-safe fallback mode' in snapshot['issue'].lower()
     assert 'DEEPSEEK_API_KEY' in snapshot['recommendation'] or 'OPENAI_API_KEY' in snapshot['recommendation']
 
 

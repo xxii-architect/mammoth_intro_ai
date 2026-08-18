@@ -260,6 +260,12 @@ export default function DiagnosticsPage() {
                   {releaseReadiness.summary?.cloud_providers_ready || 0} cloud provider{releaseReadiness.summary?.cloud_providers_ready === 1 ? '' : 's'} ready
                 </div>
               </div>
+              <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(77,166,255,0.24)', background: 'rgba(77,166,255,0.06)', marginBottom: 12 }}>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Recommended next action</div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', lineHeight: 1.6 }}>
+                  {releaseReadiness.recommended_next_action || releaseReadiness['recommendedNextAction'] || 'Continue incremental upgrade work on the next lowest-rated lane.'}
+                </div>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
                 <div style={{ display: 'grid', gap: 8 }}>
                   <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Top blockers</div>

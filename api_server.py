@@ -807,17 +807,27 @@ def _runtime_status_snapshot() -> Dict[str, Any]:
     degraded_mode = state != "ready" or active_adapter == "local"
 
     if state == "ready":
+        issue = "All configured providers are available, and the runtime is operating in its normal chain."
         recommendation = f"{active_adapter} is ready"
+        next_action = "Continue with the current provider path."
     elif deepseek_key_present or openai_key_present:
+        issue = "A configured provider is unavailable or not accepted; MammothOS is still using the next safe fallback path."
         recommendation = "Verify selected adapter and key permissions; MammothOS can still route through the next provider in the fallback chain."
+        next_action = "Check the provider key, quota, or permission issue, then retry the selected adapter."
     elif ollama_running:
+        issue = "Cloud credentials are missing, so the runtime is limited to local-safe fallback mode."
         recommendation = "Start or restore a cloud provider key to improve output quality beyond local-only fallback."
+        next_action = "Add DEEPSEEK_API_KEY or OPENAI_API_KEY, or switch the active adapter back to Ollama."
     else:
+        issue = "No cloud provider key is configured and Ollama is offline; the runtime is running in local-safe fallback mode."
         recommendation = "Add DEEPSEEK_API_KEY or OPENAI_API_KEY, or start Ollama, to restore a cloud-capable runtime."
+        next_action = "Set at least one cloud key or start Ollama, then refresh the runtime status."
 
     return {
         "state": state,
         "degraded_mode": degraded_mode,
+        "issue": issue,
+        "next_action": next_action,
         "active_adapter": active_adapter,
         "active_model": active_model,
         "providers": providers,
@@ -2064,6 +2074,25 @@ async def get_autonomous_runs():
     state = _load_atlas_state()
     recent_runs: List[Dict[str, Any]] = []
 
+    def _run_status_for(value: Any, *, fallback: str = "active") -> str:
+        normalized = str(value or fallback).strip().lower()
+        valid = {"completed", "pending_approval", "failed", "active", "running", "queued", "unknown"}
+        if normalized in valid:
+            return normalized
+        if normalized in {"success", "succeeded"}:
+            return "completed"
+        if normalized in {"waiting", "approval", "needs_approval"}:
+            return "pending_approval"
+        return fallback
+
+    def _run_label(objective: Any, *, status: str, profile: Any) -> str:
+        raw = str(objective or "Autonomous run").strip()
+        label = raw if raw else "Autonomous run"
+        if len(label) > 72:
+            label = f"{label[:69]}..."
+        profile_name = str(profile or "balanced").strip() or "balanced"
+        return f"{label} • {status} • {profile_name}"
+
     plan_tasks = [
         task for task in _load_tasks()
         if isinstance(task, dict) and (
@@ -2075,13 +2104,19 @@ async def get_autonomous_runs():
         details = task.get("details") if isinstance(task.get("details"), dict) else {}
         approvals_needed = details.get("approvals_needed") if isinstance(details.get("approvals_needed"), list) else []
         current_lane = details.get("current_lane") if isinstance(details.get("current_lane"), dict) else {}
-        recent_runs.append({
+        status = _run_status_for(task.get("status") or details.get("plan_status"), fallback="active")
+        objective = details.get("objective") or task.get("description") or ""
+        profile_name = _normalize_plan_profile(details.get("plan_profile"))
+        lane_count = int(bool(current_lane)) + len(approvals_needed)
+        entry = {
             "run_id": task.get("id"),
             "source": "plan_execute",
-            "objective": details.get("objective") or task.get("description") or "",
-            "plan_profile": _normalize_plan_profile(details.get("plan_profile")),
+            "objective": objective,
+            "run_label": _run_label(objective, status=status, profile=profile_name),
+            "plan_profile": profile_name,
             "coding_intent": _normalize_coding_intent(details.get("coding_intent")) or _default_coding_intent_for_profile(details.get("plan_profile")),
-            "plan_status": task.get("status") or "unknown",
+            "plan_status": status,
+            "status": status,
             "created_at": task.get("created_at") or task.get("updated_at") or "",
             "updated_at": task.get("updated_at") or task.get("created_at") or "",
             "progress": {
@@ -2094,27 +2129,35 @@ async def get_autonomous_runs():
             "current_lane": current_lane,
             "approvals_needed": approvals_needed,
             "approvals_needed_count": int(details.get("approvals_needed_count") or len(approvals_needed)),
+            "lane_count": lane_count,
             "replay": details.get("replay") or {
                 "execution_mode": "plan",
-                "objective": details.get("objective") or task.get("description") or "",
-                "plan_profile": _normalize_plan_profile(details.get("plan_profile")),
+                "objective": objective,
+                "plan_profile": profile_name,
                 "coding_intent": _normalize_coding_intent(details.get("coding_intent")) or _default_coding_intent_for_profile(details.get("plan_profile")),
                 "approval_mode": bool(details.get("pending_approval") or details.get("approval_mode")),
                 "step_count": int(details.get("step_count") or details.get("total") or 0),
             },
-        })
+        }
+        recent_runs.append(entry)
 
     for plan in [item for item in (state.get("plan_history") or []) if isinstance(item, dict)][-12:]:
         progress = plan.get("progress") if isinstance(plan.get("progress"), dict) else {}
         approvals_needed = plan.get("approvals_needed") if isinstance(plan.get("approvals_needed"), list) else []
         current_lane = plan.get("current_lane") if isinstance(plan.get("current_lane"), dict) else {}
-        recent_runs.append({
+        status = _run_status_for(plan.get("plan_status"), fallback="active")
+        objective = plan.get("objective") or ""
+        profile_name = _normalize_plan_profile(plan.get("plan_profile"))
+        lane_count = int(bool(current_lane)) + len(approvals_needed)
+        entry = {
             "run_id": plan.get("plan_id"),
             "source": "atlas_plan",
-            "objective": plan.get("objective") or "",
-            "plan_profile": _normalize_plan_profile(plan.get("plan_profile")),
+            "objective": objective,
+            "run_label": _run_label(objective, status=status, profile=profile_name),
+            "plan_profile": profile_name,
             "coding_intent": _normalize_coding_intent(plan.get("coding_intent")) or _default_coding_intent_for_profile(plan.get("plan_profile")),
-            "plan_status": plan.get("plan_status") or "unknown",
+            "plan_status": status,
+            "status": status,
             "created_at": plan.get("created_at") or "",
             "updated_at": plan.get("created_at") or "",
             "progress": {
@@ -2127,26 +2170,31 @@ async def get_autonomous_runs():
             "current_lane": current_lane,
             "approvals_needed": approvals_needed,
             "approvals_needed_count": int(plan.get("approvals_needed_count") or len(approvals_needed)),
+            "lane_count": lane_count,
             "replay": plan.get("replay") or {
                 "execution_mode": "plan",
-                "objective": plan.get("objective") or "",
-                "plan_profile": _normalize_plan_profile(plan.get("plan_profile")),
+                "objective": objective,
+                "plan_profile": profile_name,
                 "coding_intent": _normalize_coding_intent(plan.get("coding_intent")) or _default_coding_intent_for_profile(plan.get("plan_profile")),
                 "approval_mode": bool(progress.get("pending_approval")),
                 "step_count": int(progress.get("total") or 0),
             },
-        })
+        }
+        recent_runs.append(entry)
 
     recent_runs.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
     recent_runs = recent_runs[:20]
 
+    latest_run = recent_runs[0] if recent_runs else {}
     summary = {
         "total_runs": len(recent_runs),
         "completed": sum(1 for run in recent_runs if run.get("plan_status") == "completed"),
         "pending_approval": sum(1 for run in recent_runs if run.get("plan_status") == "pending_approval"),
         "failed": sum(1 for run in recent_runs if run.get("plan_status") == "failed"),
         "active": sum(1 for run in recent_runs if run.get("plan_status") in {"active", "running", "pending_approval"}),
-        "latest_run_at": recent_runs[0].get("created_at") if recent_runs else "",
+        "latest_run_at": latest_run.get("created_at") or "",
+        "latest_run_status": latest_run.get("status") or "unknown",
+        "latest_run_label": latest_run.get("run_label") or latest_run.get("objective") or "Autonomous run",
         "awaiting_approval": sum(int(run.get("approvals_needed_count") or 0) for run in recent_runs),
     }
 
@@ -4501,27 +4549,52 @@ async def mammoth_chat(body: Dict[str, Any]):
 
 @app.get("/api/notes")
 async def get_notes():
-    return _read_json(NOTES_FILE)
+    notes = _read_json(NOTES_FILE, default=[])
+    if not isinstance(notes, list):
+        return []
+
+    normalized: List[Dict[str, Any]] = []
+    for raw in reversed(notes):
+        note = _normalize_note_record(raw)
+        if note:
+            normalized.append(note)
+    return normalized
 
 
 @app.post("/api/notes")
 async def upsert_note(body: Dict[str, Any]):
-    notes = _read_json(NOTES_FILE)
-    note_id = body.get("id")
+    notes = _read_json(NOTES_FILE, default=[])
+    if not isinstance(notes, list):
+        notes = []
+    note_id = str(body.get("id") or "").strip()
     now = datetime.now(timezone.utc).isoformat()
     if note_id:
         for i, n in enumerate(notes):
             if n.get("id") == note_id:
-                notes[i] = {**n, **body, "updated_at": now}
+                created_at = str(n.get("created_at") or n.get("updated_at") or now)
+                normalized = _normalize_note_record({**n, **body, "id": note_id, "created_at": created_at, "updated_at": now}, now=now)
+                if normalized is None:
+                    return {"status": "error", "error": "note payload is invalid"}
+                notes[i] = normalized
                 _write_json(NOTES_FILE, notes)
-                return notes[i]
+                return normalized
     # create new
-    new_note = {
-        "id":         str(uuid.uuid4()),
-        "title":      body.get("title", "Untitled"),
-        "body":       body.get("body", ""),
+    new_note = _normalize_note_record({
+        "id": str(uuid.uuid4()),
+        "title": body.get("title"),
+        "body": body.get("body"),
+        "content": body.get("content"),
+        "created_at": now,
         "updated_at": now,
-    }
+        "agent_id": body.get("agent_id"),
+        "source": body.get("source"),
+        "type": body.get("type"),
+        "priority": body.get("priority"),
+        "subsystem": body.get("subsystem"),
+        "metadata": body.get("metadata"),
+    }, now=now)
+    if new_note is None:
+        return {"status": "error", "error": "note payload is invalid"}
     notes.append(new_note)
     _write_json(NOTES_FILE, notes)
     return new_note
@@ -4603,6 +4676,50 @@ def _normalize_operator_health(data: Any) -> Dict[str, Any]:
             except ValueError:
                 pass
     return merged
+
+
+def _derive_note_title(text: str) -> str:
+    first_line = next((line.strip() for line in str(text or "").splitlines() if line.strip()), "")
+    if not first_line:
+        return "Untitled"
+    return first_line[:72]
+
+
+def _normalize_note_record(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+
+    fallback_now = now or datetime.now(timezone.utc).isoformat()
+    note_id = str(raw.get("id") or "").strip() or str(uuid.uuid4())
+    body = str(raw.get("body") or raw.get("content") or "").strip()
+    title = str(raw.get("title") or "").strip() or _derive_note_title(body)
+    created_at = str(raw.get("created_at") or raw.get("updated_at") or fallback_now)
+    updated_at = str(raw.get("updated_at") or raw.get("created_at") or fallback_now)
+    agent_id = str(raw.get("agent_id") or "").strip()
+
+    source = str(raw.get("source") or "").strip().lower()
+    if source not in {"personal", "agent"}:
+        source = "agent" if agent_id and agent_id not in {"operator", "user"} else "personal"
+
+    note_type = str(raw.get("type") or "").strip() or ("agent_note" if source == "agent" else "personal_note")
+    priority = str(raw.get("priority") or "normal").strip() or "normal"
+    subsystem = str(raw.get("subsystem") or "general").strip() or "general"
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+
+    return {
+        "id": note_id,
+        "title": title,
+        "body": body,
+        "content": body,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "agent_id": agent_id,
+        "source": source,
+        "type": note_type,
+        "priority": priority,
+        "subsystem": subsystem,
+        "metadata": metadata,
+    }
 
 
 def _normalize_sale_entry(raw: Any, *, idx: int = 0) -> Optional[Dict[str, Any]]:

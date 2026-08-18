@@ -4,14 +4,14 @@ import { openTerminalWS } from '../api/client'
 import OnboardingGuide from '../components/OnboardingGuide'
 
 const QUICK_ACTIONS = [
-  { label: 'Git Status',    cmd: 'git status',                   Icon: GitBranch,   color: 'var(--violet)' },
-  { label: 'Agent List',    cmd: 'python -m cli.main agent-list', Icon: Bot,         color: 'var(--photon)' },
-  { label: 'CLI Status',    cmd: 'python -m cli.main status',    Icon: CheckCircle,  color: '#22c55e' },
-  { label: 'CLI Health',    cmd: 'python -m cli.main health',    Icon: FlaskConical, color: '#22c55e' },
-  { label: 'ATLAS Status',  cmd: 'python -m cli.main atlas status', Icon: Bot, color: 'var(--violet)' },
-  { label: 'Git Log',       cmd: 'git log --oneline -20',        Icon: GitBranch,    color: '#eab308' },
-  { label: 'Git Branch',    cmd: 'git branch',                   Icon: GitBranch,    color: 'var(--cyan)' },
-  { label: 'npm Build',     cmd: 'npm run build',                Icon: Hammer,       color: '#eab308' },
+  { label: 'Git Status', cmd: 'git status', Icon: GitBranch, color: 'var(--violet)', note: 'working tree' },
+  { label: 'Agent List', cmd: 'python -m cli.main agent-list', Icon: Bot, color: 'var(--photon)', note: 'available lanes' },
+  { label: 'CLI Status', cmd: 'python -m cli.main status', Icon: CheckCircle, color: '#22c55e', note: 'runtime snapshot' },
+  { label: 'CLI Health', cmd: 'python -m cli.main health', Icon: FlaskConical, color: '#22c55e', note: 'health report' },
+  { label: 'ATLAS Status', cmd: 'python -m cli.main atlas status', Icon: Bot, color: 'var(--violet)', note: 'atlas wiring' },
+  { label: 'Git Log', cmd: 'git log --oneline -20', Icon: GitBranch, color: '#eab308', note: 'recent history' },
+  { label: 'Git Branch', cmd: 'git branch', Icon: GitBranch, color: 'var(--cyan)', note: 'branch list' },
+  { label: 'npm Build', cmd: 'npm run build', Icon: Hammer, color: '#eab308', note: 'frontend verify' },
 ]
 
 const COMMAND_PLAYBOOK = [
@@ -170,6 +170,9 @@ export default function TerminalPage({ setPage }) {
     return '#4ade80'
   }
 
+  const statusTone = connected ? '#22c55e' : (httpMode ? 'var(--cyan)' : '#ef4444')
+  const modeLabel = connected ? 'Live WebSocket lane' : httpMode ? 'HTTP fallback lane' : 'Disconnected lane'
+
   return (
     <div className="page-enter" style={{ padding: 24, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -194,27 +197,66 @@ export default function TerminalPage({ setPage }) {
 
       <OnboardingGuide variant="banner" currentPage="terminal" setPage={setPage} />
 
-      {/* Quick actions — single scrollable row, no wrapping */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 10, overflowX: 'auto', paddingBottom: 4, flexShrink: 0 }}>
+      <div className="glass-card-solid" style={{ padding: 14, marginBottom: 10, border: '1px solid rgba(77,166,255,0.18)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div className="eyebrow" style={{ marginBottom: 6 }}>Command Center terminal</div>
+            <div style={{ color: 'var(--txt-pri)', fontSize: '0.92rem', fontWeight: 700, marginBottom: 6 }}>
+              Live operator shell with ATLAS CLI routing
+            </div>
+            <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.6, maxWidth: 700 }}>
+              Use quick actions for fast checks, then drop into the playbook for longer ATLAS code/UI flows without leaving the command center.
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(120px, 1fr))', gap: 8, minWidth: 280 }}>
+            <div className="glass-card" style={{ padding: '10px 12px' }}>
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Connection</div>
+              <div style={{ color: statusTone, fontSize: '0.84rem', fontWeight: 700, marginTop: 4 }}>{connected ? 'Connected' : httpMode ? 'HTTP fallback' : 'Offline'}</div>
+            </div>
+            <div className="glass-card" style={{ padding: '10px 12px' }}>
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Mode</div>
+              <div style={{ color: 'var(--txt-pri)', fontSize: '0.84rem', fontWeight: 700, marginTop: 4 }}>{modeLabel}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 8, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+          <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Quick actions</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--txt-sec)' }}>Tap a card to dispatch immediately</div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4, flexShrink: 0 }}>
         {QUICK_ACTIONS.map(a => (
           <button key={a.cmd} onClick={() => send(a.cmd)} className="glass-card-solid"
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 12px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', background: 'var(--card)', opacity: httpBusy ? 0.6 : 1, flexShrink: 0 }}>
-            <a.Icon size={13} color={a.color} /> {a.label}
+            style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 13px', borderRadius: 12, border: '1px solid var(--border)', cursor: 'pointer', fontSize: '0.8rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))', opacity: httpBusy ? 0.6 : 1, flexShrink: 0, minWidth: 180, textAlign: 'left' }}>
+            <a.Icon size={15} color={a.color} style={{ marginTop: 2, flexShrink: 0 }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', fontWeight: 700, marginBottom: 3 }}>{a.label}</div>
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.68rem', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.08em' }}>{a.note}</div>
+              <code style={{ color: 'var(--photon)', fontSize: '0.67rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>{a.cmd}</code>
+            </div>
           </button>
         ))}
+        </div>
       </div>
 
       {/* Collapsible playbook */}
-      <div className="glass-card-solid" style={{ marginBottom: 10, borderLeft: '2px solid var(--cyan)', flexShrink: 0 }}>
+      <div className="glass-card-solid" style={{ marginBottom: 10, borderLeft: '2px solid var(--cyan)', flexShrink: 0, boxShadow: '0 10px 32px rgba(0,0,0,0.18)' }}>
         <button
           onClick={() => setPlaybookOpen(o => !o)}
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-pri)' }}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-pri)' }}
         >
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.84rem', fontWeight: 600 }}>
-            <BookOpen size={14} color="var(--cyan)" /> Terminal playbook
-          </span>
+          <div>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.84rem', fontWeight: 600 }}>
+              <BookOpen size={14} color="var(--cyan)" /> Terminal playbook
+            </span>
+            <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginTop: 4 }}>
+              Curated command paths for runtime checks, scans, builds, and ATLAS generation lanes
+            </div>
+          </div>
           <span style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
-            {playbookOpen ? '▲ hide' : '▼ show'}
+            {playbookOpen ? '▲ collapse' : '▼ expand'}
           </span>
         </button>
         {playbookOpen && (
@@ -226,17 +268,20 @@ export default function TerminalPage({ setPage }) {
             <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', lineHeight: 1.6, marginBottom: 10 }}>
               Tip: click a card to run immediately. Use scans first, then generate/edit commands, then run build.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 10 }}>
+              {COMMAND_PLAYBOOK.length} playbook commands
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 10, maxHeight: '34vh', overflowY: 'auto', paddingRight: 4 }}>
               {COMMAND_PLAYBOOK.map((item) => (
                 <button
                   key={item.cmd}
                   onClick={() => { setInput(item.cmd); send(item.cmd) }}
                   className="glass-card-solid"
-                  style={{ textAlign: 'left', padding: 10, borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', background: 'rgba(255,255,255,0.03)' }}
+                  style={{ textAlign: 'left', padding: 12, borderRadius: 12, border: '1px solid var(--border)', cursor: 'pointer', background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02))', minWidth: 0 }}
                 >
-                  <div style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', marginBottom: 4 }}>{item.label}</div>
-                  <code style={{ color: 'var(--photon)', fontSize: '0.72rem', whiteSpace: 'pre-wrap' }}>{item.cmd}</code>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.72rem', marginTop: 4 }}>{item.note}</div>
+                  <div style={{ color: 'var(--txt-pri)', fontSize: '0.8rem', marginBottom: 6, fontWeight: 700 }}>{item.label}</div>
+                  <code style={{ color: 'var(--photon)', fontSize: '0.72rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{item.cmd}</code>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.72rem', marginTop: 6, lineHeight: 1.55 }}>{item.note}</div>
                 </button>
               ))}
             </div>

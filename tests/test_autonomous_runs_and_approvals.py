@@ -54,6 +54,8 @@ def test_get_autonomous_runs_merges_runtime_and_atlas_history(monkeypatch):
     assert "plan_execute" in sources
     assert "atlas_plan" in sources
     assert result["summary"]["total_runs"] == 2
+    assert result["summary"]["latest_run_status"] == "pending_approval"
+    assert "Atlas objective" in result["summary"]["latest_run_label"]
 
 
 def test_get_autonomous_runs_exposes_lane_and_replay_details(monkeypatch):
