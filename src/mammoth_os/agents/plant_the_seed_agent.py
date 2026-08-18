@@ -14,7 +14,7 @@ class PlantTheSeedAgent:
     def __init__(self, user_id: str | None = None):
         self.user_id = user_id
 
-    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, payload: Any) -> Dict[str, Any]:
         """
         Expected payload:
         {
@@ -26,16 +26,77 @@ class PlantTheSeedAgent:
             "next_focus": "examples",
         }
         """
-        topic = str(payload.get("topic", "learning")).strip() or "learning"
-        mode = str(payload.get("mode") or payload.get("focus") or "seed").strip() or "seed"
-        audience = str(payload.get("audience") or "learner").strip() or "learner"
-        context = str(payload.get("context") or "").strip() or None
-        lesson_title = str(payload.get("lesson_title") or "").strip() or None
-        module_title = str(payload.get("module_title") or "").strip() or None
-        progress_score = self._coerce_progress(payload.get("progress_score"))
-        next_focus = str(payload.get("next_focus") or "").strip()
-        constraints = self._normalize_list(payload.get("constraints") or payload.get("guardrails"))
-        approval_contract = self._normalize_contract(payload.get("approval_contract"))
+        if isinstance(payload, dict):
+            prompt = str(payload.get("prompt") or payload.get("topic") or "").strip()
+            topic = str(payload.get("topic", "learning")).strip() or "learning"
+            mode = str(payload.get("mode") or payload.get("focus") or "seed").strip() or "seed"
+            audience = str(payload.get("audience") or "learner").strip() or "learner"
+            context = str(payload.get("context") or "").strip() or None
+            lesson_title = str(payload.get("lesson_title") or "").strip() or None
+            module_title = str(payload.get("module_title") or "").strip() or None
+            progress_score = self._coerce_progress(payload.get("progress_score"))
+            next_focus = str(payload.get("next_focus") or "").strip()
+            constraints = self._normalize_list(payload.get("constraints") or payload.get("guardrails"))
+            approval_contract = self._normalize_contract(payload.get("approval_contract"))
+        else:
+            prompt = str(payload or "").strip()
+            topic = self._infer_topic(prompt)
+            mode = "seed"
+            audience = "learner"
+            context = self._infer_context(prompt)
+            lesson_title = None
+            module_title = None
+            progress_score = 0.5
+            next_focus = self._infer_next_focus(prompt)
+            constraints = []
+            approval_contract = {}
+
+        placeholder_reason = self._placeholder_reason(topic, context, lesson_title, module_title)
+        if placeholder_reason:
+            return {
+                "agent": "plant_the_seed",
+                "status": "needs_context",
+                "structured_output_version": "v2",
+                "approval_safe": True,
+                "topic": topic,
+                "mode": mode,
+                "audience": audience,
+                "context": context,
+                "lesson_title": lesson_title,
+                "module_title": module_title,
+                "progress_score": progress_score,
+                "constraints": constraints,
+                "approval_contract": approval_contract,
+                "approval_gate": {"requires_review": False, "reason": "context required", "recommended_path": "provide-real-lesson-context"},
+                "seed": "",
+                "expansion": "",
+                "action": "Provide the real lesson, module, or topic before generating a seed.",
+                "follow_up": [
+                    "What lesson or module should this seed attach to?",
+                    "What specific concept needs the next small rep?",
+                ],
+                "tags": ["needs_context"],
+                "recommendations": ["Replace placeholder targets like 'unknown' with the real lesson or module name."],
+                "summary": "PlantTheSeedAgent needs a real lesson, module, or topic before it can generate a grounded seed.",
+                "task_card": {
+                    "title": "Plant the seed: context needed",
+                    "mode": mode,
+                    "audience": audience,
+                    "summary": "Provide the real lesson, module, or topic before generating a seed.",
+                    "next_action": "Add concrete learning context.",
+                    "follow_up": ["Supply lesson/module context"],
+                    "tags": ["needs_context"],
+                },
+                "observability": {
+                    "structured_output_version": "v2",
+                    "topic": topic,
+                    "mode": mode,
+                    "audience": audience,
+                    "constraint_count": len(constraints),
+                    "progress_bucket": "needs_context",
+                },
+                "evidence": [prompt or topic, placeholder_reason],
+            }
 
         seed = self._generate_seed(topic, context, lesson_title, module_title)
         expansion = self._expand_seed(topic, context, lesson_title, module_title, progress_score)
@@ -75,6 +136,7 @@ class PlantTheSeedAgent:
             "progress_score": progress_score,
             "constraints": constraints,
             "approval_contract": approval_contract,
+            "approval_gate": {"requires_review": False, "reason": "seed content is informational", "recommended_path": "direct-delivery"},
             "seed": seed,
             "expansion": expansion,
             "action": action,
@@ -86,6 +148,41 @@ class PlantTheSeedAgent:
             "observability": observability,
             "evidence": [seed, expansion, action],
         }
+
+    def _infer_topic(self, prompt: str) -> str:
+        cleaned = str(prompt or "").strip()
+        return cleaned or "learning"
+
+    def _infer_context(self, prompt: str) -> str | None:
+        lowered = str(prompt or "").lower()
+        for marker in ("week ", "module ", "lesson "):
+            idx = lowered.find(marker)
+            if idx >= 0:
+                return str(prompt[idx:]).strip() or None
+        return None
+
+    def _infer_next_focus(self, prompt: str) -> str:
+        lowered = str(prompt or "").lower()
+        for keyword in ("examples", "practice", "review", "debugging", "testing"):
+            if keyword in lowered:
+                return keyword
+        return ""
+
+    def _placeholder_reason(
+        self,
+        topic: str,
+        context: str | None,
+        lesson_title: str | None,
+        module_title: str | None,
+    ) -> str | None:
+        anchors = [topic, context, lesson_title, module_title]
+        populated = [str(anchor).strip() for anchor in anchors if str(anchor or "").strip()]
+        if populated and all(self._is_placeholder(value) for value in populated):
+            return "placeholder target provided"
+        return None
+
+    def _is_placeholder(self, value: str) -> bool:
+        return value.strip().lower() in {"unknown", "tbd", "todo", "n/a", "none", "placeholder"}
 
     def _coerce_progress(self, value: Any) -> float:
         try:

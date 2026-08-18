@@ -686,6 +686,24 @@ def _models_snapshot() -> Dict[str, Any]:
     }
 
 
+def _sanitize_runtime_error_message(exc: Any, fallback: str = "MammothOS switched to a safe fallback path because the active provider is unavailable or exhausted.") -> str:
+    raw = exc if isinstance(exc, str) else str(exc) if exc is not None else ""
+    cleaned = re.sub(r"\s+", " ", raw).strip()
+    if not cleaned:
+        return fallback
+
+    lowered = cleaned.lower()
+    if any(token in lowered for token in ["insufficient_quota", "billing", "quota", "credit", "429", "insufficient balance", "not enough", "payment"]):
+        return "The active provider is out of quota or billing is blocked; MammothOS switched to a safe fallback path until credentials or capacity are restored."
+    if any(token in lowered for token in ["401", "403", "api key", "invalid api key", "authentication", "unauthorized", "access denied"]):
+        return "The active provider rejected the credentials or access token; MammothOS switched to a safe fallback path until the runtime is reauthorized."
+    if any(token in lowered for token in ["timeout", "timed out", "connect", "connection", "unreachable", "refused", "network", "dns", "http error"]):
+        return "The provider connection is currently unavailable; MammothOS switched to a safe fallback path and will retry when the upstream service is reachable."
+    if "traceback" in lowered or "file \"" in lowered or "line " in lowered:
+        return "The runtime hit a provider-side failure; MammothOS switched to a safe fallback path instead of exposing internal backend details."
+    return "The runtime hit a provider-side issue; MammothOS switched to a safe fallback path instead of exposing the raw backend error."
+
+
 def _runtime_status_snapshot() -> Dict[str, Any]:
     env = _read_env_vars()
     models = _models_snapshot()
@@ -753,6 +771,37 @@ def _runtime_status_snapshot() -> Dict[str, Any]:
             "ollama_running": ollama_running,
         },
     }
+
+
+def _auth_mode_from_state(state: Dict[str, Any]) -> str:
+    return "developer_override" if bool(state.get("developer_access", False)) else "local_operator"
+
+
+def _normalized_account_profile(state: Dict[str, Any]) -> Dict[str, str]:
+    profile = state.get("account_profile") if isinstance(state.get("account_profile"), dict) else {}
+    return {
+        "display_name": str(profile.get("display_name") or "Operator"),
+        "email": str(profile.get("email") or ""),
+        "organization": str(profile.get("organization") or ""),
+    }
+
+
+def _profile_completion(profile: Dict[str, str]) -> Dict[str, bool]:
+    return {
+        "display_name": bool(str(profile.get("display_name") or "").strip()) and str(profile.get("display_name")) != "Operator",
+        "email": bool(str(profile.get("email") or "").strip()),
+        "organization": bool(str(profile.get("organization") or "").strip()),
+    }
+
+
+def _release_readiness_tier(score: float) -> str:
+    if score >= 8.7:
+        return "production-grade"
+    if score >= 7.8:
+        return "near-ready"
+    if score >= 6.8:
+        return "stabilizing"
+    return "prototype-risk"
 
 
 # ── lazy registry imports ─────────────────────────────────────────────────────
@@ -926,7 +975,11 @@ async def run_shell_agent_endpoint(payload: Any):
             "result": result,
         }
     except Exception as exc:
-        return {"status": "error", "error": str(exc), "agent": "shell"}
+        return {
+            "status": "error",
+            "error": _sanitize_runtime_error_message(exc, "The shell agent could not complete the command. MammothOS is running in a safe fallback mode until the runtime is healthy again."),
+            "agent": "shell",
+        }
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1018,10 +1071,21 @@ async def get_health():
         },
     ]
 
+    runtime = _runtime_status_snapshot()
+    red_services = [service["label"] for service in services if service.get("status") == "red"]
+    yellow_services = [service["label"] for service in services if service.get("status") == "yellow"]
+
     return {
         "services": services,
         "checked_at": datetime.now(timezone.utc).isoformat(),
         "env_keys": list(env_vars.keys()),
+        "summary": {
+            "healthy_services": len([service for service in services if service.get("status") == "green"]),
+            "total_services": len(services),
+            "red_services": red_services,
+            "yellow_services": yellow_services,
+        },
+        "runtime": runtime,
     }
 
 
@@ -3917,6 +3981,7 @@ async def atlas_chat(body: Dict[str, Any]):
         llm_reply = await client.generate(tutor_prompt, temperature=temperature)
     except Exception as e:
         runtime_status = _runtime_status_snapshot()
+        safe_error = _sanitize_runtime_error_message(e)
         llm_reply = (
             "I could not reach the configured LLM runtime right now. "
             "MammothOS switched to a safe fallback path. "
@@ -3927,6 +3992,7 @@ async def atlas_chat(body: Dict[str, Any]):
         if not active_adapter:
             active_adapter = "fallback-local"
         runtime_status["error_type"] = type(e).__name__
+        runtime_status["safe_error"] = safe_error
 
     history.append({
         "role": "assistant",
@@ -3959,6 +4025,26 @@ async def atlas_chat(body: Dict[str, Any]):
     }
 
 
+
+
+def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
+    text = (message or "").strip()
+    if not text or not text.startswith("/"):
+        return None
+    tokens = text.split()
+    command = tokens[0].lower()
+    if command == "/plan":
+        objective = " ".join(tokens[1:]).strip()
+        if not objective:
+            return {"kind": "error", "error": "Usage: /plan <objective>"}
+        return {"kind": "plan", "objective": objective}
+    if command == "/agent":
+        if len(tokens) < 3:
+            return {"kind": "error", "error": "Usage: /agent <agent_id> <message>"}
+        agent_id = tokens[1].strip()
+        prompt = " ".join(tokens[2:]).strip()
+        return {"kind": "agent", "agent_id": agent_id, "message": prompt}
+    return None
 
 
 def _render_chat_result(value: Any) -> str:
@@ -4034,6 +4120,47 @@ async def mammoth_chat(body: Dict[str, Any]):
     message = str(body.get("message", "")).strip()
     if not message:
         return {"status": "error", "error": "message is required"}
+
+    slash = _parse_mammoth_chat_command(message)
+    if slash and slash.get("kind") == "plan":
+        plan_result = await plan_execute({
+            "objective": slash["objective"],
+            "approval_mode": bool(body.get("approval_mode", True)),
+            "stop_on_failure": bool(body.get("stop_on_failure", True)),
+            "plan_profile": body.get("plan_profile") or "atlas",
+            "coding_intent": body.get("coding_intent") or "patch_existing",
+        })
+        progress = plan_result.get("progress") if isinstance(plan_result.get("progress"), dict) else {}
+        summary = (
+            f"Plan queued: {plan_result.get('objective') or slash['objective']}\n"
+            f"Status: {plan_result.get('plan_status') or 'active'} • "
+            f"{progress.get('completed') or 0}/{progress.get('total') or 0} complete"
+        )
+        return {
+            "status": "ok",
+            "reply": summary,
+            "agent_id": "orchestrator",
+            "adapter": "plan-execute",
+            "model": "plan-execute",
+            "mode": "chat",
+            "task_id": plan_result.get("plan_id") or "",
+            "dispatched": True,
+            "thought_steps": [{
+                "ts": _ts(),
+                "label": "Plan command parsed",
+                "detail": f"objective={slash['objective']}",
+                "status": "info",
+            }],
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None if _runtime_status_snapshot().get("state") == "ready" else _runtime_status_snapshot(),
+        }
+    if slash and slash.get("kind") == "agent":
+        if not slash.get("message"):
+            return {"status": "error", "error": "Usage: /agent <agent_id> <message>"}
+        body = {**body, "agent_id": slash["agent_id"], "message": slash["message"]}
+        return await mammoth_chat(body)
+    if slash and slash.get("kind") == "error":
+        return {"status": "error", "error": slash["error"]}
 
     state = _load_atlas_state()
     page_context = body.get("page_context") if isinstance(body.get("page_context"), dict) else {}
@@ -4241,7 +4368,9 @@ async def mammoth_chat(body: Dict[str, Any]):
                 thought_steps.append({"ts": _ts(), "label": "Packaged response", "detail": f"task_id={task_id or 'n/a'}", "status": "success"})
     except Exception as exc:
         runtime_status = _runtime_status_snapshot()
+        safe_error = _sanitize_runtime_error_message(exc)
         runtime_status["error_type"] = type(exc).__name__
+        runtime_status["safe_error"] = safe_error
         reply = (
             "I hit a MammothOS chat routing problem. "
             "The good news is the shell is still up; the bad news is the hamster wants better wiring. "
@@ -4250,7 +4379,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         )
         active_adapter = active_adapter or "fallback-local"
         active_model = active_model or "fallback-local"
-        thought_steps.append({"ts": _ts(), "label": "Hamster escaped", "detail": str(exc)[:240], "status": "error"})
+        thought_steps.append({"ts": _ts(), "label": "Hamster escaped", "detail": safe_error, "status": "error"})
 
     assistant_entry = {
         "role": "assistant",
@@ -4851,6 +4980,146 @@ async def get_modules():
     return list(module_map.values())
 
 
+async def _release_readiness_snapshot() -> Dict[str, Any]:
+    modules = await get_modules()
+    health = await get_health()
+    entitlements = await get_entitlements()
+    account = await get_account_profile()
+    runtime = health.get("runtime") if isinstance(health.get("runtime"), dict) else _runtime_status_snapshot()
+
+    services = health.get("services") if isinstance(health.get("services"), list) else []
+    red_services = [str(service.get("label") or "unknown") for service in services if service.get("status") == "red"]
+    yellow_services = [str(service.get("label") or "unknown") for service in services if service.get("status") == "yellow"]
+
+    rated_modules = []
+    for module in modules:
+        quality_score = module.get("quality_score")
+        if isinstance(quality_score, (int, float)):
+            rated_modules.append(module)
+
+    rated_modules.sort(key=lambda item: (float(item.get("quality_score") or 0), str(item.get("name") or item.get("id") or "")))
+    lowest_rated = [
+        {
+            "id": str(module.get("id") or ""),
+            "name": str(module.get("name") or module.get("id") or "Unknown module"),
+            "score_100": int(round(float(module.get("quality_score") or 0))),
+            "score_10": round(float(module.get("quality_score") or 0) / 10.0, 1),
+            "tier": str(module.get("quality_tier") or "unknown"),
+            "finding": " ".join([str(item) for item in (module.get("quality_findings") or [])[:2]]).strip(),
+        }
+        for module in rated_modules[:5]
+    ]
+
+    module_scores = [float(module.get("quality_score") or 0) / 10.0 for module in rated_modules]
+    module_score = round(sum(module_scores) / len(module_scores), 1) if module_scores else 0.0
+
+    cloud_ready = len([provider for provider in runtime.get("providers", []) if provider.get("provider") in {"deepseek", "openai"} and provider.get("available")])
+    non_local_ready = len([provider for provider in runtime.get("providers", []) if provider.get("provider") != "local" and provider.get("available")])
+    if runtime.get("state") == "ready":
+        runtime_score = 8.8 if cloud_ready >= 1 else 7.8
+    elif runtime.get("active_adapter") == "local":
+        runtime_score = 5.5
+    else:
+        runtime_score = 6.6
+    runtime_score -= min(len(red_services) * 0.7, 2.1)
+    runtime_score = round(max(1.0, min(10.0, runtime_score)), 1)
+
+    activity_count = len(_load_activity_events())
+    task_count = len(_load_tasks())
+    approval_count = len(_load_approvals())
+    audit_count = len(_load_audit_log())
+    observability_score = 6.5
+    if audit_count:
+        observability_score += 0.7
+    if activity_count:
+        observability_score += 0.6
+    if task_count or approval_count:
+        observability_score += 0.7
+    if health.get("summary", {}).get("total_services"):
+        observability_score += 0.5
+    observability_score = round(min(observability_score, 9.0), 1)
+
+    overall_score = round(((runtime_score * 0.4) + (module_score * 0.4) + (observability_score * 0.2)), 1)
+
+    blockers: List[Dict[str, Any]] = []
+    if runtime_score < 8.0 or cloud_ready == 0:
+        blockers.append({
+            "title": "Provider resilience still degrades too easily",
+            "severity": "high",
+            "detail": str(runtime.get("recommendation") or "Restore at least one cloud provider so MammothOS does not collapse into local-only fallback."),
+        })
+    if red_services:
+        blockers.append({
+            "title": "Critical services are down",
+            "severity": "high",
+            "detail": ", ".join(red_services[:3]),
+        })
+    if lowest_rated and lowest_rated[0]["score_10"] < 8.0:
+        weakest = ", ".join(f"{item['name']} ({item['score_10']}/10)" for item in lowest_rated[:3])
+        blockers.append({
+            "title": "Lowest-rated lanes still need one more upgrade wave",
+            "severity": "medium",
+            "detail": weakest,
+        })
+    if not bool(account.get("profile_complete")):
+        blockers.append({
+            "title": "Operator identity scaffolding is still incomplete",
+            "severity": "medium",
+            "detail": "Fill in display name, email, and organization so entitlement and diagnostics exports carry a complete operator identity.",
+        })
+    if yellow_services and len(blockers) < 3:
+        blockers.append({
+            "title": "Some runtime dependencies are still degraded",
+            "severity": "medium",
+            "detail": ", ".join(yellow_services[:3]),
+        })
+    blockers = blockers[:3]
+
+    strengths = [
+        "Native chat, diagnostics, and plan/execute wiring are already integrated through the backend runtime surface.",
+        "Agent registry and module observability are backend-driven rather than hard-coded in the UI.",
+        "Audit, task, and approval streams are present for operator-facing visibility.",
+    ]
+    if module_score >= 8.0:
+        strengths.append("Average module quality is now above the near-ready threshold.")
+    if runtime.get("state") == "ready" and cloud_ready >= 1:
+        strengths.append("At least one cloud-capable provider is available in the fallback chain.")
+
+    return {
+        "status": "ok",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "score": overall_score,
+        "tier": _release_readiness_tier(overall_score),
+        "scores": {
+            "runtime": runtime_score,
+            "modules": module_score,
+            "observability": observability_score,
+        },
+        "summary": {
+            "rated_modules": len(rated_modules),
+            "healthy_services": int(health.get("summary", {}).get("healthy_services") or 0),
+            "total_services": int(health.get("summary", {}).get("total_services") or 0),
+            "cloud_providers_ready": cloud_ready,
+            "non_local_providers_ready": non_local_ready,
+        },
+        "runtime": runtime,
+        "lowest_rated": lowest_rated,
+        "blockers": blockers,
+        "strengths": strengths[:4],
+        "account": {
+            "auth_mode": account.get("auth_mode"),
+            "session_scope": account.get("session_scope"),
+            "profile_complete": account.get("profile_complete"),
+        },
+        "recommended_next_action": blockers[0]["title"] if blockers else "Continue incremental upgrade work on the next lowest-rated lane.",
+    }
+
+
+@app.get("/api/release-readiness")
+async def get_release_readiness():
+    return await _release_readiness_snapshot()
+
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/terminal/exec  (HTTP fallback — returns full output at once)
@@ -5104,6 +5373,29 @@ async def export_audit_log_csv():
     )
 
 
+@app.get("/api/diagnostics/export")
+async def export_diagnostics_snapshot():
+    release = await _release_readiness_snapshot()
+    payload = {
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "release_readiness": release,
+        "health": await get_health(),
+        "entitlements": await get_entitlements(),
+        "account_profile": await get_account_profile(),
+        "activity": _load_activity_events()[-50:],
+        "tasks": _load_tasks()[-50:],
+        "approvals": _load_approvals()[-50:],
+        "audit": _load_audit_log()[-100:],
+    }
+    json_payload = json.dumps(payload, indent=2)
+    return PlainTextResponse(
+        content=json_payload,
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="mammoth-diagnostics-{datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")}.json"'},
+    )
+
+
 @app.post("/api/audit")
 async def append_audit_log(body: Dict[str, Any]):
     kind = str(body.get("kind") or "generic").strip() or "generic"
@@ -5147,17 +5439,19 @@ async def get_entitlements():
         "lms_integration": effective_tier == "enterprise",
         "white_label": effective_tier == "enterprise",
     }
-    profile = state.get("account_profile") if isinstance(state.get("account_profile"), dict) else {}
+    profile = _normalized_account_profile(state)
+    completion = _profile_completion(profile)
     return {
         "status": "ok",
         "tier": tier,
         "effective_tier": "developer" if developer_access else effective_tier,
         "developer_access": developer_access,
-        "account_profile": {
-            "display_name": str(profile.get("display_name") or "Operator"),
-            "email": str(profile.get("email") or ""),
-            "organization": str(profile.get("organization") or ""),
-        },
+        "auth_mode": _auth_mode_from_state(state),
+        "session_scope": "workspace_local",
+        "tier_updated_at": state.get("tier_updated_at"),
+        "developer_access_updated_at": state.get("developer_access_updated_at"),
+        "account_profile": profile,
+        "account_profile_complete": all(completion.values()),
         "features": {**base_features, **pro_features, **enterprise_features},
         "upgrade_cta": "pricing" if tier == "explorer" and not developer_access else None,
     }
@@ -5187,14 +5481,16 @@ async def set_tier(body: Dict[str, Any]):
 @app.get("/api/account/profile")
 async def get_account_profile():
     state = _load_atlas_state()
-    profile = state.get("account_profile") if isinstance(state.get("account_profile"), dict) else {}
+    profile = _normalized_account_profile(state)
+    completion = _profile_completion(profile)
     return {
         "status": "ok",
-        "profile": {
-            "display_name": str(profile.get("display_name") or "Operator"),
-            "email": str(profile.get("email") or ""),
-            "organization": str(profile.get("organization") or ""),
-        },
+        "profile": profile,
+        "profile_complete": all(completion.values()),
+        "profile_completion": completion,
+        "updated_at": state.get("account_profile_updated_at"),
+        "auth_mode": _auth_mode_from_state(state),
+        "session_scope": "workspace_local",
         "tier": str(state.get("tier") or "explorer").strip().lower(),
         "developer_access": bool(state.get("developer_access", False)),
     }
@@ -5218,7 +5514,15 @@ async def set_account_profile(body: Dict[str, Any]):
         actor="user",
         tier=str(state.get("tier") or "explorer"),
     )
-    return {"status": "ok", "profile": profile}
+    normalized = _normalized_account_profile(state)
+    completion = _profile_completion(normalized)
+    return {
+        "status": "ok",
+        "profile": normalized,
+        "profile_complete": all(completion.values()),
+        "profile_completion": completion,
+        "updated_at": state.get("account_profile_updated_at"),
+    }
 
 
 @app.post("/api/account/developer-access")
@@ -5236,7 +5540,13 @@ async def set_developer_access(body: Dict[str, Any]):
         actor="user",
         tier="enterprise" if enabled else str(state.get("tier") or "explorer"),
     )
-    return {"status": "ok", "developer_access": enabled}
+    return {
+        "status": "ok",
+        "developer_access": enabled,
+        "auth_mode": _auth_mode_from_state(state),
+        "effective_tier": "developer" if enabled else str(state.get("tier") or "explorer"),
+        "updated_at": state.get("developer_access_updated_at"),
+    }
 
 
 @app.websocket("/ws/terminal")

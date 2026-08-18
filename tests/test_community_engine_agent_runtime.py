@@ -34,3 +34,13 @@ def test_community_engine_agent_supports_open_challenges():
     assert "open challenge" in result["social_callout"].lower()
     assert result["prompt"]
     assert result["next_actions"]
+
+
+def test_community_engine_agent_flags_public_high_effort_runs_for_review():
+    agent = CommunityEngineAgent(user_id="community-3")
+
+    result = agent.run({"theme": "ai_learning", "difficulty": "hard", "group_size": "open", "constraints": ["external publish"]})
+
+    assert result["status"] == "ok"
+    assert result["approval_gate"]["requires_review"] is True
+    assert "community-feed" == result["delivery_plan"]["primary_channel"]

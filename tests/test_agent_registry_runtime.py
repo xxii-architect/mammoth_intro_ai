@@ -21,10 +21,12 @@ def test_run_agent_normalizes_payloads(monkeypatch):
     curriculum_result = agent_registry_mod.run_agent("curriculum", {"prompt": "build lesson"})
     tutor_result = agent_registry_mod.run_agent("tutor", {"prompt": "coach"})
     plant_result = agent_registry_mod.run_agent("plant_the_seed", {"prompt": "hello"})
+    field_ops_result = agent_registry_mod.run_agent("field_ops", {"topic": "navigation", "environment": "forest", "hazards": ["fog"]})
 
     assert curriculum_result["payload"] == "build lesson"
     assert tutor_result["payload"]["topic"] == "coach"
     assert plant_result["payload"]["topic"] == "hello"
+    assert field_ops_result["payload"]["environment"] == "forest"
 
 
 def test_research_agent_emits_grounded_evidence_fields():
@@ -32,6 +34,8 @@ def test_research_agent_emits_grounded_evidence_fields():
 
     assert result["focus"] == "curriculum"
     assert result["confidence"] >= 0.6
-    assert isinstance(result["evidence"], list) and result["evidence"]
+    assert isinstance(result["findings"], list) and result["findings"]
     assert isinstance(result["citations"], list) and result["citations"]
-    assert "verify" in result["research_questions"][0].lower() or "test" in result["research_questions"][0].lower()
+    assert isinstance(result["references"], list)
+    assert result["mode"] == "source_grounded_research_v2"
+    assert result["source_coverage"]["total_claims"] == len(result["findings"])

@@ -4,7 +4,6 @@ Generates community challenges, shared missions, group prompts, and
 leaderboard-driven engagement tasks for Mammoth OS and True XXII Supply.
 """
 
-from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 
@@ -16,7 +15,7 @@ class CommunityEngineAgent:
     def __init__(self, user_id: str | None = None):
         self.user_id = user_id
 
-    def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def run(self, payload: Any) -> Dict[str, Any]:
         """
         Expected payload:
         {
@@ -28,17 +27,82 @@ class CommunityEngineAgent:
             "engagement_goal": "share progress",
         }
         """
-        theme = str(payload.get("theme", "mindset")).strip() or "mindset"
-        difficulty = str(payload.get("difficulty", "easy")).strip() or "easy"
-        group_size = payload.get("group_size", "open")
-        mode = str(payload.get("mode") or payload.get("format") or "challenge").strip() or "challenge"
-        audience = str(payload.get("audience") or "community").strip() or "community"
-        team_context = str(payload.get("team_context") or "").strip() or None
-        learner_context = str(payload.get("learner_context") or "").strip() or None
-        engagement_goal = str(payload.get("engagement_goal") or "").strip() or None
-        learner_signals = self._normalize_list(payload.get("learner_signals") or payload.get("signals"))
-        constraints = self._normalize_list(payload.get("constraints") or payload.get("guardrails"))
-        approval_contract = self._normalize_contract(payload.get("approval_contract"))
+        if isinstance(payload, dict):
+            prompt = str(payload.get("prompt") or payload.get("theme") or "").strip()
+            theme = self._normalize_theme(payload.get("theme", "mindset"))
+            difficulty = self._normalize_difficulty(payload.get("difficulty", "easy"))
+            group_size = self._normalize_group_size(payload.get("group_size", "open"))
+            mode = str(payload.get("mode") or payload.get("format") or "challenge").strip() or "challenge"
+            audience = str(payload.get("audience") or "community").strip() or "community"
+            team_context = str(payload.get("team_context") or "").strip() or None
+            learner_context = str(payload.get("learner_context") or "").strip() or None
+            engagement_goal = str(payload.get("engagement_goal") or "").strip() or None
+            learner_signals = self._normalize_list(payload.get("learner_signals") or payload.get("signals"))
+            constraints = self._normalize_list(payload.get("constraints") or payload.get("guardrails"))
+            approval_contract = self._normalize_contract(payload.get("approval_contract"))
+        else:
+            prompt = str(payload or "").strip()
+            theme = self._infer_theme(prompt)
+            difficulty = self._infer_difficulty(prompt)
+            group_size = self._infer_group_size(prompt)
+            mode = "challenge"
+            audience = "community"
+            team_context = None
+            learner_context = None
+            engagement_goal = None
+            learner_signals = []
+            constraints = []
+            approval_contract = {}
+
+        placeholder_reason = self._placeholder_reason(theme, team_context, learner_context)
+        if placeholder_reason:
+            return {
+                "agent": "community_engine",
+                "status": "needs_context",
+                "structured_output_version": "v2",
+                "approval_safe": True,
+                "theme": theme,
+                "difficulty": difficulty,
+                "group_size": group_size,
+                "mode": mode,
+                "audience": audience,
+                "team_context": team_context,
+                "learner_context": learner_context,
+                "engagement_goal": engagement_goal,
+                "constraints": constraints,
+                "approval_contract": approval_contract,
+                "approval_gate": {"requires_review": False, "reason": "context required", "recommended_path": "add-real-community-context"},
+                "challenge": "",
+                "prompt": "",
+                "reward": {"xp_bonus": 0, "streak_bonus": 0, "group_bonus": 0},
+                "social_callout": "Provide the real team, challenge theme, or learner context before publishing.",
+                "engagement_checkpoints": [],
+                "context_summary": "needs_context",
+                "next_actions": ["Add the real challenge theme or team context before publishing."],
+                "tags": ["needs_context"],
+                "signal_confidence": 0.45,
+                "task_card": {
+                    "title": "Community task: context needed",
+                    "summary": "Add the real challenge theme or team context before publishing.",
+                    "prompt": "",
+                    "next_actions": ["Provide grounded challenge context"],
+                    "tags": ["needs_context"],
+                    "mode": mode,
+                    "audience": audience,
+                },
+                "observability": {
+                    "structured_output_version": "v2",
+                    "theme": theme,
+                    "difficulty": difficulty,
+                    "group_size": group_size,
+                    "mode": mode,
+                    "audience": audience,
+                    "signal_count": 0,
+                    "checkpoint_count": 0,
+                    "signal_confidence": 0.45,
+                },
+                "publish_preview": {"title": "Context required", "summary": placeholder_reason, "prompt": "", "reward": {}, "social_callout": ""},
+            }
 
         challenge = self._generate_challenge(theme, difficulty, team_context, learner_context, engagement_goal)
         prompt = self._generate_prompt(theme, team_context, learner_context)
@@ -49,6 +113,8 @@ class CommunityEngineAgent:
         next_actions = self._build_next_actions(theme, difficulty, group_size, learner_signals)
         tags = self._build_tags(theme, difficulty, team_context, learner_context, learner_signals)
         signal_confidence = self._estimate_confidence(theme, difficulty, learner_signals)
+        approval_gate = self._approval_gate(group_size, difficulty, constraints)
+        delivery_plan = self._delivery_plan(group_size, team_context)
 
         return {
             "agent": "community_engine",
@@ -65,12 +131,14 @@ class CommunityEngineAgent:
             "engagement_goal": engagement_goal,
             "constraints": constraints,
             "approval_contract": approval_contract,
+            "approval_gate": approval_gate,
             "challenge": challenge,
             "prompt": prompt,
             "reward": reward,
             "social_callout": social,
             "engagement_checkpoints": checkpoints,
             "context_summary": context_summary,
+            "delivery_plan": delivery_plan,
             "next_actions": next_actions,
             "tags": tags,
             "signal_confidence": signal_confidence,
@@ -100,8 +168,61 @@ class CommunityEngineAgent:
                 "prompt": prompt,
                 "reward": reward,
                 "social_callout": social,
+                "delivery_path": delivery_plan["primary_channel"],
             },
         }
+
+    def _normalize_theme(self, value: Any) -> str:
+        theme = str(value or "mindset").strip().lower()
+        if theme in {"fieldcraft", "mindset", "wildlife", "ai_learning"}:
+            return theme
+        if self._is_placeholder(theme):
+            return "unknown"
+        return "mindset"
+
+    def _normalize_difficulty(self, value: Any) -> str:
+        difficulty = str(value or "easy").strip().lower()
+        return difficulty if difficulty in {"easy", "medium", "hard"} else "easy"
+
+    def _normalize_group_size(self, value: Any) -> Any:
+        if isinstance(value, int):
+            return max(1, value)
+        text = str(value or "open").strip().lower()
+        if text == "open":
+            return "open"
+        try:
+            return max(1, int(text))
+        except ValueError:
+            return "open"
+
+    def _infer_theme(self, prompt: str) -> str:
+        lowered = str(prompt or "").lower()
+        if "wildlife" in lowered or "animal" in lowered:
+            return "wildlife"
+        if "ai" in lowered or "code" in lowered:
+            return "ai_learning"
+        if "field" in lowered or "outdoor" in lowered or "survival" in lowered:
+            return "fieldcraft"
+        if self._is_placeholder(lowered.strip()):
+            return "unknown"
+        return "mindset"
+
+    def _infer_difficulty(self, prompt: str) -> str:
+        lowered = str(prompt or "").lower()
+        if "hard" in lowered:
+            return "hard"
+        if "medium" in lowered:
+            return "medium"
+        return "easy"
+
+    def _infer_group_size(self, prompt: str) -> Any:
+        lowered = str(prompt or "").lower()
+        if "open" in lowered or "public" in lowered:
+            return "open"
+        for token in lowered.replace("-", " ").split():
+            if token.isdigit():
+                return max(1, int(token))
+        return "open"
 
     def _normalize_list(self, value: Any) -> List[str]:
         if not value:
@@ -121,6 +242,45 @@ class CommunityEngineAgent:
         if isinstance(value, dict):
             return dict(value)
         return {"value": str(value)}
+
+    def _approval_gate(self, group_size: Any, difficulty: str, constraints: List[str]) -> Dict[str, Any]:
+        review_reasons: List[str] = []
+        if group_size == "open":
+            review_reasons.append("open enrollment challenge")
+        elif isinstance(group_size, int) and group_size >= 10:
+            review_reasons.append("large group coordination")
+        if difficulty == "hard":
+            review_reasons.append("high effort ask")
+        if any("publish" in entry.lower() or "external" in entry.lower() or "brand" in entry.lower() for entry in constraints):
+            review_reasons.append("external publishing constraint")
+        return {
+            "requires_review": bool(review_reasons),
+            "reason": ", ".join(review_reasons) if review_reasons else "safe to publish directly",
+            "recommended_path": "agent-console-approval" if review_reasons else "direct-delivery",
+        }
+
+    def _delivery_plan(self, group_size: Any, team_context: str | None) -> Dict[str, Any]:
+        if group_size == "open":
+            primary_channel = "community-feed"
+        elif isinstance(group_size, int) and group_size <= 5:
+            primary_channel = "small-crew-thread"
+        else:
+            primary_channel = "team-announcement"
+        return {
+            "primary_channel": primary_channel,
+            "team_context": team_context,
+            "operator_note": "Preview the prompt and reward block before posting if the challenge is public-facing.",
+        }
+
+    def _placeholder_reason(self, theme: str, team_context: str | None, learner_context: str | None) -> str | None:
+        anchors = [theme, team_context, learner_context]
+        populated = [str(anchor).strip() for anchor in anchors if str(anchor or "").strip()]
+        if populated and all(self._is_placeholder(value) for value in populated):
+            return "placeholder target provided"
+        return None
+
+    def _is_placeholder(self, value: str) -> bool:
+        return value.strip().lower() in {"unknown", "tbd", "todo", "n/a", "none", "placeholder"}
 
     def _generate_challenge(
         self,

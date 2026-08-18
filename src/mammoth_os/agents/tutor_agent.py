@@ -113,6 +113,16 @@ class TutorAgent(BaseAgent):
         elif lesson_chunks:
             coaching_context = "\n".join([f"• {chunk[:200]}..." for chunk in lesson_chunks[:3]])
 
+        quality_flags: List[str] = []
+        if not topic:
+            quality_flags.append("missing_topic")
+        if not coaching_context:
+            quality_flags.append("limited_context")
+        if personalized_chunks:
+            quality_flags.append("personalized_context")
+        if not quality_flags:
+            quality_flags.append("coaching_ready")
+
         return {
             "status": "ok",
             "agent": self.name,
@@ -128,6 +138,13 @@ class TutorAgent(BaseAgent):
             "coach_summary": f"Guide the learner through {lesson_title} with a clear objective, one validation checkpoint, and an honest reflection step.",
             "checkpoints": checkpoints,
             "next_step": "Complete the smallest verifiable part of the lesson, then reflect before escalating difficulty.",
+            "summary": f"Tutor guidance for {lesson_title}: focus on one checkpoint, verify the behavior, and reflect before the next step.",
+            "quality_flags": quality_flags,
+            "evidence": {
+                "has_personalized_context": bool(personalized_chunks),
+                "signal_summary_present": bool(signal_summary),
+                "lesson_context_length": len(coaching_context),
+            },
         }
 
     async def accept_submission(self, user_id: str, curriculum_id: str, lesson_id: str, files: Dict[str, str]) -> Dict[str, Any]:

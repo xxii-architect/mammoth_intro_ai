@@ -22,6 +22,10 @@ def test_reflection_agent_personalizes_from_signals():
     assert result["confidence"] < 0.8
     assert "signatures" not in result
     assert "example" in result["action"].lower()
+    assert result["citations"]
+    assert result["references"]
+    assert result["source_coverage"]["citation_coverage"] == 1.0
+    assert "source_grounding_acceptable" in result["quality_flags"]
 
 
 def test_reflection_agent_surfaces_summary_and_sources():

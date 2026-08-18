@@ -7,8 +7,10 @@ export default function DiagnosticsPage() {
   const [history, setHistory] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [health, setHealth] = useState(null)
+  const [releaseReadiness, setReleaseReadiness] = useState(null)
   const [busy, setBusy] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
+  const [jsonExportBusy, setJsonExportBusy] = useState(false)
   const [auditEvents, setAuditEvents] = useState([])
   const [activityStream, setActivityStream] = useState([])
   const [taskStream, setTaskStream] = useState([])
@@ -25,6 +27,13 @@ export default function DiagnosticsPage() {
     try {
       const data = await api('/audit')
       setAuditEvents(Array.isArray(data?.entries) ? data.entries : [])
+    } catch (_) {}
+  }
+
+  const loadReleaseReadiness = async () => {
+    try {
+      const data = await api('/release-readiness')
+      setReleaseReadiness(data)
     } catch (_) {}
   }
 
@@ -46,6 +55,7 @@ export default function DiagnosticsPage() {
     setHistory(stored)
     setSelectedId(stored[0]?.id || null)
     loadHealth()
+    loadReleaseReadiness()
     loadAuditEvents()
     loadStreams()
   }, [])
@@ -58,6 +68,7 @@ export default function DiagnosticsPage() {
       setSelectedId(result.id)
       setHealth(prev => prev || null)
       await loadHealth()
+      await loadReleaseReadiness()
       await loadAuditEvents()
       await loadStreams()
     } finally {
@@ -77,6 +88,27 @@ export default function DiagnosticsPage() {
       const response = await fetch('/api/audit/export')
       if (!response.ok) {
         throw new Error('Export request failed')
+      }
+
+      const exportDiagnosticsJson = async () => {
+        setJsonExportBusy(true)
+        try {
+          const response = await fetch('/api/diagnostics/export')
+          if (!response.ok) {
+            throw new Error('Diagnostics export request failed')
+          }
+          const blob = await response.blob()
+          const href = URL.createObjectURL(blob)
+          const link = document.createElement('a')
+          link.href = href
+          link.download = `mammoth-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+          document.body.appendChild(link)
+          link.click()
+          link.remove()
+          URL.revokeObjectURL(href)
+        } finally {
+          setJsonExportBusy(false)
+        }
       }
       const blob = await response.blob()
       const href = URL.createObjectURL(blob)
@@ -131,6 +163,13 @@ export default function DiagnosticsPage() {
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.08)', color: 'var(--cyan)', cursor: exportBusy || auditEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: exportBusy || auditEvents.length === 0 ? 0.6 : 1 }}
           >
             <Download size={14} /> {exportBusy ? 'Exporting…' : 'Export CSV'}
+          </button>
+          <button
+            onClick={exportDiagnosticsJson}
+            disabled={jsonExportBusy}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(0,245,212,0.28)', background: 'rgba(0,245,212,0.08)', color: 'var(--photon)', cursor: jsonExportBusy ? 'not-allowed' : 'pointer', opacity: jsonExportBusy ? 0.6 : 1 }}
+          >
+            <Download size={14} /> {jsonExportBusy ? 'Bundling snapshot…' : 'Export JSON snapshot'}
           </button>
         </div>
       </div>
@@ -199,7 +238,53 @@ export default function DiagnosticsPage() {
               </div>
               <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>entitlement snapshot</div>
             </div>
+            <div className="glass-card-solid" style={{ padding: 16 }}>
+              <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Release readiness</div>
+              <div style={{ fontSize: '1.3rem', fontWeight: 800, fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)' }}>
+                {releaseReadiness?.score || '–'}
+              </div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)', textTransform: 'capitalize' }}>{releaseReadiness?.tier || 'snapshot pending'}</div>
+            </div>
           </div>
+
+          {releaseReadiness && (
+            <div className="glass-card-solid" style={{ padding: 18 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Release-readiness scorecard</div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--txt-mut)' }}>
+                    Runtime {releaseReadiness.scores?.runtime || '–'} • Modules {releaseReadiness.scores?.modules || '–'} • Observability {releaseReadiness.scores?.observability || '–'}
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--cyan)' }}>
+                  {releaseReadiness.summary?.cloud_providers_ready || 0} cloud provider{releaseReadiness.summary?.cloud_providers_ready === 1 ? '' : 's'} ready
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Top blockers</div>
+                  {(releaseReadiness.blockers || []).map((blocker) => (
+                    <div key={blocker.title} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(248,113,113,0.22)', background: 'rgba(248,113,113,0.06)' }}>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700, marginBottom: 4 }}>{blocker.title}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{blocker.detail}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Lowest-rated lanes</div>
+                  {(releaseReadiness.lowest_rated || []).slice(0, 4).map((item) => (
+                    <div key={item.id} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700 }}>{item.name}</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace' }}>{item.score_10}/10</div>
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item.finding || 'No finding recorded yet.'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
             <div className="glass-card-solid" style={{ padding: 16 }}>

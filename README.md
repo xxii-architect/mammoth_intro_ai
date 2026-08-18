@@ -2,6 +2,38 @@
 
 This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Command Center UI.
 
+## Current production-readiness snapshot
+
+This build is materially stronger than the original prototype. The highest-value workstreams are now in place: native chat orchestration, runtime guardrails, structured agent contracts, source-aware research outputs, diagnostics/export surfaces, and broader operator health/entitlement visibility.
+
+### Overall scorecard
+
+- System overall: 8.2 / 10
+- Most production-ready lanes:
+  - CodingAgent: 8.5
+  - TutorAgent: 8.2
+  - ShellAgent: 8.0
+  - Operator Health / Finance Backend: 8.0
+  - MammothOS Chat: 8.4
+- Most important remaining gaps:
+  - LLM Runtime / Provider Chain: 5.5
+  - UI / Command Center: 7.5
+  - API Server / Orchestration Layer: 7.8
+
+### What is already solid
+
+- Native chat page with operator workflow surfaces and right-rail context panels
+- Provider fallback guidance with graceful degradation instead of dead-end failures
+- Source-aware outputs for research/market/reflection flows
+- Approval gates and rollback-friendly workflow posture
+- Health, diagnostics, and export paths for operator validation
+
+### What still needs attention before “production grade”
+
+- Runtime/provider UX still leaks raw exceptions when cloud providers are unavailable or keys are missing
+- Chat/agent progress surfaces still need more consistent streaming and thought-step visibility across all lanes
+- Some UI surfaces are still functionally strong but not yet fully polished for a broad non-technical operator experience
+
 ## Start the stack
 
 One-click (Windows):

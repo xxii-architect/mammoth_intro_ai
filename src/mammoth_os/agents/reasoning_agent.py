@@ -149,15 +149,48 @@ class ReasoningAgent(BaseAgent):  # type: ignore
             "micro_lesson": self._micro_lesson(pattern),
         }
 
+    def _build_reasoning_summary(self, prompt: str, reasoning: Dict[str, Any]) -> str:
+        answer = str(reasoning.get("answer") or "").strip()
+        if answer:
+            return answer[:220] + ("..." if len(answer) > 220 else "")
+        if prompt:
+            return f"Reason through the problem: {prompt[:200]}"
+        return "Check the narrowest failing condition before making a broader change."
+
+    def _build_quality_flags(self, prompt: str, reasoning: Dict[str, Any]) -> List[str]:
+        flags: List[str] = []
+        if not self._normalize_problem(prompt):
+            flags.append("missing_problem")
+        if float(reasoning.get("confidence") or 0) < 0.7:
+            flags.append("low_confidence")
+        if not reasoning.get("socratic_questions"):
+            flags.append("missing_socratic_guidance")
+        if not reasoning.get("micro_lesson"):
+            flags.append("missing_micro_lesson")
+        return flags or ["clear_guidance"]
+
     def run(self, payload: Any) -> Dict[str, Any]:
         normalized = self._normalize_payload(payload)
-        reasoning = self.reason(normalized["problem"], normalized.get("context", {}))
+        prompt = normalized.get("problem", "")
+        reasoning = self.reason(prompt, normalized.get("context", {}))
+        status = "ok" if self._normalize_problem(prompt) else "needs_context"
         return {
-            "status": "ok",
+            "status": status,
             "agent": self.name,
             "mode": normalized.get("mode", "default"),
-            "reasoning": reasoning,
-            "prompt": normalized.get("problem", ""),
+            "prompt": prompt,
+            "summary": self._build_reasoning_summary(prompt, reasoning),
+            "quality_flags": self._build_quality_flags(prompt, reasoning),
+            "reasoning": {
+                **reasoning,
+                "summary": self._build_reasoning_summary(prompt, reasoning),
+                "quality_flags": self._build_quality_flags(prompt, reasoning),
+            },
+            "evidence": {
+                "error_pattern": reasoning.get("error_pattern"),
+                "confidence": reasoning.get("confidence"),
+                "mode": normalized.get("mode", "default"),
+            },
         }
 
     async def emit_event(self, event_type: str, payload: Any) -> None:

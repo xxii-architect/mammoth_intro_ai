@@ -26,6 +26,24 @@ class CodingAgent(BaseAgent):
     # HYBRID ROUTING: Natural-language entrypoint
     # ---------------------------------------------------------
 
+    def _standardize_result(self, result: Any, *, task_kind: str, target: str, prompt: str, files: Any) -> Dict[str, Any]:
+        normalized = dict(result) if isinstance(result, dict) else {"payload": result}
+        normalized.setdefault("status", "ok")
+        normalized.setdefault("agent", "CodingAgent")
+        normalized.setdefault("mode", "coding")
+        normalized.setdefault("task_kind", task_kind)
+        normalized.setdefault("target", target)
+        normalized.setdefault("prompt", prompt)
+        normalized.setdefault("files", files)
+        normalized["summary"] = normalized.get("summary") or f"Handled {task_kind} request for {target or 'the current target'}."
+        normalized["quality_flags"] = normalized.get("quality_flags") or ["structured_output"]
+        normalized["evidence"] = normalized.get("evidence") or {
+            "task_kind": task_kind,
+            "target": target,
+            "has_files": bool(files),
+        }
+        return normalized
+
     def run(self, prompt: str | Dict[str, Any]) -> Dict[str, Any]:
         """
         Hybrid natural-language router for CodingAgent.
@@ -50,58 +68,54 @@ class CodingAgent(BaseAgent):
 
         if explicit_intent in {"generate_code", "patch_existing"}:
             result = asyncio.run(self.generate_code(prompt_text, context=context))
-            return {"agent": "coding", "task_kind": "generate_code", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "refactor_code":
             result = asyncio.run(self.refactor(target or "unknown", "default"))
-            return {"agent": "coding", "task_kind": "refactor", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "analyze_codebase":
             result = asyncio.run(self.analyze_codebase("."))
-            return {"agent": "coding", "task_kind": "analysis", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "run_tests":
             result = asyncio.run(self.run_tests("."))
-            return {"agent": "coding", "task_kind": "test", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "write_docs":
             result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
-            return {"agent": "coding", "task_kind": "documentation", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
         if "refactor" in prompt_lower:
             target = target if target and target.lower() != "unknown" else "unknown"
             strategy = "default"
             result = asyncio.run(self.refactor(target, strategy))
-            return {
-                "agent": "coding",
-                "task_kind": "refactor",
-                "target": target,
-                "prompt": prompt_text,
-                "files": files,
-                "output": result,
-            }
+            return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
         if "analyze" in prompt_lower or "analysis" in prompt_lower:
             result = asyncio.run(self.analyze_codebase("."))
-            return {"agent": "coding", "task_kind": "analysis", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
         if "test" in prompt_lower:
             result = asyncio.run(self.run_tests(project_path="."))
-            return {"agent": "coding", "task_kind": "test", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
         if "docs" in prompt_lower or "documentation" in prompt_lower:
             result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
-            return {"agent": "coding", "task_kind": "documentation", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
         if "commit" in prompt_lower:
-            return {
-                "agent": "coding",
+            payload = {
+                "status": "requires_interaction",
+                "message": "Code commit requires interactive approval.",
+                "agent": "CodingAgent",
+                "mode": "coding",
                 "task_kind": "commit",
                 "target": target,
                 "prompt": prompt_text,
                 "files": files,
-                "output": {"status": "requires_interaction", "message": "Code commit requires interactive approval."},
             }
+            return self._standardize_result(payload, task_kind="commit", target=target, prompt=prompt_text, files=files)
 
         try:
             decision = asyncio.run(
@@ -118,22 +132,22 @@ class CodingAgent(BaseAgent):
 
         if "refactor" in decision:
             result = asyncio.run(self.refactor(target or "unknown", "default"))
-            return {"agent": "coding", "task_kind": "refactor", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
         if "analyze" in decision:
             result = asyncio.run(self.analyze_codebase("."))
-            return {"agent": "coding", "task_kind": "analysis", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
         if "test" in decision:
             result = asyncio.run(self.run_tests("."))
-            return {"agent": "coding", "task_kind": "test", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
         if "docs" in decision:
             result = asyncio.run(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
-            return {"agent": "coding", "task_kind": "documentation", "target": target, "prompt": prompt_text, "files": files, "output": result}
+            return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
         result = asyncio.run(self.generate_code(prompt_text, context=context))
-        return {"agent": "coding", "task_kind": "generate_code", "target": target, "prompt": prompt_text, "files": files, "output": result}
+        return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
 
     def _extract_target_from_prompt(self, prompt_text: str) -> str:
         text = str(prompt_text or "").strip()

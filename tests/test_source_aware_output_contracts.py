@@ -3,6 +3,7 @@ import asyncio
 from mammoth_os.agent_registry import _normalize_runtime_payload
 from mammoth_os.agents.brand_voice_agent import BrandVoiceAgent
 from mammoth_os.agents.coding_agent import CodingAgent
+from mammoth_os.agents.plant_the_seed_agent import PlantTheSeedAgent
 
 
 def test_coding_runtime_payload_keeps_structure():
@@ -35,3 +36,22 @@ def test_brand_voice_summary_has_explicit_structure():
     assert result["mode"] == "stakeholder_summary"
     assert "What changed" in result["output"]
     assert "Guardrails" in result["output"]
+
+
+def test_field_ops_runtime_payload_keeps_structure():
+    payload = {
+        "topic": "navigation",
+        "environment": "forest",
+        "hazards": ["fog"],
+        "constraints": ["buddy-system"],
+    }
+    normalized = _normalize_runtime_payload("field_ops", payload)
+    assert isinstance(normalized, dict)
+    assert normalized["environment"] == "forest"
+    assert normalized["hazards"] == ["fog"]
+
+
+def test_plant_seed_rejects_placeholder_targets_without_real_context():
+    result = PlantTheSeedAgent().run({"topic": "unknown", "context": "placeholder"})
+    assert result["status"] == "needs_context"
+    assert "needs a real lesson" in result["summary"].lower()

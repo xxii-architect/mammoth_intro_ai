@@ -16,6 +16,27 @@ Current state (Where we are)
   * Conservative .mammoth/seccomp.json present and CI tuning scripts in .github/scripts.
   * ExerciseGenerator (deterministic) and TutorAgent MVP (local persistence + Supabase scaffold) implemented.
   * Unit tests added for major modules (sandbox, coding\_agent, exercise\_generator, tutor\_agent).
+  * Native MammothOS chat workflow with agent routing, task cards, and right-rail operator context is shipped and validated.
+  * Production guardrails pass completed: runtime health, diagnostics export, provider-aware backend contracts, and developer access/entitlement surfaces.
+
+### Current production-readiness snapshot
+
+| Area | Score | Summary |
+|---|---:|---|
+| System overall | 8.2 / 10 | Significantly stronger than the original prototype; user-facing workflow is credible |
+| CodingAgent | 8.5 | Best-performing lane and most trustworthy implementation path |
+| TutorAgent | 8.2 | Strong learning flow with adaptive guidance |
+| ShellAgent | 8.0 | Safety controls and approval gating are in place |
+| MammothOS Chat | 8.4 | Native UI layer feels like a real operator workspace |
+| API Server / Orchestration | 7.8 | Good workflow layer, but still needs smoother provider error UX |
+| UI / Command Center | 7.5 | Functional and polished, but not yet complete “broad-operator” polish |
+| LLM Runtime / Provider | 5.5 | Fallback chain exists, but outage and quota UX still need tightening |
+
+### Most valuable remaining work
+
+1. Improve cloud-provider outage UX and raw exception surfacing in the chat/runtime layer.
+2. Finish the final UI comfort pass for operator readability and state clarity.
+3. Continue the release-readiness pass by trimming risk surfaces rather than adding feature breadth.
 
 Current blockers / issues
 

@@ -155,9 +155,12 @@ class ShellAgent(BaseAgent):  # type: ignore
             return {
                 "status": "blocked",
                 "agent": self.name,
+                "mode": "shell",
                 "command": command,
                 "cwd": cwd,
                 "policy": policy,
+                "summary": "Command blocked by the safe execution policy.",
+                "quality_flags": ["blocked_by_policy"],
             }
 
         target_cwd = cwd or os.getcwd()
@@ -185,26 +188,43 @@ class ShellAgent(BaseAgent):  # type: ignore
                 proc.kill()
             except Exception:
                 pass
-            return {
+            payload = {
                 "status": "timeout",
                 "agent": self.name,
+                "mode": "shell",
                 "command": command,
                 "cwd": target_cwd,
                 "stdout": "",
                 "stderr": "Command timed out.",
                 "returncode": None,
                 "policy": policy,
+                "summary": "Command timed out before completion.",
+                "quality_flags": ["timeout"],
             }
+            return payload
 
+        stdout_text = stdout.decode(errors="replace")
+        stderr_text = stderr.decode(errors="replace")
+        status = "ok" if proc.returncode == 0 else "error"
+        quality_flags: List[str] = []
+        if proc.returncode != 0:
+            quality_flags.append("non_zero_exit")
+        if stderr_text.strip():
+            quality_flags.append("stderr_output")
+        if not quality_flags:
+            quality_flags.append("clean_execution")
         payload = {
-            "status": "ok" if proc.returncode == 0 else "error",
+            "status": status,
             "agent": self.name,
+            "mode": "shell",
             "command": command,
             "cwd": target_cwd,
-            "stdout": stdout.decode(errors="replace"),
-            "stderr": stderr.decode(errors="replace"),
+            "stdout": stdout_text,
+            "stderr": stderr_text,
             "returncode": proc.returncode,
             "policy": policy,
+            "summary": "Command completed successfully." if proc.returncode == 0 else "Command exited with a non-zero status.",
+            "quality_flags": quality_flags,
         }
         return payload
 

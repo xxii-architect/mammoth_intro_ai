@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { HeartPulse, RefreshCw } from 'lucide-react'
 import { api } from '../api/client'
 import { useInterval } from '../hooks/useApi'
@@ -19,11 +19,13 @@ export default function HealthPage() {
     setLoading(false)
   }
 
-  useState(() => { fetch() }, [])
+  useEffect(() => { fetch() }, [])
   useInterval(fetch, 10000)
 
   const dotClass = (s) => s === 'green' ? 'green' : s === 'yellow' ? 'yellow' : s === 'red' ? 'red' : 'gray'
   const statusText = (s) => s === 'green' ? '● UP' : s === 'yellow' ? '● WARN' : s === 'red' ? '● DOWN' : '○ UNKNOWN'
+  const runtime = health?.runtime || null
+  const providerColor = (status) => status === 'ready' ? '#22c55e' : status === 'offline' ? '#f87171' : '#eab308'
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -65,6 +67,48 @@ export default function HealthPage() {
           )) : (
             <div style={{ padding: 20, color: 'var(--txt-mut)', fontSize: '0.85rem' }}>
               {loading ? 'Checking services…' : 'Could not reach backend.'}
+            </div>
+          )}
+        </div>
+
+        <div className="glass-card-solid" style={{ borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontSize: '0.8rem', fontWeight: 600, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+            Runtime providers
+          </div>
+          {runtime ? (
+            <div style={{ padding: 20, display: 'grid', gap: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
+                <div>
+                  <p style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>Runtime state</p>
+                  <p style={{ fontSize: '0.92rem', color: runtime.state === 'ready' ? '#22c55e' : '#eab308', fontWeight: 700, textTransform: 'capitalize' }}>{runtime.state}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>Active adapter</p>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', fontFamily: 'JetBrains Mono,monospace' }}>{runtime.active_adapter || 'unknown'}</p>
+                </div>
+                <div>
+                  <p style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>Active model</p>
+                  <p style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', fontFamily: 'JetBrains Mono,monospace' }}>{runtime.active_model || 'unknown'}</p>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {(runtime.providers || []).map((provider) => (
+                  <div key={provider.provider} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                    <div>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', textTransform: 'capitalize' }}>{provider.provider}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>{provider.detail}</div>
+                    </div>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 700, color: providerColor(provider.status), textTransform: 'uppercase' }}>{provider.status}</span>
+                  </div>
+                ))}
+              </div>
+              <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>
+                {runtime.recommendation}
+              </p>
+            </div>
+          ) : (
+            <div style={{ padding: 20, color: 'var(--txt-mut)', fontSize: '0.85rem' }}>
+              {loading ? 'Inspecting runtime…' : 'Runtime snapshot unavailable.'}
             </div>
           )}
         </div>

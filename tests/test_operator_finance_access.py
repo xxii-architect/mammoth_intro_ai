@@ -52,17 +52,21 @@ def test_entitlements_respect_developer_access(monkeypatch, tmp_path):
     asyncio.run(api_server.set_tier({"tier": "explorer"}))
     explorer = asyncio.run(api_server.get_entitlements())
     assert explorer["tier"] == "explorer"
+    assert explorer["auth_mode"] == "local_operator"
+    assert explorer["session_scope"] == "workspace_local"
     assert explorer["features"]["team_dashboards"] is False
 
     enabled = asyncio.run(api_server.set_developer_access({"enabled": True}))
     assert enabled["status"] == "ok"
     assert enabled["developer_access"] is True
+    assert enabled["auth_mode"] == "developer_override"
 
     dev = asyncio.run(api_server.get_entitlements())
     assert dev["developer_access"] is True
     assert dev["effective_tier"] == "developer"
     assert dev["features"]["team_dashboards"] is True
     assert dev["upgrade_cta"] is None
+    assert dev["account_profile_complete"] is False
 
 
 def test_account_profile_persists(monkeypatch, tmp_path):
@@ -77,3 +81,8 @@ def test_account_profile_persists(monkeypatch, tmp_path):
     profile = asyncio.run(api_server.get_account_profile())
     assert profile["profile"]["display_name"] == "Operator One"
     assert profile["profile"]["email"] == "operator@example.com"
+    assert profile["profile"]["organization"] == "Mammoth Lab"
+    assert profile["profile_complete"] is True
+    assert profile["auth_mode"] == "local_operator"
+    assert profile["session_scope"] == "workspace_local"
+    assert profile["updated_at"]

@@ -112,11 +112,11 @@ function updateLastAssistant(list, updater) {
   return next
 }
 
-function ThoughtTrail({ steps, busy, expandedIndex, onToggle }) {
+function ThoughtTrail({ steps, busy, expandedIndex, onToggle, compact = false }) {
   const list = Array.isArray(steps) ? steps : []
   return (
-    <div className="glass-card-solid" style={{ padding: 16, minHeight: 220 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+    <div className="glass-card-solid" style={{ padding: compact ? 14 : 16, minHeight: compact ? 180 : 220, maxHeight: compact ? '34vh' : '42vh', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: compact ? 8 : 10 }}>
         <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, margin: 0 }}>
           Thought Trail
         </p>
@@ -125,7 +125,7 @@ function ThoughtTrail({ steps, busy, expandedIndex, onToggle }) {
           <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{list.length} steps</span>
         </div>
       </div>
-      <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'grid', gap: 8, overflowY: 'auto', minHeight: 0, paddingRight: 2 }}>
         {list.length ? list.slice(-12).map((step, idx) => {
           const absoluteIndex = Math.max(0, list.length - Math.min(list.length, 12) + idx)
           const isOpen = expandedIndex === absoluteIndex
@@ -134,7 +134,7 @@ function ThoughtTrail({ steps, busy, expandedIndex, onToggle }) {
             <button
               key={`${step.ts || idx}-${idx}`}
               onClick={() => onToggle(absoluteIndex)}
-              style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: isOpen ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', cursor: 'pointer' }}
+              style={{ textAlign: 'left', padding: compact ? '9px 11px' : '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: isOpen ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', cursor: 'pointer' }}
             >
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -176,9 +176,13 @@ export default function ChatPage({ setPage }) {
   const [error, setError] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState(-1)
+  const [quickActionsOpen, setQuickActionsOpen] = useState(true)
   const [taskCards, setTaskCards] = useState(() => loadTaskCards())
   const [approvals, setApprovals] = useState([])
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
+  const [isNarrowLayout, setIsNarrowLayout] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 1540 : false))
+  const [isShortViewport, setIsShortViewport] = useState(() => (typeof window !== 'undefined' ? window.innerHeight < 860 : false))
+  const [rightRailOpen, setRightRailOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1540 : true))
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
 
@@ -230,7 +234,19 @@ export default function ChatPage({ setPage }) {
     streamControllerRef.current?.abort?.()
   }, [])
 
+  useEffect(() => {
+    const onResize = () => {
+      setIsNarrowLayout(window.innerWidth < 1540)
+      setIsShortViewport(window.innerHeight < 860)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   const selectedAgent = useMemo(() => AGENT_OPTIONS.find((item) => item.id === agentId) || AGENT_OPTIONS[0], [agentId])
+  const showRightRail = rightRailOpen
+  const showInlineRightRail = showRightRail && !isNarrowLayout
+  const showDrawerRightRail = showRightRail && isNarrowLayout
 
   const pushThought = (step) => {
     setThoughtSteps((prev) => [...prev, step])
@@ -578,12 +594,19 @@ export default function ChatPage({ setPage }) {
         >
           <Trash2 size={14} /> Clear view
         </button>
+        <button
+          onClick={() => setRightRailOpen((prev) => !prev)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
+        >
+          {showRightRail ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          {showRightRail ? 'Hide right rail' : 'Show right rail'}
+        </button>
       </div>
 
       <RuntimeStatusBanner title="MammothOS runtime" />
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2.3fr) minmax(260px, 0.75fr)', gap: 18, flex: 1, minHeight: 0 }}>
-        <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: '72vh', overflow: 'hidden' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gap: 18, flex: 1, minHeight: 0 }}>
+        <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: isShortViewport ? '80vh' : '84vh', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Current lane</div>
@@ -614,37 +637,50 @@ export default function ChatPage({ setPage }) {
             </div>
           </div>
 
-          <div style={{ padding: 16, borderBottom: '1px solid var(--border)', display: 'grid', gap: 10 }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {SLASH_ACTIONS.map((action) => (
-                <button
-                  key={action}
-                  onClick={() => setInput(action)}
-                  style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}
-                >
-                  {action}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10 }}>
-              {QUICK_ACTIONS.map((card) => (
-                <button
-                  key={card.title}
-                  onClick={() => dispatchQuickAction(card)}
-                  disabled={busy}
-                  style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: 'pointer' }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                    <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{card.title}</div>
-                    <Workflow size={14} color="var(--txt-mut)" />
-                  </div>
-                  <div style={{ fontSize: '0.74rem', lineHeight: 1.5 }}>{card.message}</div>
-                </button>
-              ))}
-            </div>
+          <div style={{ padding: isShortViewport ? 14 : 16, borderBottom: '1px solid var(--border)', display: 'grid', gap: isShortViewport ? 8 : 10 }}>
+            <button
+              type="button"
+              onClick={() => setQuickActionsOpen((prev) => !prev)}
+              style={{ justifySelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer' }}
+            >
+              {quickActionsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {quickActionsOpen ? 'Hide templates' : 'Show templates'}
+            </button>
+
+            {quickActionsOpen && (
+              <>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {SLASH_ACTIONS.map((action) => (
+                    <button
+                      key={action}
+                      onClick={() => setInput(action)}
+                      style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}
+                    >
+                      {action}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10 }}>
+                  {QUICK_ACTIONS.map((card) => (
+                    <button
+                      key={card.title}
+                      onClick={() => dispatchQuickAction(card)}
+                      disabled={busy}
+                      style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: 'pointer' }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{card.title}</div>
+                        <Workflow size={14} color="var(--txt-mut)" />
+                      </div>
+                      <div style={{ fontSize: '0.74rem', lineHeight: 1.5 }}>{card.message}</div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
             {history.length === 0 && (
               <div style={{ margin: '24px auto', maxWidth: 680, textAlign: 'center' }}>
                 <Sparkles size={28} color="var(--photon)" style={{ marginBottom: 10 }} />
@@ -726,7 +762,7 @@ export default function ChatPage({ setPage }) {
                 }}
                 rows={4}
                 placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
-                style={{ flex: 1, resize: 'vertical', minHeight: 92, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.88rem', padding: '13px 15px', outline: 'none', lineHeight: 1.55 }}
+                style={{ flex: 1, resize: 'vertical', minHeight: 88, maxHeight: 160, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.9rem', padding: '13px 15px', outline: 'none', lineHeight: 1.55 }}
               />
               <button
                 onClick={() => send()}
@@ -739,27 +775,46 @@ export default function ChatPage({ setPage }) {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gap: 16, minHeight: 0 }}>
-          <div className="glass-card-solid" style={{ padding: 16 }}>
+        {showDrawerRightRail && (
+          <button
+            type="button"
+            onClick={() => setRightRailOpen(false)}
+            aria-label="Close right rail"
+            style={{ position: 'fixed', inset: 0, border: 'none', background: 'rgba(4,8,12,0.56)', zIndex: 35, cursor: 'pointer' }}
+          />
+        )}
+        {showRightRail && (
+        <div style={showDrawerRightRail ? { position: 'fixed', top: 86, right: 18, width: 'min(420px, calc(100vw - 36px))', maxHeight: 'calc(100vh - 110px)', zIndex: 40, display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', paddingRight: 4 } : { display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', maxHeight: isShortViewport ? '80vh' : '84vh', paddingRight: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              onClick={() => setRightRailOpen(false)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer' }}
+            >
+              <ChevronRight size={14} />
+              Collapse rail
+            </button>
+          </div>
+          <div className="glass-card-solid" style={{ padding: isShortViewport ? 14 : 16 }}>
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, marginBottom: 10 }}>
               Routing Snapshot
             </p>
-            <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'grid', gap: 8, minWidth: 0 }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--txt-sec)' }}>Agent: <span style={{ color: selectedAgent.accent, fontWeight: 700 }}>{selectedAgent.label}</span></div>
-              <div style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', lineHeight: 1.6 }}>{selectedAgent.detail}</div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', lineHeight: 1.6, overflowWrap: 'anywhere' }}>{selectedAgent.detail}</div>
               {meta && (
                 <>
-                  <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>Adapter: <span style={{ color: 'var(--photon)' }}>{meta.adapter}</span></div>
-                  <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>Model / Runtime: <span style={{ color: 'var(--photon)' }}>{meta.model}</span></div>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)', overflowWrap: 'anywhere' }}>Adapter: <span style={{ color: 'var(--photon)' }}>{meta.adapter}</span></div>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)', overflowWrap: 'anywhere' }}>Model / Runtime: <span style={{ color: 'var(--photon)' }}>{meta.model}</span></div>
                   <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>Dispatch: <span style={{ color: meta.dispatched ? 'var(--cyan)' : '#22c55e' }}>{meta.dispatched ? 'agent-runtime' : 'native-chat'}</span></div>
                 </>
               )}
             </div>
           </div>
 
-          <ThoughtTrail steps={thoughtSteps} busy={busy} expandedIndex={expandedThoughtIndex} onToggle={(idx) => setExpandedThoughtIndex((cur) => (cur === idx ? -1 : idx))} />
+          <ThoughtTrail steps={thoughtSteps} busy={busy} expandedIndex={expandedThoughtIndex} compact={isShortViewport} onToggle={(idx) => setExpandedThoughtIndex((cur) => (cur === idx ? -1 : idx))} />
 
-          <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div className="glass-card-solid" style={{ padding: isShortViewport ? 14 : 16 }}>
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, marginBottom: 10 }}>
               Saved Task Cards
             </p>
@@ -774,13 +829,13 @@ export default function ChatPage({ setPage }) {
                     <span style={{ fontSize: '0.78rem', fontWeight: 700 }}>{card.title}</span>
                     <span style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{card.agent_id}</span>
                   </div>
-                  <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{(card.prompt || card.reply || '').slice(0, 120)}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', lineHeight: 1.5, overflowWrap: 'anywhere' }}>{(card.prompt || card.reply || '').slice(0, 120)}</div>
                 </button>
               )) : <div style={{ fontSize: '0.78rem', color: 'var(--txt-mut)' }}>Save a reply to pin it as a reusable task card.</div>}
             </div>
           </div>
 
-          <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div className="glass-card-solid" style={{ padding: isShortViewport ? 14 : 16 }}>
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, marginBottom: 10 }}>
               Approval + Run Handoff
             </p>
@@ -789,7 +844,7 @@ export default function ChatPage({ setPage }) {
                 <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--txt-pri)', marginBottom: 4 }}>
                   Pending approvals: {approvals.filter((item) => item.status === 'pending').length}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', overflowWrap: 'anywhere' }}>
                   {approvals.filter((item) => item.status === 'pending').slice(0, 2).map((item) => `${item.operation} • ${item.target}`).join(' • ') || 'No approvals waiting.'}
                 </div>
               </div>
@@ -797,7 +852,7 @@ export default function ChatPage({ setPage }) {
                 <div style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--txt-pri)', marginBottom: 4 }}>
                   Recent autonomous runs: {autonomousRuns.summary?.total_runs || 0}
                 </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', overflowWrap: 'anywhere' }}>
                   {autonomousRuns.runs.slice(0, 2).map((run) => `${run.plan_status} • ${run.objective || 'Unnamed run'}`).join(' • ') || 'No autonomous runs recorded yet.'}
                 </div>
               </div>
@@ -824,6 +879,7 @@ export default function ChatPage({ setPage }) {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   )

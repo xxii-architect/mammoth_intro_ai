@@ -14,6 +14,7 @@ export default function SettingsPage({ theme, setTheme }) {
   const [models, setModels]   = useState(null)
   const [entitlements, setEntitlements] = useState(null)
   const [profile, setProfile] = useState({ display_name: '', email: '', organization: '' })
+  const [profileMeta, setProfileMeta] = useState({ auth_mode: '', session_scope: '', updated_at: '', profile_complete: false })
   const [masked, setMasked]   = useState(true)
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg]   = useState('')
@@ -29,6 +30,12 @@ export default function SettingsPage({ theme, setTheme }) {
       setModels(m)
       setEntitlements(e)
       if (p?.profile) setProfile(p.profile)
+      setProfileMeta({
+        auth_mode: p?.auth_mode || '',
+        session_scope: p?.session_scope || '',
+        updated_at: p?.updated_at || '',
+        profile_complete: Boolean(p?.profile_complete),
+      })
     }).catch(() => {})
   }, [])
 
@@ -47,11 +54,19 @@ export default function SettingsPage({ theme, setTheme }) {
   const envKeys = health?.env_keys || []
   const currentTier = entitlements?.tier || 'explorer'
   const developerAccess = Boolean(entitlements?.developer_access)
+  const profileComplete = profileMeta.profile_complete || Boolean(profile?.display_name && profile?.email && profile?.organization)
 
   const saveProfile = async () => {
     setSavingProfile(true)
     try {
-      await api('/account/profile', { method: 'POST', body: profile })
+      const saved = await api('/account/profile', { method: 'POST', body: profile })
+      if (saved?.profile) setProfile(saved.profile)
+      setProfileMeta({
+        auth_mode: profileMeta.auth_mode,
+        session_scope: profileMeta.session_scope || 'workspace_local',
+        updated_at: saved?.updated_at || '',
+        profile_complete: Boolean(saved?.profile_complete),
+      })
       setProfileMsg('Profile saved.')
       const e = await api('/entitlements')
       setEntitlements(e)
@@ -250,6 +265,24 @@ export default function SettingsPage({ theme, setTheme }) {
             </button>
           </div>
           <div style={{ display: 'grid', gap: 8 }}>
+            <div style={{ display: 'grid', gap: 6, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+              <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>
+                Session mode: <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace' }}>{profileMeta.auth_mode || entitlements?.auth_mode || 'local_operator'}</span>
+              </div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>
+                Profile readiness: <span style={{ color: profileComplete ? '#22c55e' : '#eab308', fontWeight: 700 }}>{profileComplete ? 'complete' : 'needs identity fields'}</span>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+                Workspace session scope: {profileMeta.session_scope || entitlements?.session_scope || 'workspace_local'}
+              </div>
+              {(profileMeta.updated_at || entitlements?.developer_access_updated_at || entitlements?.tier_updated_at) && (
+                <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+                  {profileMeta.updated_at ? `Profile updated ${new Date(profileMeta.updated_at).toLocaleString()}` : 'Profile not saved yet'}
+                  {entitlements?.tier_updated_at ? ` • Tier ${new Date(entitlements.tier_updated_at).toLocaleString()}` : ''}
+                  {entitlements?.developer_access_updated_at ? ` • Dev access ${new Date(entitlements.developer_access_updated_at).toLocaleString()}` : ''}
+                </div>
+              )}
+            </div>
             <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>
               Tier: <span style={{ color: 'var(--cyan)', textTransform: 'capitalize', fontWeight: 700 }}>{entitlements?.effective_tier || currentTier}</span>
             </div>

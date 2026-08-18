@@ -52,6 +52,13 @@ class FieldOpsAgent:
         risk_level = self._risk_level(environment, difficulty, hazards)
         risk_score = self._risk_score(environment, difficulty, hazards)
         safety_gate = self._safety_gate(risk_level, hazards, constraints)
+        equipment = self._equipment(topic, environment)
+        abort_conditions = self._abort_conditions(environment, hazards, risk_level)
+        approval_gate = {
+            "requires_review": bool(safety_gate["requires_review"]),
+            "reason": safety_gate["reason"],
+            "recommended_path": "agent-console-approval" if safety_gate["requires_review"] else "direct-delivery",
+        }
 
         return {
             "agent": "field_ops",
@@ -76,6 +83,9 @@ class FieldOpsAgent:
             "risk_level": risk_level,
             "risk_score": risk_score,
             "safety_gate": safety_gate,
+            "approval_gate": approval_gate,
+            "equipment": equipment,
+            "abort_conditions": abort_conditions,
             "next_actions": self._next_actions(topic, environment, difficulty),
             "task_card": {
                 "title": f"Field ops: {topic}",
@@ -95,6 +105,7 @@ class FieldOpsAgent:
                 "risk_score": risk_score,
                 "risk_level": risk_level,
                 "safety_gate": safety_gate,
+                "equipment_count": len(equipment),
             },
         }
 
@@ -276,13 +287,42 @@ class FieldOpsAgent:
 
     def _safety_gate(self, risk_level: str, hazards: List[str], constraints: List[str]) -> Dict[str, Any]:
         requires_review = risk_level == "high" or len(hazards) >= 3 or len(constraints) >= 2
+        if risk_level == "high":
+            reason = "elevated field risk"
+        elif len(hazards) >= 3:
+            reason = "multiple hazards require operator review"
+        elif len(constraints) >= 2:
+            reason = "constraints require operator review"
+        else:
+            reason = "safe to proceed"
         return {
             "requires_review": requires_review,
             "risk_level": risk_level,
             "hazards": hazards[:3],
             "constraint_count": len(constraints),
-            "reason": "elevated field risk" if requires_review else "safe to proceed",
+            "reason": reason,
         }
+
+    def _equipment(self, topic: str, environment: str) -> List[str]:
+        equipment = ["notebook", "water", "weather-aware clothing"]
+        if topic.lower() == "navigation":
+            equipment.extend(["map", "compass"])
+        elif topic.lower() == "firecraft":
+            equipment.extend(["fire-safe container", "ignition source"])
+        if environment in {"forest", "mountain"}:
+            equipment.append("trail visibility marker")
+        return list(dict.fromkeys(equipment))
+
+    def _abort_conditions(self, environment: str, hazards: List[str], risk_level: str) -> List[str]:
+        conditions = [
+            "Stop immediately if weather, visibility, or footing changes faster than expected.",
+            "Abort the task if you lose your exit path or can no longer work safely.",
+        ]
+        if hazards:
+            conditions.append(f"Abort if hazards escalate beyond the planned controls: {', '.join(hazards[:2])}.")
+        if risk_level == "high":
+            conditions.append(f"Do not continue the {environment} task without a clear operator review and fallback plan.")
+        return conditions[:4]
 
     def _next_actions(self, topic: str, environment: str, difficulty: str) -> List[str]:
         actions = [

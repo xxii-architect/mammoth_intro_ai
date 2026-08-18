@@ -32,3 +32,14 @@ def test_field_ops_agent_parses_prompt_strings():
     assert result["environment"] == "desert"
     assert result["difficulty"] == "medium"
     assert result["next_actions"]
+
+
+def test_field_ops_agent_adds_equipment_and_abort_conditions():
+    agent = FieldOpsAgent(user_id="field-3")
+
+    result = agent.run({"topic": "navigation", "environment": "mountain", "difficulty": "hard", "hazards": ["low visibility", "loose rock", "storm"]})
+
+    assert result["status"] == "ok"
+    assert "map" in result["equipment"]
+    assert result["approval_gate"]["requires_review"] is True
+    assert any("abort" in condition.lower() for condition in result["abort_conditions"])

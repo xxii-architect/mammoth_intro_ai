@@ -32,3 +32,13 @@ def test_plant_the_seed_agent_builds_progress_summary():
     assert result["status"] == "ok"
     assert "compounding" in result["summary"]
     assert result["tags"][0] == "atlas"
+
+
+def test_plant_the_seed_agent_rejects_placeholder_targets():
+    agent = PlantTheSeedAgent(user_id="learner-3")
+
+    result = agent.run({"topic": "unknown", "lesson_title": "unknown"})
+
+    assert result["status"] == "needs_context"
+    assert result["approval_gate"]["requires_review"] is False
+    assert "real lesson" in result["summary"].lower()

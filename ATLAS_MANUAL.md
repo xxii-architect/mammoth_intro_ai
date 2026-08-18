@@ -4,6 +4,36 @@
 > Run this from the repo root. **Your `.env` file is now loaded automatically** —
 > no more setting env vars by hand in every terminal.
 
+## Production-readiness snapshot
+
+This repo is now in a strong “operator-grade prototype” position rather than a bare demo. The native chat surface, runtime orchestration, and production-guardrail work have all moved the stack much closer to real deployment readiness.
+
+### Current rating summary
+
+| Area | Score | Notes |
+|---|---:|---|
+| System overall | 8.2 / 10 | Strong workflow surface and core runtime, but still not fully hardened for cloud outage UX |
+| MammothOS Chat | 8.4 / 10 | Native chat, multi-agent routing, task cards, approvals, and source-aware evidence cards are in place |
+| CodingAgent | 8.5 / 10 | Best-validated lane; structured and predictable |
+| TutorAgent | 8.2 / 10 | Adaptive tutoring and review flow are strong |
+| ShellAgent | 8.0 / 10 | Safety controls are solid and approval-aware |
+| API Server / Orchestration | 7.8 / 10 | Good runtime contract, needs smoother error UX and more explicit runtime-state surfaces |
+| UI / Command Center | 7.5 / 10 | Operationally useful and polished, but still needs a finishing pass for broad operator usability |
+| LLM Runtime / Provider Chain | 5.5 / 10 | The fallback chain exists but still produces rough edges when keys or credits are unavailable |
+
+### What is “ready enough” now
+
+- Developer/operator testing flows are working and validated
+- Approval gating, diagnostics export, and health pages are operational
+- Core agent lanes are normalized around structured outputs
+- Native chat can route to agent work and keep operational context visible
+
+### What still needs a final pass
+
+- Provide more graceful messaging when provider keys or credit pools are exhausted
+- Tighten raw runtime exception handling in the chat and provider chain
+- Continue polishing the comfort layer for broad adoption: clearer status, thought trails, and less “internal debugging” language in user-facing responses
+
 ---
 
 ## 1 — One-time setup

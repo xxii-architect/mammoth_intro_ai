@@ -23,6 +23,10 @@ def test_market_intel_agent_builds_source_aware_brief():
     assert result["opportunities"]
     assert result["risks"]
     assert result["next_actions"]
+    assert result["citations"]
+    assert result["references"]
+    assert result["source_coverage"]["source_count"] == 2
+    assert "source_grounding_acceptable" in result["quality_flags"]
 
 
 def test_market_intel_agent_falls_back_to_prompt_driven_sources():
@@ -34,3 +38,4 @@ def test_market_intel_agent_falls_back_to_prompt_driven_sources():
     assert result["sources"][0]["label"] == "Direct prompt"
     assert "software engineering" in result["summary"].lower()
     assert "practical production" in result["summary"].lower()
+    assert "missing_external_sources" in result["quality_flags"]
