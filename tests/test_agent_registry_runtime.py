@@ -1,4 +1,5 @@
 from mammoth_os import agent_registry as agent_registry_mod
+from mammoth_os.agents.research_agent import ResearchAgent
 
 
 class DummyAgent:
@@ -24,3 +25,13 @@ def test_run_agent_normalizes_payloads(monkeypatch):
     assert curriculum_result["payload"] == "build lesson"
     assert tutor_result["payload"]["topic"] == "coach"
     assert plant_result["payload"]["topic"] == "hello"
+
+
+def test_research_agent_emits_grounded_evidence_fields():
+    result = ResearchAgent(router=None).run("Analyze whether the coding lesson should verify the patch before we move on.")
+
+    assert result["focus"] == "curriculum"
+    assert result["confidence"] >= 0.6
+    assert isinstance(result["evidence"], list) and result["evidence"]
+    assert isinstance(result["citations"], list) and result["citations"]
+    assert "verify" in result["research_questions"][0].lower() or "test" in result["research_questions"][0].lower()

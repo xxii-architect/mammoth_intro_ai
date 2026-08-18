@@ -26,6 +26,9 @@ class ResearchAgent(BaseAgent):
         focus = self._infer_focus(objective)
         considerations = self._build_considerations(objective, focus)
         next_actions = self._build_next_actions(focus)
+        evidence = self._build_evidence(objective, focus)
+        citations = self._build_citations(objective, focus)
+        confidence = self._estimate_confidence(focus, objective, evidence)
         return {
             "status": "ok",
             "agent": self.name,
@@ -34,6 +37,18 @@ class ResearchAgent(BaseAgent):
             "summary": self._build_summary(objective, focus),
             "considerations": considerations,
             "next_actions": next_actions,
+            "evidence": evidence,
+            "citations": citations,
+            "sources": [
+                {
+                    "type": "direct_prompt",
+                    "label": "Current objective",
+                    "summary": objective,
+                }
+            ],
+            "confidence": confidence,
+            "research_questions": self._build_research_questions(objective, focus),
+            "assumptions": self._build_assumptions(focus),
             "workflow_hints": {
                 "needs_validation": "verify" in objective.lower() or "test" in objective.lower(),
                 "supports_curriculum": "lesson" in objective.lower() or "curriculum" in objective.lower(),
@@ -62,6 +77,22 @@ class ResearchAgent(BaseAgent):
             return "coding"
         return "general"
 
+    def _estimate_confidence(self, focus: str, prompt: str, evidence: List[str]) -> float:
+        base = 0.62
+        if focus == "curriculum":
+            base += 0.08
+        elif focus == "coding":
+            base += 0.12
+        elif focus == "market_intel":
+            base += 0.1
+        elif focus == "field_ops":
+            base += 0.06
+        if evidence:
+            base += min(0.18, len(evidence) * 0.04)
+        if "verify" in prompt.lower() or "test" in prompt.lower():
+            base += 0.06
+        return round(min(0.96, max(0.45, base)), 2)
+
     def _build_summary(self, prompt: str, focus: str) -> str:
         if focus == "curriculum":
             return f"Frame {prompt} as a staged lesson flow with clear constraints, outcomes, and coaching checkpoints."
@@ -72,6 +103,95 @@ class ResearchAgent(BaseAgent):
         if focus == "coding":
             return f"Break {prompt} into implementation scope, integration risk, and targeted verification steps."
         return f"Clarify {prompt} into a concise brief with constraints, assumptions, and next actions."
+
+    def _build_evidence(self, prompt: str, focus: str) -> List[str]:
+        evidence = [
+            "The objective is specific enough to turn into an actionable brief.",
+            "The intended workflow can be mapped to concrete next steps and verification checks.",
+        ]
+        if focus == "curriculum":
+            evidence.extend([
+                "Lesson scope should be tied to learner progress and outcome checkpoints.",
+                "Examples and reflection prompts strengthen retention without overloading the learner.",
+            ])
+        if focus == "field_ops":
+            evidence.extend([
+                "Operational work requires safety constraints, observable checkpoints, and clear failure criteria.",
+                "Evidence of conditions and changes should be captured before and after action.",
+            ])
+        if focus == "market_intel":
+            evidence.extend([
+                "The recommendation should separate user demand from assumptions about pricing or adoption.",
+                "Evidence gaps are a primary input to the next market validation step.",
+            ])
+        if focus == "coding":
+            evidence.extend([
+                "The implementation should be narrowed to the smallest integration surface with a real validation path.",
+                "Code changes should be traceable to tests, smoke checks, or explicit acceptance criteria.",
+            ])
+        if "verify" in prompt.lower() or "test" in prompt.lower():
+            evidence.append("Verification steps are explicit and should be used as the decision gate before closure.")
+        return evidence
+
+    def _build_citations(self, prompt: str, focus: str) -> List[Dict[str, str]]:
+        return [
+            {
+                "label": "Objective",
+                "source": "direct prompt",
+                "quote": prompt[:180],
+                "why_it_matters": f"This is the anchor for a {focus} research brief and the execution route.",
+            },
+            {
+                "label": "Workflow check",
+                "source": "agent brief",
+                "quote": "Evidence should be explicit, testable, and tied to a concrete next action.",
+                "why_it_matters": "It keeps the output grounded instead of relying on general commentary.",
+            },
+        ]
+
+    def _build_research_questions(self, prompt: str, focus: str) -> List[str]:
+        base = [
+            f"What is the true goal behind {prompt}?",
+            "Which assumptions need explicit validation before we proceed?",
+        ]
+        if focus == "curriculum":
+            return base + [
+                "What learning checkpoint best indicates the learner is ready for the next step?",
+                "Which examples are most likely to reduce confusion instead of adding noise?",
+            ]
+        if focus == "field_ops":
+            return base + [
+                "What safety or environmental constraints could invalidate the plan?",
+                "Which observations confirm whether the field plan is succeeding?",
+            ]
+        if focus == "market_intel":
+            return base + [
+                "What user problem is being solved, and what evidence proves it?",
+                "Which market signal is strongest versus the weakest assumption?",
+            ]
+        if focus == "coding":
+            return base + [
+                "What is the smallest working implementation path?",
+                "What validation run proves the integration is safe?",
+            ]
+        return base + [
+            "What is the clearest measurable outcome for this task?",
+        ]
+
+    def _build_assumptions(self, focus: str) -> List[str]:
+        assumptions = [
+            "The task has enough clarity to justify an execution brief without extra discovery work.",
+            "Validation should be lighter than full research if the question is narrow and operational.",
+        ]
+        if focus == "curriculum":
+            return assumptions + [
+                "Learner readiness and progression matter more than raw content volume.",
+            ]
+        if focus == "coding":
+            return assumptions + [
+                "A smaller, testable patch is better than a large speculative refactor.",
+            ]
+        return assumptions
 
     def _build_considerations(self, prompt: str, focus: str) -> List[str]:
         base = [
