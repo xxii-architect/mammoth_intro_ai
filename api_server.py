@@ -628,14 +628,25 @@ def _models_snapshot() -> Dict[str, Any]:
     env = _read_env_vars()
     llm_adapter = (os.environ.get("MAMMOTH_LLM_ADAPTER") or env.get("MAMMOTH_LLM_ADAPTER") or "").strip().lower()
     openai_model = (os.environ.get("OPENAI_MODEL") or env.get("OPENAI_MODEL") or "gpt-4o-mini").strip()
+    deepseek_model = (os.environ.get("DEEPSEEK_MODEL") or env.get("DEEPSEEK_MODEL") or "deepseek-chat").strip()
     ollama_model = (os.environ.get("OLLAMA_MODEL") or env.get("OLLAMA_MODEL") or "hermes3:8b").strip()
     ollama_base = (os.environ.get("OLLAMA_BASE_URL") or env.get("OLLAMA_BASE_URL") or "http://localhost:11434").strip()
+
     openai_key_present = bool((os.environ.get("OPENAI_API_KEY") or env.get("OPENAI_API_KEY") or "").strip())
+    deepseek_key_present = bool((os.environ.get("DEEPSEEK_API_KEY") or env.get("DEEPSEEK_API_KEY") or "").strip())
     ollama_up = _ollama_running(ollama_base)
     installed_local = _ollama_installed_models(ollama_base) if ollama_up else []
 
-    if llm_adapter:
-        active_adapter = llm_adapter
+    if llm_adapter in {"deepseek", "deepseek-api", "deepseek-cloud", "deepseek-chat", "deepseek-reasoner", "deepseek-flash"}:
+        active_adapter = "deepseek"
+    elif llm_adapter == "openai":
+        active_adapter = "openai"
+    elif llm_adapter in {"ollama", "local-ollama"} or (llm_adapter and ":" in llm_adapter):
+        active_adapter = "ollama"
+    elif llm_adapter == "local":
+        active_adapter = "local"
+    elif deepseek_key_present:
+        active_adapter = "deepseek"
     elif openai_key_present:
         active_adapter = "openai"
     elif ollama_up:
@@ -643,10 +654,12 @@ def _models_snapshot() -> Dict[str, Any]:
     else:
         active_adapter = "local"
 
-    if active_adapter == "openai":
+    if active_adapter == "deepseek":
+        active_model = deepseek_model
+    elif active_adapter == "openai":
         active_model = openai_model
     elif active_adapter == "ollama":
-        active_model = ollama_model
+        active_model = llm_adapter if llm_adapter and ":" in llm_adapter else ollama_model
     else:
         active_model = "local-adapter"
 
@@ -669,18 +682,27 @@ def _models_snapshot() -> Dict[str, Any]:
             "installed": m in installed_local,
         })
 
-    cloud_model_items = [{
-        "id": openai_model,
-        "provider": "openai",
-        "installed": openai_key_present,
-    }]
+    cloud_model_items = [
+        {
+            "id": deepseek_model,
+            "provider": "deepseek",
+            "installed": deepseek_key_present,
+        },
+        {
+            "id": openai_model,
+            "provider": "openai",
+            "installed": openai_key_present,
+        },
+    ]
 
     return {
+        "configured_adapter": llm_adapter or "auto",
         "active_adapter": active_adapter,
         "active_model": active_model,
         "ollama_base_url": ollama_base,
         "ollama_running": ollama_up,
         "openai_key_present": openai_key_present,
+        "deepseek_key_present": deepseek_key_present,
         "local_models_installed": installed_local,
         "models": local_model_items + cloud_model_items,
     }
@@ -704,10 +726,42 @@ def _sanitize_runtime_error_message(exc: Any, fallback: str = "MammothOS switche
     return "The runtime hit a provider-side issue; MammothOS switched to a safe fallback path instead of exposing the raw backend error."
 
 
+def _runtime_metadata_from_client(client: Any, requested_adapter: str = "") -> Dict[str, Any]:
+    requested = str(requested_adapter or "").strip().lower()
+    used_provider = str(getattr(client, "last_used_provider", "")).strip().lower()
+    primary_provider = str(getattr(client, "primary_name", "")).strip().lower()
+    fallback_used = bool(getattr(client, "last_fallback_used", False))
+    fallback_reason = str(getattr(client, "last_fallback_reason", "")).strip().lower()
+    fallback_error_type = str(getattr(client, "last_error_type", "")).strip()
+
+    if used_provider:
+        active = used_provider
+    else:
+        client_name = type(client).__name__.lower()
+        if "openai" in client_name:
+            active = "openai"
+        elif "ollama" in client_name:
+            active = "ollama"
+        elif "local" in client_name:
+            active = "local"
+        elif "fallback" in client_name:
+            active = primary_provider or "fallback"
+        else:
+            active = requested or "auto"
+
+    return {
+        "active_adapter": active,
+        "used_provider": used_provider or active,
+        "primary_provider": primary_provider,
+        "fallback_used": fallback_used,
+        "fallback_reason": fallback_reason,
+        "fallback_error_type": fallback_error_type,
+    }
+
+
 def _runtime_status_snapshot() -> Dict[str, Any]:
-    env = _read_env_vars()
     models = _models_snapshot()
-    deepseek_key_present = bool((os.environ.get("DEEPSEEK_API_KEY") or env.get("DEEPSEEK_API_KEY") or "").strip())
+    deepseek_key_present = bool(models.get("deepseek_key_present"))
     openai_key_present = bool(models.get("openai_key_present"))
     ollama_running = bool(models.get("ollama_running"))
     active_adapter = str(models.get("active_adapter") or "local")
@@ -750,15 +804,20 @@ def _runtime_status_snapshot() -> Dict[str, Any]:
     else:
         state = "degraded"
 
+    degraded_mode = state != "ready" or active_adapter == "local"
+
     if state == "ready":
         recommendation = f"{active_adapter} is ready"
+    elif deepseek_key_present or openai_key_present:
+        recommendation = "Verify selected adapter and key permissions; MammothOS can still route through the next provider in the fallback chain."
     elif ollama_running:
-        recommendation = "Switch to OpenAI or DeepSeek if the selected adapter is not responding."
+        recommendation = "Start or restore a cloud provider key to improve output quality beyond local-only fallback."
     else:
-        recommendation = "Add OPENAI_API_KEY or start Ollama to restore a cloud-capable runtime."
+        recommendation = "Add DEEPSEEK_API_KEY or OPENAI_API_KEY, or start Ollama, to restore a cloud-capable runtime."
 
     return {
         "state": state,
+        "degraded_mode": degraded_mode,
         "active_adapter": active_adapter,
         "active_model": active_model,
         "providers": providers,
@@ -3976,9 +4035,23 @@ async def atlas_chat(body: Dict[str, Any]):
                 if ":" in model_l:
                     cfg["adapter"] = "ollama"
         client = get_llm_client(config=cfg)
-        active_model = str(getattr(client, "model", model or "unknown"))
-        active_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
         llm_reply = await client.generate(tutor_prompt, temperature=temperature)
+        active_model = str(getattr(client, "model", model or "unknown"))
+        requested_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
+        client_meta = _runtime_metadata_from_client(client, requested_adapter=requested_adapter)
+        active_adapter = str(client_meta.get("active_adapter") or requested_adapter or "auto")
+        runtime_status = _runtime_status_snapshot()
+        runtime_status["effective_adapter"] = active_adapter
+        if client_meta.get("fallback_used"):
+            runtime_status["state"] = "degraded"
+            runtime_status["degraded_mode"] = True
+            runtime_status["fallback_used"] = True
+            runtime_status["primary_provider"] = client_meta.get("primary_provider")
+            runtime_status["used_provider"] = client_meta.get("used_provider")
+            if client_meta.get("fallback_reason"):
+                runtime_status["fallback_reason"] = client_meta.get("fallback_reason")
+            if client_meta.get("fallback_error_type"):
+                runtime_status["fallback_error_type"] = client_meta.get("fallback_error_type")
     except Exception as e:
         runtime_status = _runtime_status_snapshot()
         safe_error = _sanitize_runtime_error_message(e)
@@ -4226,20 +4299,23 @@ async def mammoth_chat(body: Dict[str, Any]):
         thought_steps.append({"ts": _ts(), "label": "Consulting the herd", "detail": "Running native MammothOS assistant response", "status": "info"})
         client = get_llm_client(config=cfg)
         assistant_reply = await client.generate(prompt, temperature=temperature)
-        client_name = type(client).__name__.lower()
-        if "openai" in client_name:
-            assistant_adapter = "openai"
-        elif "ollama" in client_name:
-            assistant_adapter = "ollama"
-        elif "local" in client_name:
-            assistant_adapter = "local"
-        elif "fallback" in client_name:
-            assistant_adapter = "fallback"
-        else:
-            assistant_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
+        requested_adapter = str((cfg.get("adapter") or os.environ.get("MAMMOTH_LLM_ADAPTER") or "").strip() or "auto")
+        client_meta = _runtime_metadata_from_client(client, requested_adapter=requested_adapter)
+        assistant_adapter = str(client_meta.get("active_adapter") or requested_adapter or "auto")
         assistant_model = str(getattr(client, "model", model or "unknown"))
         thought_steps.append({"ts": _ts(), "label": "Tusks charged", "detail": f"adapter={assistant_adapter} model={assistant_model}", "status": "success"})
         runtime_status = _runtime_status_snapshot()
+        runtime_status["effective_adapter"] = assistant_adapter
+        if client_meta.get("fallback_used"):
+            runtime_status["state"] = "degraded"
+            runtime_status["degraded_mode"] = True
+            runtime_status["fallback_used"] = True
+            runtime_status["primary_provider"] = client_meta.get("primary_provider")
+            runtime_status["used_provider"] = client_meta.get("used_provider")
+            if client_meta.get("fallback_reason"):
+                runtime_status["fallback_reason"] = client_meta.get("fallback_reason")
+            if client_meta.get("fallback_error_type"):
+                runtime_status["fallback_error_type"] = client_meta.get("fallback_error_type")
         return {
             "agent_id": "assistant",
             "adapter": assistant_adapter,

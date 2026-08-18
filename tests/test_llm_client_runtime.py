@@ -61,9 +61,11 @@ def test_get_llm_client_uses_repo_env_for_openai(monkeypatch):
             "OPENAI_MODEL": "gpt-4o-mini",
         },
     )
+    monkeypatch.setattr(llm_client, "check_ollama_running", lambda *_args, **_kwargs: False)
     client = llm_client.get_llm_client()
-    assert client.__class__.__name__ == "OpenAIAdapter"
-    assert getattr(client, "model", "") == "gpt-4o-mini"
+    assert isinstance(client, FallbackAdapter)
+    assert client.primary.__class__.__name__ == "OpenAIAdapter"
+    assert getattr(client.primary, "model", "") == "gpt-4o-mini"
 
 
 def test_ollama_adapter_falls_back_to_generate_when_chat_404(monkeypatch):
@@ -85,3 +87,17 @@ def test_ollama_adapter_falls_back_to_generate_when_chat_404(monkeypatch):
         "http://localhost:11434/api/chat",
         "http://localhost:11434/api/generate",
     ]
+
+
+class TransientBrokenProvider(LocalAdapter):
+    async def generate(self, prompt: str, **kwargs) -> str:
+        raise RuntimeError("network timeout while contacting provider")
+
+
+def test_fallback_adapter_uses_next_provider_for_network_failure():
+    adapter = FallbackAdapter(TransientBrokenProvider(), HealthyFallback(), primary_name="deepseek", fallback_name="local")
+    result = asyncio.run(adapter.generate("hello"))
+    assert result == "fallback-response"
+    assert adapter.last_fallback_used is True
+    assert adapter.last_fallback_reason == "network_or_transient"
+    assert adapter.last_used_provider == "local"

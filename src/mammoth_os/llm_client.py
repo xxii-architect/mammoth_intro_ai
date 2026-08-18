@@ -1,4 +1,3 @@
-import asyncio
 import os
 from pathlib import Path
 from typing import Any, Dict, List
@@ -125,32 +124,129 @@ def _is_billing_or_auth_error(exc: BaseException) -> bool:
         "not enough",
         "no funds",
         "account",
+        "authentication",
+        "unauthorized",
+        "access denied",
     )
     return any(indicator in message for indicator in indicators)
+
+
+def _is_transient_provider_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    indicators = (
+        "timeout",
+        "timed out",
+        "connection",
+        "connect",
+        "unreachable",
+        "refused",
+        "network",
+        "dns",
+        "temporary",
+        "service unavailable",
+        "502",
+        "503",
+        "504",
+    )
+    return any(indicator in message for indicator in indicators)
+
+
+def _is_fallback_eligible_error(exc: BaseException) -> bool:
+    return _is_billing_or_auth_error(exc) or _is_transient_provider_error(exc)
+
+
+def _classify_provider_error(exc: BaseException) -> str:
+    lowered = str(exc).lower()
+    if any(token in lowered for token in ("insufficient_quota", "billing", "quota", "credit", "payment", "429", "insufficient balance")):
+        return "quota_or_billing"
+    if any(token in lowered for token in ("401", "403", "api key", "invalid api key", "authentication", "unauthorized", "access denied")):
+        return "auth_or_access"
+    if _is_transient_provider_error(exc):
+        return "network_or_transient"
+    return "provider_error"
+
+
+def _client_label(client: LLMClient) -> str:
+    name = type(client).__name__.lower()
+    if "openai" in name:
+        return "openai"
+    if "ollama" in name:
+        return "ollama"
+    if "local" in name:
+        return "local"
+    if "fallback" in name:
+        used = str(getattr(client, "last_used_provider", "")).strip().lower()
+        if used:
+            return used
+        primary = str(getattr(client, "primary_name", "")).strip().lower()
+        return primary or "fallback"
+    return str(getattr(client, "adapter", "provider") or "provider").strip().lower()
 
 
 class FallbackAdapter(LLMClient):
     """Adapter that tries a preferred client and falls back gracefully."""
 
-    def __init__(self, primary: LLMClient, fallback: LLMClient):
+    def __init__(
+        self,
+        primary: LLMClient,
+        fallback: LLMClient,
+        primary_name: str | None = None,
+        fallback_name: str | None = None,
+    ):
         self.primary = primary
         self.fallback = fallback
+        self.primary_name = (primary_name or _client_label(primary)).strip().lower() or "primary"
+        self.fallback_name = (fallback_name or _client_label(fallback)).strip().lower() or "fallback"
+        self.model = str(getattr(primary, "model", getattr(fallback, "model", "unknown")))
+        self.last_used_provider = self.primary_name
+        self.last_fallback_used = False
+        self.last_fallback_reason = ""
+        self.last_error_type = ""
+        self.last_error_detail = ""
+
+    def _reset_last(self):
+        self.last_fallback_used = False
+        self.last_fallback_reason = ""
+        self.last_error_type = ""
+        self.last_error_detail = ""
 
     async def generate(self, prompt: str, **kwargs) -> str:
+        self._reset_last()
         try:
-            return await self.primary.generate(prompt, **kwargs)
+            result = await self.primary.generate(prompt, **kwargs)
+            self.last_used_provider = self.primary_name
+            self.model = str(getattr(self.primary, "model", self.model))
+            return result
         except Exception as exc:
-            if not _is_billing_or_auth_error(exc):
+            if not _is_fallback_eligible_error(exc):
                 raise
-            return await self.fallback.generate(prompt, **kwargs)
+            self.last_fallback_used = True
+            self.last_fallback_reason = _classify_provider_error(exc)
+            self.last_error_type = type(exc).__name__
+            self.last_error_detail = str(exc)
+            result = await self.fallback.generate(prompt, **kwargs)
+            self.last_used_provider = self.fallback_name
+            self.model = str(getattr(self.fallback, "model", self.model))
+            return result
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
+        self._reset_last()
         try:
-            return await self.primary.embed(texts, **kwargs)
+            result = await self.primary.embed(texts, **kwargs)
+            self.last_used_provider = self.primary_name
+            self.model = str(getattr(self.primary, "model", self.model))
+            return result
         except Exception as exc:
-            if not _is_billing_or_auth_error(exc):
+            if not _is_fallback_eligible_error(exc):
                 raise
-            return await self.fallback.embed(texts, **kwargs)
+            self.last_fallback_used = True
+            self.last_fallback_reason = _classify_provider_error(exc)
+            self.last_error_type = type(exc).__name__
+            self.last_error_detail = str(exc)
+            result = await self.fallback.embed(texts, **kwargs)
+            self.last_used_provider = self.fallback_name
+            self.model = str(getattr(self.fallback, "model", self.model))
+            return result
 
 
 def _build_deepseek_adapter(cfg: Dict[str, Any]) -> LLMClient | None:
@@ -170,19 +266,53 @@ def _build_openai_adapter(cfg: Dict[str, Any]) -> LLMClient | None:
     if not openai_key:
         return None
     try:
-        return OpenAIAdapter(config={**cfg, "api_key": openai_key, "model": _cfg_or_env(cfg, "OPENAI_MODEL", str(cfg.get("model") or "gpt-4o-mini")), "base_url": _cfg_or_env(cfg, "OPENAI_BASE_URL") or None})
+        return OpenAIAdapter(
+            config={
+                **cfg,
+                "api_key": openai_key,
+                "model": _cfg_or_env(cfg, "OPENAI_MODEL", str(cfg.get("model") or "gpt-4o-mini")),
+                "base_url": _cfg_or_env(cfg, "OPENAI_BASE_URL") or None,
+            }
+        )
     except Exception:
         return None
 
 
-def _make_fallback_client(cfg: Dict[str, Any]) -> LLMClient:
-    openai_client = _build_openai_adapter(cfg)
-    if openai_client is not None:
-        return openai_client
+def _build_ollama_or_local_client(cfg: Dict[str, Any]) -> LLMClient:
     ollama_url = _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")
     if check_ollama_running(ollama_url):
-        return OllamaAdapter(config={**cfg, "base_url": ollama_url})
+        try:
+            return OllamaAdapter(config={**cfg, "base_url": ollama_url})
+        except Exception:
+            return LocalAdapter(config=cfg)
     return LocalAdapter(config=cfg)
+
+
+def _build_openai_chain(cfg: Dict[str, Any]) -> LLMClient | None:
+    openai_client = _build_openai_adapter(cfg)
+    if openai_client is None:
+        return None
+    fallback_client = _build_ollama_or_local_client(cfg)
+    return FallbackAdapter(
+        primary=openai_client,
+        fallback=fallback_client,
+        primary_name="openai",
+        fallback_name=_client_label(fallback_client),
+    )
+
+
+def _build_deepseek_chain(cfg: Dict[str, Any]) -> LLMClient | None:
+    deepseek_client = _build_deepseek_adapter(cfg)
+    if deepseek_client is None:
+        return None
+    openai_chain = _build_openai_chain(cfg)
+    fallback_client: LLMClient = openai_chain if openai_chain is not None else _build_ollama_or_local_client(cfg)
+    return FallbackAdapter(
+        primary=deepseek_client,
+        fallback=fallback_client,
+        primary_name="deepseek",
+        fallback_name=_client_label(fallback_client),
+    )
 
 
 def get_llm_client(config: Dict[str, Any] | None = None):
@@ -198,36 +328,36 @@ def get_llm_client(config: Dict[str, Any] | None = None):
         return LocalAdapter(config=cfg)
 
     if adapter_name in _OLLAMA_ADAPTER_NAMES:
+        local_cfg = dict(cfg)
         if adapter_name in MODEL_ALIASES or adapter_name not in {"ollama", "local-ollama"}:
-            cfg = {**cfg, "model": adapter_name}
-        return OllamaAdapter(config={**cfg, "base_url": _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")})
+            local_cfg["model"] = adapter_name
+        primary = OllamaAdapter(config={**local_cfg, "base_url": _cfg_or_env(local_cfg, "OLLAMA_BASE_URL", "http://localhost:11434")})
+        return FallbackAdapter(primary=primary, fallback=LocalAdapter(config=local_cfg), primary_name="ollama", fallback_name="local")
 
     if adapter_name in _DEEPSEEK_ADAPTER_NAMES:
-        deepseek_client = _build_deepseek_adapter(cfg)
-        if deepseek_client is not None:
-            return FallbackAdapter(primary=deepseek_client, fallback=_make_fallback_client(cfg))
+        deepseek_chain = _build_deepseek_chain(cfg)
+        if deepseek_chain is not None:
+            return deepseek_chain
 
     requested_model = str(cfg.get("model", "")).strip()
     if not requested_model:
         requested_model = _cfg_or_env(cfg, "OPENAI_MODEL")
     if _is_ollama_model_hint(requested_model):
-        return OllamaAdapter(config={**cfg, "model": requested_model, "base_url": _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")})
+        ollama_cfg = {**cfg, "model": requested_model, "base_url": _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")}
+        primary = OllamaAdapter(config=ollama_cfg)
+        return FallbackAdapter(primary=primary, fallback=LocalAdapter(config=ollama_cfg), primary_name="ollama", fallback_name="local")
 
     if adapter_name == "openai":
-        openai_client = _build_openai_adapter(cfg)
-        if openai_client is not None:
-            return openai_client
+        openai_chain = _build_openai_chain(cfg)
+        if openai_chain is not None:
+            return openai_chain
 
-    openai_client = _build_openai_adapter(cfg)
-    if openai_client is not None:
-        return openai_client
+    deepseek_chain = _build_deepseek_chain(cfg)
+    if deepseek_chain is not None:
+        return deepseek_chain
 
-    deepseek_client = _build_deepseek_adapter(cfg)
-    if deepseek_client is not None:
-        return FallbackAdapter(primary=deepseek_client, fallback=_make_fallback_client(cfg))
+    openai_chain = _build_openai_chain(cfg)
+    if openai_chain is not None:
+        return openai_chain
 
-    ollama_url = _cfg_or_env(cfg, "OLLAMA_BASE_URL", "http://localhost:11434")
-    if check_ollama_running(ollama_url):
-        return OllamaAdapter(config={**cfg, "base_url": ollama_url})
-
-    return LocalAdapter(config=cfg)
+    return _build_ollama_or_local_client(cfg)
