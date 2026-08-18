@@ -39,6 +39,25 @@ const promptPatterns = [
   },
 ]
 
+const firstRunChecklist = [
+  {
+    step: '1) Open Manual first',
+    detail: 'Read prompt shape + safety rules, then keep this page open while you run your first task.',
+  },
+  {
+    step: '2) Run one Terminal playbook command',
+    detail: 'Use the Terminal page to run one ATLAS CLI command from the in-app shell.',
+  },
+  {
+    step: '3) Run one Agent template',
+    detail: 'Pick a template from Agent Console, keep Preview First on, then run it.',
+  },
+  {
+    step: '4) Review output + next action',
+    detail: 'Confirm output is source-aware, then either apply approvals or rerun with tighter scope.',
+  },
+]
+
 export default function ManualPage() {
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -58,6 +77,20 @@ export default function ManualPage() {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+        <div className="glass-card-solid" style={sectionStyle}>
+          <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Sparkles size={16} color="var(--photon)" /> First-run tutorial
+          </h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {firstRunChecklist.map((item) => (
+              <div key={item.step} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: '0.78rem', color: 'var(--txt-pri)', fontWeight: 600, marginBottom: 6 }}>{item.step}</div>
+                <div style={{ color: 'var(--txt-sec)', fontSize: '0.76rem', lineHeight: 1.6 }}>{item.detail}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div className="glass-card-solid" style={sectionStyle}>
           <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Terminal size={16} color="var(--cyan)" /> Terminal usage

@@ -1,29 +1,77 @@
-import React from 'react';
-import { useAgentNotes } from './hooks/useAgentNotes';
-import { useCreateNote } from './hooks/useCreateNote';
-import { useDeleteNote } from './hooks/useDeleteNote';
-import { NotesList } from './NotesList';
-import { NotesComposer } from './NotesComposer';
+import React from 'react'
+import { FileText, RefreshCw } from 'lucide-react'
+import { useAgentNotes } from './hooks/useAgentNotes'
+import { useCreateNote } from './hooks/useCreateNote'
+import { useDeleteNote } from './hooks/useDeleteNote'
+import { NotesList } from './NotesList'
+import { NotesComposer } from './NotesComposer'
 
-// NotesPanel Component
 const NotesPanel: React.FC = () => {
-  const { notes, loading, error } = useAgentNotes();
-  const { createNote } = useCreateNote();
-  const { deleteNote } = useDeleteNote();
+  const { notes, setNotes, loading, error, reload } = useAgentNotes()
+  const { createNote, loading: creating, error: createError } = useCreateNote()
+  const { deleteNote, loading: deleting, error: deleteError } = useDeleteNote()
+
+  const busy = creating || deleting
+  const statusMessage = error || createError || deleteError
+
+  const handleCreate = async (content: string) => {
+    const created = await createNote(content)
+    if (created) {
+      setNotes((prev) => [created, ...prev])
+    } else {
+      await reload()
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    await deleteNote(id)
+    setNotes((prev) => prev.filter((note) => note.id !== id))
+  }
 
   return (
-    <div className="bg-mammoth-dark backdrop-blur-md border border-mammoth-accent/40 rounded-xl shadow-neon p-4 md:p-6 flex flex-col gap-6">
-      <h2 className="text-xl font-semibold text-mammoth-accent mb-4 md:mb-6">Notes</h2>
-
-      {loading && <p className="text-yellow-400">Loading...</p>}
-      {error && <p className="text-red-500">{error}</p>}
-
-      <div className="bg-mammoth-dark/60 border border-mammoth-accent/30 rounded-lg shadow-neon-sm p-4 flex flex-col gap-6">
-        <NotesList notes={notes} onDelete={deleteNote} />
-        <NotesComposer onCreate={createNote} />
+    <section className="glass-card-solid" style={{ padding: 20, borderLeft: '2px solid var(--cyan)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div>
+          <div className="eyebrow" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <FileText size={14} color="var(--cyan)" />
+            Command Center notes
+          </div>
+          <h2 style={{ fontSize: '1rem', marginBottom: 6 }}>Layered capture panel</h2>
+          <p style={{ color: 'var(--txt-sec)', fontSize: '0.84rem', lineHeight: 1.7, maxWidth: 640 }}>
+            This is the live Notes UI. Your terminal commands succeeded, but they only generated helper files. This panel is the real
+            in-app surface, now restyled directly with the MammothOS glass theme and readable high-contrast controls.
+          </p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="glass-card" style={{ padding: '8px 12px', minWidth: 118 }}>
+            <div style={{ color: 'var(--txt-mut)', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.16em' }}>Notes loaded</div>
+            <div style={{ color: 'var(--txt-pri)', fontFamily: 'JetBrains Mono, monospace', fontSize: '1.1rem', marginTop: 4 }}>{notes.length}</div>
+          </div>
+          <button className="ghost-btn" onClick={() => void reload()} disabled={loading || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+            <RefreshCw size={14} />
+            {loading ? 'Refreshing…' : 'Refresh'}
+          </button>
+        </div>
       </div>
-    </div>
-  );
-};
 
-export default NotesPanel;
+      {statusMessage ? (
+        <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, border: '1px solid rgba(239,68,68,0.24)', background: 'rgba(127,29,29,0.18)', color: '#fecaca', fontSize: '0.8rem' }}>
+          {statusMessage}
+        </div>
+      ) : null}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)', gap: 16 }}>
+        <NotesComposer onCreate={handleCreate} busy={busy} />
+        <div className="glass-card" style={{ padding: 16 }}>
+          {loading ? (
+            <div style={{ color: 'var(--txt-sec)', fontSize: '0.84rem' }}>Loading notes…</div>
+          ) : (
+            <NotesList notes={notes} onDelete={handleDelete} busy={busy} />
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+export default NotesPanel

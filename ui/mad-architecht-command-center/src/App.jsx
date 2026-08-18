@@ -23,6 +23,28 @@ import CompliancePage  from './pages/CompliancePage'
 import PricingPage     from './pages/PricingPage'
 import DiagnosticsPage from './pages/DiagnosticsPage'
 
+const BRANDING = {
+  headerLogo: '/branding/mammoth-logo.png',
+  atlasLogo: '/branding/atlas-logo.png',
+}
+
+function LogoMark({ src, alt, fallback, size = 20, style = {} }) {
+  const [errored, setErrored] = useState(false)
+  if (errored) {
+    return <span style={{ fontSize: `${Math.max(16, Math.floor(size * 0.9))}px`, lineHeight: 1 }}>{fallback}</span>
+  }
+  return (
+    <img
+      src={src}
+      alt={alt}
+      width={size}
+      height={size}
+      onError={() => setErrored(true)}
+      style={{ width: size, height: size, objectFit: 'contain', imageRendering: 'auto', ...style }}
+    />
+  )
+}
+
 const THEMES = {
   darker:   { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
   dark:     { '--shell': '#0d1117', '--card': '#161b22', '--card-hover': '#1f2937' },
@@ -141,7 +163,7 @@ function AtlasFAB({ currentPage }) {
         onClick={() => setOpen(o => !o)}
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9000,
-          width: 52, height: 52, borderRadius: '50%',
+          width: 64, height: 64, borderRadius: '50%',
           background: 'var(--violet)',
           border: '2px solid rgba(180,124,255,0.5)',
           boxShadow: '0 0 20px rgba(180,124,255,0.5)',
@@ -152,7 +174,13 @@ function AtlasFAB({ currentPage }) {
         }}
         title="ATLAS Tutor"
       >
-        🐘
+        <LogoMark
+          src={BRANDING.atlasLogo}
+          alt="ATLAS logo"
+          fallback="🐘"
+          size={42}
+          style={{ filter: 'drop-shadow(0 0 8px rgba(180,124,255,0.6))' }}
+        />
       </button>
 
       {open && (
@@ -169,7 +197,7 @@ function AtlasFAB({ currentPage }) {
         }}>
           <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(180,124,255,0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: '1rem' }}>🐘</span>
+              <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={24} />
               <div>
                 <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: 'var(--violet)' }}>ATLAS Tutor</p>
                 <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>AI-powered coding mentor</p>
@@ -197,7 +225,9 @@ function AtlasFAB({ currentPage }) {
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {history.length === 0 && (
               <div style={{ textAlign: 'center', marginTop: 40 }}>
-                <p style={{ fontSize: '1.8rem', marginBottom: 8 }}>🐘</p>
+                <div style={{ marginBottom: 8 }}>
+                  <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={48} />
+                </div>
                 <p style={{ fontSize: '0.78rem', color: 'var(--txt-mut)', margin: 0 }}>Ask ATLAS anything about your current lesson or code.</p>
               </div>
             )}
@@ -218,7 +248,10 @@ function AtlasFAB({ currentPage }) {
               </div>
             ))}
             {busy && (
-              <div style={{ alignSelf: 'flex-start', fontSize: '0.78rem', color: 'var(--txt-mut)', padding: '8px 11px' }}>🐘 thinking…</div>
+              <div style={{ alignSelf: 'flex-start', fontSize: '0.78rem', color: 'var(--txt-mut)', padding: '8px 11px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={16} />
+                thinking…
+              </div>
             )}
             <div ref={bottomRef} />
           </div>
@@ -279,7 +312,7 @@ export default function App() {
         display: 'flex', flexDirection: 'column',
       }}>
         <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: '1.2rem' }}>🐘</span>
+          <LogoMark src={BRANDING.headerLogo} alt="MammothOS logo" fallback="🐘" size={30} />
           <span style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--txt-pri)', letterSpacing: '0.04em' }}>MammothOS</span>
         </div>
 
@@ -343,7 +376,7 @@ export default function App() {
           </span>
         </div>
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
-          <PageComponent />
+          <PageComponent setPage={setPage} />
         </div>
       </div>
 

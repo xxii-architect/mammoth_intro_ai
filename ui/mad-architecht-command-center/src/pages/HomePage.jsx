@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Copy, LayoutDashboard, ShieldCheck, Sparkles } from 'lucide-react'
+import { Copy, ShieldCheck, Sparkles, Bot, Terminal, BookOpen, CheckCircle2 } from 'lucide-react'
 import { api } from '../api/client'
 import { loadSelfAuditHistory, runSystemSelfAudit } from '../api/diagnostics'
 import { useInterval } from '../hooks/useApi'
@@ -38,6 +38,35 @@ const bootSequence = [
   'Command center: ready',
 ]
 
+const ONBOARDING_STORAGE_KEY = 'mammoth_onboarding_v1'
+
+const onboardingSteps = [
+  {
+    id: 'manual',
+    label: 'Read the Manual page',
+    detail: 'Learn prompt shape, terminal patterns, and approval-safe workflow.',
+    page: 'manual',
+    Icon: BookOpen,
+    color: 'var(--cyan)',
+  },
+  {
+    id: 'terminal',
+    label: 'Run one ATLAS CLI command',
+    detail: 'Use the in-app Terminal playbook so command usage stays in one place.',
+    page: 'terminal',
+    Icon: Terminal,
+    color: 'var(--photon)',
+  },
+  {
+    id: 'agent',
+    label: 'Run one Agent template',
+    detail: 'Use source-aware templates with scope + constraints for sharper output.',
+    page: 'agent',
+    Icon: Bot,
+    color: 'var(--violet)',
+  },
+]
+
 export default function HomePage({ setPage }) {
   const [status, setStatus] = useState(null)
   const [health, setHealth] = useState(null)
@@ -47,6 +76,7 @@ export default function HomePage({ setPage }) {
   const [selfAudit, setSelfAudit] = useState(null)
   const [auditBusy, setAuditBusy] = useState(false)
   const [copied, setCopied] = useState(null)
+  const [onboarding, setOnboarding] = useState({ dismissed: false, completed: {} })
 
   const fetchAll = async () => {
     try {
@@ -73,6 +103,19 @@ export default function HomePage({ setPage }) {
       setSelfAudit(history[0])
     }
   }, [])
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(ONBOARDING_STORAGE_KEY)
+      if (raw) {
+        setOnboarding(JSON.parse(raw))
+      }
+    } catch (_) {}
+  }, [])
+
+  const persistOnboarding = (nextState) => {
+    setOnboarding(nextState)
+    localStorage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(nextState))
+  }
 
   const copy = (cmd) => {
     navigator.clipboard.writeText(cmd)
@@ -95,6 +138,25 @@ export default function HomePage({ setPage }) {
       })
     } finally {
       setAuditBusy(false)
+    }
+
+    const openOnboardingStep = (step) => {
+      const next = {
+        ...onboarding,
+        completed: {
+          ...(onboarding.completed || {}),
+          [step.id]: true,
+        },
+      }
+      persistOnboarding(next)
+      setPage?.(step.page)
+    }
+
+    const dismissOnboarding = () => {
+      persistOnboarding({
+        ...onboarding,
+        dismissed: true,
+      })
     }
   }
 
@@ -129,12 +191,66 @@ export default function HomePage({ setPage }) {
   const fallbackActivity = [
     { dot: '#22c55e', msg: 'MammothOS Command Center started', time: 'now' },
   ]
+  const completedOnboardingCount = onboardingSteps.filter(step => onboarding.completed?.[step.id]).length
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
       <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20 }}>
         Welcome back, Vernon
       </h1>
+
+      {!onboarding.dismissed && (
+        <div className="glass-card-solid" style={{ padding: 18, marginBottom: 24, borderLeft: '2px solid var(--photon)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <Sparkles size={16} color="var(--photon)" />
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>First-run workflow</span>
+              </div>
+              <p style={{ fontSize: '0.8rem', color: 'var(--txt-sec)', margin: 0, lineHeight: 1.6 }}>
+                Follow this once to lock in agent prompting, terminal usage, and safe execution defaults.
+              </p>
+            </div>
+            <div style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-mut)' }}>
+              {completedOnboardingCount}/{onboardingSteps.length} complete
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
+            {onboardingSteps.map((step) => {
+              const done = Boolean(onboarding.completed?.[step.id])
+              const Icon = step.Icon
+              return (
+                <button
+                  key={step.id}
+                  onClick={() => openOnboardingStep(step)}
+                  style={{
+                    textAlign: 'left',
+                    padding: '10px 12px',
+                    borderRadius: 10,
+                    border: `1px solid ${done ? 'rgba(34,197,94,0.35)' : 'var(--border)'}`,
+                    background: done ? 'rgba(34,197,94,0.06)' : 'rgba(255,255,255,0.03)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    {done ? <CheckCircle2 size={14} color="#22c55e" /> : <Icon size={14} color={step.color} />}
+                    <span style={{ fontSize: '0.76rem', color: 'var(--txt-pri)', fontWeight: 600 }}>{step.label}</span>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{step.detail}</div>
+                </button>
+              )
+            })}
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              onClick={dismissOnboarding}
+              style={{ border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', borderRadius: 8, padding: '6px 10px', fontSize: '0.74rem', cursor: 'pointer' }}
+            >
+              Hide onboarding
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 24 }}>

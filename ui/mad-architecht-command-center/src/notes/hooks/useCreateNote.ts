@@ -1,27 +1,28 @@
-import { useState } from 'react';
+import { useState } from 'react'
+import { api } from '../../api/client'
 
 const useCreateNote = () => {
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
 
   const createNote = async (content: string) => {
-    setLoading(true);
+    setLoading(true)
+    setError(null)
     try {
-      const response = await fetch('http://localhost:8000/api/notes', {
+      return await api('/notes', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
-      if (!response.ok) throw new Error('Failed to create note');
-      return await response.json();
-    } catch (err: any) {
-      setError(err.message);
+        body: { content },
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create note'
+      setError(message)
+      throw err
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  return { createNote, loading, error };
-};
+  return { createNote, loading, error }
+}
 
-export { useCreateNote };
+export { useCreateNote }

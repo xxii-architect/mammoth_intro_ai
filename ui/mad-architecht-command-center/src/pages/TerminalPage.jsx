@@ -15,6 +15,16 @@ const QUICK_ACTIONS = [
 
 const COMMAND_PLAYBOOK = [
   {
+    label: 'Runtime Status',
+    cmd: 'python -m cli.main status',
+    note: 'Checks overall CLI/runtime health quickly before running larger jobs.',
+  },
+  {
+    label: 'ATLAS Status',
+    cmd: 'python -m cli.main atlas status',
+    note: 'Confirms ATLAS runtime wiring and model/provider readiness.',
+  },
+  {
     label: 'ATLAS Code Generate',
     cmd: 'python -m cli.main atlas code generate "build a MammothOS notes panel"',
     note: 'Runs the coding workflow from inside the UI terminal.',
@@ -28,6 +38,26 @@ const COMMAND_PLAYBOOK = [
     label: 'ATLAS UI Component',
     cmd: 'python -m cli.main atlas ui component "create a neon command-center status card"',
     note: 'Uses UIBuilderAgent from the UI terminal.',
+  },
+  {
+    label: 'ATLAS UI Palette',
+    cmd: 'python -m cli.main atlas ui palette "Apply MammothOS command center dark theme and preserve existing layout"',
+    note: 'Generates palette-oriented UI guidance for theming tasks.',
+  },
+  {
+    label: 'Health page source scan',
+    cmd: 'python -m cli.main atlas code scan ui\\mad-architecht-command-center\\src\\pages\\HealthPage.jsx',
+    note: 'Useful before asking agents to split system health and personal health.',
+  },
+  {
+    label: 'Log Sale page source scan',
+    cmd: 'python -m cli.main atlas code scan ui\\mad-architecht-command-center\\src\\pages\\LogSalePage.jsx',
+    note: 'Useful before asking agents to split personal and business finances.',
+  },
+  {
+    label: 'Frontend build check',
+    cmd: 'npm run build',
+    note: 'Validates UI changes compile cleanly after agent-generated edits.',
   },
 ]
 
@@ -189,6 +219,9 @@ export default function TerminalPage() {
             <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.7, marginBottom: 10 }}>
               ATLAS CLI commands are supported here too, including <code style={{ color: 'var(--photon)' }}>python -m cli.main atlas code ...</code>.
               Longer ATLAS code and UI commands get an extended backend timeout.
+            </div>
+            <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', lineHeight: 1.6, marginBottom: 10 }}>
+              Tip: click a card to run immediately. Use scans first, then generate/edit commands, then run build.
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {COMMAND_PLAYBOOK.map((item) => (

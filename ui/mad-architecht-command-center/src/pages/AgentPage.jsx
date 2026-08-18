@@ -70,6 +70,18 @@ const PROMPT_PLAYBOOK = [
     executionMode: 'plan',
     prompt: 'Plan and implement an onboarding/manual experience for agent prompting, terminal usage, and safe approvals.',
   },
+  {
+    label: 'Health module split test',
+    planProfile: 'coding',
+    executionMode: 'plan',
+    prompt: 'Plan and implement Health page split: keep existing System Health, add Personal Health module with habit metrics and daily check-in. Scope: ui\\mad-architecht-command-center\\src\\pages\\HealthPage.jsx and related UI components only. Preserve existing backend health wiring and dark theme.',
+  },
+  {
+    label: 'Finance split test',
+    planProfile: 'coding',
+    executionMode: 'plan',
+    prompt: 'Plan and implement Log Sale page split: Personal Finances and Business Finances sections with separate totals and entries. Scope: ui\\mad-architecht-command-center\\src\\pages\\LogSalePage.jsx and related local UI state only. Keep existing styling and current behavior intact.',
+  },
 ]
 
 export default function AgentPage() {
@@ -448,6 +460,9 @@ export default function AgentPage() {
               <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.7, marginBottom: 10 }}>
                 Short prompts are fine. Best results usually include: <strong style={{ color: 'var(--txt-pri)' }}>outcome</strong>, <strong style={{ color: 'var(--txt-pri)' }}>scope/files</strong>, and <strong style={{ color: 'var(--txt-pri)' }}>constraints</strong>.
                 For bigger work, switch to <strong style={{ color: 'var(--txt-pri)' }}>Plan + Execute</strong>.
+              </div>
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', lineHeight: 1.6, marginBottom: 10 }}>
+                New: use <strong style={{ color: 'var(--txt-pri)' }}>Health module split test</strong> and <strong style={{ color: 'var(--txt-pri)' }}>Finance split test</strong> templates to task agents with your next module integrations.
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {PROMPT_PLAYBOOK.map((entry) => (

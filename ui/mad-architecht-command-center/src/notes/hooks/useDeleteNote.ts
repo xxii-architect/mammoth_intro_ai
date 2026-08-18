@@ -1,24 +1,27 @@
-import { useState } from 'react';
+import { useState } from 'react'
+import { api } from '../../api/client'
 
 const useDeleteNote = () => {
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false)
+  const [error, setError] = useState<string | null>(null)
 
   const deleteNote = async (id: string) => {
-    setLoading(true);
+    setLoading(true)
+    setError(null)
     try {
-      const response = await fetch(`http://localhost:8000/api/notes/${id}`, {
+      await api(`/notes/${id}`, {
         method: 'DELETE',
-      });
-      if (!response.ok) throw new Error('Failed to delete note');
-    } catch (err: any) {
-      setError(err.message);
+      })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete note'
+      setError(message)
+      throw err
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  return { deleteNote, loading, error };
-};
+  return { deleteNote, loading, error }
+}
 
-export { useDeleteNote };
+export { useDeleteNote }

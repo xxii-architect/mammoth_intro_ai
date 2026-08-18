@@ -12,6 +12,17 @@ npm run dev
 
 Open http://localhost:5173 to preview the app.
 
+## Custom logos (ATLAS FAB + MammothOS header)
+
+You can replace the default elephant fallback by adding image files to:
+
+`public\branding\`
+
+- `mammoth-logo.png` → sidebar/header logo next to **MammothOS**
+- `atlas-logo.png` → **ATLAS FAB** and tutor panel logo
+
+Then refresh the UI.
+
 ## Scope + low-credit execution plan
 
 ### Scope
@@ -27,6 +38,13 @@ Open http://localhost:5173 to preview the app.
 
 ## Main operator workflows
 
+### First-run onboarding
+- A first-run checklist now appears on Home to route operators through:
+  1) Manual page
+  2) Terminal playbook command
+  3) Agent template run
+- Progress is stored locally in browser storage and can be hidden after completion.
+
 ### Agent Console
 - Select an agent and run prompts against the live backend.
 - Switch to **Plan + Execute** mode to orchestrate a multi-agent plan from one objective.
@@ -34,6 +52,9 @@ Open http://localhost:5173 to preview the app.
   - **ATLAS-First**: plant seed + research/reflection + ops/market framing
   - **ATLAS + Coding Assistant**: keep ATLAS framing while prioritizing implementation planning
   - **Balanced**: neutral orchestration profile
+- Use prompt templates for next implementation tests:
+  - **Health module split test**
+  - **Finance split test**
 - Review step-by-step status and progress in the **Plan + Execute** panel.
 - Use **Run Smoke Test** to execute a one-click health sweep across core agents.
 - Review pass/fail, runtime status, latency, and output preview in
