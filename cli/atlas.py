@@ -181,6 +181,19 @@ def _resolve_active_ui_dir() -> str:
     return active_ui_dir
 
 
+def _looks_like_existing_ui_project(target_dir: str) -> bool:
+    if not target_dir or not os.path.isdir(target_dir):
+        return False
+
+    markers = (
+        os.path.join(target_dir, "package.json"),
+        os.path.join(target_dir, "index.html"),
+        os.path.join(target_dir, "src", "App.jsx"),
+        os.path.join(target_dir, "src", "main.jsx"),
+    )
+    return any(os.path.exists(marker) for marker in markers)
+
+
 def _divider():
     print("─" * 60)
 
@@ -552,8 +565,17 @@ def cmd_atlas_ui_scaffold(args) -> None:
     from mammoth_os.agents.ui_builder_agent import UIBuilderAgent
 
     prompt = " ".join(args.prompt).strip() or "ATLAS progress dashboard"
+    target_dir = os.path.abspath(args.output) if args.output else None
+
+    if target_dir and _looks_like_existing_ui_project(target_dir) and not getattr(args, "overwrite", False):
+        print("❌ Refusing to scaffold into an existing UI project directory.")
+        print(f"   Target: {target_dir}")
+        print("   Use a new --output directory to avoid overwriting your current app,")
+        print("   or re-run with --overwrite if you intentionally want to replace it.")
+        sys.exit(1)
+
     agent = UIBuilderAgent(router=None)
-    result = asyncio.run(agent.scaffold(prompt, target_dir=args.output))
+    result = asyncio.run(agent.scaffold(prompt, target_dir=target_dir))
     _save_active_ui_dir(result["target_dir"])
 
     print("\n🧩 ATLAS — UI scaffolding")
@@ -842,6 +864,7 @@ def build_atlas_parser(sub: argparse._SubParsersAction) -> argparse.ArgumentPars
     p_scaffold = ui_sub.add_parser("scaffold", help="Create a Vite + React starter app")
     p_scaffold.add_argument("prompt", nargs="+", help="Natural-language description of the UI")
     p_scaffold.add_argument("--output", default=None, metavar="DIR", help="Target directory for the generated app")
+    p_scaffold.add_argument("--overwrite", action="store_true", help="Allow overwriting an existing UI project directory")
     p_scaffold.set_defaults(func=cmd_atlas_ui_scaffold)
 
     p_component = ui_sub.add_parser("component", help="Generate a UI component in the active project")
