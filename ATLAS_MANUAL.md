@@ -241,10 +241,17 @@ python -m cli.main atlas reset
 ```powershell
 python -m cli.main atlas code generate "a function that sums a list"
 python -m cli.main atlas code generate "binary search implementation"
-python -m cli.main atlas code generate "a React component that shows XP"
+python -m cli.main atlas code generate "a parser that reads a build log into JSON"
 ```
 Generates solution() + tests + docs, runs tests in sandbox, logs to Supabase.
 Works with both OpenAI and all Ollama models.
+
+Use this command for Python/problem-solving work. If the prompt is UI-first (for example `notes panel`, `dashboard`, `component`, `theme`, or `styling`), the CLI now redirects you to the UIBuilder path instead of generating misleading Python:
+
+```powershell
+python -m cli.main atlas ui component "upgrade my notes panel"
+python -m cli.main atlas ui palette "apply MammothOS command center styling to NotesPanel"
+```
 
 ### CodingAgent — refactor a file
 ```powershell

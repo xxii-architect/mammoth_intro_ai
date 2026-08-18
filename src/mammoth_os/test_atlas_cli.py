@@ -311,3 +311,24 @@ def test_load_session_auto_sets_resolved_user_id(monkeypatch, isolated_session):
 
     session = atlas_cli._load_session()
     assert session.user_id == "22222222-2222-2222-2222-222222222222"
+
+
+def test_atlas_code_generate_redirects_ui_component_prompts(capsys, isolated_session):
+    args = _args(prompt=["upgrade", "my", "notes", "panel"], no_save=True)
+    with pytest.raises(SystemExit) as exc:
+        atlas_cli.cmd_atlas_code_generate(args)
+
+    out = capsys.readouterr().out
+    assert exc.value.code == 0
+    assert "UI-focused prompt detected" in out
+    assert "atlas ui component" in out
+
+
+def test_atlas_code_generate_redirects_ui_style_prompts(capsys, isolated_session):
+    args = _args(prompt=["restyle", "the", "dashboard", "theme"], no_save=True)
+    with pytest.raises(SystemExit) as exc:
+        atlas_cli.cmd_atlas_code_generate(args)
+
+    out = capsys.readouterr().out
+    assert exc.value.code == 0
+    assert "atlas ui palette" in out

@@ -457,10 +457,33 @@ def cmd_atlas_code_generate(args) -> None:
 
     # ── Language guard ──────────────────────────────────────────────────────
     _NON_PYTHON = {"react", "typescript", "tsx", "javascript", "vue", "svelte", "html", "css"}
-    if any(kw in prompt.lower() for kw in _NON_PYTHON):
-        print("\n⚠️  Non-Python prompt detected — skipping Python sandbox.")
-        print("👉  Use:  python -m cli.main atlas ui palette \"<your prompt>\"")
-        print("    That command routes to UIBuilderAgent and outputs a .tsx file directly.\n")
+    _UI_HINTS = {
+        "ui",
+        "ux",
+        "panel",
+        "notes panel",
+        "component",
+        "page",
+        "layout",
+        "dashboard",
+        "sidebar",
+        "modal",
+        "dialog",
+        "card",
+        "theme",
+        "palette",
+        "style",
+        "styling",
+        "frontend",
+    }
+    prompt_lower = prompt.lower()
+    is_non_python = any(kw in prompt_lower for kw in _NON_PYTHON)
+    is_ui_prompt = any(kw in prompt_lower for kw in _UI_HINTS)
+    if is_non_python or is_ui_prompt:
+        suggested_command = "atlas ui palette" if any(kw in prompt_lower for kw in {"theme", "palette", "style", "styling", "color", "colors"}) else "atlas ui component"
+        print("\n⚠️  UI-focused prompt detected — skipping Python CodingAgent sandbox.")
+        print(f'👉  Use:  python -m cli.main {suggested_command} "{prompt}"')
+        print("    That route uses UIBuilderAgent for panels, components, pages, and styling work.\n")
         sys.exit(0)
     # ────────────────────────────────────────────────────────────────────────
 
