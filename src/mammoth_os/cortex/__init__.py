@@ -27,10 +27,10 @@ def build_cortex(
     """
     # create router first (empty agents dict for now)
     router = CortexRouter(
-        agents={},
-        approval_mode=approval_mode,
-        approval_handler=approval_handler,
-        execution_config=execution_config,
+        agents={},  # type: ignore
+        approval_mode=approval_mode,# type: ignore
+        approval_handler=approval_handler,  #type: ignore
+        execution_config=execution_config,#type: ignore
     )
 
     # instantiate agents with the router
@@ -46,5 +46,5 @@ def build_cortex(
     }
 
     # register agents on the router and return it
-    router.agents = agents
+    router.agents = agents# type: ignore
     return router

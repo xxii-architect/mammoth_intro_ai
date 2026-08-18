@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { HeartPulse, RefreshCw } from 'lucide-react'
 import { api } from '../api/client'
 import { useInterval } from '../hooks/useApi'
+import PersonalHealth from './PersonalHealth';
 
 export default function HealthPage() {
   const [health, setHealth]     = useState(null)
@@ -82,6 +83,8 @@ export default function HealthPage() {
           </div>
         )}
       </div>
+
+      <PersonalHealth />
 
       <style>{`@keyframes spin { from { transform: rotate(0deg) } to { transform: rotate(360deg) } }`}</style>
     </div>
