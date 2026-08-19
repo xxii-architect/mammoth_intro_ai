@@ -162,6 +162,12 @@ export default function LoginPage() {
           )}
         </form>
 
+        <div style={{ marginTop: 16, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+          <p style={{ margin: 0, fontSize: '0.68rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6, textAlign: 'left' }}>
+            This platform is under active development and may change without notice. By signing in, you acknowledge that you are using a prototype environment and agree to comply with all applicable laws, platform policies, and privacy obligations while using it.
+          </p>
+        </div>
+
         <p style={{ marginTop: 16, textAlign: 'center', fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
           {guestSignInEnabled
             ? 'Guest access uses Supabase anonymous auth and should be enabled in your Supabase Auth settings for live trial sessions.'
