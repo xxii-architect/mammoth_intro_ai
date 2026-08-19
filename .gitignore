@@ -51,3 +51,6 @@ coverage/
 .mammoth/seccomp.json
 src/.mammoth/
 test-approval.txt
+
+# Local Netlify folder
+.netlify
