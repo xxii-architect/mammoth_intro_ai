@@ -147,6 +147,244 @@ function compactNavSections(items) {
   }
   return cleaned
 }
+
+const TIER_RANK = {
+  explorer: 0,
+  pro: 1,
+  enterprise: 2,
+  developer: 3,
+}
+
+const PAGE_ACCESS_RULES = {
+  home: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Workspace Dashboard',
+    message: 'This dashboard is reserved for paid tiers while the public learner experience stays focused on lessons, tutoring, and product walkthroughs.',
+    highlights: [
+      'Workspace-level activity and rollout context',
+      'Paid-tier operational snapshots and expansion controls',
+      'A clearer view of what a Pro workspace unlocks',
+    ],
+  },
+  agent: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Agent Workbench',
+    message: 'The multi-agent workbench is part of the deeper operator plan. Keep it visible as a preview, but gate live execution until the workspace is upgraded.',
+    highlights: [
+      'Coordinated planner, reasoner, and coding flows',
+      'Safer execution lanes for advanced workflows',
+      'A direct upgrade path from learner mode to operator mode',
+    ],
+  },
+  chat: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Mammoth Mind',
+    message: 'This richer orchestration chat surface is positioned as a paid upgrade so people can see the value before it becomes a live entitlement.',
+    highlights: [
+      'Cross-agent orchestration and structured follow-through',
+      'Deeper workflow memory than the base learner tutor',
+      'An upgrade CTA that keeps the packaging story explicit',
+    ],
+  },
+  terminal: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Terminal Surface',
+    message: 'Command execution and coding-heavy terminal workflows should stay visible, but live access should be reserved for paid or approved operator accounts.',
+    highlights: [
+      'Guided execution lanes for build and debug work',
+      'Safer plan-and-run workflows',
+      'A premium operator capability instead of a hidden feature',
+    ],
+  },
+  notes: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Notes Workspace',
+    message: 'Persistent workspace notes are part of the deeper product tier. Showing the page as a preview makes the upgrade path obvious without pretending it is live for Explorer.',
+    highlights: [
+      'Persistent research and operator note surfaces',
+      'Context capture tied to paid workflows',
+      'A clearer premium value story than hiding navigation',
+    ],
+  },
+  modules: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Modules Catalog',
+    message: 'Module visibility is useful as a product preview even when the workspace has not unlocked the higher tier yet.',
+    highlights: [
+      'See the module ecosystem before purchasing access',
+      'Preview workflow stages and future rollout surfaces',
+      'Keep the UI honest about what becomes active after upgrade',
+    ],
+  },
+  health: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Health Signals',
+    message: 'Operational health belongs in the paid operator story. Keep the screen visible, but label it clearly as a preview until the workspace tier unlocks it.',
+    highlights: [
+      'Provider, runtime, and service health snapshots',
+      'A premium observability surface for operators',
+      'A cleaner packaging story than hiding diagnostics completely',
+    ],
+  },
+  logsale: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Revenue + Sales Logging',
+    message: 'Sales logging is positioned as a workspace upgrade so users can understand the commercial layer before it becomes live for their account.',
+    highlights: [
+      'Business and personal ledger support',
+      'Operator-facing revenue workflow previews',
+      'A visible upsell surface instead of a hidden menu item',
+    ],
+  },
+  buildlog: {
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
+    title: 'Build Log',
+    message: 'Build history and operator execution review are part of the paid workflow package. Let people see the surface, then guide them to upgrade.',
+    highlights: [
+      'Build trace visibility and execution history',
+      'A clearer premium operations story',
+      'A lightweight preview that preserves trust',
+    ],
+  },
+  diagnostics: {
+    kind: 'tier',
+    minimumTier: 'enterprise',
+    badge: 'Enterprise preview',
+    title: 'Diagnostics Export',
+    message: 'Diagnostics and replay bundles are higher-trust operator surfaces. Show the page as part of the enterprise promise, but gate the live export tools.',
+    highlights: [
+      'Replay bundles and export-grade diagnostics',
+      'Enterprise observability and support workflows',
+      'A visible roadmap surface for serious buyers',
+    ],
+  },
+  settings: {
+    kind: 'admin',
+    badge: 'Owner control',
+    title: 'Workspace Settings',
+    message: 'This page changes live entitlement, developer-access, and operator controls. Keep it visible, but reserve the functioning page for the owner or admin account.',
+    highlights: [
+      'Tier overrides and developer full access',
+      'Workspace account and operator control changes',
+      'Reserved for the tenant owner or approved admins',
+    ],
+  },
+}
+
+function effectiveTier(entitlements) {
+  const tier = String(entitlements?.effective_tier || entitlements?.tier || 'explorer').trim().toLowerCase()
+  return TIER_RANK[tier] !== undefined ? tier : 'explorer'
+}
+
+function meetsTier(entitlements, minimumTier) {
+  return TIER_RANK[effectiveTier(entitlements)] >= TIER_RANK[minimumTier]
+}
+
+function resolvePageAccess(page, { adminAccess, entitlements }) {
+  const rule = PAGE_ACCESS_RULES[page]
+  if (!rule) return null
+  if (adminAccess === true) return null
+  if (rule.kind === 'admin') return rule
+  return meetsTier(entitlements, rule.minimumTier) ? null : rule
+}
+
+function AccessPreviewPage({ gate, entitlements, setPage }) {
+  const tier = effectiveTier(entitlements)
+  const tierLabel = tier === 'developer' ? 'developer full access' : tier
+
+  return (
+    <div className="page-enter" style={{ padding: '40px 28px 80px', maxWidth: 980, margin: '0 auto' }}>
+      <div className="glass-card-solid" style={{ padding: 26, borderLeft: '3px solid var(--amber)', marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+          <ShieldCheck size={18} color="var(--amber)" />
+          <span style={{ fontSize: '0.72rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--amber)', fontWeight: 700 }}>
+            {gate.badge}
+          </span>
+        </div>
+        <h1 style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--txt-pri)', margin: '0 0 10px' }}>
+          {gate.title}
+        </h1>
+        <p style={{ fontSize: '0.95rem', color: 'var(--txt-sec)', lineHeight: 1.7, margin: '0 0 18px' }}>
+          {gate.message}
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18 }}>
+          <span style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
+            Current access: {tierLabel}
+          </span>
+          {gate.minimumTier && (
+            <span style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(230,126,34,0.28)', background: 'rgba(230,126,34,0.1)', color: 'var(--amber)', fontSize: '0.76rem' }}>
+              Unlocks at: {gate.minimumTier}
+            </span>
+          )}
+          {gate.kind === 'admin' && (
+            <span style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(180,124,255,0.28)', background: 'rgba(180,124,255,0.1)', color: 'var(--violet)', fontSize: '0.76rem' }}>
+              Requires owner/admin identity
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: 'grid', gap: 10, marginBottom: 22 }}>
+          {gate.highlights.map((highlight) => (
+            <div key={highlight} style={{ display: 'flex', gap: 8, fontSize: '0.86rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
+              <span style={{ color: 'var(--amber)' }}>•</span>
+              <span>{highlight}</span>
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => setPage('pricing')}
+            style={{
+              padding: '11px 16px',
+              borderRadius: 10,
+              border: 'none',
+              background: 'linear-gradient(90deg, var(--ember), var(--amber))',
+              color: '#fff',
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            See plans & access
+          </button>
+          <button
+            onClick={() => setPage('landing')}
+            style={{
+              padding: '11px 16px',
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.1)',
+              background: 'rgba(255,255,255,0.03)',
+              color: 'var(--txt-pri)',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Back to product overview
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function AtlasFAB({ currentPage }) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -340,25 +578,22 @@ export default function App() {
   const [theme, setTheme] = useState('darker')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [adminAccess, setAdminAccess] = useState(null)
+  const [entitlements, setEntitlements] = useState(null)
   const [backendWarning, setBackendWarning] = useState('')
   const { session, user, loading, isGuest } = useAuth()
   const isAdminHost = useIsAdminHost()
   const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   const userEmail = String(user?.email || '').trim().toLowerCase()
   const fallbackAdminFromEmail = userEmail ? FRONTEND_ADMIN_EMAILS.has(userEmail) : false
-  const explorerOnlyIds = new Set(['landing', 'pricing', 'compliance', 'lessons', 'atlas', 'flashcards', 'manual', 'lessonnotes', 'projects'])
-  const adminHiddenIds = new Set(['lessonnotes', 'projects'])
   const canAccessProjectTools = isAdminHost || adminAccess === true
-  const filteredNav = canAccessProjectTools
-    ? NAV.filter(item => !adminHiddenIds.has(item.id))
-    : NAV.filter(item => item.section || explorerOnlyIds.has(item.id))
-  const visibleNav = compactNavSections(filteredNav)
+  const visibleNav = compactNavSections(NAV)
 
   useEffect(() => {
     let alive = true
 
     if (!session) {
       setAdminAccess(isAdminHost)
+      setEntitlements(null)
       setBackendWarning('')
       return () => {
         alive = false
@@ -368,11 +603,13 @@ export default function App() {
     api('/entitlements')
       .then(data => {
         if (!alive) return
+        setEntitlements(data)
         setAdminAccess(isAdminHost || fallbackAdminFromEmail || Boolean(data?.admin_controls_enabled))
         setBackendWarning('')
       })
       .catch((error) => {
         if (!alive) return
+        setEntitlements(null)
         setAdminAccess(isAdminHost || fallbackAdminFromEmail)
         const message = String(error?.message || '')
         if (message.includes('Backend returned HTML instead of JSON')) {
@@ -390,13 +627,6 @@ export default function App() {
     Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
   }, [theme])
 
-  useEffect(() => {
-    const visiblePageIds = new Set(visibleNav.filter(item => item.id).map(item => item.id))
-    if (!visiblePageIds.has(page)) {
-      setPage(canAccessProjectTools ? 'settings' : 'atlas')
-    }
-  }, [canAccessProjectTools, page, visibleNav])
-
   // Loading splash while Supabase checks session
   if (loading) {
     return (
@@ -412,6 +642,7 @@ export default function App() {
   }
 
   const PageComponent = PAGE_COMPONENTS[page] || HomePage
+  const gate = session && adminAccess === null ? null : resolvePageAccess(page, { adminAccess, entitlements })
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
@@ -523,7 +754,7 @@ export default function App() {
         )}
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
           <Suspense fallback={<div style={{ padding: 28, color: 'var(--txt-sec)' }}>Loading page…</div>}>
-            <PageComponent setPage={setPage} />
+            {gate ? <AccessPreviewPage gate={gate} entitlements={entitlements} setPage={setPage} /> : <PageComponent setPage={setPage} />}
           </Suspense>
         </div>
       </div>

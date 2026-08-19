@@ -25,10 +25,18 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from dotenv import dotenv_values, load_dotenv
 
 # ── ensure src/ is on path ──────────────────────────────────────────────────
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT / "src"))
+
+# Load .env before reading any os.environ values so uvicorn-direct starts work
+# the same as python main.py. override=False preserves any values already set
+# in the process environment (e.g. Netlify / Docker injected vars).
+load_dotenv(ROOT / ".env", override=False)
+if (ROOT / ".env.admin").exists():
+    load_dotenv(ROOT / ".env.admin", override=False)
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -694,7 +702,8 @@ def _resolve_supabase_user(token: str) -> Optional[Dict[str, Any]]:
         user_email = str(getattr(user, "email", "") or "").strip().lower()
         if not user_id:
             return None
-        is_admin = user_id in _ADMIN_USER_IDS or (user_email in _ADMIN_EMAILS if user_email else False)
+        admin_config = _current_admin_config()
+        is_admin = user_id in admin_config["user_ids"] or (user_email in admin_config["emails"] if user_email else False)
         return {"id": user_id, "email": user_email, "is_admin": is_admin}
     except Exception:
         return None
@@ -1567,6 +1576,45 @@ def _read_env_vars() -> Dict[str, str]:
     except Exception:
         return {}
     return env_vars
+
+
+def _split_csv_values(raw: str, *, lowercase: bool = False) -> set[str]:
+    values = set()
+    for item in str(raw or "").split(","):
+        normalized = item.strip()
+        if not normalized:
+            continue
+        values.add(normalized.lower() if lowercase else normalized)
+    return values
+
+
+def _load_auth_admin_policy() -> Dict[str, List[str]]:
+    try:
+        payload = json.loads(AUTH_ADMIN_POLICY_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {"admin_user_ids": [], "admin_emails": []}
+    return {
+        "admin_user_ids": [str(item).strip() for item in payload.get("admin_user_ids", []) if str(item).strip()],
+        "admin_emails": [str(item).strip().lower() for item in payload.get("admin_emails", []) if str(item).strip()],
+    }
+
+
+def _current_admin_config() -> Dict[str, set[str]]:
+    emails = set(_ADMIN_EMAILS)
+    user_ids = set(_ADMIN_USER_IDS)
+
+    for env_file in (ROOT / ".env", ROOT / ".env.admin"):
+        if not env_file.exists():
+            continue
+        env_values = dotenv_values(env_file)
+        emails.update(_split_csv_values(env_values.get("MAMMOTH_ADMIN_EMAILS", ""), lowercase=True))
+        emails.update(_split_csv_values(env_values.get("MAMMOTH_ADMIN_EMAILS_LIST", ""), lowercase=True))
+        user_ids.update(_split_csv_values(env_values.get("MAMMOTH_ADMIN_USER_IDS", "")))
+
+    policy = _load_auth_admin_policy()
+    emails.update(policy["admin_emails"])
+    user_ids.update(policy["admin_user_ids"])
+    return {"emails": emails, "user_ids": user_ids}
 
 
 def _ollama_running(base_url: str) -> bool:

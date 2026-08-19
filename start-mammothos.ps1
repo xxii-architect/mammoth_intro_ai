@@ -89,7 +89,7 @@ if (-not (Test-PortOpen -Port 8000)) {
 if (-not (Test-PortOpen -Port 5173)) {
     $frontendCommand = @(
         "Set-Location '$uiDir'",
-        "npm run dev -- --host 0.0.0.0 --port 5173"
+        "npx vite --host 0.0.0.0 --port 5173"
     ) -join "; "
     Start-Process powershell -ArgumentList "-NoExit", "-Command", $frontendCommand | Out-Null
     $startedFrontend = $true

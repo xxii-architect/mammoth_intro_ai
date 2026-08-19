@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import api_server
 
@@ -77,6 +78,33 @@ def test_optional_admin_routes_do_not_leak_to_anonymous_users(monkeypatch):
 
     assert response.status_code == 403
     assert response.json()["error"] == "Admin privileges required."
+
+
+def test_supabase_admin_resolution_reads_policy_file(monkeypatch, tmp_path):
+    policy_file = tmp_path / "auth_admin_policy.json"
+    policy_file.write_text(
+        '{"admin_user_ids":["c5b0576d-728d-48d8-bfa9-2689d57dddcb"],"admin_emails":["truexxiisupply@gmail.com"]}',
+        encoding="utf-8",
+    )
+
+    class _FakeAuth:
+        @staticmethod
+        def get_user(_token):
+            return SimpleNamespace(user=SimpleNamespace(
+                id="c5b0576d-728d-48d8-bfa9-2689d57dddcb",
+                email="truexxiisupply@gmail.com",
+            ))
+
+    monkeypatch.setattr(api_server, "AUTH_ADMIN_POLICY_FILE", policy_file)
+    monkeypatch.setattr(api_server, "get_supabase", lambda: SimpleNamespace(auth=_FakeAuth()))
+
+    resolved = api_server._resolve_supabase_user("token-owner")
+
+    assert resolved == {
+        "id": "c5b0576d-728d-48d8-bfa9-2689d57dddcb",
+        "email": "truexxiisupply@gmail.com",
+        "is_admin": True,
+    }
 
 
 def test_optional_admin_routes_still_honor_admin_tokens(monkeypatch):
