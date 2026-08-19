@@ -42,20 +42,11 @@ CREATE TABLE IF NOT EXISTS public.tenants (
 
 ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS "Tenant owners/admins can read their tenant" ON public.tenants;
-CREATE POLICY "Tenant owners/admins can read their tenant"
+DROP POLICY IF EXISTS "Tenant owner can read tenant" ON public.tenants;
+CREATE POLICY "Tenant owner can read tenant"
     ON public.tenants
     FOR SELECT
-    USING (
-        owner_user_id = auth.uid()
-        OR EXISTS (
-            SELECT 1
-            FROM public.workspace_memberships wm
-            WHERE wm.tenant_id = tenants.id
-              AND wm.user_id = auth.uid()
-              AND wm.role IN ('owner', 'admin')
-        )
-    );
+    USING (owner_user_id = auth.uid());
 
 DROP POLICY IF EXISTS "Tenant owner can update tenant" ON public.tenants;
 CREATE POLICY "Tenant owner can update tenant"
@@ -135,6 +126,22 @@ CREATE POLICY "Tenant owners/admins can manage memberships"
             WHERE owner_membership.tenant_id = workspace_memberships.tenant_id
               AND owner_membership.user_id = auth.uid()
               AND owner_membership.role IN ('owner', 'admin')
+        )
+    );
+
+-- Now that workspace_memberships exists, allow owner/admin reads on tenants.
+DROP POLICY IF EXISTS "Tenant owners/admins can read their tenant" ON public.tenants;
+CREATE POLICY "Tenant owners/admins can read their tenant"
+    ON public.tenants
+    FOR SELECT
+    USING (
+        owner_user_id = auth.uid()
+        OR EXISTS (
+            SELECT 1
+            FROM public.workspace_memberships wm
+            WHERE wm.tenant_id = tenants.id
+              AND wm.user_id = auth.uid()
+              AND wm.role IN ('owner', 'admin')
         )
     );
 

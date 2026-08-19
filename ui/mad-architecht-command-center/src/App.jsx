@@ -2,8 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
-  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare,
+  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare, LogOut,
 } from 'lucide-react'
+
+import { useAuth, useIsAdminHost } from './lib/authContext'
+import { signOut } from './lib/supabase'
+import LoginPage from './pages/LoginPage'
 
 import HomePage        from './pages/HomePage'
 import AgentPage       from './pages/AgentPage'
@@ -293,11 +297,34 @@ export default function App() {
   const [page, setPage] = useState('home')
   const [theme, setTheme] = useState('darker')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const { session, user, loading } = useAuth()
+  const isAdminHost = useIsAdminHost()
 
   useEffect(() => {
     const vars = THEMES[theme] || THEMES.darker
     Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
   }, [theme])
+
+  // Loading splash while Supabase checks session
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#050608', color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter, sans-serif', fontSize: '0.9rem' }}>
+        🐘 Loading…
+      </div>
+    )
+  }
+
+  // If Supabase env keys are present but no session → show login
+  const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  if (supabaseConfigured && !session) {
+    return <LoginPage />
+  }
+
+  // On admin host, restrict nav to system/settings only
+  const adminOnlyIds = new Set(['settings', 'diagnostics', 'compliance', 'pricing'])
+  const visibleNav = isAdminHost
+    ? NAV.filter(item => item.section || adminOnlyIds.has(item.id))
+    : NAV
 
   const PageComponent = PAGE_COMPONENTS[page] || HomePage
 
@@ -320,7 +347,7 @@ export default function App() {
         </div>
 
         <nav style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
-          {NAV.map((item, i) => {
+          {visibleNav.map((item, i) => {
             if (item.section) {
               return (
                 <p key={i} style={{ margin: '14px 16px 4px', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>
@@ -351,16 +378,37 @@ export default function App() {
           })}
         </nav>
 
-        <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Signed-in user identity */}
+          {user && (
+            <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {user.email}
+            </div>
+          )}
           <select
             value={theme}
             onChange={e => setTheme(e.target.value)}
             style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: 'var(--txt-sec)', fontSize: '0.72rem', padding: '4px 6px', cursor: 'pointer' }}
           >
-           {Object.keys(THEMES).map(t => (
-  <option key={t} value={t}>{t}</option>
-))}
+            {Object.keys(THEMES).map(t => (
+              <option key={t} value={t}>{t}</option>
+            ))}
           </select>
+          {/* Sign out button only shown when real Supabase session exists */}
+          {session && supabaseConfigured && (
+            <button
+              onClick={async () => { await signOut(); window.location.reload() }}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)',
+                background: 'transparent', color: 'rgba(255,255,255,0.35)', fontSize: '0.72rem',
+                cursor: 'pointer',
+              }}
+            >
+              <LogOut size={12} />
+              Sign out
+            </button>
+          )}
         </div>
       </div>
 
@@ -377,6 +425,11 @@ export default function App() {
           <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--txt-pri)' }}>
             {NAV.find(n => n.id === page)?.label || 'MammothOS'}
           </span>
+          {isAdminHost && (
+            <span style={{ marginLeft: 'auto', fontSize: '0.66rem', color: '#b47cff', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              Admin View
+            </span>
+          )}
         </div>
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
           <PageComponent setPage={setPage} />

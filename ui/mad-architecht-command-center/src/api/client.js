@@ -1,6 +1,13 @@
+import { getAccessToken } from '../lib/supabase'
+
 export async function api(path, options = {}) {
+  const token = await getAccessToken()
   const res = await fetch(`/api${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
     ...options,
     body: options.body ? JSON.stringify(options.body) : undefined,
   })

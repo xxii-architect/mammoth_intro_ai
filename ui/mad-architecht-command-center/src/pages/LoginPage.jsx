@@ -1,0 +1,132 @@
+import { useState } from 'react'
+import { signInWithEmail } from '../lib/supabase'
+
+export default function LoginPage() {
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
+  const [error,    setError]    = useState('')
+  const [loading,  setLoading]  = useState(false)
+
+  const handleSignIn = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    const { error: authError } = await signInWithEmail(email.trim(), password)
+    if (authError) setError(authError.message)
+    setLoading(false)
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: '#050608',
+      fontFamily: 'Inter, sans-serif',
+    }}>
+      <div style={{
+        width: '100%',
+        maxWidth: 380,
+        padding: '40px 32px',
+        background: '#0d1117',
+        border: '1px solid rgba(255,255,255,0.08)',
+        borderRadius: 16,
+        boxShadow: '0 8px 48px rgba(0,0,0,0.6)',
+      }}>
+        {/* Logo */}
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <div style={{ fontSize: '2rem', marginBottom: 8 }}>🐘</div>
+          <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#fff', letterSpacing: '0.04em' }}>
+            MammothOS
+          </h1>
+          <p style={{ margin: '4px 0 0', fontSize: '0.76rem', color: 'rgba(255,255,255,0.4)' }}>
+            Command Center
+          </p>
+        </div>
+
+        <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', marginBottom: 5 }}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              required
+              autoFocus
+              placeholder="you@example.com"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.05)',
+                color: '#fff',
+                fontSize: '0.84rem',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', marginBottom: 5 }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+              placeholder="••••••••"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.05)',
+                color: '#fff',
+                fontSize: '0.84rem',
+                outline: 'none',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {error && (
+            <p style={{ margin: 0, fontSize: '0.76rem', color: '#f87171', textAlign: 'center' }}>
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            style={{
+              marginTop: 6,
+              padding: '11px',
+              borderRadius: 8,
+              border: 'none',
+              background: loading
+                ? 'rgba(180,124,255,0.4)'
+                : 'linear-gradient(90deg, #7c3aed, #b47cff)',
+              color: '#fff',
+              fontWeight: 700,
+              fontSize: '0.88rem',
+              cursor: loading ? 'not-allowed' : 'pointer',
+              letterSpacing: '0.02em',
+            }}
+          >
+            {loading ? 'Signing in…' : 'Sign In'}
+          </button>
+        </form>
+
+        <p style={{ marginTop: 24, textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.25)' }}>
+          xxii | architect · MammothOS
+        </p>
+      </div>
+    </div>
+  )
+}
