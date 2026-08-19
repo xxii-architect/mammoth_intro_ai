@@ -68,6 +68,7 @@ const TIERS = [
 
 const FAQS = [
   { q: 'Can I use MammothOS without paying?', a: 'Yes. Explorer is the default path and includes the core ATLAS tutoring experience.' },
+  { q: 'Can I buy a paid plan right now?', a: 'No. Billing is intentionally disabled pending legal review, so this app does not accept payments or start live subscriptions.' },
   { q: 'What is the difference between product pricing and operator toggles?', a: 'Pricing describes the intended customer packaging. Operator toggles below are workspace-local controls for testing and development.' },
   { q: 'Do I need cloud auth to get started?', a: 'On the deployed command center, yes. MammothOS now uses Supabase-hosted auth for account sessions, while local workspace state still handles lesson and operator context.' },
   { q: 'Will Pro include cloud sync?', a: 'That is the intended direction. Pro is planned to package Supabase sync, exports, and deeper orchestration controls.' },
@@ -80,6 +81,8 @@ const TRUST_BADGES = [
   'Guarded tutoring over answer leakage',
   'Workspace-scoped account onboarding',
 ]
+
+const BILLING_DISABLED_NOTICE = 'Payments and subscriptions are disabled while MammothOS remains under legal review. No checkout, card entry, or live billing is available from this app.'
 
 export default function PricingPage({ setPage }) {
   const [openFaq, setOpenFaq] = useState(null)
@@ -131,6 +134,15 @@ export default function PricingPage({ setPage }) {
         <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--txt-pri)', marginBottom: 10 }}>Plans & Packaging</h1>
         <p style={{ fontSize: '0.95rem', color: 'var(--txt-sec)', maxWidth: 640, margin: '0 auto', lineHeight: 1.65 }}>
           MammothOS is being packaged in layers: a free learner path, a deeper operator plan, and a future team posture that keeps governance and trust visible.
+        </p>
+      </div>
+
+      <div className="glass-card-solid" style={{ padding: '16px 20px', marginBottom: 24, border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(127,29,29,0.18)' }}>
+        <div style={{ fontSize: '0.76rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: '#fca5a5', marginBottom: 6 }}>
+          Billing disabled
+        </div>
+        <p style={{ margin: 0, fontSize: '0.84rem', color: '#fee2e2', lineHeight: 1.6 }}>
+          {BILLING_DISABLED_NOTICE}
         </p>
       </div>
 
@@ -189,10 +201,22 @@ export default function PricingPage({ setPage }) {
               ))}
             </ul>
             <button
-              onClick={() => (tier.key === 'explorer' ? setPage('atlas') : setPage('settings'))}
-              style={{ width: '100%', padding: '11px 0', borderRadius: 8, fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer', border: tier.key === 'explorer' ? 'none' : '1px solid var(--border)', background: tier.key === 'explorer' ? 'linear-gradient(90deg, var(--photon), var(--cyan))' : 'rgba(255,255,255,0.04)', color: tier.key === 'explorer' ? '#050608' : 'var(--txt-pri)' }}
+              onClick={() => tier.key === 'explorer' && setPage('atlas')}
+              disabled={tier.key !== 'explorer'}
+              style={{
+                width: '100%',
+                padding: '11px 0',
+                borderRadius: 8,
+                fontSize: '0.9rem',
+                fontWeight: 600,
+                cursor: tier.key === 'explorer' ? 'pointer' : 'not-allowed',
+                border: tier.key === 'explorer' ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                background: tier.key === 'explorer' ? 'linear-gradient(90deg, var(--photon), var(--cyan))' : 'rgba(255,255,255,0.03)',
+                color: tier.key === 'explorer' ? '#050608' : 'var(--txt-mut)',
+                opacity: tier.key === 'explorer' ? 1 : 0.75,
+              }}
             >
-              {tier.cta}
+              {tier.key === 'explorer' ? tier.cta : 'Payments disabled'}
             </button>
           </div>
         ))}
@@ -204,6 +228,9 @@ export default function PricingPage({ setPage }) {
             <h2 style={{ margin: '0 0 8px', fontSize: '1.1rem', color: 'var(--txt-pri)' }}>Operator controls stay separate from customer-facing pricing.</h2>
             <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.65 }}>
               These workspace-local toggles exist so you can test entitlements and developer access during recovery and productization work without confusing the public packaging story.
+            </p>
+            <p style={{ margin: '8px 0 0', fontSize: '0.76rem', color: 'var(--txt-mut)', lineHeight: 1.6 }}>
+              Changing a tier here does not create a purchase, charge a card, or enable public billing.
             </p>
             {!adminControlsEnabled && (
               <p style={{ margin: '8px 0 0', fontSize: '0.76rem', color: 'var(--txt-mut)' }}>

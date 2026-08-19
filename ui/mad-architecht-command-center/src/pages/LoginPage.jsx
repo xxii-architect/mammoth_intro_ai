@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { signInAsGuest, signInWithEmail } from '../lib/supabase'
+import { guestSignInEnabled, signInAsGuest, signInWithEmail } from '../lib/supabase'
 
 export default function LoginPage() {
   const [email,    setEmail]    = useState('')
@@ -20,7 +20,12 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     const { error: authError } = await signInAsGuest()
-    if (authError) setError(authError.message)
+    if (authError) {
+      const message = authError.message.includes('Anonymous sign-ins are disabled')
+        ? 'Guest access is not enabled in Supabase for this deployment.'
+        : authError.message
+      setError(message)
+    }
     setLoading(false)
   }
 
@@ -44,16 +49,11 @@ export default function LoginPage() {
       }}>
         {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
             <img
               src="/branding/mammoth-logo.png"
               alt="MammothOS logo"
               style={{ width: 42, height: 42, objectFit: 'contain', display: 'block' }}
-            />
-            <img
-              src="/branding/atlas-logo.png"
-              alt="ATLAS logo"
-              style={{ width: 36, height: 36, objectFit: 'contain', display: 'block' }}
             />
           </div>
           <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#fff', letterSpacing: '0.04em' }}>
@@ -141,27 +141,31 @@ export default function LoginPage() {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
 
-          <button
-            type="button"
-            disabled={loading}
-            onClick={handleGuestSignIn}
-            style={{
-              padding: '11px',
-              borderRadius: 8,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.04)',
-              color: '#fff',
-              fontWeight: 600,
-              fontSize: '0.84rem',
-              cursor: loading ? 'not-allowed' : 'pointer',
-            }}
-          >
-            Continue as Guest
-          </button>
+          {guestSignInEnabled && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={handleGuestSignIn}
+              style={{
+                padding: '11px',
+                borderRadius: 8,
+                border: '1px solid rgba(255,255,255,0.12)',
+                background: 'rgba(255,255,255,0.04)',
+                color: '#fff',
+                fontWeight: 600,
+                fontSize: '0.84rem',
+                cursor: loading ? 'not-allowed' : 'pointer',
+              }}
+            >
+              Continue as Guest
+            </button>
+          )}
         </form>
 
         <p style={{ marginTop: 16, textAlign: 'center', fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
-          Guest access uses Supabase anonymous auth and should be enabled in your Supabase Auth settings for live trial sessions.
+          {guestSignInEnabled
+            ? 'Guest access uses Supabase anonymous auth and should be enabled in your Supabase Auth settings for live trial sessions.'
+            : 'Guest access is disabled on this deployment. Sign in with an approved account while hosted access remains under review.'}
         </p>
 
         <p style={{ marginTop: 24, textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.25)' }}>
