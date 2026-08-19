@@ -101,6 +101,57 @@ const WORKFLOW_STEPS = [
   },
 ]
 
+const DOC_LINKS = {
+  atlasFab: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/ui/compliance-legal-shell/docs/atlas_fab_product_guide.md',
+  sdk: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/ui/compliance-legal-shell/docs/mammoth_os_package_offering.md',
+  platform: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/ui/compliance-legal-shell/ATLAS_MANUAL.md',
+}
+
+const PRODUCT_OFFERS = [
+  {
+    name: 'ATLAS FAB',
+    eyebrow: 'Embeddable adaptive tutor',
+    headline: 'Bring page-aware coaching into your product without settling for a generic chatbot.',
+    description:
+      'ATLAS FAB gives product teams an embeddable tutoring surface with adaptive lesson flows, runtime visibility, and safer next-step guidance that stays aligned to the page the learner is actually on.',
+    bullets: [
+      'Page-aware tutoring that matches the current screen, lesson, or workflow.',
+      'Structured lesson, submit, and next-step loops instead of prompt-only chat.',
+      'Runtime-state visibility for provider health, fallback status, and safer operations.',
+    ],
+    primaryAction: { kind: 'href', label: 'View ATLAS FAB Guide', href: DOC_LINKS.atlasFab },
+    secondaryAction: { kind: 'page', label: 'Open ATLAS Tutor', page: 'atlas' },
+  },
+  {
+    name: 'MammothOS SDK',
+    eyebrow: 'Installable runtime + Python package',
+    headline: 'Ship adaptive agent workflows with a real SDK contract, not a fragile prompt recipe.',
+    description:
+      'The MammothOS SDK packages the runtime, public imports, and hosted-upgrade path you need to move from local prototype to tenant-aware product without rewriting your integration surface.',
+    bullets: [
+      'Stable public imports for AtlasFAB, AtlasFABConfig, and ATLASSession compatibility.',
+      'Base package for embedders plus server extras for hosted FastAPI deployments.',
+      'Clear path from local pilots to auth, usage, and enterprise packaging.',
+    ],
+    primaryAction: { kind: 'href', label: 'View SDK Offering', href: DOC_LINKS.sdk },
+    secondaryAction: { kind: 'page', label: 'See Plans & Packaging', page: 'pricing' },
+  },
+  {
+    name: 'MammothOS Learning Platform',
+    eyebrow: 'Learner-facing app experience',
+    headline: 'Give learners a guided platform where lessons, memory, projects, and coaching stay connected.',
+    description:
+      'The Learning Platform is the app layer of MammothOS: structured lessons, flashcards, notes, projects, and ATLAS tutoring tied together so people can build durable skill instead of bouncing between disconnected tools.',
+    bullets: [
+      'Adaptive learning surfaces for lessons, flashcards, notes, and guided projects.',
+      'Workspace-scoped progress and trust-first onboarding for real user journeys.',
+      'A direct path from marketing promise to in-app learning experience.',
+    ],
+    primaryAction: { kind: 'page', label: 'Launch Learning Platform', page: 'lessons' },
+    secondaryAction: { kind: 'href', label: 'Read the ATLAS Manual', href: DOC_LINKS.platform },
+  },
+]
+
 export default function LandingPage({ setPage }) {
   return (
     <div className="page-enter" style={{ padding: '32px 20px 70px', maxWidth: 1180, margin: '0 auto' }}>
@@ -177,16 +228,16 @@ export default function LandingPage({ setPage }) {
                 lineHeight: 1.02,
               }}
             >
-              Learn, build, and operate with a real cognitive system.
+              Adaptive learning infrastructure for teams, learners, and builders.
             </h1>
 
             <p style={{ fontSize: '1.04rem', color: 'var(--txt-sec)', maxWidth: 780, margin: '0 auto 26px', lineHeight: 1.72 }}>
-              ATLAS gives you structured tutoring, memory-backed progression, and visible multi-agent execution so you can grow real skill instead of chasing answer-shaped shortcuts.
+              MammothOS connects the learning platform, the ATLAS FAB embed, and the Python SDK so you can teach, build, and operate from one product story instead of three disconnected ideas.
             </p>
 
             <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
               <button
-                onClick={() => setPage('atlas')}
+                onClick={() => setPage('lessons')}
                 style={{
                   padding: '13px 28px',
                   borderRadius: 12,
@@ -199,10 +250,10 @@ export default function LandingPage({ setPage }) {
                   boxShadow: '0 12px 30px rgba(77,166,255,0.28)',
                 }}
               >
-                Open ATLAS Tutor
+                Open Learning Platform
               </button>
               <button
-                onClick={() => setPage('settings')}
+                onClick={() => window.open(DOC_LINKS.atlasFab, '_blank', 'noopener,noreferrer')}
                 style={{
                   padding: '13px 28px',
                   borderRadius: 12,
@@ -214,12 +265,12 @@ export default function LandingPage({ setPage }) {
                   cursor: 'pointer',
                 }}
               >
-                Set Up Workspace Accounts
+                Explore ATLAS FAB
               </button>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {['Structured lessons', 'Visible agent steps', 'Safe plan execution', 'Local-first onboarding'].map((pill) => (
+              {['Learning platform', 'Embeddable ATLAS FAB', 'Python SDK', 'Visible agent steps'].map((pill) => (
                 <span key={pill} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
                   {pill}
                 </span>
@@ -264,6 +315,121 @@ export default function LandingPage({ setPage }) {
                     <span>{item}</span>
                   </div>
                 ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--border)', padding: '42px 0 24px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
+            Standalone products
+          </p>
+          <h2 style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>
+            Three clear offers, one consistent MammothOS story.
+          </h2>
+          <p style={{ fontSize: '0.92rem', color: 'var(--txt-sec)', maxWidth: 780, margin: '12px auto 0', lineHeight: 1.7 }}>
+            Whether someone wants a full learning experience, an embeddable tutor, or a developer-facing SDK, the landing page should make the path obvious in one glance.
+          </p>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
+          {PRODUCT_OFFERS.map((offer) => (
+            <div key={offer.name} className="glass-card-solid" style={{ padding: '24px 22px', borderRadius: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 8 }}>
+                  {offer.eyebrow}
+                </div>
+                <h3 style={{ margin: '0 0 10px', fontSize: '1.2rem', color: 'var(--txt-pri)' }}>{offer.name}</h3>
+                <p style={{ margin: '0 0 10px', fontSize: '0.98rem', color: 'var(--photon)', lineHeight: 1.55 }}>
+                  {offer.headline}
+                </p>
+                <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.68 }}>
+                  {offer.description}
+                </p>
+              </div>
+
+              <div style={{ display: 'grid', gap: 10, flex: 1 }}>
+                {offer.bullets.map((bullet) => (
+                  <div key={bullet} style={{ fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.6, display: 'flex', gap: 8 }}>
+                    <span style={{ color: 'var(--cyan)' }}>✓</span>
+                    <span>{bullet}</span>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
+                {offer.primaryAction.kind === 'href' ? (
+                  <a
+                    href={offer.primaryAction.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      padding: '11px 16px',
+                      borderRadius: 10,
+                      textDecoration: 'none',
+                      background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                      color: '#050608',
+                      fontWeight: 800,
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    {offer.primaryAction.label}
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => setPage(offer.primaryAction.page)}
+                    style={{
+                      padding: '11px 16px',
+                      borderRadius: 10,
+                      border: 'none',
+                      background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                      color: '#050608',
+                      fontWeight: 800,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {offer.primaryAction.label}
+                  </button>
+                )}
+
+                {offer.secondaryAction.kind === 'href' ? (
+                  <a
+                    href={offer.secondaryAction.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{
+                      padding: '11px 16px',
+                      borderRadius: 10,
+                      textDecoration: 'none',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.02)',
+                      color: 'var(--txt-pri)',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                    }}
+                  >
+                    {offer.secondaryAction.label}
+                  </a>
+                ) : (
+                  <button
+                    onClick={() => setPage(offer.secondaryAction.page)}
+                    style={{
+                      padding: '11px 16px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.02)',
+                      color: 'var(--txt-pri)',
+                      fontWeight: 700,
+                      fontSize: '0.85rem',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {offer.secondaryAction.label}
+                  </button>
+                )}
               </div>
             </div>
           ))}
