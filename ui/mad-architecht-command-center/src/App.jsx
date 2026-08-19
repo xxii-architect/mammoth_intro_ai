@@ -28,6 +28,8 @@ import LandingPage     from './pages/LandingPage'
 import CompliancePage  from './pages/CompliancePage'
 import PricingPage     from './pages/PricingPage'
 import DiagnosticsPage from './pages/DiagnosticsPage'
+import LessonNotesPage from './pages/LessonNotesPage'
+import ProjectsPage    from './pages/ProjectsPage'
 
 const BRANDING = {
   headerLogo: '/branding/mammoth-logo.png',
@@ -61,7 +63,7 @@ const NAV = [
   { section: 'Workspace' },
   { id: 'home',     label: 'Home',        Icon: LayoutDashboard },
   { id: 'agent',    label: 'Agent',       Icon: Bot },
-  { id: 'chat',     label: 'Chat',        Icon: MessageSquare, accent: 'var(--photon)' },
+  { id: 'chat',     label: 'Mammoth Mind', Icon: MessageSquare, accent: 'var(--photon)' },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
   { id: 'manual',   label: 'Manual',      Icon: BookOpen },
 
@@ -80,6 +82,8 @@ const NAV = [
   { id: 'lessons',    label: 'Lessons',     Icon: BookOpen },
   { id: 'atlas',      label: 'ATLAS Tutor', Icon: GraduationCap, accent: 'var(--violet)' },
   { id: 'flashcards', label: 'Flashcards',  Icon: Brain, accent: 'var(--violet)' },
+  { id: 'lessonnotes', label: 'Lesson Notes', Icon: FileText, accent: 'var(--cyan)' },
+  { id: 'projects',    label: 'Projects',     Icon: ClipboardList, accent: 'var(--photon)' },
   { id: 'buildlog',   label: 'Build Log',   Icon: ClipboardList },
 
   { section: 'System' },
@@ -101,6 +105,8 @@ const PAGE_COMPONENTS = {
   atlas:       AtlasTutorPage,
   flashcards:  FlashcardsPage,
   buildlog:    BuildLogPage,
+  lessonnotes: LessonNotesPage,
+  projects:    ProjectsPage,
   settings:    SettingsPage,
   landing:     LandingPage,
   pricing:     PricingPage,
@@ -300,10 +306,11 @@ export default function App() {
   const { session, user, loading, isGuest } = useAuth()
   const isAdminHost = useIsAdminHost()
   const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
-  const explorerOnlyIds = new Set(['landing', 'pricing', 'compliance', 'lessons', 'atlas', 'flashcards', 'manual'])
+  const explorerOnlyIds = new Set(['landing', 'pricing', 'compliance', 'lessons', 'atlas', 'flashcards', 'manual', 'lessonnotes', 'projects'])
+  const adminHiddenIds = new Set(['lessonnotes', 'projects'])
   const canAccessProjectTools = isAdminHost || adminAccess === true
   const visibleNav = canAccessProjectTools
-    ? NAV
+    ? NAV.filter(item => !adminHiddenIds.has(item.id))
     : NAV.filter(item => item.section || explorerOnlyIds.has(item.id))
 
   useEffect(() => {
