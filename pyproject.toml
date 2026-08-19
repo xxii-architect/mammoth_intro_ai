@@ -5,10 +5,10 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "mammoth-os"
 version = "0.5.0"
-description = "MammothOS and ATLAS: a multi-agent tutoring, planning, and execution runtime."
-readme = "README.md"
+description = "MammothOS and ATLAS: a multi-agent tutoring platform with an embeddable Python SDK."
+readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
-keywords = ["ai", "agents", "atlas", "education", "tutoring", "developer-tools", "copilot", "workflow"]
+keywords = ["ai", "agents", "atlas", "education", "tutoring", "sdk", "developer-tools", "copilot", "workflow"]
 authors = [
   { name = "Vernon" }
 ]
@@ -16,31 +16,31 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Intended Audience :: Education",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
   "Framework :: FastAPI",
   "Topic :: Education",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 dependencies = [
-  "fastapi",
   "openai",
   "pydantic",
   "python-dotenv",
   "requests",
   "supabase",
-  "uvicorn",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest"]
-local = ["openai"]
 server = ["fastapi", "uvicorn"]
 
 [project.urls]
 Homepage = "https://github.com/xxii-architect/mammoth_intro_ai"
 Repository = "https://github.com/xxii-architect/mammoth_intro_ai"
 Issues = "https://github.com/xxii-architect/mammoth_intro_ai/issues"
+Documentation = "https://github.com/xxii-architect/mammoth_intro_ai#readme"
 
 [project.scripts]
 mammoth = "cli.main:main"

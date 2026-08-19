@@ -97,7 +97,7 @@ _AUTH_OPTIONAL_PATHS = {
 }
 _REQUEST_USER_ID: ContextVar[str] = ContextVar("mammoth_request_user_id", default="local")
 _REQUEST_USER_EMAIL: ContextVar[str] = ContextVar("mammoth_request_user_email", default="")
-_REQUEST_IS_ADMIN: ContextVar[bool] = ContextVar("mammoth_request_is_admin", default=True)
+_REQUEST_IS_ADMIN: ContextVar[bool] = ContextVar("mammoth_request_is_admin", default=False)
 
 ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
     {
@@ -654,6 +654,8 @@ def _atlas_state_file_for_request() -> Path:
 
 
 def _request_is_admin() -> bool:
+    if not _AUTH_REQUIRED:
+        return True
     return bool(_REQUEST_IS_ADMIN.get())
 
 
@@ -698,25 +700,33 @@ def _resolve_supabase_user(token: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _set_request_auth_context(request: Request, user: Dict[str, Any]):
+    token_user = _REQUEST_USER_ID.set(str(user.get("id") or "").strip())
+    token_email = _REQUEST_USER_EMAIL.set(str(user.get("email") or "").strip())
+    token_admin = _REQUEST_IS_ADMIN.set(bool(user.get("is_admin")))
+    request.state.auth_user_id = str(user.get("id") or "").strip()
+    request.state.auth_email = str(user.get("email") or "").strip()
+    request.state.auth_is_admin = bool(user.get("is_admin"))
+    return token_user, token_email, token_admin
+
+
 @app.middleware("http")
 async def auth_guard_middleware(request: Request, call_next):
     if not _AUTH_REQUIRED or not request.url.path.startswith("/api/"):
         return await call_next(request)
 
-    if request.method.upper() == "OPTIONS" or _is_auth_optional_path(request.url.path):
-        return await call_next(request)
-
+    optional_path = request.method.upper() == "OPTIONS" or _is_auth_optional_path(request.url.path)
     token = _extract_bearer_token(request)
-    user = _resolve_supabase_user(token)
+    user = _resolve_supabase_user(token) if token else None
     if user is None:
+        if optional_path:
+            request.state.auth_user_id = ""
+            request.state.auth_email = ""
+            request.state.auth_is_admin = False
+            return await call_next(request)
         return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
 
-    token_user = _REQUEST_USER_ID.set(user["id"])
-    token_email = _REQUEST_USER_EMAIL.set(user.get("email") or "")
-    token_admin = _REQUEST_IS_ADMIN.set(bool(user.get("is_admin")))
-    request.state.auth_user_id = user["id"]
-    request.state.auth_email = user.get("email") or ""
-    request.state.auth_is_admin = bool(user.get("is_admin"))
+    token_user, token_email, token_admin = _set_request_auth_context(request, user)
     try:
         return await call_next(request)
     finally:
@@ -1807,6 +1817,99 @@ def _auth_mode_from_state(state: Dict[str, Any]) -> str:
     if _AUTH_REQUIRED:
         return "supabase_admin" if _request_is_admin() else "supabase_user"
     return "local_operator"
+
+
+_PLAN_LIMITS_BY_TIER: Dict[str, Dict[str, Any]] = {
+    "explorer": {"request_limit": 2500, "token_limit": 200000, "warning_threshold": 0.70, "hard_cap": False},
+    "pro": {"request_limit": 10000, "token_limit": 1000000, "warning_threshold": 0.70, "hard_cap": False},
+    "enterprise": {"request_limit": 50000, "token_limit": 10000000, "warning_threshold": 0.80, "hard_cap": True},
+}
+
+
+def _usage_window_bounds(now: datetime) -> Dict[str, str]:
+    period_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+    if now.month == 12:
+        next_month = datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        next_month = datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
+    period_end = next_month.timestamp() - 1
+    return {
+        "period_start": period_start.isoformat(),
+        "period_end": datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat(),
+    }
+
+
+def _parse_usage_event_created_at(raw: Any) -> Optional[datetime]:
+    value = str(raw or "").strip()
+    if not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _current_usage_snapshot_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    tier = str(state.get("tier") or "explorer").strip().lower()
+    if tier not in _PLAN_LIMITS_BY_TIER:
+        tier = "explorer"
+    limits = dict(_PLAN_LIMITS_BY_TIER[tier])
+    now = datetime.now(timezone.utc)
+    window = _usage_window_bounds(now)
+    period_start = _parse_usage_event_created_at(window["period_start"]) or datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+
+    request_units = 0
+    tokens = 0
+    events_in_period = 0
+    events = state.get("fab_usage_events") if isinstance(state.get("fab_usage_events"), list) else []
+    for raw in events:
+        if not isinstance(raw, dict):
+            continue
+        created_at = _parse_usage_event_created_at(raw.get("created_at"))
+        if created_at is not None and created_at < period_start:
+            continue
+        events_in_period += 1
+        request_units += int(raw.get("request_units") or 1)
+        tokens += int(raw.get("tokens_total") or ((raw.get("tokens_in") or 0) + (raw.get("tokens_out") or 0)))
+
+    request_limit = int(limits["request_limit"])
+    token_limit = int(limits["token_limit"])
+    request_percent = (request_units / request_limit) if request_limit else 0.0
+    token_percent = (tokens / token_limit) if token_limit else 0.0
+    percent_used = round(max(request_percent, token_percent) * 100, 1)
+    warning_threshold = float(limits["warning_threshold"])
+    if percent_used >= 100.0:
+        warning_level = "blocked" if bool(limits["hard_cap"]) else "critical"
+    elif percent_used >= max(warning_threshold * 100, 90.0):
+        warning_level = "critical"
+    elif percent_used >= warning_threshold * 100:
+        warning_level = "elevated"
+    else:
+        warning_level = "normal"
+
+    return {
+        "status": "ok",
+        "plan": tier,
+        "period_start": window["period_start"],
+        "period_end": window["period_end"],
+        "usage": {
+            "requests": request_units,
+            "request_limit": request_limit,
+            "tokens": tokens,
+            "token_limit": token_limit,
+            "events_in_period": events_in_period,
+        },
+        "percent_used": percent_used,
+        "warning_level": warning_level,
+        "warning_threshold": warning_threshold,
+        "hard_cap": bool(limits["hard_cap"]),
+        "metering_mode": "workspace_state_preview",
+        "note": "Preview metering derived from tenant-scoped local state until hosted billing tables are wired.",
+    }
 
 
 def _normalized_account_profile(state: Dict[str, Any]) -> Dict[str, str]:
@@ -6212,6 +6315,9 @@ def _load_normalized_sales() -> List[Dict[str, Any]]:
 
 @app.get("/api/operator/health")
 async def get_operator_health():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     data = _read_json(OPERATOR_HEALTH_FILE, default={})
     payload = data if isinstance(data, dict) else {}
     normalized = _normalize_operator_health(payload)
@@ -6224,6 +6330,9 @@ async def get_operator_health():
 
 @app.post("/api/operator/health")
 async def set_operator_health(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     current = _read_json(OPERATOR_HEALTH_FILE, default={})
     if not isinstance(current, dict):
         current = {}
@@ -7113,6 +7222,20 @@ async def get_entitlements():
         "features": {**base_features, **pro_features, **enterprise_features},
         "upgrade_cta": "pricing" if tier == "explorer" and not developer_access else None,
     }
+
+
+@app.get("/api/billing/usage/current")
+async def get_current_billing_usage():
+    state = _load_atlas_state()
+    usage = _current_usage_snapshot_from_state(state)
+    usage.update(
+        {
+            "auth_mode": _auth_mode_from_state(state),
+            "active_account_id": _active_account_id(state),
+            "user_id": _atlas_user_id(state),
+        }
+    )
+    return usage
 
 
 @app.post("/api/entitlements/tier")

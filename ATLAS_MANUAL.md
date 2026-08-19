@@ -42,6 +42,18 @@ This repo is now in a strong “operator-grade prototype” position rather than
 The CLI reads `.env` from the repo root on every run. You do not need to
 `$env:...` anything manually anymore — just keep the file up to date.
 
+### 1b. Python install quickstart
+
+```powershell
+pip install mammoth-os
+```
+
+If you are running the API server or the command-center stack:
+
+```powershell
+pip install mammoth-os[server]
+```
+
 > **Update:** the CLI now hard-pins itself to the active worktree `src\` path on
 > startup, so legacy parent-repo installs or stale boot scripts are much less
 > likely to hijack imports.

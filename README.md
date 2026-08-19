@@ -2,9 +2,26 @@
 
 This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Command Center UI.
 
+## Product docs
+
+- `docs\atlas_fab_product_guide.md` - ATLAS FAB positioning, workflow diagram, and pricing skeleton
+- `docs\mammoth_os_package_offering.md` - package offering, install tiers, and commercialization framing
+
 ## Standalone ATLAS FAB SDK
 
 MammothOS now exposes an embeddable Python SDK surface for ATLAS so it can be positioned as a standalone product inside another app, workflow, or developer tool.
+
+### Install
+
+```bash
+pip install mammoth-os
+```
+
+For the FastAPI backend / UI stack:
+
+```bash
+pip install mammoth-os[server]
+```
 
 Core public imports:
 
@@ -48,6 +65,7 @@ Embeddable monetization strengths now present:
 The Python package is now closer to a sellable SDK than a repo-only prototype:
 - package metadata is declared in `pyproject.toml`
 - runtime dependencies are explicit
+- server-only dependencies live in the `server` extra
 - CLI version is sourced from the package version
 - public imports are centralized in `src\mammoth_os\__init__.py`
 
@@ -81,6 +99,12 @@ Typical shape:
 ```
 
 Then the UI can render a warning banner or usage meter before the limit is hit.
+
+The backend now also exposes a preview-safe tenant usage response at:
+
+- `GET /api/billing/usage/current`
+
+It is intentionally labeled as preview metering until hosted billing tables are wired.
 
 ## Production auth + tenant blueprint
 

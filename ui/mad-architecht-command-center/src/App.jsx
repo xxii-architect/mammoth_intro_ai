@@ -163,7 +163,9 @@ function AtlasFAB({ currentPage }) {
   const send = async () => {
     if (!input.trim() || busy) return
     const msg = input.trim()
-    const selectedText = window.getSelection ? window.getSelection().toString().trim().slice(0, 400) : ''
+    const lessonSurfacePages = new Set(['lessons', 'atlas', 'flashcards', 'lessonnotes', 'projects'])
+    const isLessonSurface = lessonSurfacePages.has(currentPage)
+    const selectedText = isLessonSurface && window.getSelection ? window.getSelection().toString().trim().slice(0, 400) : ''
     let lessonContext = {}
     try {
       const raw = localStorage.getItem('atlas_fab_context')
@@ -184,8 +186,10 @@ function AtlasFAB({ currentPage }) {
           regenerate_on_guard: true,
           page_context: {
             current_page: currentPage,
+            current_page_type: isLessonSurface ? 'learning' : 'workspace',
+            current_page_is_lesson_surface: isLessonSurface,
             selected_text: selectedText,
-            lesson: lessonContext,
+            lesson: isLessonSurface ? lessonContext : {},
           },
         },
       })
