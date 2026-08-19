@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { signInWithEmail } from '../lib/supabase'
+import { signInAsGuest, signInWithEmail } from '../lib/supabase'
 
 export default function LoginPage() {
   const [email,    setEmail]    = useState('')
@@ -12,6 +12,14 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     const { error: authError } = await signInWithEmail(email.trim(), password)
+    if (authError) setError(authError.message)
+    setLoading(false)
+  }
+
+  const handleGuestSignIn = async () => {
+    setError('')
+    setLoading(true)
+    const { error: authError } = await signInAsGuest()
     if (authError) setError(authError.message)
     setLoading(false)
   }
@@ -34,14 +42,25 @@ export default function LoginPage() {
         borderRadius: 16,
         boxShadow: '0 8px 48px rgba(0,0,0,0.6)',
       }}>
-        {/* Logo */}
+        {/* Brand */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ fontSize: '2rem', marginBottom: 8 }}>🐘</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 }}>
+            <img
+              src="/branding/mammoth-logo.png"
+              alt="MammothOS logo"
+              style={{ width: 42, height: 42, objectFit: 'contain', display: 'block' }}
+            />
+            <img
+              src="/branding/atlas-logo.png"
+              alt="ATLAS logo"
+              style={{ width: 36, height: 36, objectFit: 'contain', display: 'block' }}
+            />
+          </div>
           <h1 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: '#fff', letterSpacing: '0.04em' }}>
             MammothOS
           </h1>
           <p style={{ margin: '4px 0 0', fontSize: '0.76rem', color: 'rgba(255,255,255,0.4)' }}>
-            Command Center
+            Command Center · ATLAS access
           </p>
         </div>
 
@@ -121,7 +140,29 @@ export default function LoginPage() {
           >
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
+
+          <button
+            type="button"
+            disabled={loading}
+            onClick={handleGuestSignIn}
+            style={{
+              padding: '11px',
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.04)',
+              color: '#fff',
+              fontWeight: 600,
+              fontSize: '0.84rem',
+              cursor: loading ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Continue as Guest
+          </button>
         </form>
+
+        <p style={{ marginTop: 16, textAlign: 'center', fontSize: '0.7rem', color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
+          Guest access uses Supabase anonymous auth and should be enabled in your Supabase Auth settings for live trial sessions.
+        </p>
 
         <p style={{ marginTop: 24, textAlign: 'center', fontSize: '0.68rem', color: 'rgba(255,255,255,0.25)' }}>
           xxii | architect · MammothOS

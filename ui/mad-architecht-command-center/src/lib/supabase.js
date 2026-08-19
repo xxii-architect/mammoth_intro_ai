@@ -25,6 +25,10 @@ export async function signInWithEmail(email, password) {
   return supabase.auth.signInWithPassword({ email, password })
 }
 
+export async function signInAsGuest() {
+  return supabase.auth.signInAnonymously()
+}
+
 export async function signOut() {
   return supabase.auth.signOut()
 }

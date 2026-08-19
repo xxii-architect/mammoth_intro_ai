@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Brain, ChevronLeft, ChevronRight, RotateCcw, CheckCircle, XCircle, Shuffle } from 'lucide-react'
+import { api } from '../api/client'
 
 const SAMPLE_CARDS = [
   { q: 'What is a closure in JavaScript?', a: 'A function that retains access to its outer scope variables even after the outer function has returned.' },
@@ -16,6 +17,7 @@ export default function FlashcardsPage() {
   const [score, setScore] = useState({ got: 0, missed: 0 })
   const [done, setDone] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   const current = cards[index]
   const total = cards.length
@@ -23,12 +25,14 @@ export default function FlashcardsPage() {
   // Try to load flashcards from ATLAS backend
   useEffect(() => {
     setLoading(true)
-    fetch('/api/flashcards')
-      .then(r => r.json())
+    setLoadError('')
+    api('/flashcards')
       .then(data => {
         if (data.cards && data.cards.length > 0) setCards(data.cards)
       })
-      .catch(() => {}) // silently fall back to sample cards
+      .catch(err => {
+        setLoadError(err instanceof Error ? err.message : 'Could not load flashcards from the backend.')
+      })
       .finally(() => setLoading(false))
   }, [])
 
@@ -68,6 +72,11 @@ export default function FlashcardsPage() {
             <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
               {loading ? 'Loading from ATLAS...' : `${total} cards · ATLAS lesson deck`}
             </p>
+            {loadError ? (
+              <p style={{ margin: '4px 0 0', fontSize: '0.72rem', color: '#fca5a5' }}>
+                {loadError}
+              </p>
+            ) : null}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>

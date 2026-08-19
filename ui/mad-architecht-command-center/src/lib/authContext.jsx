@@ -22,7 +22,7 @@ export function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ session, user, loading: session === undefined }}>
+    <AuthContext.Provider value={{ session, user, loading: session === undefined, isGuest: Boolean(user?.is_anonymous) }}>
       {children}
     </AuthContext.Provider>
   )

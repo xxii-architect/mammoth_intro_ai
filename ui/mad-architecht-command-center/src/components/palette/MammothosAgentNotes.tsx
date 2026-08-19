@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { api } from '../../api/client';
 
 interface Note {
   id: number;
@@ -15,8 +16,7 @@ const MammothosAgentNotes: React.FC = () => {
     // Fetch existing notes from an API or local storage
     const fetchNotes = async () => {
       try {
-        const response = await fetch('/api/agent-notes');
-        const data = await response.json();
+        const data = await api('/agent-notes');
         setNotes(data);
       } catch (err) {
         setError('Failed to fetch notes');
@@ -50,17 +50,10 @@ const MammothosAgentNotes: React.FC = () => {
     };
 
     try {
-      const response = await fetch('/api/agent-notes', {
+      await api('/agent-notes', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(noteToAdd),
+        body: noteToAdd,
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to add note');
-      }
 
       setNotes((prevNotes) => [...prevNotes, noteToAdd]);
       setNewNote('');

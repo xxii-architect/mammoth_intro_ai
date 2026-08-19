@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Activity, RefreshCw, ShieldCheck, Trash2, Cpu, HeartPulse, Download } from 'lucide-react'
-import { api } from '../api/client'
+import { api, authorizedFetch } from '../api/client'
 import { clearSelfAuditHistory, loadSelfAuditHistory, runSystemSelfAudit } from '../api/diagnostics'
 
 export default function DiagnosticsPage() {
@@ -85,7 +85,7 @@ export default function DiagnosticsPage() {
   const exportAuditCsv = async () => {
     setExportBusy(true)
     try {
-      const response = await fetch('/api/audit/export')
+      const response = await authorizedFetch('/audit/export')
       if (!response.ok) {
         throw new Error('Export request failed')
       }
@@ -106,7 +106,7 @@ export default function DiagnosticsPage() {
   const exportDiagnosticsJson = async () => {
     setJsonExportBusy(true)
     try {
-      const response = await fetch('/api/diagnostics/export')
+      const response = await authorizedFetch('/diagnostics/export')
       if (!response.ok) {
         throw new Error('Diagnostics export request failed')
       }

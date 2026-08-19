@@ -9,13 +9,18 @@ const CONTENT = {
     'You are responsible for reviewing generated code, plans, and outputs before using them in real environments.',
     'You may not use MammothOS to cheat on exams, submit generated work as your own without disclosure where required, or bypass academic integrity policies.',
     'Product surfaces, packaging, and feature availability may change as MammothOS evolves from prototype to production system.',
+    "MAMMOTHOS IS PROVIDED 'AS IS' WITHOUT WARRANTY OF ANY KIND. TO THE MAXIMUM EXTENT PERMITTED BY LAW, OUR LIABILITY FOR ANY CLAIM IS LIMITED TO $0 OR THE AMOUNT YOU PAID IN THE LAST 30 DAYS, WHICHEVER IS GREATER.",
+    'You must be at least 13 years old to use MammothOS. By using this platform, you confirm you meet this requirement.',
+    'These terms are governed by the laws of the State of Idaho, United States.',
   ],
   'Privacy Policy': [
-    'The current workspace model is local-first: account identity, lesson state, learner context, and operator settings are primarily stored in your local workspace state.',
+    'Account identity and session data are stored via Supabase (supabase.com). Workspace state and learner context are managed locally.',
     'When external model providers are configured, prompts may be processed by those providers under their own terms. Do not submit sensitive personal, legal, medical, or regulated data unless you have approved controls in place.',
     'MammothOS is designed to minimize unnecessary collection and to avoid ad-tech style data sharing.',
     'We do not position the current build as a broad consumer data platform; it is an evolving product and should be treated accordingly.',
     'You can reset active learning sessions and maintain separate workspace accounts to reduce state leakage between users in the same environment.',
+    'Data processors used by MammothOS include: Supabase (auth and database), Netlify (hosting), and any AI model providers you configure.',
+    'For privacy requests or questions, contact: privacy@truexxiisupply.com',
   ],
   'Acceptable Use': [
     'Use MammothOS to learn, reason, build, and review responsibly.',
@@ -115,7 +120,7 @@ export default function CompliancePage({ setPage }) {
           ))}
         </div>
         <p style={{ marginTop: 28, marginBottom: 0, fontSize: '0.72rem', color: 'var(--txt-mut)', fontStyle: 'italic' }}>
-          Last updated: August 2026
+          Last updated: August 19, 2026
         </p>
       </div>
 

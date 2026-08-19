@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow } from 'lucide-react'
-import { api } from '../api/client'
+import { api, authorizedFetch } from '../api/client'
 import RuntimeStatusBanner from '../components/RuntimeStatusBanner'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
@@ -315,7 +315,7 @@ export default function ChatPage({ setPage }) {
   }
 
   const streamChat = async (body, effectiveAgentId, placeholderIndex) => {
-    const response = await fetch('/api/mammoth/chat/stream', {
+    const response = await authorizedFetch('/mammoth/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

@@ -7,6 +7,7 @@ import {
 
 import { useAuth, useIsAdminHost } from './lib/authContext'
 import { signOut } from './lib/supabase'
+import { api } from './api/client'
 import LoginPage from './pages/LoginPage'
 
 import HomePage        from './pages/HomePage'
@@ -135,10 +136,9 @@ function AtlasFAB({ currentPage }) {
     setBusy(true)
     setHistory(h => [...h, { role: 'user', message: msg }])
     try {
-      const res = await fetch('/api/atlas/chat', {
+      const data = await api('/atlas/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           message: msg,
           mode,
           strict_guard: strictGuard,
@@ -148,9 +148,8 @@ function AtlasFAB({ currentPage }) {
             selected_text: selectedText,
             lesson: lessonContext,
           },
-        }),
+        },
       })
-      const data = await res.json()
       if (Array.isArray(data.chat_history)) {
         setHistory(data.chat_history)
       } else {
@@ -297,13 +296,28 @@ export default function App() {
   const [page, setPage] = useState('home')
   const [theme, setTheme] = useState('darker')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const { session, user, loading } = useAuth()
+  const { session, user, loading, isGuest } = useAuth()
   const isAdminHost = useIsAdminHost()
+  const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  const adminOnlyIds = new Set(['settings', 'diagnostics', 'compliance', 'pricing'])
+  const guestOnlyIds = new Set(['landing', 'pricing', 'compliance', 'lessons', 'atlas', 'flashcards', 'manual'])
+  const visibleNav = isAdminHost
+    ? NAV.filter(item => item.section || adminOnlyIds.has(item.id))
+    : isGuest
+      ? NAV.filter(item => item.section || guestOnlyIds.has(item.id))
+      : NAV
 
   useEffect(() => {
     const vars = THEMES[theme] || THEMES.darker
     Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
   }, [theme])
+
+  useEffect(() => {
+    const visiblePageIds = new Set(visibleNav.filter(item => item.id).map(item => item.id))
+    if (!visiblePageIds.has(page)) {
+      setPage(isAdminHost ? 'settings' : isGuest ? 'atlas' : 'home')
+    }
+  }, [isAdminHost, isGuest, page, visibleNav])
 
   // Loading splash while Supabase checks session
   if (loading) {
@@ -315,16 +329,9 @@ export default function App() {
   }
 
   // If Supabase env keys are present but no session → show login
-  const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   if (supabaseConfigured && !session) {
     return <LoginPage />
   }
-
-  // On admin host, restrict nav to system/settings only
-  const adminOnlyIds = new Set(['settings', 'diagnostics', 'compliance', 'pricing'])
-  const visibleNav = isAdminHost
-    ? NAV.filter(item => item.section || adminOnlyIds.has(item.id))
-    : NAV
 
   const PageComponent = PAGE_COMPONENTS[page] || HomePage
 
@@ -382,7 +389,7 @@ export default function App() {
           {/* Signed-in user identity */}
           {user && (
             <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {user.email}
+              {user.email || (isGuest ? 'Guest session' : 'Signed in')}
             </div>
           )}
           <select

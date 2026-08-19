@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff, BookOpen } from 'lucide-react'
-import { openTerminalWS } from '../api/client'
+import { authorizedFetch, openTerminalWS } from '../api/client'
 import OnboardingGuide from '../components/OnboardingGuide'
 
 const QUICK_ACTIONS = [
@@ -120,7 +120,7 @@ export default function TerminalPage({ setPage }) {
     setHttpBusy(true)
     addLine(`$ ${cmd}`, 'cmd')
     try {
-      const res = await fetch('/api/terminal/exec', {
+      const res = await authorizedFetch('/terminal/exec', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cmd }),

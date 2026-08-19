@@ -69,7 +69,7 @@ const TIERS = [
 const FAQS = [
   { q: 'Can I use MammothOS without paying?', a: 'Yes. Explorer is the default path and includes the core ATLAS tutoring experience.' },
   { q: 'What is the difference between product pricing and operator toggles?', a: 'Pricing describes the intended customer packaging. Operator toggles below are workspace-local controls for testing and development.' },
-  { q: 'Do I need cloud auth to get started?', a: 'No. The current onboarding model is workspace-local. You can create separate workspace accounts before adding hosted auth later.' },
+  { q: 'Do I need cloud auth to get started?', a: 'On the deployed command center, yes. MammothOS now uses Supabase-hosted auth for account sessions, while local workspace state still handles lesson and operator context.' },
   { q: 'Will Pro include cloud sync?', a: 'That is the intended direction. Pro is planned to package Supabase sync, exports, and deeper orchestration controls.' },
   { q: 'Can teams use this today?', a: 'Early operator and observability surfaces exist now. Full enterprise posture is still being productized.' },
 ]
