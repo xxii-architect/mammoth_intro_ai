@@ -65,6 +65,72 @@ OPENAI_API_KEY            = <your OpenAI key>          # optional if using Ollam
 - Strengthen reliability, continuity, diagnostics, and lesson quality before monetization wiring.
 - Maintain enterprise-safe posture: accurate claims, auditable operations, no legal overstatements.
 
+### ATLAS FAB standalone direction (developer-grade)
+- Use the public Python SDK surface for embedding:
+  - `from mammoth_os import AtlasFAB, AtlasFABConfig`
+- Keep embeddings account-scoped (`user_id="workspace:<account_id>"`) to prevent cross-user state leakage.
+- Expose runtime metadata to integrators via `AtlasFAB.runtime_state()` so they can show provider/fallback health.
+- Treat this as the bridge to paid distribution (SDK + hosted API + usage-metered plans).
+
+### Billing/usage warning surface (what it means)
+To warn customers before limits are hit, the product needs a usage source of truth from backend or billing provider.
+
+Suggested response shape:
+```json
+{
+  "plan": "pro",
+  "period_start": "2026-08-01T00:00:00Z",
+  "period_end": "2026-08-31T23:59:59Z",
+  "usage": {"requests": 812, "request_limit": 1000, "tokens": 184200, "token_limit": 250000},
+  "percent_used": 81.2,
+  "warning_level": "elevated"
+}
+```
+
+### Production auth/tenant execution path
+
+Use the new Supabase tenant/auth blueprint to move from a local-operator build to a real multi-account product:
+
+1. Run `.mammoth\supabase_tenant_auth.sql` in Supabase.
+2. Keep your current authenticated account as the initial owner/admin.
+3. Bootstrap it with:
+   ```sql
+   select public.bootstrap_tenant_for_user('MammothOS', 'mammothos');
+   ```
+4. Require authenticated tenant membership for:
+   - dashboard data
+   - operator settings
+   - usage/billing views
+   - developer/admin controls
+5. Keep public pages separate:
+   - landing
+   - pricing
+   - compliance / trust
+   - docs / marketing copy
+
+### What a random public visitor should see
+
+When this goes to your domain, a normal visitor should **not** see your private dashboards, your personal metrics, or your internal operator state.
+
+The correct production behavior is:
+- public visitors see only marketing/trust pages
+- signed-in customer users see only their tenant-scoped workspace data
+- owner/admin users see private operator controls
+- internal-only controls remain role-gated even after login
+
+If any anonymous or wrong-account session can see shared numbers, health data, usage, or internal toggles, treat that as a production blocker.
+
+### Go-live risk checklist
+
+Before launch, test these flows on the deployed domain:
+- anonymous user loads the site
+- new customer signs up
+- customer lands in an empty, fresh workspace
+- admin account sees owner controls
+- member account does **not** see owner controls
+- usage warning banner only appears when real tenant usage crosses threshold
+- no page shows your local/dev placeholder values as if they were customer data
+
 ### Suggested next build order (lowest credits first)
 1. **Lessons domain architecture** (UI-first track templates, starter pathways, progress shells).
 2. **Health dual-mode expansion** (personal readiness + system telemetry in one page).

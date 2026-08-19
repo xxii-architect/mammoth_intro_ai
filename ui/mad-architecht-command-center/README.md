@@ -29,8 +29,17 @@ Then refresh the UI.
 - Keep this UI aligned to an operator-grade tutor OS: clear status, reliable actions, auditable outputs.
 - Prefer incremental upgrades that improve lesson outcomes and runtime trust.
 
-### Lowest-credit next option
-- Upgrade **Lessons** with focused module tracks (wilderness/survival, fishing/hunting, ham radio, EMT/emergency management, horticulture/botany/weather) using UI-first templates and starter prompts.
+### Lessons upgrades now live
+- **Adaptive UI** toggle on the Lessons page can switch the exercise surface between code/editor, open response, checklist, and scenario-oriented layouts.
+- The module catalog is no longer limited to dev/AI or wilderness-adjacent topics. Current lanes span:
+  - Outdoors
+  - Emergency
+  - Business / Finance
+  - Health / Recovery
+  - Technology
+  - Creative
+  - Life Skills
+- Category filter pills let operators narrow the lessons catalog without losing access to the full track list.
 
 ### Keep in mind
 - Keep changes composable: small UI surfaces now, deeper backend logic later.
@@ -42,6 +51,16 @@ Then refresh the UI.
 - **Settings** and **Pricing** now expose local profile + tier controls:
   - set `explorer`, `pro`, or `enterprise`
   - toggle **Developer Full Access** for full feature entitlements without paid billing wiring
+
+## Production route split guidance
+
+For the real hosted product, keep the route split strict:
+
+- **Public**: landing, pricing, compliance, trust/docs
+- **Customer authenticated**: lessons, chat, workspace dashboards, usage
+- **Owner/admin only**: settings that affect tenant entitlements, developer mode, billing overrides, internal diagnostics
+
+The UI should not rely on placeholder values for production trust surfaces. If a metric is not tenant-backed yet, label it as internal/demo-only or hide it until the backend provides the real value.
 
 ## Main operator workflows
 
@@ -96,6 +115,7 @@ These templates are meant to help you learn the command format safely.
 - View **Learning Memory** for recent lessons and latest submission feedback.
 - Use Recap / Quiz / Review buttons to reinforce lessons.
 - Chat with ATLAS from the right-hand tutor panel.
+- Lesson/module selection should change both the active track badge and the generated lesson/exercise content. If the badge changes but the prompt stays generic, run the targeted regression tests for `atlas_modules` and `exercise_generator`.
 
 ## Recommended startup
 

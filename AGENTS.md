@@ -38,3 +38,17 @@ Use this file when wiring or extending MammothOS agents.
 - Do not let coding/documentation flows invent content from a placeholder target like `unknown`.
 - Prefer explicit `mode`, `audience`, and `constraints` for brand-voice rewrites and tutorial output.
 - Validate outputs against expected shape before calling a task complete.
+
+## ATLAS FAB + package commercialization rules
+- Treat `src/mammoth_os/sdk.py` and `src/mammoth_os/__init__.py` as the public SDK contract for embedders.
+- Keep `AtlasFAB` additive: never break existing `ATLASSession` flows while exposing higher-level embed APIs.
+- Prefer explicit runtime/state surfaces (`runtime_state`, contract versions, provider labels) so integrators can monitor availability and fallback behavior.
+- Keep package metadata (`pyproject.toml`) production-oriented: clear dependencies, public description, and accurate versioning.
+- For monetization features, design for future tenant keys and usage metering without hard-coding a single operator identity.
+
+## Production tenant/auth rules
+- Treat `.mammoth\supabase_tenant_auth.sql` as the baseline blueprint for tenant ownership, membership, billing usage, and audit trails.
+- Do not duplicate existing `atlas` or `mammoth` product tables when adding auth; wrap them with tenant/account ownership and RLS instead.
+- Keep public routes and public-schema content separate from tenant-scoped operational data.
+- Anonymous visitors should never receive private dashboard, usage, or operator-state payloads.
+- Owner/admin controls must be enforced by backend tenant membership checks, not UI-only hiding.

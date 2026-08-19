@@ -9,6 +9,7 @@ Validates:
 import pytest
 import asyncio
 import sys
+import json
 from pathlib import Path
 
 # Add src to path for imports
@@ -285,6 +286,89 @@ def test_curriculum_agent_injects_chunks():
     assert len(result["modules"]) > 0
     # Check that chunks field exists (even if empty due to async context)
     assert "_chunks" in result["modules"][0]["lessons"][0]
+
+
+def test_curriculum_agent_ignores_irrelevant_supabase_modules(monkeypatch):
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def fake_urlopen(request, timeout=8):
+        url = request.full_url
+        if "modules" in url:
+            return FakeResponse([
+                {"id": "python-m1", "title": "Python Setup", "description": "Install Python and create a virtualenv", "order_index": 1},
+            ])
+        if "lessons" in url:
+            return FakeResponse([
+                {"id": "py-l1", "module_id": "python-m1", "title": "Install Python", "content": "Install Python 3 and pip.", "order_index": 1},
+            ])
+        raise AssertionError(f"Unexpected URL {url}")
+
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
+    monkeypatch.setattr("mammoth_os.agents.curriculum_agent.urllib.request.urlopen", fake_urlopen)
+
+    result = CurriculumAgent(router=None).run("Wilderness navigation survival and safety fundamentals")
+    curriculum = result["curriculum"]
+    first_lesson = curriculum["modules"][0]["lessons"][0]
+
+    assert curriculum["subject"] == "Wilderness navigation survival and safety fundamentals"
+    assert "wilderness navigation survival and safety fundamentals" in first_lesson["title"].lower()
+    assert "Python Setup" not in curriculum["modules"][0]["title"]
+
+
+def test_curriculum_agent_llm_enriches_template_lessons(monkeypatch):
+    class FakeClient:
+        async def generate(self, prompt: str, **kwargs) -> str:
+            assert "Generate a grounded, beginner-friendly lesson" in prompt
+            return """{
+  "title": "Wilderness Navigation + Survival — Foundations Lesson 1",
+  "objectives": ["Explain terrain association basics", "Use a map and compass safely"],
+  "summary": "A beginner lesson on finding your way without relying on electronics.",
+  "content": "Terrain association means matching what you see on the ground with what you see on the map. Start by orienting the map, identifying obvious features, and making conservative route choices.",
+  "teaching_points": ["Orient the map before moving", "Use large terrain features first", "Make conservative route decisions"],
+  "examples": ["Example: confirm a ridgeline and creek crossing before leaving camp."],
+  "estimated_minutes": 24
+}"""
+
+    monkeypatch.setattr("mammoth_os.agents.curriculum_agent.get_llm_client", lambda: FakeClient())
+
+    result = CurriculumAgent(router=None).run("Wilderness navigation survival and safety fundamentals")
+    first_lesson = result["curriculum"]["modules"][0]["lessons"][0]
+
+    assert first_lesson["source"] == "llm_generated"
+    assert "terrain association" in first_lesson["content"].lower()
+    assert len(first_lesson["teaching_points"]) >= 3
+    assert first_lesson["examples"]
+
+
+def test_structured_lesson_fallback_rewrites_irrelevant_python_seed():
+    agent = CurriculumAgent(router=None)
+    lesson = {
+        "title": "Lesson 1 — Python Environment Setup",
+        "objectives": ["Understand Lesson 1 — Python Environment Setup", "Apply lesson concepts in code"],
+        "content": "Install Python and pip in your shell.",
+        "source": "template",
+    }
+    subject = "Wilderness navigation survival and safety fundamentals"
+    normalized = agent._build_structured_lesson_fallback(
+        lesson,
+        subject=subject,
+        module_title="Module 1: Foundations",
+    )
+
+    assert "python environment setup" not in normalized["title"].lower()
+    assert "understand the core ideas behind wilderness navigation survival and safety fundamentals." in normalized["objectives"][0].lower()
 
 
 def test_tutor_agent_uses_lesson_chunks():

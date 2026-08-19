@@ -22,6 +22,7 @@ except ImportError:
 # Core registries
 from mammoth_os.agent_registry import agent_registry
 from mammoth_os.engine_registry import EngineRegistry
+from mammoth_os import __version__
 
 # Maintenance tools
 from mammoth_os.maintenance.diagnostics import run_system_check
@@ -53,7 +54,7 @@ def _to_jsonable(value):
 def cmd_version(args):
     print("🐘 Mammoth OS Version")
     print(json.dumps({
-        "version": "0.4.0",
+        "version": __version__,
         "build": "local-dev",
         "python": sys.version,
     }, indent=2))

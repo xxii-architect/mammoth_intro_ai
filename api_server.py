@@ -6,6 +6,7 @@ Run: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 import ast
 import asyncio
 import base64
+from copy import deepcopy
 import csv
 import io
 import json
@@ -20,6 +21,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -28,11 +30,14 @@ from typing import Any, Dict, List, Optional
 ROOT = Path(__file__).parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from mammoth_os.learner_model import build_learner_context, build_lesson_plan, load_learner_model, save_learner_model, set_onboarding_profile, update_learner_model
+from mammoth_os.runtime_contracts import build_observability_run, build_runtime_notice, new_trace_id
+from mammoth_os.rag_retrieval import get_retriever
+from mammoth_os.supabase_client import get_supabase
 
 app = FastAPI(title="MammothOS API", version="1.0.0")
 
@@ -56,9 +61,11 @@ BUILDLOG_FILE = MAMMOTH_DIR / "buildlog.json"
 SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
 OPERATOR_HEALTH_FILE = MAMMOTH_DIR / "operator_health.json"
 ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
+ATLAS_STATE_DIR = MAMMOTH_DIR / "atlas_state"
 SNAPSHOTS_FILE = MAMMOTH_DIR / "snapshots.json"
 ATLAS_EVALS_FILE = MAMMOTH_DIR / "atlas_evals.json"
 AUDIT_LOG_FILE = MAMMOTH_DIR / "audit_log.json"
+AUTH_ADMIN_POLICY_FILE = MAMMOTH_DIR / "auth_admin_policy.json"
 UI_DIR        = ROOT / "ui" / "mad-architecht-command-center"
 VENV_PYTHON   = ROOT / ".venv" / "Scripts" / "python.exe"
 VENV_UVICORN  = ROOT / ".venv" / "Scripts" / "uvicorn.exe"
@@ -68,6 +75,23 @@ TASKS_FILE = MAMMOTH_DIR / "tasks.json"
 for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE]:
     if not _f.exists():
         _f.write_text("[]")
+if not AUTH_ADMIN_POLICY_FILE.exists():
+    AUTH_ADMIN_POLICY_FILE.write_text(json.dumps({"admin_user_ids": [], "admin_emails": []}, indent=2), encoding="utf-8")
+ATLAS_STATE_DIR.mkdir(exist_ok=True)
+
+_AUTH_REQUIRED = str(os.environ.get("MAMMOTH_REQUIRE_AUTH", "")).strip().lower() in {"1", "true", "yes", "on"}
+_ADMIN_EMAILS = {item.strip().lower() for item in str(os.environ.get("MAMMOTH_ADMIN_EMAILS", "")).split(",") if item.strip()}
+_ADMIN_USER_IDS = {item.strip() for item in str(os.environ.get("MAMMOTH_ADMIN_USER_IDS", "")).split(",") if item.strip()}
+_AUTH_OPTIONAL_PATHS = {
+    "/api/status",
+    "/api/health",
+    "/api/models",
+    "/api/modules",
+    "/api/agents",
+}
+_REQUEST_USER_ID: ContextVar[str] = ContextVar("mammoth_request_user_id", default="local")
+_REQUEST_USER_EMAIL: ContextVar[str] = ContextVar("mammoth_request_user_email", default="")
+_REQUEST_IS_ADMIN: ContextVar[bool] = ContextVar("mammoth_request_is_admin", default=True)
 
 ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
     {
@@ -75,6 +99,9 @@ ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
         "label": "Wilderness Navigation + Survival",
         "topic": "Wilderness navigation survival and safety fundamentals",
         "summary": "Field-ready navigation, shelter, water, and risk management fundamentals.",
+        "category": "Outdoors",
+        "icon": "🏕️",
+        "lesson_type": "knowledge",
         "outcomes": [
             "Map-and-compass orientation with terrain awareness",
             "Shelter, water, and fire decision-making under pressure",
@@ -87,6 +114,9 @@ ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
         "label": "Hunting + Fishing",
         "topic": "Hunting and fishing safety ethics and field basics",
         "summary": "Ethical harvest, gear discipline, and field-readiness basics for outdoor food systems.",
+        "category": "Outdoors",
+        "icon": "🎣",
+        "lesson_type": "knowledge",
         "outcomes": [
             "Safe tool handling and site awareness",
             "Ethical harvest principles and conservation framing",
@@ -99,6 +129,9 @@ ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
         "label": "Ham Radio",
         "topic": "Ham radio fundamentals call signs and emergency comms basics",
         "summary": "Introductory radio literacy for disciplined communication and emergency readiness.",
+        "category": "Emergency",
+        "icon": "📡",
+        "lesson_type": "knowledge",
         "outcomes": [
             "Call-sign etiquette and net discipline basics",
             "Frequency, repeater, and simplex communication fundamentals",
@@ -111,6 +144,9 @@ ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
         "label": "EMT + Emergency Mgmt",
         "topic": "EMT and emergency management triage and incident fundamentals",
         "summary": "Structured emergency response thinking with triage, ICS awareness, and scene safety.",
+        "category": "Emergency",
+        "icon": "🚑",
+        "lesson_type": "knowledge",
         "outcomes": [
             "Scene safety, triage priorities, and patient communication basics",
             "Incident command awareness and escalation habits",
@@ -123,12 +159,465 @@ ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
         "label": "Horticulture + Weather",
         "topic": "Horticulture botany and weather pattern literacy basics",
         "summary": "Plant care, growth cycles, and weather-aware decision-making for practical stewardship.",
+        "category": "Outdoors",
+        "icon": "🌱",
+        "lesson_type": "knowledge",
         "outcomes": [
             "Plant structure, soil, and watering fundamentals",
             "Seasonal planning informed by basic weather pattern reading",
             "Observation logs that connect weather signals to plant decisions",
         ],
         "operator_note": "Favor observation, stewardship, and repeatable habits over overconfident predictions.",
+    },
+    {
+        "id": "homesteading",
+        "label": "Homesteading Basics",
+        "topic": "Homesteading self-sufficiency food preservation and land management",
+        "summary": "Practical self-reliance skills from garden to pantry.",
+        "category": "Outdoors",
+        "icon": "🏡",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Basic garden, pantry, and household self-sufficiency patterns",
+            "Food preservation and seasonal planning habits",
+            "Land stewardship decisions grounded in sustainability",
+        ],
+        "operator_note": "Keep examples realistic for beginners and oriented toward steady skill-building.",
+    },
+    {
+        "id": "human-systems-neurobiology",
+        "label": "Human Systems / Neurobiology / Stress & Recovery",
+        "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+        "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+        "category": "Human Systems",
+        "icon": "🧠",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions",
+        ],
+        "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits.",
+    },
+    {
+        "id": "environmental-human-dynamics",
+        "label": "Environmental Human Dynamics",
+        "topic": "Environmental human dynamics climate stress and human behavior in context",
+        "summary": "Learn how environment, climate, crowding, and conditions shape human experience and responses.",
+        "category": "Human Systems",
+        "icon": "🌍",
+        "lesson_type": "scenario",
+        "outcomes": [
+            "Recognize how environmental conditions affect physiology, attention, and mood",
+            "Use context-aware decision-making for safety and adaptation",
+            "Connect environmental stress to practical, human-centered strategies",
+        ],
+        "operator_note": "Frame situations realistically and emphasize context, adaptation, and humane decision-making.",
+    },
+    {
+        "id": "mind-body-resilience",
+        "label": "Mind-Body Resilience",
+        "topic": "Mind-body resilience stress recovery and nervous system regulation fundamentals",
+        "summary": "Build durable physical and mental resilience through recovery habits, stress awareness, and self-regulation.",
+        "category": "Human Systems",
+        "icon": "⚖️",
+        "lesson_type": "checklist",
+        "outcomes": [
+            "Identify common stress signals and recovery bottlenecks",
+            "Use basic self-regulation and recovery practices intentionally",
+            "Design a simple resilience routine for sustained performance and calm",
+        ],
+        "operator_note": "Keep this practical, beginner-friendly, and grounded in sustainable daily life rather than extremes.",
+    },
+    {
+        "id": "first-aid-cpr",
+        "label": "First Aid + CPR",
+        "topic": "First aid CPR and emergency response fundamentals",
+        "summary": "Life-saving techniques every operator should know.",
+        "category": "Emergency",
+        "icon": "❤️‍🩹",
+        "lesson_type": "checklist",
+        "outcomes": [
+            "Recognize emergencies that require immediate escalation",
+            "Understand CPR sequence and first-aid scene priorities",
+            "Use calm, stepwise response habits under pressure",
+        ],
+        "operator_note": "Stay educational and procedural; do not present as professional medical direction.",
+    },
+    {
+        "id": "situational-awareness",
+        "label": "Situational Awareness",
+        "topic": "Situational awareness threat assessment and decision making under pressure",
+        "summary": "See more, react faster, stay ahead of the curve.",
+        "category": "Emergency",
+        "icon": "👁️",
+        "lesson_type": "scenario",
+        "outcomes": [
+            "Scan environments methodically for changes and anomalies",
+            "Separate signal from noise during time-sensitive decisions",
+            "Use simple threat prioritization and exit planning habits",
+        ],
+        "operator_note": "Keep guidance defensive, observational, and de-escalatory.",
+    },
+    {
+        "id": "personal-finance",
+        "label": "Personal Finance",
+        "topic": "Personal finance budgeting investing and wealth building fundamentals",
+        "summary": "Budget, invest, and grow wealth systematically.",
+        "category": "Business",
+        "icon": "💰",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Build a simple budget and cash-flow awareness habit",
+            "Understand debt, savings, and compounding basics",
+            "Evaluate tradeoffs in beginner-friendly wealth decisions",
+        ],
+        "operator_note": "Keep examples practical and conservative; avoid individualized financial advice.",
+    },
+    {
+        "id": "entrepreneurship",
+        "label": "Entrepreneurship",
+        "topic": "Entrepreneurship business model design and startup fundamentals",
+        "summary": "Build and validate business ideas that survive contact with reality.",
+        "category": "Business",
+        "icon": "🚀",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Frame customer pain, value propositions, and market fit",
+            "Test assumptions with lightweight validation habits",
+            "Translate ideas into simple execution roadmaps",
+        ],
+        "operator_note": "Favor evidence, iteration, and customer understanding over hype.",
+    },
+    {
+        "id": "sales-persuasion",
+        "label": "Sales + Persuasion",
+        "topic": "Sales persuasion influence and negotiation fundamentals",
+        "summary": "Ethical influence, objection handling, and closing frameworks.",
+        "category": "Business",
+        "icon": "🤝",
+        "lesson_type": "scenario",
+        "outcomes": [
+            "Diagnose buyer objections without getting defensive",
+            "Structure persuasive conversations around value and trust",
+            "Practice negotiation with ethical framing and clarity",
+        ],
+        "operator_note": "Keep examples ethical, consent-aware, and focused on honest value exchange.",
+    },
+    {
+        "id": "investing",
+        "label": "Investing Fundamentals",
+        "topic": "Investing stocks bonds real estate and portfolio management basics",
+        "summary": "Allocate capital intelligently across asset classes.",
+        "category": "Business",
+        "icon": "📈",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Differentiate common asset classes and risk profiles",
+            "Use diversification and time horizon as core principles",
+            "Understand simple portfolio tradeoffs without speculation",
+        ],
+        "operator_note": "Stay educational and risk-aware; avoid personalized investment directives.",
+    },
+    {
+        "id": "legal-basics",
+        "label": "Legal Basics",
+        "topic": "Legal literacy contracts business law and liability fundamentals",
+        "summary": "Know your rights and liabilities before signing anything.",
+        "category": "Business",
+        "icon": "⚖️",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Read common contracts with a clause-by-clause mindset",
+            "Recognize liability, consent, and risk-allocation patterns",
+            "Know when to escalate to qualified legal review",
+        ],
+        "operator_note": "Keep guidance educational and non-legal-advice in tone.",
+    },
+    {
+        "id": "fitness-training",
+        "label": "Fitness + Training",
+        "topic": "Strength training exercise programming and physical fitness fundamentals",
+        "summary": "Build a training system that compounds over time.",
+        "category": "Health",
+        "icon": "💪",
+        "lesson_type": "checklist",
+        "outcomes": [
+            "Understand progressive overload and recovery basics",
+            "Structure beginner sessions around consistency and safety",
+            "Track effort and form quality over ego-driven volume",
+        ],
+        "operator_note": "Stay educational and safety-first; do not present medical advice.",
+    },
+    {
+        "id": "nutrition",
+        "label": "Nutrition Science",
+        "topic": "Nutrition macronutrients micronutrients and diet optimization basics",
+        "summary": "Fuel performance and recovery through smarter eating.",
+        "category": "Health",
+        "icon": "🥗",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Understand calories, macros, and meal composition basics",
+            "Connect food choices to energy, recovery, and satiety",
+            "Evaluate fad nutrition claims with skepticism",
+        ],
+        "operator_note": "Keep guidance general and non-clinical.",
+    },
+    {
+        "id": "mental-health",
+        "label": "Mental Resilience",
+        "topic": "Mental health resilience stress management and cognitive performance",
+        "summary": "Build psychological durability for high-stakes environments.",
+        "category": "Health",
+        "icon": "🧠",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Recognize stress patterns and healthy coping mechanisms",
+            "Use simple reflection and recovery habits consistently",
+            "Support cognitive performance without glamorizing burnout",
+        ],
+        "operator_note": "Keep tone supportive and non-clinical; escalate crisis concerns to professionals.",
+    },
+    {
+        "id": "sleep-recovery",
+        "label": "Sleep + Recovery",
+        "topic": "Sleep optimization recovery protocols and human performance science",
+        "summary": "Recover harder, perform better, think clearer.",
+        "category": "Health",
+        "icon": "😴",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Understand sleep stages, recovery, and fatigue basics",
+            "Build sleep-supportive routines and environmental habits",
+            "Connect recovery quality to performance outcomes",
+        ],
+        "operator_note": "Favor practical recovery habits over miracle claims.",
+    },
+    {
+        "id": "python-programming",
+        "label": "Python Programming",
+        "topic": "Python programming fundamentals syntax and problem solving",
+        "summary": "Write clean, purposeful Python from day one.",
+        "category": "Technology",
+        "icon": "🐍",
+        "lesson_type": "code",
+        "outcomes": [
+            "Use core syntax, functions, and data structures correctly",
+            "Debug small programs with deliberate reasoning",
+            "Translate plain-language tasks into readable code",
+        ],
+        "operator_note": "Keep lessons concrete and hands-on.",
+    },
+    {
+        "id": "ai-ml-basics",
+        "label": "AI + Machine Learning",
+        "topic": "Artificial intelligence machine learning and LLM fundamentals",
+        "summary": "Understand how AI thinks, learns, and makes decisions.",
+        "category": "Technology",
+        "icon": "🤖",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Differentiate models, training, inference, and evaluation",
+            "Understand where LLMs are strong and brittle",
+            "Use AI systems critically instead of magically",
+        ],
+        "operator_note": "Emphasize grounded understanding over hype.",
+    },
+    {
+        "id": "cybersecurity",
+        "label": "Cybersecurity Basics",
+        "topic": "Cybersecurity threat models OPSEC and digital hygiene fundamentals",
+        "summary": "Protect your assets, identity, and systems from real threats.",
+        "category": "Technology",
+        "icon": "🔐",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Recognize common threat surfaces and trust boundaries",
+            "Apply basic digital hygiene and credential discipline",
+            "Think in terms of risk reduction and blast radius",
+        ],
+        "operator_note": "Keep material defensive and safety-oriented.",
+    },
+    {
+        "id": "networking",
+        "label": "Computer Networking",
+        "topic": "Computer networking TCP IP DNS routing and protocols",
+        "summary": "Understand how the internet actually works under the hood.",
+        "category": "Technology",
+        "icon": "🌐",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Understand packets, addressing, and routing basics",
+            "Differentiate common protocols and their roles",
+            "Reason about connectivity issues methodically",
+        ],
+        "operator_note": "Stay conceptual, practical, and beginner-friendly.",
+    },
+    {
+        "id": "linux-cli",
+        "label": "Linux + CLI",
+        "topic": "Linux command line shell scripting and system administration basics",
+        "summary": "Own the terminal and stop fearing the command line.",
+        "category": "Technology",
+        "icon": "🖥️",
+        "lesson_type": "code",
+        "outcomes": [
+            "Navigate filesystems and inspect processes confidently",
+            "Use shell commands safely and compose simple scripts",
+            "Build debugging habits from command output and logs",
+        ],
+        "operator_note": "Favor safe, observable commands over destructive shortcuts.",
+    },
+    {
+        "id": "writing-storytelling",
+        "label": "Writing + Storytelling",
+        "topic": "Clear writing persuasive communication and storytelling fundamentals",
+        "summary": "Say exactly what you mean, compellingly.",
+        "category": "Creative",
+        "icon": "✍️",
+        "lesson_type": "writing",
+        "outcomes": [
+            "Structure ideas so readers can follow them easily",
+            "Use examples, rhythm, and clarity deliberately",
+            "Edit for precision instead of ornament",
+        ],
+        "operator_note": "Prioritize clarity, specificity, and honest communication.",
+    },
+    {
+        "id": "public-speaking",
+        "label": "Public Speaking",
+        "topic": "Public speaking presentation and communication confidence fundamentals",
+        "summary": "Own any room, camera, or stage with authority.",
+        "category": "Creative",
+        "icon": "🎙️",
+        "lesson_type": "scenario",
+        "outcomes": [
+            "Organize a message for clear spoken delivery",
+            "Manage nerves with practical rehearsal habits",
+            "Use voice, pacing, and emphasis intentionally",
+        ],
+        "operator_note": "Keep feedback confidence-building and practical.",
+    },
+    {
+        "id": "photography",
+        "label": "Photography",
+        "topic": "Photography composition lighting and camera fundamentals",
+        "summary": "See light differently and capture it intentionally.",
+        "category": "Creative",
+        "icon": "📸",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Recognize framing, composition, and focal choices",
+            "Understand exposure and lighting tradeoffs",
+            "Practice observation before pressing the shutter",
+        ],
+        "operator_note": "Encourage seeing, composing, and iterating rather than gear obsession.",
+    },
+    {
+        "id": "music-theory",
+        "label": "Music Theory",
+        "topic": "Music theory notes scales chords and harmony fundamentals",
+        "summary": "Learn the language of music from first principles.",
+        "category": "Creative",
+        "icon": "🎵",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Understand intervals, scales, and chord relationships",
+            "Connect notation concepts to listening and performance",
+            "Build pattern recognition through simple examples",
+        ],
+        "operator_note": "Keep lessons approachable and pattern-based.",
+    },
+    {
+        "id": "cooking-culinary",
+        "label": "Culinary Arts",
+        "topic": "Cooking culinary techniques knife skills and flavor fundamentals",
+        "summary": "Cook intentionally, not by accident.",
+        "category": "Life Skills",
+        "icon": "👨‍🍳",
+        "lesson_type": "checklist",
+        "outcomes": [
+            "Understand heat, seasoning, and texture basics",
+            "Practice prep discipline and safe knife habits",
+            "Use repeatable techniques instead of guessing",
+        ],
+        "operator_note": "Keep examples safe, practical, and home-kitchen friendly.",
+    },
+    {
+        "id": "auto-mechanics",
+        "label": "Auto Mechanics",
+        "topic": "Automotive mechanics vehicle maintenance and basic repair fundamentals",
+        "summary": "Diagnose and fix common vehicle issues yourself.",
+        "category": "Life Skills",
+        "icon": "🔧",
+        "lesson_type": "checklist",
+        "outcomes": [
+            "Recognize common maintenance systems and warning signs",
+            "Use simple diagnostic thinking before replacing parts",
+            "Understand safe inspection and maintenance habits",
+        ],
+        "operator_note": "Keep lessons safety-aware and beginner scoped.",
+    },
+    {
+        "id": "home-repair",
+        "label": "Home Repair + DIY",
+        "topic": "Home repair plumbing electrical and construction fundamentals",
+        "summary": "Fix things before calling someone else to fix them.",
+        "category": "Life Skills",
+        "icon": "🏠",
+        "lesson_type": "checklist",
+        "outcomes": [
+            "Identify common household systems and failure points",
+            "Use stepwise troubleshooting before escalation",
+            "Know when a task exceeds safe DIY scope",
+        ],
+        "operator_note": "Emphasize safety, shutoff awareness, and knowing when to stop.",
+    },
+    {
+        "id": "leadership",
+        "label": "Leadership + Management",
+        "topic": "Leadership team management decision making and organizational effectiveness",
+        "summary": "Lead through clarity, not authority.",
+        "category": "Life Skills",
+        "icon": "🎯",
+        "lesson_type": "scenario",
+        "outcomes": [
+            "Communicate expectations and priorities clearly",
+            "Make decisions with limited information and real constraints",
+            "Coach, delegate, and adapt without losing trust",
+        ],
+        "operator_note": "Favor service, clarity, and accountability over posturing.",
+    },
+    {
+        "id": "critical-thinking",
+        "label": "Critical Thinking",
+        "topic": "Critical thinking logical reasoning cognitive bias and decision frameworks",
+        "summary": "Think cleaner, decide better, get manipulated less.",
+        "category": "Life Skills",
+        "icon": "🔍",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Recognize common reasoning traps and cognitive biases",
+            "Use simple frameworks to compare claims and evidence",
+            "Slow down snap judgments with explicit thinking habits",
+        ],
+        "operator_note": "Encourage curiosity, skepticism, and intellectual humility.",
+    },
+    {
+        "id": "language-learning",
+        "label": "Language Learning",
+        "topic": "Language acquisition methodology vocabulary and communication practice",
+        "summary": "Learn any language faster with the right mental model.",
+        "category": "Life Skills",
+        "icon": "🗣️",
+        "lesson_type": "knowledge",
+        "outcomes": [
+            "Use repetition, context, and active recall effectively",
+            "Balance grammar study with comprehension and output practice",
+            "Build a sustainable language habit without burnout",
+        ],
+        "operator_note": "Keep lessons motivating, practical, and habit-based.",
     },
 ]
 
@@ -144,6 +633,84 @@ def _read_json(path: Path, default=None):
 
 def _write_json(path: Path, data):
     path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+def _normalize_user_storage_key(user_id: str) -> str:
+    normalized = re.sub(r"[^a-z0-9_-]+", "-", str(user_id or "").strip().lower()).strip("-")
+    return normalized or "local"
+
+
+def _atlas_state_file_for_request() -> Path:
+    if not _AUTH_REQUIRED:
+        return ATLAS_FILE
+    user_key = _normalize_user_storage_key(_REQUEST_USER_ID.get())
+    return ATLAS_STATE_DIR / f"atlas_state_{user_key}.json"
+
+
+def _request_is_admin() -> bool:
+    return bool(_REQUEST_IS_ADMIN.get())
+
+
+def _is_auth_optional_path(path: str) -> bool:
+    if path in _AUTH_OPTIONAL_PATHS:
+        return True
+    return path.startswith("/api/docs") or path.startswith("/api/openapi")
+
+
+def _extract_bearer_token(request: Request) -> str:
+    header = str(request.headers.get("authorization") or "").strip()
+    if not header.lower().startswith("bearer "):
+        return ""
+    token = header[7:].strip()
+    return token
+
+
+def _resolve_supabase_user(token: str) -> Optional[Dict[str, Any]]:
+    if not token:
+        return None
+    supabase = get_supabase()
+    if supabase is None:
+        return None
+    try:
+        response = supabase.auth.get_user(token)
+        user = getattr(response, "user", None)
+        if not user:
+            return None
+        user_id = str(getattr(user, "id", "") or "").strip()
+        user_email = str(getattr(user, "email", "") or "").strip().lower()
+        if not user_id:
+            return None
+        is_admin = user_id in _ADMIN_USER_IDS or (user_email in _ADMIN_EMAILS if user_email else False)
+        return {"id": user_id, "email": user_email, "is_admin": is_admin}
+    except Exception:
+        return None
+
+
+@app.middleware("http")
+async def auth_guard_middleware(request: Request, call_next):
+    if not _AUTH_REQUIRED or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    if request.method.upper() == "OPTIONS" or _is_auth_optional_path(request.url.path):
+        return await call_next(request)
+
+    token = _extract_bearer_token(request)
+    user = _resolve_supabase_user(token)
+    if user is None:
+        return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
+
+    token_user = _REQUEST_USER_ID.set(user["id"])
+    token_email = _REQUEST_USER_EMAIL.set(user.get("email") or "")
+    token_admin = _REQUEST_IS_ADMIN.set(bool(user.get("is_admin")))
+    request.state.auth_user_id = user["id"]
+    request.state.auth_email = user.get("email") or ""
+    request.state.auth_is_admin = bool(user.get("is_admin"))
+    try:
+        return await call_next(request)
+    finally:
+        _REQUEST_USER_ID.reset(token_user)
+        _REQUEST_USER_EMAIL.reset(token_email)
+        _REQUEST_IS_ADMIN.reset(token_admin)
 
 
 def _coerce_float(value: Any, *, field: str) -> float:
@@ -175,6 +742,9 @@ def _serialize_module_track(track: Optional[Dict[str, Any]]) -> Optional[Dict[st
         "label": str(track.get("label") or "").strip(),
         "topic": str(track.get("topic") or "").strip(),
         "summary": str(track.get("summary") or "").strip(),
+        "category": str(track.get("category") or "").strip(),
+        "icon": str(track.get("icon") or "").strip(),
+        "lesson_type": str(track.get("lesson_type") or "").strip(),
         "outcomes": [str(item).strip() for item in (track.get("outcomes") or []) if str(item).strip()],
         "operator_note": str(track.get("operator_note") or "").strip(),
     }
@@ -219,6 +789,359 @@ def _compose_module_curriculum_topic(requested_topic: str, track: Optional[Dict[
     )
 
 
+def _looks_like_python_seed(text: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(python|virtualenv|venv|pip|pytest|function|algorithm|javascript|coding|programming|code editor|shell setup|environment setup)\b",
+            str(text or ""),
+            re.IGNORECASE,
+        )
+    )
+
+
+def _track_topic_tokens(track: Optional[Dict[str, Any]]) -> List[str]:
+    blob = " ".join(
+        [
+            str((track or {}).get("label") or ""),
+            str((track or {}).get("topic") or ""),
+            *[str(item) for item in ((track or {}).get("outcomes") or [])],
+        ]
+    ).lower()
+    stop = {
+        "and", "the", "for", "with", "from", "that", "this", "into", "real", "world", "basics",
+        "fundamentals", "beginner", "practical", "friendly", "skills", "safety", "core", "ideas",
+        "under",
+    }
+    seen: List[str] = []
+    for token in re.findall(r"[a-z][a-z\-]{3,}", blob):
+        if token in stop:
+            continue
+        if token not in seen:
+            seen.append(token)
+    return seen
+
+
+def _is_off_topic_python_payload(text: str, track: Optional[Dict[str, Any]]) -> bool:
+    lesson_type = str((track or {}).get("lesson_type") or "knowledge").strip().lower() or "knowledge"
+    if lesson_type == "code":
+        return False
+    lowered = str(text or "").lower()
+    if not _looks_like_python_seed(lowered):
+        return False
+    topic_tokens = _track_topic_tokens(track)
+    if not topic_tokens:
+        return True
+    return not any(re.search(rf"\b{re.escape(token)}\b", lowered) for token in topic_tokens)
+
+
+def _decorate_lesson_for_module_track(lesson: Optional[Dict[str, Any]], track: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not isinstance(lesson, dict) or not lesson:
+        return lesson
+    if not isinstance(track, dict) or not track:
+        return lesson
+    decorated = dict(lesson)
+    serialized_track = _serialize_module_track(track)
+    objectives = [str(item).strip() for item in (decorated.get("objectives") or []) if str(item).strip()]
+    outcomes = [str(item).strip() for item in (track.get("outcomes") or []) if str(item).strip()]
+    title = str(decorated.get("title") or track.get("label") or "Lesson").strip()
+    summary = str(decorated.get("summary") or track.get("summary") or "").strip()
+    raw_blob = "\n".join([title, summary, str(decorated.get("content") or ""), "\n".join(objectives)])
+    if _is_off_topic_python_payload(raw_blob, track):
+        title = f"{track.get('label', 'Lesson')} — Foundations Lesson 1"
+        objectives = [
+            f"Identify the key ideas in {track.get('topic', track.get('label', 'this topic'))}.",
+            f"Apply {track.get('topic', track.get('label', 'this topic'))} in a practical beginner-friendly scenario.",
+        ]
+        summary = str(track.get("summary") or "").strip()
+    if not summary:
+        summary = (
+            f"{track.get('label', 'This lesson')} focuses on {track.get('topic', title)} in a practical, beginner-friendly way. "
+            "It covers the core ideas, the reasoning behind them, and a realistic action step learners can apply right away."
+        )
+    teaching_points = [
+        item for item in (objectives + outcomes)[:6]
+        if str(item).strip()
+    ]
+    if not teaching_points:
+        teaching_points = [
+            f"Identify the key ideas in {track.get('topic', title)}.",
+            f"Apply {track.get('topic', title)} in a practical beginner-friendly scenario.",
+            "Use the lesson to build confidence before moving to a more advanced concept.",
+        ]
+    content_text = str(decorated.get("content") or "").strip()
+    if _is_off_topic_python_payload(content_text, track):
+        content_text = ""
+    lesson_body = content_text or "\n\n".join([summary, *[f"- {item}" for item in teaching_points[:4]]])
+    examples = [str(item).strip() for item in (decorated.get("examples") or []) if str(item).strip()]
+    if not examples:
+        examples = [
+            f"Beginner example: explain how {track.get('topic', title)} shows up in a real-world situation.",
+            f"Practice example: describe the first safe and practical action step for {track.get('topic', title)}.",
+        ]
+    decorated["module_track"] = serialized_track
+    decorated["title"] = title
+    decorated["objectives"] = objectives
+    decorated["lesson_type"] = str(track.get("lesson_type") or "knowledge").strip() or "knowledge"
+    decorated["category"] = str(track.get("category") or "").strip()
+    decorated["icon"] = str(track.get("icon") or "").strip()
+    decorated["summary"] = summary
+    decorated["content"] = lesson_body
+    decorated["teaching_points"] = teaching_points
+    decorated["examples"] = examples[:3]
+    decorated["content_source"] = str(decorated.get("source") or "lesson").strip()
+    return decorated
+
+
+def _build_text_rubric(lesson: Dict[str, Any], track: Optional[Dict[str, Any]]) -> str:
+    objectives = [str(item).strip() for item in (lesson.get("objectives") or []) if str(item).strip()]
+    outcomes = [str(item).strip() for item in ((track or {}).get("outcomes") or []) if str(item).strip()]
+    lines = [
+        "Evaluation rubric:",
+        "- Respond directly to the lesson topic in your own words.",
+        "- Cover at least 2 concrete ideas from the lesson objectives or outcomes.",
+        "- Include one practical real-world example or action step.",
+    ]
+    for item in (objectives + outcomes)[:4]:
+        lines.append(f"- Address: {item}")
+    return "\n".join(lines)
+
+
+def _decorate_exercise_for_module_track(
+    exercise: Optional[Dict[str, Any]],
+    lesson: Optional[Dict[str, Any]],
+    track: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(exercise, dict) or not exercise:
+        return exercise
+    if not isinstance(track, dict) or not track:
+        return exercise
+
+    lesson_data = _decorate_lesson_for_module_track(lesson or {}, track) or {}
+    lesson_type = str(track.get("lesson_type") or "knowledge").strip() or "knowledge"
+    title = str((lesson_data or {}).get("title") or exercise.get("title") or track.get("label") or "Lesson").strip()
+    objectives = [str(item).strip() for item in (lesson_data.get("objectives") or []) if str(item).strip()]
+    outcomes = [str(item).strip() for item in (track.get("outcomes") or []) if str(item).strip()]
+    operator_note = str(track.get("operator_note") or "").strip()
+
+    decorated = dict(exercise)
+    decorated["module_track"] = _serialize_module_track(track)
+    decorated["lesson_type"] = lesson_type
+    decorated["submission_mode"] = "code" if lesson_type == "code" else "text"
+    decorated["category"] = str(track.get("category") or "").strip()
+    decorated["icon"] = str(track.get("icon") or "").strip()
+    lesson_summary = str((lesson_data.get("summary") or lesson_data.get("content") or track.get("summary") or "").strip())
+    if not lesson_summary:
+        lesson_summary = (
+            f"{track.get('label', 'This lesson')} teaches the core ideas behind {track.get('topic', title)} in a practical, beginner-friendly way."
+        )
+    decorated["lesson_summary"] = lesson_summary
+    decorated["teaching_points"] = [
+        item for item in (lesson_data.get("teaching_points") or []) if str(item).strip()
+    ] or [
+        str(item).strip() for item in (objectives + outcomes)[:4] if str(item).strip()
+    ]
+    decorated["lesson_body"] = str(lesson_data.get("content") or lesson_summary).strip()
+    decorated["lesson_examples"] = [str(item).strip() for item in (lesson_data.get("examples") or []) if str(item).strip()][:3]
+    decorated["lesson_source"] = str(lesson_data.get("content_source") or lesson_data.get("source") or "lesson").strip()
+
+    if lesson_type == "code":
+        return decorated
+
+    objectives_blob = "\n".join(f"- {item}" for item in objectives[:4]) or "- Explain the main ideas clearly.\n- Give one practical example."
+    outcomes_blob = "\n".join(f"- {item}" for item in outcomes[:3])
+    note_line = f"\nOperator note: {operator_note}" if operator_note else ""
+
+    starter_response = ""
+    prompt = str(exercise.get("prompt") or "").strip()
+    llm_text_contract = (
+        str(exercise.get("generation_method") or "").strip().lower() == "llm"
+        and prompt
+        and "generic placeholder" not in prompt.lower()
+        and not _is_off_topic_python_payload(prompt, track)
+    )
+
+    if llm_text_contract:
+        starter_response = str(exercise.get("starter_response") or "").strip()
+        if not starter_response:
+            starter_response = (
+                "Main idea:\n"
+                "Key detail 1:\n"
+                "Key detail 2:\n"
+                "Practical example:\n"
+            )
+    elif lesson_type == "scenario":
+        starter_response = (
+            "Situation summary:\n"
+            "Immediate priorities:\n"
+            "Recommended response:\n"
+            "Why this response is appropriate:\n"
+        )
+        prompt = (
+            f"Scenario exercise for '{title}'.\n"
+            "Explain how you would respond in a realistic beginner-friendly situation related to this lesson.\n"
+            "Use the objectives below to shape your response:\n"
+            f"{objectives_blob}\n"
+            "Try to include:\n"
+            "- what you notice first\n"
+            "- what you would do next\n"
+            "- how you would keep the situation safe and controlled\n"
+            f"{note_line}"
+        )
+    elif lesson_type == "checklist":
+        starter_response = (
+            "1. Preparation / safety:\n"
+            "2. Step-by-step process:\n"
+            "3. Common mistakes to avoid:\n"
+            "4. Final check / wrap-up:\n"
+        )
+        prompt = (
+            f"Checklist exercise for '{title}'.\n"
+            "Build a practical step-by-step checklist someone could follow while learning this topic.\n"
+            "Your checklist should reflect these objectives:\n"
+            f"{objectives_blob}\n"
+            "Include preparation, execution, and safety/quality checks."
+            f"{note_line}"
+        )
+    elif lesson_type == "writing":
+        starter_response = (
+            "Main idea:\n"
+            "Supporting point 1:\n"
+            "Supporting point 2:\n"
+            "Concrete example:\n"
+            "Closing insight:\n"
+        )
+        prompt = (
+            f"Writing exercise for '{title}'.\n"
+            "Write a clear, structured explanation that teaches this topic to a beginner.\n"
+            "Make it grounded, readable, and specific.\n"
+            "Focus points:\n"
+            f"{objectives_blob}\n"
+            f"{note_line}"
+        )
+    else:
+        starter_response = (
+            "What this topic is:\n"
+            "Why it matters:\n"
+            "Key principles:\n"
+            "Practical example:\n"
+        )
+        prompt = (
+            f"Knowledge exercise for '{title}'.\n"
+            "Teach this topic in plain language for a beginner.\n"
+            "Cover the lesson objectives directly and include one practical real-world example.\n"
+            "Objectives:\n"
+            f"{objectives_blob}\n"
+            f"{outcomes_blob}\n"
+            f"{note_line}"
+        )
+
+    if lesson_type == "code":
+        decorated["title"] = str(exercise.get("title") or f"{title} — Guided Response").strip()
+    else:
+        decorated["title"] = f"{title} — Guided Response"
+    decorated["prompt"] = prompt.strip()
+    decorated["starter_files"] = {}
+    decorated["starter_response"] = starter_response
+    decorated["expected_test"] = str(exercise.get("expected_test") or "").strip() or _build_text_rubric(lesson_data, track)
+    return decorated
+
+
+def _extract_text_submission_keywords(lesson: Dict[str, Any], exercise: Dict[str, Any], track: Optional[Dict[str, Any]]) -> List[str]:
+    raw_parts = [
+        str((track or {}).get("label") or ""),
+        str((track or {}).get("topic") or ""),
+        str((lesson or {}).get("title") or ""),
+        *[str(item) for item in ((lesson or {}).get("objectives") or [])],
+        *[str(item) for item in ((track or {}).get("outcomes") or [])],
+    ]
+    seen: List[str] = []
+    for part in raw_parts:
+        for token in re.findall(r"[A-Za-z][A-Za-z\-]{3,}", part.lower()):
+            if token in {
+                "lesson", "module", "foundations", "basics", "beginner", "practical", "friendly",
+                "safety", "real", "world", "skills", "skill", "response", "guided", "exercise",
+            }:
+                continue
+            if token not in seen:
+                seen.append(token)
+    return seen[:10]
+
+
+def _evaluate_text_submission(
+    response_text: str,
+    *,
+    lesson: Dict[str, Any],
+    exercise: Dict[str, Any],
+    track: Optional[Dict[str, Any]],
+    lesson_id: str,
+) -> Dict[str, Any]:
+    response = str(response_text or "").strip()
+    if not response:
+        return {
+            "passed": False,
+            "recommendation": "same",
+            "hint": "Add a real written response before submitting. Summarize the lesson in your own words and include one practical example.",
+            "result": {"passed": False, "stdout": "", "stderr": "Empty response submission."},
+            "exercise_id": exercise.get("exercise_id"),
+            "lesson_id": lesson_id,
+            "submission_mode": "text",
+            "score": 0.0,
+        }
+
+    keywords = _extract_text_submission_keywords(lesson, exercise, track)
+    lower_response = response.lower()
+    keyword_hits = [word for word in keywords if word in lower_response]
+    line_count = len([line for line in response.splitlines() if line.strip()])
+    response_len = len(response)
+    practical_markers = ["example", "practice", "step", "safety", "because", "should", "would", "priority"]
+    practical_hits = [item for item in practical_markers if item in lower_response]
+
+    score = 0.0
+    if response_len >= 120:
+        score += 0.4
+    elif response_len >= 60:
+        score += 0.25
+    score += min(len(keyword_hits), 4) * 0.12
+    if line_count >= 3:
+        score += 0.1
+    if practical_hits:
+        score += 0.12
+    score = min(score, 1.0)
+    passed = score >= 0.5
+
+    if passed:
+        hint = (
+            "Strong response. You stayed on-topic and connected the lesson to practical use. "
+            "For the next pass, tighten your explanation into clearer steps or examples."
+        )
+        recommendation = "increase"
+    else:
+        missing_keywords = [word for word in keywords[:4] if word not in keyword_hits][:3]
+        hint_parts = [
+            "Your response needs to be more lesson-specific.",
+            "Explain the topic in your own words and include a practical example or action step.",
+        ]
+        if missing_keywords:
+            hint_parts.append(f"Try explicitly covering: {', '.join(missing_keywords)}.")
+        recommendation = "same"
+        hint = " ".join(hint_parts)
+
+    return {
+        "passed": passed,
+        "recommendation": recommendation,
+        "hint": hint,
+        "result": {
+            "passed": passed,
+            "stdout": f"Keyword hits: {', '.join(keyword_hits[:6])}" if keyword_hits else "",
+            "stderr": "" if passed else "Response did not meet the topic-specific coverage threshold.",
+        },
+        "exercise_id": exercise.get("exercise_id"),
+        "lesson_id": lesson_id,
+        "submission_mode": "text",
+        "score": round(score, 2),
+    }
+
+
 def _load_activity_events() -> List[Dict[str, Any]]:
     return _read_json(AGENT_ACTIVITY_FILE)
 
@@ -227,7 +1150,7 @@ def _save_activity_events(entries: List[Dict[str, Any]]):
     _write_json(AGENT_ACTIVITY_FILE, entries)
 
 
-def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kind: str = "event", details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kind: str = "event", details: Optional[Dict[str, Any]] = None, trace_id: str = "") -> Dict[str, Any]:
     entries = _load_activity_events()
     entry = {
         "id": str(uuid.uuid4()),
@@ -235,6 +1158,7 @@ def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kin
         "message": message,
         "agent_id": agent_id,
         "task_id": task_id,
+        "trace_id": trace_id,
         "details": details or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -245,7 +1169,7 @@ def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kin
     return entry
 
 
-def _create_approval_record(task_id: str, *, agent_id: str, operation: str, target: str, preview: Dict[str, Any], payload: Optional[Dict[str, Any]] = None, requested_by: str = "user") -> Dict[str, Any]:
+def _create_approval_record(task_id: str, *, agent_id: str, operation: str, target: str, preview: Dict[str, Any], payload: Optional[Dict[str, Any]] = None, requested_by: str = "user", trace_id: str = "") -> Dict[str, Any]:
     record = {
         "id": str(uuid.uuid4()),
         "task_id": task_id,
@@ -256,12 +1180,35 @@ def _create_approval_record(task_id: str, *, agent_id: str, operation: str, targ
         "preview": preview,
         "requested_by": requested_by,
         "status": "pending",
+        "trace_id": trace_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     approvals = _read_json(MAMMOTH_DIR / "approvals.json", default=[])
     approvals.append(record)
     _write_json(MAMMOTH_DIR / "approvals.json", approvals)
     return record
+
+
+def _load_ui_state() -> Dict[str, Any]:
+    state_file = MAMMOTH_DIR / "atlas_ui_state.json"
+    if not state_file.exists():
+        return {"status": "missing", "active_ui_project": ""}
+    try:
+        data = json.loads(state_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {"status": "error", "active_ui_project": ""}
+    if not isinstance(data, dict):
+        return {"status": "error", "active_ui_project": ""}
+    active_ui_project = str(data.get("active_ui_project") or data.get("active_ui_dir") or "").strip()
+    resolved = str(Path(active_ui_project).resolve()) if active_ui_project else ""
+    exists = bool(resolved) and Path(resolved).exists()
+    return {
+        "status": "ok" if exists else "missing",
+        "active_ui_project": resolved,
+        "active_ui_dir": resolved,
+        "exists": exists,
+        "state_file": str(state_file),
+    }
 
 
 def _build_operation_preview(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -843,7 +1790,11 @@ def _runtime_status_snapshot() -> Dict[str, Any]:
 
 
 def _auth_mode_from_state(state: Dict[str, Any]) -> str:
-    return "developer_override" if bool(state.get("developer_access", False)) else "local_operator"
+    if bool(state.get("developer_access", False)):
+        return "developer_override"
+    if _AUTH_REQUIRED:
+        return "supabase_admin" if _request_is_admin() else "supabase_user"
+    return "local_operator"
 
 
 def _normalized_account_profile(state: Dict[str, Any]) -> Dict[str, str]:
@@ -1168,6 +2119,19 @@ async def get_runtime_status():
     return _runtime_status_snapshot()
 
 
+@app.get("/api/ui/active-project")
+async def get_active_ui_project():
+    state = _load_ui_state()
+    return {
+        "status": "ok" if state.get("exists") else "missing",
+        "contract_version": "v2",
+        "active_ui_project": state.get("active_ui_project") or "",
+        "active_ui_dir": state.get("active_ui_dir") or "",
+        "exists": bool(state.get("exists")),
+        "state_file": state.get("state_file") or "",
+    }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/activity + /api/tasks
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1204,6 +2168,74 @@ async def upsert_task(body: Dict[str, Any]):
         description=str(body.get("description", "") or ""),
         details=body.get("details") or {},
     )
+
+
+@app.get("/api/observability/runs")
+async def get_observability_runs():
+    runs: List[Dict[str, Any]] = []
+    tasks = [item for item in _load_tasks() if isinstance(item, dict)]
+    for task in tasks[-20:]:
+        details = task.get("details") if isinstance(task.get("details"), dict) else {}
+        source = str(details.get("source") or "task").strip() or "task"
+        run_status = str(task.get("status") or details.get("plan_status") or "unknown").strip() or "unknown"
+        trace_id = str(details.get("trace_id") or task.get("trace_id") or "").strip()
+        runs.append(
+            build_observability_run(
+                run_id=str(task.get("id") or ""),
+                source=source,
+                title=str(task.get("title") or "Task").strip() or "Task",
+                status=run_status,
+                created_at=task.get("created_at") or "",
+                updated_at=task.get("updated_at") or task.get("created_at") or "",
+                objective=str(details.get("objective") or task.get("description") or "").strip(),
+                plan_profile=str(details.get("plan_profile") or "").strip(),
+                trace_id=trace_id,
+                summary=str(task.get("description") or "").strip()[:240],
+                replay=details.get("replay") if isinstance(details.get("replay"), dict) else {},
+                progress=details if details else {},
+                details=details,
+            )
+        )
+
+    state = _load_atlas_state()
+    for plan in [item for item in (state.get("plan_history") or []) if isinstance(item, dict)][-12:]:
+        progress = plan.get("progress") if isinstance(plan.get("progress"), dict) else {}
+        runs.append(
+            build_observability_run(
+                run_id=str(plan.get("plan_id") or ""),
+                source="atlas_plan",
+                title=str(plan.get("objective") or "Atlas plan").strip() or "Atlas plan",
+                status=str(plan.get("plan_status") or "unknown").strip() or "unknown",
+                created_at=plan.get("created_at") or "",
+                updated_at=plan.get("created_at") or "",
+                objective=str(plan.get("objective") or "").strip(),
+                plan_profile=str(plan.get("plan_profile") or "").strip(),
+                trace_id=str(plan.get("trace_id") or "").strip(),
+                summary=str((plan.get("synthesis") or {}).get("learner_summary") or "").strip()[:240],
+                replay=plan.get("replay") if isinstance(plan.get("replay"), dict) else {},
+                progress=progress,
+                details=plan,
+            )
+        )
+
+    runs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    recent_activities = _load_activity_events()[-40:]
+    approvals = _load_approvals()[-20:]
+    snapshots = _load_snapshots()[-20:]
+    return {
+        "status": "ok",
+        "contract_version": "v2",
+        "summary": {
+            "run_count": len(runs[:25]),
+            "activity_count": len(recent_activities),
+            "approval_count": len(approvals),
+            "snapshot_count": len(snapshots),
+        },
+        "runs": runs[:25],
+        "activities": recent_activities,
+        "approvals": approvals,
+        "snapshots": snapshots,
+    }
 
 
 _INTENT_TO_AGENT_ID = {
@@ -1649,6 +2681,7 @@ def _append_plan_history(state: Dict[str, Any], plan: Dict[str, Any]) -> None:
         history = []
     history.append({
         "plan_id": plan.get("plan_id"),
+        "trace_id": plan.get("trace_id"),
         "objective": plan.get("objective"),
         "plan_status": plan.get("plan_status"),
         "plan_profile": plan.get("plan_profile"),
@@ -1803,6 +2836,72 @@ def _decorate_atlas_state(state: Dict[str, Any]) -> Dict[str, Any]:
     if active_track:
         state["active_module"] = _serialize_module_track(active_track)
     return state
+
+
+async def _build_atlas_library_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
+    curriculum = state.get("curriculum") if isinstance(state.get("curriculum"), dict) else {}
+    modules = curriculum.get("modules") if isinstance(curriculum.get("modules"), list) else []
+    retriever = get_retriever()
+    module_summaries: List[Dict[str, Any]] = []
+    totals = {
+        "modules": 0,
+        "lessons": 0,
+        "persisted_lessons": 0,
+        "lessons_with_content": 0,
+        "lessons_with_examples": 0,
+    }
+
+    for module in modules:
+        if not isinstance(module, dict):
+            continue
+        module_lessons = module.get("lessons") if isinstance(module.get("lessons"), list) else []
+        lesson_summaries: List[Dict[str, Any]] = []
+        persisted_count = 0
+        for lesson in module_lessons:
+            if not isinstance(lesson, dict):
+                continue
+            lesson_id = str(lesson.get("lesson_id") or "").strip()
+            content = str(lesson.get("content") or "").strip()
+            examples = [str(item).strip() for item in (lesson.get("examples") or []) if str(item).strip()]
+            teaching_points = [str(item).strip() for item in (lesson.get("teaching_points") or []) if str(item).strip()]
+            persisted_chunks: List[Dict[str, Any]] = []
+            if lesson_id and content:
+                persisted_chunks = await retriever.load_lesson_chunks(lesson_id)
+            persisted = bool(persisted_chunks)
+            persisted_count += 1 if persisted else 0
+            totals["lessons"] += 1
+            totals["persisted_lessons"] += 1 if persisted else 0
+            totals["lessons_with_content"] += 1 if content else 0
+            totals["lessons_with_examples"] += 1 if examples else 0
+            lesson_summaries.append({
+                "lesson_id": lesson_id,
+                "title": str(lesson.get("title") or lesson.get("lesson_title") or "Lesson").strip(),
+                "source": str(lesson.get("source") or curriculum.get("source") or "lesson").strip() or "lesson",
+                "lesson_type": str(lesson.get("lesson_type") or "knowledge").strip() or "knowledge",
+                "content_length": len(content),
+                "teaching_point_count": len(teaching_points),
+                "example_count": len(examples),
+                "chunk_count": len(persisted_chunks),
+                "persisted": persisted,
+            })
+        totals["modules"] += 1
+        module_summaries.append({
+            "module_id": str(module.get("module_id") or "").strip(),
+            "title": str(module.get("title") or "Module").strip(),
+            "lesson_count": len(module_lessons),
+            "persisted_lesson_count": persisted_count,
+            "lessons": lesson_summaries,
+        })
+
+    return {
+        "status": "ok",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "curriculum_source": str(curriculum.get("source") or state.get("active_module", {}).get("id") or "unknown").strip(),
+        "current_topic": str(state.get("topic") or "").strip(),
+        "current_module": state.get("active_module") or _serialize_module_track(_resolve_module_track(state.get("module_id"), state.get("topic"))),
+        "totals": totals,
+        "modules": module_summaries,
+    }
 
 
 async def _execute_plan_steps(
@@ -2217,6 +3316,32 @@ async def run_agent(body: Dict[str, Any]):
     prompt_text = str(payload.get("prompt", "") or "").strip()
     approval_mode = bool(body.get("approval_mode") or payload.get("approval_mode") or payload.get("preview_only"))
     coding_intent = _normalize_coding_intent(payload.get("coding_intent") if isinstance(payload, dict) else "") or _normalize_coding_intent(intent)
+    trace_id = str(body.get("trace_id") or new_trace_id("run"))
+    runtime_status = _runtime_status_snapshot()
+    preflight_checks: List[Dict[str, Any]] = []
+    if runtime_status.get("state") != "ready":
+        preflight_checks.append({
+            "name": "runtime_state",
+            "status": "warn",
+            "detail": str(runtime_status.get("recommendation") or runtime_status.get("issue") or "Runtime is degraded."),
+        })
+    if approval_mode:
+        preflight_checks.append({
+            "name": "approval_mode",
+            "status": "pass",
+            "detail": "Approval gating is enabled for this run.",
+        })
+    if runtime_status.get("active_adapter") == "local":
+        preflight_checks.append({
+            "name": "local_fallback",
+            "status": "warn",
+            "detail": "The runtime is using local fallback mode.",
+        })
+    preflight = {
+        "contract_version": "v2",
+        "status": "warn" if any(item.get("status") == "warn" for item in preflight_checks) else "ok",
+        "checks": preflight_checks,
+    }
 
     thought_steps: List[Dict[str, Any]] = []
 
@@ -2246,14 +3371,15 @@ async def run_agent(body: Dict[str, Any]):
         status="active",
         agent_id=tracked_agent_id,
         description=prompt_text or "Agent execution started",
-        details={"intent": intent, "temperature": temperature, "approval_mode": approval_mode},
+        details={"intent": intent, "temperature": temperature, "approval_mode": approval_mode, "trace_id": trace_id},
     )
     _append_activity(
         f"Started task for {intent or 'agent'}",
         agent_id=tracked_agent_id,
         task_id=task_id,
         kind="task_started",
-        details={"prompt": prompt_text[:220], "temperature": temperature, "approval_mode": approval_mode},
+        trace_id=trace_id,
+        details={"prompt": prompt_text[:220], "temperature": temperature, "approval_mode": approval_mode, "trace_id": trace_id},
     )
 
     manifest = None
@@ -2285,6 +3411,7 @@ async def run_agent(body: Dict[str, Any]):
                     preview=preview,
                     payload=coding_payload,
                     requested_by="user",
+                    trace_id=trace_id,
                 )
                 _upsert_task(
                     task_id,
@@ -2292,14 +3419,15 @@ async def run_agent(body: Dict[str, Any]):
                     status="pending_approval",
                     agent_id=tracked_agent_id,
                     description=prompt_text or "Approval required for file change",
-                    details={"intent": intent, "temperature": temperature, "approval_id": approval["id"]},
+                    details={"intent": intent, "temperature": temperature, "approval_id": approval["id"], "trace_id": trace_id},
                 )
                 _append_activity(
                     f"Requested approval for {coding_op}",
                     agent_id=tracked_agent_id,
                     task_id=task_id,
                     kind="approval_requested",
-                    details={"approval_id": approval["id"], "target": approval["target"]},
+                    trace_id=trace_id,
+                    details={"approval_id": approval["id"], "target": approval["target"], "trace_id": trace_id},
                 )
                 _think("Queued for approval", f"approval_id={approval['id']}  op={coding_op!r}  target={approval['target']!r}", "warning")
                 result = {
@@ -2385,6 +3513,7 @@ async def run_agent(body: Dict[str, Any]):
                     preview=preview,
                     payload={**payload_for_agent, "approval_contract": approval_contract},
                     requested_by="user",
+                    trace_id=trace_id,
                 )
                 _upsert_task(
                     task_id,
@@ -2392,14 +3521,15 @@ async def run_agent(body: Dict[str, Any]):
                     status="pending_approval",
                     agent_id=tracked_agent_id,
                     description=prompt_text or f"Approval required for {runtime_agent}",
-                    details={"intent": intent, "temperature": temperature, "approval_id": approval["id"]},
+                    details={"intent": intent, "temperature": temperature, "approval_id": approval["id"], "trace_id": trace_id},
                 )
                 _append_activity(
                     f"Requested approval for {runtime_agent}",
                     agent_id=tracked_agent_id,
                     task_id=task_id,
                     kind="approval_requested",
-                    details={"approval_id": approval["id"], "target": approval["target"]},
+                    trace_id=trace_id,
+                    details={"approval_id": approval["id"], "target": approval["target"], "trace_id": trace_id},
                 )
                 _think("Queued for approval", f"approval_id={approval['id']}  operation={operation!r}  target={approval['target']!r}", "warning")
                 result = {
@@ -2454,6 +3584,7 @@ async def run_agent(body: Dict[str, Any]):
                             "snapshot_id": payload_for_agent.get("snapshot_id"),
                         },
                         requested_by="user",
+                        trace_id=trace_id,
                     )
                     _upsert_task(
                         task_id,
@@ -2461,14 +3592,15 @@ async def run_agent(body: Dict[str, Any]):
                         status="pending_approval",
                         agent_id=tracked_agent_id,
                         description=prompt_text or f"Approval required for {action}",
-                        details={"intent": intent, "temperature": temperature, "approval_id": approval["id"]},
+                        details={"intent": intent, "temperature": temperature, "approval_id": approval["id"], "trace_id": trace_id},
                     )
                     _append_activity(
                         f"Requested approval for custodial {action}",
                         agent_id=tracked_agent_id,
                         task_id=task_id,
                         kind="approval_requested",
-                        details={"approval_id": approval["id"], "target": approval["target"]},
+                        trace_id=trace_id,
+                        details={"approval_id": approval["id"], "target": approval["target"], "trace_id": trace_id},
                     )
                     _think("Queued for approval", f"approval_id={approval['id']}  action={action!r}  target={approval['target']!r}", "warning")
                     result = {
@@ -2556,7 +3688,8 @@ async def run_agent(body: Dict[str, Any]):
                 agent_id=tracked_agent_id,
                 task_id=task_id,
                 kind="task_completed",
-                details={"result": str(result)[:1000]},
+                trace_id=trace_id,
+                details={"result": str(result)[:1000], "trace_id": trace_id},
             )
 
         _think("Run complete", f"task_status={task_status!r}", "success")
@@ -2567,6 +3700,10 @@ async def run_agent(body: Dict[str, Any]):
             "agent_id": tracked_agent_id,
             "temperature": temperature,
             "task_id": task_id,
+            "trace_id": trace_id,
+            "contract_version": "v2",
+            "preflight": preflight,
+            "runtime_notice": build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=tracked_agent_id or "", context="run_agent"),
             "thought_steps": thought_steps,
         }
     except Exception as e:
@@ -2588,7 +3725,8 @@ async def run_agent(body: Dict[str, Any]):
             agent_id=tracked_agent_id,
             task_id=task_id,
             kind="task_failed",
-            details={"error": str(e)[:1000]},
+            trace_id=trace_id,
+            details={"error": str(e)[:1000], "trace_id": trace_id},
         )
 
         _think("Run failed", str(e)[:200], "error")
@@ -2598,6 +3736,10 @@ async def run_agent(body: Dict[str, Any]):
             "intent": intent,
             "agent_id": tracked_agent_id,
             "task_id": task_id,
+            "trace_id": trace_id,
+            "contract_version": "v2",
+            "preflight": preflight,
+            "runtime_notice": build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=tracked_agent_id or "", context="run_agent"),
             "thought_steps": thought_steps,
         }
 
@@ -2607,11 +3749,12 @@ async def run_agent(body: Dict[str, Any]):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_atlas_state() -> Dict[str, Any]:
-    if ATLAS_FILE.exists():
+    atlas_file = _atlas_state_file_for_request()
+    if atlas_file.exists():
         try:
-            state = json.loads(ATLAS_FILE.read_text(encoding="utf-8"))
+            state = json.loads(atlas_file.read_text(encoding="utf-8"))
             if not isinstance(state, dict):
-                return {"status": "no_session", "user_id": "default_user"}
+                return _ensure_account_collections({"status": "no_session", "active_account_id": "default"})
             normalized_history: List[Dict[str, Any]] = []
             for idx, raw in enumerate(state.get("lesson_history") or []):
                 entry = _normalize_lesson_history_entry(raw, idx)
@@ -2624,15 +3767,209 @@ def _load_atlas_state() -> Dict[str, Any]:
                 if aid:
                     normalized_aids.append(aid)
             state["study_aids"] = normalized_aids[-120:]
+            _ensure_account_collections(state)
             _sync_resume_packet(state)
             return state
         except Exception:
             pass
-    return {"status": "no_session", "user_id": "default_user"}
+    return _ensure_account_collections({"status": "no_session", "active_account_id": "default"})
 
 
 def _save_atlas_state(state: Dict[str, Any]):
-    ATLAS_FILE.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+    _persist_active_account_collections(state)
+    atlas_file = _atlas_state_file_for_request()
+    atlas_file.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+
+
+_ACCOUNT_SESSION_KEYS = (
+    "status",
+    "topic",
+    "curriculum_topic",
+    "current_exercise",
+    "curriculum",
+    "current_lesson",
+    "curriculum_id",
+    "lesson_id",
+    "lesson_plan",
+    "module_id",
+    "active_module",
+    "last_submission",
+    "assistant_chat_history",
+    "chat_history",
+    "mammoth_chat_history",
+    "resume_packet",
+    "lesson_history",
+    "study_aids",
+    "learner_profile",
+    "fab_usage_events",
+    "plan_history",
+    "active_plan",
+    "eval_history",
+    "regenerated_exercise",
+    "updated_at",
+)
+
+
+def _normalize_account_id(value: Any, *, fallback: str = "default") -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
+    return normalized or fallback
+
+
+def _legacy_session_slice(state: Dict[str, Any]) -> Dict[str, Any]:
+    session: Dict[str, Any] = {}
+    for key in _ACCOUNT_SESSION_KEYS:
+        if key in state:
+            session[key] = deepcopy(state.get(key))
+    return session
+
+
+def _active_account_id(state: Dict[str, Any]) -> str:
+    return _normalize_account_id(state.get("active_account_id") or state.get("current_account_id") or "default")
+
+
+def _atlas_user_id(state: Dict[str, Any]) -> str:
+    return f"workspace:{_active_account_id(state)}"
+
+
+def _build_workspace_accounts_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
+    _ensure_account_collections(state)
+    accounts = state.get("accounts") if isinstance(state.get("accounts"), dict) else {}
+    active_account_id = _active_account_id(state)
+    items: List[Dict[str, Any]] = []
+    for account_id, raw in accounts.items():
+        if not isinstance(raw, dict):
+            continue
+        profile = {
+            "display_name": str((raw.get("profile") or {}).get("display_name") or "Operator").strip() or "Operator",
+            "email": str((raw.get("profile") or {}).get("email") or "").strip(),
+            "organization": str((raw.get("profile") or {}).get("organization") or "").strip(),
+        }
+        completion = _profile_completion(profile)
+        items.append({
+            "account_id": account_id,
+            "label": profile["display_name"],
+            "profile": profile,
+            "profile_complete": all(completion.values()),
+            "profile_completion": completion,
+            "tier": str(raw.get("tier") or "explorer").strip().lower() or "explorer",
+            "developer_access": bool(raw.get("developer_access", False)),
+            "is_active": account_id == active_account_id,
+            "created_at": raw.get("created_at"),
+            "updated_at": raw.get("updated_at") or raw.get("profile_updated_at") or raw.get("tier_updated_at"),
+            "user_id": f"workspace:{account_id}",
+        })
+    items.sort(key=lambda item: (not item["is_active"], item["label"].lower(), item["account_id"]))
+    return {
+        "status": "ok",
+        "active_account_id": active_account_id,
+        "session_scope": "workspace_multi_account",
+        "accounts": items,
+    }
+
+
+def _ensure_account_collections(state: Dict[str, Any]) -> Dict[str, Any]:
+    accounts = state.get("accounts") if isinstance(state.get("accounts"), dict) else {}
+    sessions = state.get("account_sessions") if isinstance(state.get("account_sessions"), dict) else {}
+    active_account_id = _active_account_id(state)
+
+    legacy_profile = _normalized_account_profile(state)
+    legacy_tier = str(state.get("tier") or "explorer").strip().lower()
+    if legacy_tier not in {"explorer", "pro", "enterprise"}:
+        legacy_tier = "explorer"
+    legacy_developer_access = bool(state.get("developer_access", False))
+
+    if not accounts:
+        accounts[active_account_id] = {
+            "profile": legacy_profile,
+            "tier": legacy_tier,
+            "developer_access": legacy_developer_access,
+            "created_at": state.get("account_profile_updated_at") or datetime.now(timezone.utc).isoformat(),
+            "updated_at": state.get("updated_at") or state.get("account_profile_updated_at") or datetime.now(timezone.utc).isoformat(),
+            "profile_updated_at": state.get("account_profile_updated_at"),
+            "tier_updated_at": state.get("tier_updated_at"),
+            "developer_access_updated_at": state.get("developer_access_updated_at"),
+        }
+    elif active_account_id not in accounts:
+        accounts[active_account_id] = {
+            "profile": {"display_name": "Operator", "email": "", "organization": ""},
+            "tier": "explorer",
+            "developer_access": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    account = accounts.get(active_account_id) if isinstance(accounts.get(active_account_id), dict) else {}
+    if not account.get("profile"):
+        account["profile"] = legacy_profile
+    account["profile"] = {
+        "display_name": str((account.get("profile") or {}).get("display_name") or legacy_profile.get("display_name") or "Operator").strip() or "Operator",
+        "email": str((account.get("profile") or {}).get("email") or legacy_profile.get("email") or "").strip(),
+        "organization": str((account.get("profile") or {}).get("organization") or legacy_profile.get("organization") or "").strip(),
+    }
+    account["tier"] = str(account.get("tier") or legacy_tier or "explorer").strip().lower()
+    if account["tier"] not in {"explorer", "pro", "enterprise"}:
+        account["tier"] = "explorer"
+    account["developer_access"] = bool(account.get("developer_access", legacy_developer_access))
+    account.setdefault("created_at", datetime.now(timezone.utc).isoformat())
+    account.setdefault("updated_at", datetime.now(timezone.utc).isoformat())
+    account.setdefault("profile_updated_at", state.get("account_profile_updated_at"))
+    account.setdefault("tier_updated_at", state.get("tier_updated_at"))
+    account.setdefault("developer_access_updated_at", state.get("developer_access_updated_at"))
+    accounts[active_account_id] = account
+
+    if active_account_id not in sessions:
+        sessions[active_account_id] = _legacy_session_slice(state)
+
+    state["accounts"] = accounts
+    state["account_sessions"] = sessions
+    state["active_account_id"] = active_account_id
+
+    for key in _ACCOUNT_SESSION_KEYS:
+        state.pop(key, None)
+    active_session = sessions.get(active_account_id) if isinstance(sessions.get(active_account_id), dict) else {}
+    for key, value in active_session.items():
+        if key in _ACCOUNT_SESSION_KEYS:
+            state[key] = deepcopy(value)
+
+    state["account_profile"] = deepcopy(account["profile"])
+    state["tier"] = account["tier"]
+    state["developer_access"] = account["developer_access"]
+    state["account_profile_updated_at"] = account.get("profile_updated_at")
+    state["tier_updated_at"] = account.get("tier_updated_at")
+    state["developer_access_updated_at"] = account.get("developer_access_updated_at")
+    state["session_scope"] = "workspace_multi_account"
+    state["user_id"] = _atlas_user_id(state)
+    return state
+
+
+def _persist_active_account_collections(state: Dict[str, Any]) -> Dict[str, Any]:
+    accounts = state.get("accounts") if isinstance(state.get("accounts"), dict) else {}
+    sessions = state.get("account_sessions") if isinstance(state.get("account_sessions"), dict) else {}
+    active_account_id = _active_account_id(state)
+    if active_account_id not in accounts or not isinstance(accounts.get(active_account_id), dict):
+        accounts[active_account_id] = {
+            "profile": _normalized_account_profile(state),
+            "tier": str(state.get("tier") or "explorer").strip().lower() or "explorer",
+            "developer_access": bool(state.get("developer_access", False)),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+    account = accounts[active_account_id]
+    account["profile"] = _normalized_account_profile(state)
+    account["tier"] = str(state.get("tier") or account.get("tier") or "explorer").strip().lower() or "explorer"
+    if account["tier"] not in {"explorer", "pro", "enterprise"}:
+        account["tier"] = "explorer"
+    account["developer_access"] = bool(state.get("developer_access", account.get("developer_access", False)))
+    account["profile_updated_at"] = state.get("account_profile_updated_at") or account.get("profile_updated_at")
+    account["tier_updated_at"] = state.get("tier_updated_at") or account.get("tier_updated_at")
+    account["developer_access_updated_at"] = state.get("developer_access_updated_at") or account.get("developer_access_updated_at")
+    account["updated_at"] = state.get("updated_at") or datetime.now(timezone.utc).isoformat()
+    sessions[active_account_id] = _legacy_session_slice(state)
+    state["accounts"] = accounts
+    state["account_sessions"] = sessions
+    state["active_account_id"] = active_account_id
+    state["session_scope"] = "workspace_multi_account"
+    state["user_id"] = _atlas_user_id(state)
+    return state
 
 
 def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
@@ -2651,7 +3988,8 @@ def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
 
 def _apply_atlas_onboarding_update(onboarding: Dict[str, Any]) -> Dict[str, Any]:
     state = _load_atlas_state()
-    learner_state = set_onboarding_profile(state, user_id="default_user", onboarding=onboarding)
+    learner_user_id = _atlas_user_id(state)
+    learner_state = set_onboarding_profile(state, user_id=learner_user_id, onboarding=onboarding)
     _save_atlas_state(state)
     _append_audit_event(
         kind="atlas_onboard",
@@ -2669,8 +4007,9 @@ def _apply_atlas_onboarding_update(onboarding: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _apply_atlas_learner_reset() -> Dict[str, Any]:
-    learner_state = _reset_learner_model_state("default_user")
     state = _load_atlas_state()
+    learner_user_id = _atlas_user_id(state)
+    learner_state = _reset_learner_model_state(learner_user_id)
     state["learner_model"] = learner_state
     state["learner_context"] = build_learner_context(learner_state)
     state["learner_profile"] = {
@@ -2684,19 +4023,20 @@ def _apply_atlas_learner_reset() -> Dict[str, Any]:
 
 
 def _apply_atlas_session_reset() -> Dict[str, Any]:
-    learner_state = _reset_learner_model_state("default_user")
-    _save_atlas_state({
-        "status": "reset",
-        "user_id": "default_user",
-        "learner_model": learner_state,
-        "learner_context": build_learner_context(learner_state),
-        "learner_profile": {
-            "streak": 0,
-            "attempts": 0,
-            "recommended_difficulty": "beginner",
-            "preferred_pacing": "gentle",
-        },
-    })
+    state = _load_atlas_state()
+    learner_user_id = _atlas_user_id(state)
+    learner_state = _reset_learner_model_state(learner_user_id)
+    state["status"] = "reset"
+    state["user_id"] = learner_user_id
+    state["learner_model"] = learner_state
+    state["learner_context"] = build_learner_context(learner_state)
+    state["learner_profile"] = {
+        "streak": 0,
+        "attempts": 0,
+        "recommended_difficulty": "beginner",
+        "preferred_pacing": "gentle",
+    }
+    _save_atlas_state(state)
     return {"status": "ok", "message": "Session reset"}
 
 
@@ -3266,7 +4606,8 @@ def _run_atlas_evals(state: Dict[str, Any]) -> Dict[str, Any]:
         "goals": "Build reliably",
         "focus_areas": "debugging, planning",
     }
-    learner_state = set_onboarding_profile(eval_state, user_id="default_user", onboarding=onboarding_payload)
+    learner_user_id = _atlas_user_id(eval_state)
+    learner_state = set_onboarding_profile(eval_state, user_id=learner_user_id, onboarding=onboarding_payload)
     onboarding_ok = bool(learner_state.get("onboarding") or {})
 
     failure_result = {
@@ -3275,7 +4616,7 @@ def _run_atlas_evals(state: Dict[str, Any]) -> Dict[str, Any]:
         "error": "AssertionError: expected 3",
     }
     learner_state = update_learner_model(
-        "default_user",
+        learner_user_id,
         lesson=eval_state.get("current_lesson") or {},
         exercise=eval_state.get("current_exercise") or {},
         result=failure_result,
@@ -3414,7 +4755,7 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding",
 @app.get("/api/atlas/status")
 async def atlas_status():
     state = _load_atlas_state()
-    _hydrate_learner_state(state, user_id="default_user")
+    _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     _sync_resume_packet(state)
     return _decorate_atlas_state(state)
 
@@ -3430,10 +4771,17 @@ async def atlas_modules():
     }
 
 
+@app.get("/api/atlas/library")
+async def atlas_library():
+    state = _load_atlas_state()
+    _hydrate_learner_state(state, user_id=_atlas_user_id(state))
+    return await _build_atlas_library_snapshot(state)
+
+
 @app.get("/api/atlas/learner")
 async def atlas_learner():
     state = _load_atlas_state()
-    learner_state = _hydrate_learner_state(state, user_id="default_user")
+    learner_state = _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     return {"status": "ok", "learner_model": learner_state, "learner_context": state.get("learner_context")}
 
 
@@ -3514,11 +4862,12 @@ async def atlas_lesson(body: Dict[str, Any]):
     curriculum_topic = _compose_module_curriculum_topic(topic, module_track)
     try:
         from mammoth_os.atlas_session import ATLASSession
-        session = ATLASSession(user_id="default_user")
         state = _load_atlas_state()
+        learner_user_id = _atlas_user_id(state)
+        session = ATLASSession(user_id=learner_user_id)
         learner_context = state.get("learner_context") or {}
         if not learner_context:
-            _hydrate_learner_state(state, user_id="default_user")
+            _hydrate_learner_state(state, user_id=learner_user_id)
             learner_context = state.get("learner_context") or {}
         lesson_plan = build_lesson_plan(state, topic)
         if module_track:
@@ -3531,6 +4880,8 @@ async def atlas_lesson(body: Dict[str, Any]):
         exercise = await asyncio.get_event_loop().run_in_executor(
             None, lambda: session.start_lesson(curriculum_topic, difficulty=difficulty, learner_context=learner_context)
         )
+        session.current_lesson = _decorate_lesson_for_module_track(session.current_lesson, module_track)
+        exercise = _decorate_exercise_for_module_track(exercise, session.current_lesson, module_track)
         state.update({
             "status":           "active",
             "topic":            topic,
@@ -3545,7 +4896,7 @@ async def atlas_lesson(body: Dict[str, Any]):
             "active_module":    _serialize_module_track(module_track),
             "updated_at":       datetime.now(timezone.utc).isoformat(),
         })
-        _hydrate_learner_state(state, user_id="default_user")
+        _hydrate_learner_state(state, user_id=learner_user_id)
         _append_lesson_history(state, session.current_lesson or {}, exercise or {})
         _sync_resume_packet(state, state.get("lesson_id"))
         _save_atlas_state(state)
@@ -3572,21 +4923,38 @@ async def atlas_submit(body: Dict[str, Any]):
     code = body.get("code", "")
     try:
         state = _load_atlas_state()
+        learner_user_id = _atlas_user_id(state)
         from mammoth_os.atlas_session import ATLASSession
-        session = ATLASSession(user_id="default_user")
+        session = ATLASSession(user_id=learner_user_id)
         session.curriculum       = state.get("curriculum")
         session.current_lesson   = state.get("current_lesson")
         session.current_exercise = state.get("current_exercise")
         session._curriculum_id   = state.get("curriculum_id")
         session._lesson_id       = state.get("lesson_id")
+        current_exercise = state.get("current_exercise") or {}
+        current_lesson = state.get("current_lesson") or {}
+        active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
+        submission_mode = str(current_exercise.get("submission_mode") or "").strip().lower() or (
+            "code" if str(current_exercise.get("lesson_type") or "code").strip().lower() == "code" else "text"
+        )
 
-        files = {"solution.py": code}
-        result = await session.submit(files)
+        if submission_mode == "text":
+            response_text = str(body.get("response") or code or "").strip()
+            result = _evaluate_text_submission(
+                response_text,
+                lesson=current_lesson if isinstance(current_lesson, dict) else {},
+                exercise=current_exercise if isinstance(current_exercise, dict) else {},
+                track=active_track,
+                lesson_id=str(state.get("lesson_id") or ""),
+            )
+        else:
+            files = {"solution.py": code}
+            result = await session.submit(files)
 
         state["last_submission"] = result
         _hydrate_learner_state(
             state,
-            user_id="default_user",
+            user_id=learner_user_id,
             lesson=state.get("current_lesson") or {},
             exercise=state.get("current_exercise") or {},
             result=result,
@@ -3644,13 +5012,15 @@ async def atlas_next():
                 next_i = i + 1
                 if next_i < len(mod["lessons"]):
                     next_lesson = mod["lessons"][next_i]
+                    active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
+                    next_lesson = _decorate_lesson_for_module_track(next_lesson, active_track)
                     state["current_lesson"] = next_lesson
                     state["lesson_id"]      = next_lesson["lesson_id"]
                     try:
                         from mammoth_os.exercise_generator import generate_exercises_for_lesson
                         generated = generate_exercises_for_lesson(next_lesson, count=1)
                         if generated:
-                            state["current_exercise"] = generated[0]
+                            state["current_exercise"] = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
                     except Exception:
                         # Keep session moving even if exercise generation fails.
                         pass
@@ -3730,8 +5100,9 @@ async def atlas_flashcards():
 @app.post("/api/atlas/plan")
 async def atlas_plan(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()
-    _hydrate_learner_state(state, user_id="default_user")
+    _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     body = body or {}
+    trace_id = str(body.get("trace_id") or new_trace_id("atlas"))
     plan_profile = _normalize_plan_profile(body.get("plan_profile") or "coding")
     coding_intent = _normalize_coding_intent(body.get("coding_intent")) or _default_coding_intent_for_profile(plan_profile)
     approval_mode = bool(body.get("approval_mode", False))
@@ -3760,6 +5131,7 @@ async def atlas_plan(body: Optional[Dict[str, Any]] = None):
     )
     plan = {
         "plan_id": plan_id,
+        "trace_id": trace_id,
         "objective": objective,
         "plan_profile": plan_profile,
         "coding_intent": coding_intent,
@@ -3790,17 +5162,18 @@ async def atlas_plan(body: Optional[Dict[str, Any]] = None):
         agent_id="tutor_agent",
         task_id=plan["plan_id"],
         kind="atlas_plan_generated",
-        details={"plan_status": plan_status, "step_count": total_count, "plan_profile": plan_profile, "coding_intent": coding_intent},
+        trace_id=trace_id,
+        details={"plan_status": plan_status, "step_count": total_count, "plan_profile": plan_profile, "coding_intent": coding_intent, "trace_id": trace_id},
     )
     _append_audit_event(
         kind="atlas_plan",
         message="ATLAS plan generated",
-        details={"plan_id": plan_id, "plan_profile": plan_profile, "coding_intent": coding_intent, "plan_status": plan_status},
+        details={"plan_id": plan_id, "plan_profile": plan_profile, "coding_intent": coding_intent, "plan_status": plan_status, "trace_id": trace_id},
         source="atlas",
         actor="system",
     )
     _save_atlas_state(state)
-    return {"status": "ok", "plan": plan, "plan_history": state.get("plan_history", []), "observability": _build_atlas_observability(state)}
+    return {"status": "ok", "plan": plan, "plan_history": state.get("plan_history", []), "trace_id": trace_id, "observability": _build_atlas_observability(state)}
 
 
 @app.post("/api/atlas/evals")
@@ -3953,6 +5326,7 @@ async def atlas_chat(body: Dict[str, Any]):
     if not message:
         return {"status": "error", "error": "message is required"}
 
+    trace_id = str(body.get("trace_id") or new_trace_id("chat"))
     state = _load_atlas_state()
     mode = str(body.get("mode") or "tutor").strip().lower() or "tutor"
     if mode in {"assistant", "general", "chat"}:
@@ -3966,7 +5340,7 @@ async def atlas_chat(body: Dict[str, Any]):
     current_exercise = state.get("current_exercise") or {}
     last_submission = state.get("last_submission") or {}
     learner_context = state.get("learner_context") or {}
-    _hydrate_learner_state(state, user_id="default_user")
+    _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     lesson_plan = state.get("lesson_plan") or build_lesson_plan(state, state.get("topic"))
     resume_packet = state.get("resume_packet") or _build_resume_packet(state, state.get("lesson_id"))
     learner_context = {**(state.get("learner_context") or learner_context), "lesson_plan": lesson_plan}
@@ -4029,6 +5403,7 @@ async def atlas_chat(body: Dict[str, Any]):
             "guard_triggered": True,
             "regenerated_exercise": regenerated_exercise,
             "current_exercise": state.get("current_exercise"),
+            "trace_id": trace_id,
         }
 
     if mode == "assistant":
@@ -4142,7 +5517,8 @@ async def atlas_chat(body: Dict[str, Any]):
         "guard_triggered": False,
         "mode": mode,
         "runtime_status": runtime_status,
-        "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
+        "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id="atlas_chat", context=mode, provider=active_adapter),
+        "trace_id": trace_id,
     }
 
 
@@ -4210,7 +5586,7 @@ async def mammoth_chat_stream(body: Dict[str, Any]):
         return result
 
     async def event_stream():
-        meta_payload = {k: result.get(k) for k in ("agent_id", "adapter", "model", "mode", "task_id", "dispatched", "runtime_status", "runtime_notice")}
+        meta_payload = {k: result.get(k) for k in ("agent_id", "adapter", "model", "mode", "task_id", "trace_id", "dispatched", "runtime_status", "runtime_notice")}
         yield f"event: meta\ndata: {json.dumps(meta_payload, default=str)}\n\n"
         for step in result.get("thought_steps") or []:
             yield f"event: thought\ndata: {json.dumps(step, default=str)}\n\n"
@@ -4242,6 +5618,7 @@ async def mammoth_chat(body: Dict[str, Any]):
     if not message:
         return {"status": "error", "error": "message is required"}
 
+    trace_id = str(body.get("trace_id") or new_trace_id("chat"))
     slash = _parse_mammoth_chat_command(message)
     if slash and slash.get("kind") == "plan":
         plan_result = await plan_execute({
@@ -4266,6 +5643,7 @@ async def mammoth_chat(body: Dict[str, Any]):
             "mode": "chat",
             "task_id": plan_result.get("plan_id") or "",
             "dispatched": True,
+            "trace_id": trace_id,
             "thought_steps": [{
                 "ts": _ts(),
                 "label": "Plan command parsed",
@@ -4273,7 +5651,7 @@ async def mammoth_chat(body: Dict[str, Any]):
                 "status": "info",
             }],
             "runtime_status": _runtime_status_snapshot(),
-            "runtime_notice": None if _runtime_status_snapshot().get("state") == "ready" else _runtime_status_snapshot(),
+            "runtime_notice": None if _runtime_status_snapshot().get("state") == "ready" else build_runtime_notice(_runtime_status_snapshot(), trace_id=trace_id, agent_id="mammoth_chat", context="chat", provider="plan-execute"),
         }
     if slash and slash.get("kind") == "agent":
         if not slash.get("message"):
@@ -4374,7 +5752,7 @@ async def mammoth_chat(body: Dict[str, Any]):
             "task_id": "",
             "dispatched": False,
             "runtime_status": runtime_status,
-            "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
+            "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id="assistant", context="assistant", provider=assistant_adapter),
         }
 
     async def _run_lane(lane_agent: str) -> Dict[str, Any]:
@@ -4519,7 +5897,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         "evidence_items": evidence_items,
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
-        "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
+        "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
     }
     history.append(assistant_entry)
     state["mammoth_chat_history"] = history[-80:]
@@ -4539,7 +5917,8 @@ async def mammoth_chat(body: Dict[str, Any]):
         "evidence_items": evidence_items,
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
-        "runtime_notice": None if runtime_status.get("state") == "ready" else runtime_status,
+        "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
+        "trace_id": trace_id,
     }
 
 
@@ -5605,6 +6984,7 @@ async def append_audit_log(body: Dict[str, Any]):
 async def get_entitlements():
     """Return the current user's tier and feature entitlements."""
     state = _load_atlas_state()
+    workspace = _build_workspace_accounts_snapshot(state)
     tier = str(state.get("tier") or "explorer").strip().lower()
     if tier not in {"explorer", "pro", "enterprise"}:
         tier = "explorer"
@@ -5639,10 +7019,14 @@ async def get_entitlements():
         "tier": tier,
         "effective_tier": "developer" if developer_access else effective_tier,
         "developer_access": developer_access,
+        "admin_controls_enabled": _request_is_admin(),
         "auth_mode": _auth_mode_from_state(state),
-        "session_scope": "workspace_local",
+        "session_scope": "workspace_multi_account",
         "tier_updated_at": state.get("tier_updated_at"),
         "developer_access_updated_at": state.get("developer_access_updated_at"),
+        "active_account_id": workspace.get("active_account_id"),
+        "account_count": len(workspace.get("accounts") or []),
+        "user_id": _atlas_user_id(state),
         "account_profile": profile,
         "account_profile_complete": all(completion.values()),
         "features": {**base_features, **pro_features, **enterprise_features},
@@ -5653,6 +7037,8 @@ async def get_entitlements():
 @app.post("/api/entitlements/tier")
 async def set_tier(body: Dict[str, Any]):
     """Set the user's tier (for testing / admin use)."""
+    if _AUTH_REQUIRED and not _request_is_admin():
+        return {"status": "error", "error": "Admin privileges required for entitlement changes."}
     tier = str(body.get("tier") or "explorer").strip().lower()
     if tier not in {"explorer", "pro", "enterprise"}:
         return {"status": "error", "error": "Invalid tier. Use: explorer, pro, enterprise"}
@@ -5663,17 +7049,18 @@ async def set_tier(body: Dict[str, Any]):
     _append_audit_event(
         kind="tier_change",
         message="Entitlement tier updated",
-        details={"tier": tier, "developer_access": bool(state.get("developer_access", False))},
+        details={"tier": tier, "developer_access": bool(state.get("developer_access", False)), "account_id": _active_account_id(state)},
         source="entitlements",
         actor="user",
         tier=tier,
     )
-    return {"status": "ok", "tier": tier}
+    return {"status": "ok", "tier": tier, "active_account_id": _active_account_id(state), "user_id": _atlas_user_id(state)}
 
 
 @app.get("/api/account/profile")
 async def get_account_profile():
     state = _load_atlas_state()
+    workspace = _build_workspace_accounts_snapshot(state)
     profile = _normalized_account_profile(state)
     completion = _profile_completion(profile)
     return {
@@ -5683,9 +7070,12 @@ async def get_account_profile():
         "profile_completion": completion,
         "updated_at": state.get("account_profile_updated_at"),
         "auth_mode": _auth_mode_from_state(state),
-        "session_scope": "workspace_local",
+        "session_scope": "workspace_multi_account",
         "tier": str(state.get("tier") or "explorer").strip().lower(),
         "developer_access": bool(state.get("developer_access", False)),
+        "active_account_id": workspace.get("active_account_id"),
+        "available_accounts": workspace.get("accounts"),
+        "user_id": _atlas_user_id(state),
     }
 
 
@@ -5702,7 +7092,7 @@ async def set_account_profile(body: Dict[str, Any]):
     _append_audit_event(
         kind="profile_update",
         message="Account profile updated",
-        details={"profile_fields": sorted(list(profile.keys()))},
+        details={"profile_fields": sorted(list(profile.keys())), "account_id": _active_account_id(state)},
         source="account",
         actor="user",
         tier=str(state.get("tier") or "explorer"),
@@ -5715,11 +7105,15 @@ async def set_account_profile(body: Dict[str, Any]):
         "profile_complete": all(completion.values()),
         "profile_completion": completion,
         "updated_at": state.get("account_profile_updated_at"),
+        "active_account_id": _active_account_id(state),
+        "user_id": _atlas_user_id(state),
     }
 
 
 @app.post("/api/account/developer-access")
 async def set_developer_access(body: Dict[str, Any]):
+    if _AUTH_REQUIRED and not _request_is_admin():
+        return {"status": "error", "error": "Admin privileges required for developer-access changes."}
     enabled = bool(body.get("enabled"))
     state = _load_atlas_state()
     state["developer_access"] = enabled
@@ -5728,7 +7122,7 @@ async def set_developer_access(body: Dict[str, Any]):
     _append_audit_event(
         kind="developer_access",
         message="Developer full-access mode toggled",
-        details={"enabled": enabled},
+        details={"enabled": enabled, "account_id": _active_account_id(state)},
         source="entitlements",
         actor="user",
         tier="enterprise" if enabled else str(state.get("tier") or "explorer"),
@@ -5739,7 +7133,120 @@ async def set_developer_access(body: Dict[str, Any]):
         "auth_mode": _auth_mode_from_state(state),
         "effective_tier": "developer" if enabled else str(state.get("tier") or "explorer"),
         "updated_at": state.get("developer_access_updated_at"),
+        "active_account_id": _active_account_id(state),
+        "user_id": _atlas_user_id(state),
     }
+
+
+@app.get("/api/account/workspace")
+async def get_account_workspace():
+    state = _load_atlas_state()
+    return _build_workspace_accounts_snapshot(state)
+
+
+@app.post("/api/account/workspace")
+async def mutate_account_workspace(body: Dict[str, Any]):
+    state = _load_atlas_state()
+    action = str(body.get("action") or "").strip().lower()
+    accounts = state.get("accounts") if isinstance(state.get("accounts"), dict) else {}
+    sessions = state.get("account_sessions") if isinstance(state.get("account_sessions"), dict) else {}
+    active_account_id = _active_account_id(state)
+
+    if action == "create":
+        raw_label = str(body.get("display_name") or body.get("label") or body.get("account_id") or "New account").strip()
+        account_id = _normalize_account_id(body.get("account_id") or raw_label, fallback="account")
+        if account_id in accounts:
+            return {"status": "error", "error": f"Account already exists: {account_id}"}
+        profile = {
+            "display_name": raw_label or "Operator",
+            "email": str(body.get("email") or "").strip(),
+            "organization": str(body.get("organization") or "").strip(),
+        }
+        now = datetime.now(timezone.utc).isoformat()
+        accounts[account_id] = {
+            "profile": profile,
+            "tier": "explorer",
+            "developer_access": False,
+            "created_at": now,
+            "updated_at": now,
+            "profile_updated_at": now,
+        }
+        sessions[account_id] = {"status": "no_session", "updated_at": now}
+        if bool(body.get("activate", True)):
+            _persist_active_account_collections(state)
+            state["accounts"] = accounts
+            state["account_sessions"] = sessions
+            state["active_account_id"] = account_id
+            _ensure_account_collections(state)
+        else:
+            state["accounts"] = accounts
+            state["account_sessions"] = sessions
+        state["updated_at"] = now
+        _save_atlas_state(state)
+        _append_audit_event(
+            kind="account_created",
+            message="Workspace account created",
+            details={"account_id": account_id, "active": bool(body.get("activate", True))},
+            source="account",
+            actor="user",
+            tier=str(state.get("tier") or "explorer"),
+        )
+        snapshot = _build_workspace_accounts_snapshot(state)
+        return {"status": "ok", "action": action, **snapshot}
+
+    if action == "switch":
+        target_id = _normalize_account_id(body.get("account_id"), fallback="")
+        if not target_id or target_id not in accounts:
+            return {"status": "error", "error": "Unknown account_id"}
+        _persist_active_account_collections(state)
+        state["accounts"] = accounts
+        state["account_sessions"] = sessions
+        state["active_account_id"] = target_id
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _ensure_account_collections(state)
+        _save_atlas_state(state)
+        _append_audit_event(
+            kind="account_switch",
+            message="Workspace account switched",
+            details={"account_id": target_id},
+            source="account",
+            actor="user",
+            tier=str(state.get("tier") or "explorer"),
+        )
+        snapshot = _build_workspace_accounts_snapshot(state)
+        return {"status": "ok", "action": action, **snapshot}
+
+    if action == "delete":
+        target_id = _normalize_account_id(body.get("account_id"), fallback="")
+        if not target_id or target_id not in accounts:
+            return {"status": "error", "error": "Unknown account_id"}
+        if len(accounts) <= 1:
+            return {"status": "error", "error": "At least one workspace account must remain."}
+        if target_id == active_account_id:
+            _persist_active_account_collections(state)
+        accounts.pop(target_id, None)
+        sessions.pop(target_id, None)
+        if target_id == active_account_id:
+            replacement_id = sorted(accounts.keys())[0]
+            state["active_account_id"] = replacement_id
+            _ensure_account_collections(state)
+        else:
+            state["accounts"] = accounts
+            state["account_sessions"] = sessions
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _save_atlas_state(state)
+        _append_audit_event(
+            kind="account_deleted",
+            message="Workspace account deleted",
+            details={"account_id": target_id},
+            source="account",
+            actor="user",
+            tier=str(state.get("tier") or "explorer"),
+        )
+        snapshot = _build_workspace_accounts_snapshot(state)
+        return {"status": "ok", "action": action, **snapshot}
+
+    return {"status": "error", "error": "Unsupported action. Use create, switch, or delete."}
 
 
 @app.websocket("/ws/terminal")

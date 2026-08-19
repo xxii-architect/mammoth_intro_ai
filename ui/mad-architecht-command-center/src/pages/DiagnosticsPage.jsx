@@ -89,27 +89,6 @@ export default function DiagnosticsPage() {
       if (!response.ok) {
         throw new Error('Export request failed')
       }
-
-      const exportDiagnosticsJson = async () => {
-        setJsonExportBusy(true)
-        try {
-          const response = await fetch('/api/diagnostics/export')
-          if (!response.ok) {
-            throw new Error('Diagnostics export request failed')
-          }
-          const blob = await response.blob()
-          const href = URL.createObjectURL(blob)
-          const link = document.createElement('a')
-          link.href = href
-          link.download = `mammoth-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
-          document.body.appendChild(link)
-          link.click()
-          link.remove()
-          URL.revokeObjectURL(href)
-        } finally {
-          setJsonExportBusy(false)
-        }
-      }
       const blob = await response.blob()
       const href = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -121,6 +100,27 @@ export default function DiagnosticsPage() {
       URL.revokeObjectURL(href)
     } finally {
       setExportBusy(false)
+    }
+  }
+
+  const exportDiagnosticsJson = async () => {
+    setJsonExportBusy(true)
+    try {
+      const response = await fetch('/api/diagnostics/export')
+      if (!response.ok) {
+        throw new Error('Diagnostics export request failed')
+      }
+      const blob = await response.blob()
+      const href = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = href
+      link.download = `mammoth-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(href)
+    } finally {
+      setJsonExportBusy(false)
     }
   }
 

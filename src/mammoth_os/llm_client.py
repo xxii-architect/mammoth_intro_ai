@@ -186,6 +186,8 @@ def _client_label(client: LLMClient) -> str:
 class FallbackAdapter(LLMClient):
     """Adapter that tries a preferred client and falls back gracefully."""
 
+    contract_version = "v2"
+
     def __init__(
         self,
         primary: LLMClient,
@@ -209,6 +211,19 @@ class FallbackAdapter(LLMClient):
         self.last_fallback_reason = ""
         self.last_error_type = ""
         self.last_error_detail = ""
+
+    def describe_runtime_state(self) -> Dict[str, Any]:
+        return {
+            "contract_version": self.contract_version,
+            "primary_provider": self.primary_name,
+            "fallback_provider": self.fallback_name,
+            "last_used_provider": self.last_used_provider,
+            "last_fallback_used": self.last_fallback_used,
+            "last_fallback_reason": self.last_fallback_reason,
+            "last_error_type": self.last_error_type,
+            "last_error_detail": self.last_error_detail,
+            "model": self.model,
+        }
 
     async def generate(self, prompt: str, **kwargs) -> str:
         self._reset_last()

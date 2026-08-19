@@ -99,10 +99,11 @@ class ATLASSession:
         self._lesson_id = lesson["lesson_id"]
 
         # 3. Generate exercises
+        lesson_prefers_llm = str(lesson.get("exercise_generation_mode") or lesson.get("generation_mode") or "").strip().lower() in {"llm", "llm_preferred"}
         exercises = generate_exercises_for_lesson(
             lesson,
             count=exercise_count,
-            use_llm=use_llm,
+            use_llm=use_llm if use_llm is not None else lesson_prefers_llm,
             difficulty=difficulty,
             learner_context=learner_context,
         )

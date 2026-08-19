@@ -2,6 +2,176 @@
 
 This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Command Center UI.
 
+## Standalone ATLAS FAB SDK
+
+MammothOS now exposes an embeddable Python SDK surface for ATLAS so it can be positioned as a standalone product inside another app, workflow, or developer tool.
+
+Core public imports:
+
+```python
+from mammoth_os import AtlasFAB, AtlasFABConfig, ATLASSession
+```
+
+Example embedding flow:
+
+```python
+from mammoth_os import AtlasFAB, AtlasFABConfig
+
+fab = AtlasFAB(
+    AtlasFABConfig(
+        user_id="workspace:customer-123",
+        adapter="openai",
+        audience="developer",
+        mode="tutor",
+        metadata={
+            "learner_context": {
+                "goals": ["Ship a safer integration"],
+                "preferred_pacing": "steady",
+            }
+        },
+    )
+)
+
+lesson = fab.start_lesson("FastAPI authentication basics", difficulty="beginner")
+result = fab.submit(solution_code="def solution(token):\n    return bool(token)\n")
+runtime = fab.runtime_state()
+```
+
+Embeddable monetization strengths now present:
+- clear SDK entry point (`AtlasFAB`)
+- workspace-scoped learner identity support
+- structured runtime-state surface for provider health/fallback visibility
+- lesson, submit, next-lesson, and code-gen loops exposed programmatically
+
+## Packaging posture for monetization
+
+The Python package is now closer to a sellable SDK than a repo-only prototype:
+- package metadata is declared in `pyproject.toml`
+- runtime dependencies are explicit
+- CLI version is sourced from the package version
+- public imports are centralized in `src\mammoth_os\__init__.py`
+
+Highest-value next commercial upgrades after this:
+1. hosted API keys / tenant auth
+2. usage metering endpoint (`/api/billing/usage` or equivalent)
+3. Stripe or billing-provider integration
+4. plan enforcement and entitlement middleware
+5. SDK docs site + integration recipes for React, FastAPI, and internal tools
+
+### What I meant by a billing / usage API
+
+If you later want the product to warn users when they are close to limits, the backend needs some source of truth for usage.
+
+Typical shape:
+
+```json
+{
+  "plan": "pro",
+  "period_start": "2026-08-01T00:00:00Z",
+  "period_end": "2026-08-31T23:59:59Z",
+  "usage": {
+    "requests": 812,
+    "request_limit": 1000,
+    "tokens": 184200,
+    "token_limit": 250000
+  },
+  "percent_used": 81.2,
+  "warning_level": "elevated"
+}
+```
+
+Then the UI can render a warning banner or usage meter before the limit is hit.
+
+## Production auth + tenant blueprint
+
+The repo now includes a production-oriented Supabase tenant/auth scaffold at:
+
+- `.mammoth\supabase_tenant_auth.sql`
+
+This layer is intended to sit around your existing `atlas` and `mammoth` product tables rather than replacing them.
+
+What it adds:
+- tenant ownership (`public.tenants`)
+- tenant membership and roles (`public.workspace_memberships`)
+- workspace/account containers (`public.workspace_accounts`)
+- tenant settings and feature flags (`public.tenant_settings`)
+- usage metering and rollups (`public.usage_events`, `public.usage_rollups_daily`)
+- policy acceptance and audit trails (`public.policy_versions`, `public.policy_acceptances`, `public.audit_events`)
+- owner bootstrap function for your current Supabase user (`public.bootstrap_tenant_for_user(...)`)
+
+Recommended execution order:
+1. Run `.mammoth\supabase_schema.sql` if your baseline tables are not already present.
+2. Run `.mammoth\supabase_tenant_auth.sql` in the Supabase SQL Editor.
+3. Sign in with the account you want to be the admin/owner.
+4. Call `select public.bootstrap_tenant_for_user('MammothOS', 'mammothos');`
+5. Wire the backend to read tenant membership before exposing admin controls or shared dashboard state.
+6. Only then turn on public domain access.
+
+## What you have now
+
+You are no longer at “prototype with cool features only.” You now have:
+- a stronger ATLAS SDK / FAB package surface
+- safer provider fallback behavior
+- auth-guard and tenant-state regression coverage
+- a production tenant/auth SQL blueprint
+- clearer separation between customer-facing pricing and internal operator/admin controls
+- documentation that points toward hosted SaaS + embeddable SDK monetization
+
+That means the product is much closer to a real platform, but it still needs final live-environment wiring before you should treat it as broadly public.
+
+## Biggest launch blockers to watch for
+
+The most likely things that can hinder a clean launch are:
+
+1. **Auth not fully enforced**
+   - If route guards are incomplete, a user could see dashboard shells they should not see.
+   - Fix: require authenticated tenant context before loading private state.
+
+2. **RLS/policy mismatch in Supabase**
+   - If SQL policies and backend assumptions diverge, users may see empty data, permission errors, or cross-tenant leakage risk.
+   - Fix: test owner/admin/member flows explicitly after running the migration.
+
+3. **Placeholder metrics shown in production UI**
+   - Finance, usage, or health views should not imply real billing if they are still local/demo-only.
+   - Fix: gate incomplete metrics behind “demo/local-only/internal” labels until real usage data is wired.
+
+4. **Provider credits / key exhaustion**
+   - The runtime now degrades better, but the user experience still needs friendly messaging and warnings at the product layer.
+   - Fix: surface usage and provider status through a real backend endpoint.
+
+5. **Public vs admin route confusion**
+   - Marketing pages can be public; dashboards and operator tools should require login and tenant membership.
+   - Fix: keep a hard route split between public site, customer app, and internal admin screens.
+
+## Recommended next product steps
+
+### Next step inside the product
+1. Run the Supabase migration.
+2. Bootstrap your current account as owner/admin.
+3. Wire real tenant lookup into login/session handling.
+4. Add a real `/api/billing/usage/current` response backed by tenant usage tables.
+5. Gate the UI so anonymous visitors only see landing/pricing/compliance pages.
+
+### Next step after that
+1. Connect billing (Stripe or equivalent).
+2. Define plans, limits, and entitlements.
+3. Publish terms, privacy, refund, and acceptable-use policies that match actual behavior.
+4. Create a hosted onboarding flow for new tenants.
+5. Package the SDK with install docs, examples, and a stable versioned API contract.
+
+## Legal / monetization checklist
+
+Before broadly charging customers, make sure you have:
+- real authentication and tenant isolation
+- a privacy policy aligned with stored user/session data
+- terms of service / acceptable use policy
+- billing/refund language that matches your checkout flow
+- a support/contact path
+- a clear statement of what is beta vs production
+- a defined data-retention and admin-access posture
+
+This is the difference between “cool software” and “legitimately monetizable software.”
+
 ## Current production-readiness snapshot
 
 This build is materially stronger than the original prototype. The highest-value workstreams are now in place: native chat orchestration, runtime guardrails, structured agent contracts, source-aware research outputs, diagnostics/export surfaces, and broader operator health/entitlement visibility.

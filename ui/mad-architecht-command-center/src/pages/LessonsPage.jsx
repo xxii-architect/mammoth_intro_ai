@@ -29,6 +29,11 @@ const FALLBACK_MODULE_TRACKS = [
   { id: 'mental-health', label: 'Mental Resilience', topic: 'Mental health resilience stress management and cognitive performance', summary: 'Build psychological durability for high-stakes environments.', category: 'Health', icon: '🧠', lessonType: 'knowledge' },
   { id: 'sleep-recovery', label: 'Sleep + Recovery', topic: 'Sleep optimization recovery protocols and human performance science', summary: 'Recover harder, perform better, think clearer.', category: 'Health', icon: '😴', lessonType: 'knowledge' },
 
+  // Human Systems
+  { id: 'human-systems-neurobiology', label: 'Human Systems / Neurobiology / Stress & Recovery', topic: 'Human systems neurobiology stress recovery and resilience fundamentals', summary: 'Understand how stress, regulation, sleep, and recovery shape behavior and wellbeing.', category: 'Human Systems', icon: '🧠', lessonType: 'knowledge' },
+  { id: 'environmental-human-dynamics', label: 'Environmental Human Dynamics', topic: 'Environmental human dynamics climate stress and human behavior in context', summary: 'Learn how environmental conditions affect physiology, thinking, and real-world decisions.', category: 'Human Systems', icon: '🌍', lessonType: 'scenario' },
+  { id: 'mind-body-resilience', label: 'Mind-Body Resilience', topic: 'Mind-body resilience stress recovery and nervous system regulation fundamentals', summary: 'Build durable physical and mental resilience through intentional recovery habits.', category: 'Human Systems', icon: '⚖️', lessonType: 'checklist' },
+
   // Technology & AI
   { id: 'python-programming', label: 'Python Programming', topic: 'Python programming fundamentals syntax and problem solving', summary: 'Write clean, purposeful Python from day one.', category: 'Technology', icon: '🐍', lessonType: 'code' },
   { id: 'ai-ml-basics', label: 'AI + Machine Learning', topic: 'Artificial intelligence machine learning and LLM fundamentals', summary: 'Understand how AI thinks, learns, and makes decisions.', category: 'Technology', icon: '🤖', lessonType: 'knowledge' },
@@ -51,6 +56,18 @@ const FALLBACK_MODULE_TRACKS = [
   { id: 'language-learning', label: 'Language Learning', topic: 'Language acquisition methodology vocabulary and communication practice', summary: 'Learn any language faster with the right mental model.', category: 'Life Skills', icon: '🗣️', lessonType: 'knowledge' },
 ]
 
+const FEATURED_MODULE_IDS = [
+  'human-systems-neurobiology',
+  'mind-body-resilience',
+  'environmental-human-dynamics',
+  'wilderness-survival',
+  'emt-emergency-management',
+  'personal-finance',
+  'writing-storytelling',
+]
+
+const LESSON_TYPE_FILTERS = ['all', 'knowledge', 'checklist', 'scenario', 'writing', 'code']
+
 // ─── Lesson type → adaptive UI config ────────────────────────────────────────
 const LESSON_TYPE_CONFIG = {
   code:      { label: 'Code Editor',     icon: '💻', color: '#4ade80', hint: 'Write your solution in the editor below.' },
@@ -62,7 +79,8 @@ const LESSON_TYPE_CONFIG = {
 
 // ─── Detect lesson type from topic/module ─────────────────────────────────────
 function detectLessonType(topic = '', moduleTrack = null) {
-  if (moduleTrack?.lessonType) return moduleTrack.lessonType
+  const explicitType = moduleTrack?.lessonType || moduleTrack?.lesson_type
+  if (explicitType) return explicitType
   const t = topic.toLowerCase()
   if (/python|javascript|code|programming|script|function|class|loop|algorithm/.test(t)) return 'code'
   if (/write|writing|essay|story|blog|narrative|copywriting/.test(t)) return 'writing'
@@ -71,9 +89,31 @@ function detectLessonType(topic = '', moduleTrack = null) {
   return 'knowledge'
 }
 
+function normalizeModuleTrack(track) {
+  if (!track || typeof track !== 'object') return track
+  return {
+    ...track,
+    lessonType: track.lessonType || track.lesson_type || 'knowledge',
+  }
+}
+
+function normalizeSearchValue(value = '') {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function formatSourceLabel(source = '') {
+  return String(source || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, char => char.toUpperCase())
+    .trim()
+}
+
 // ─── Category grouping for sidebar ───────────────────────────────────────────
-const CATEGORIES = ['Outdoors', 'Emergency', 'Business', 'Health', 'Technology', 'Creative', 'Life Skills']
-const CATEGORY_ICONS = { Outdoors: '🏕️', Emergency: '🚑', Business: '💼', Health: '💪', Technology: '💻', Creative: '🎨', 'Life Skills': '🔑' }
+const CATEGORIES = ['Outdoors', 'Emergency', 'Business', 'Health', 'Human Systems', 'Technology', 'Creative', 'Life Skills']
+const CATEGORY_ICONS = { Outdoors: '🏕️', Emergency: '🚑', Business: '💼', Health: '💪', 'Human Systems': '🧠', Technology: '💻', Creative: '🎨', 'Life Skills': '🔑' }
 
 export default function LessonsPage({ setPage }) {
   const [atlasState, setAtlasState] = useState(null)
@@ -86,32 +126,87 @@ export default function LessonsPage({ setPage }) {
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
   const [moduleCatalog, setModuleCatalog] = useState(FALLBACK_MODULE_TRACKS)
+  const [moduleSearch, setModuleSearch] = useState('')
+  const [lessonTypeFilter, setLessonTypeFilter] = useState('all')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [expandedModules, setExpandedModules] = useState({})
   const [adaptiveUI, setAdaptiveUI] = useState(false)
   const [activeTrack, setActiveTrack] = useState(null)
+  const [lastSelectedModuleId, setLastSelectedModuleId] = useState('')
   const [checklistState, setChecklistState] = useState({})
   const [categoryFilter, setCategoryFilter] = useState(null)
+  const [atlasLibrary, setAtlasLibrary] = useState(null)
+  useEffect(() => {
+    try {
+      const storedTopic = window.localStorage.getItem('atlas.lesson.topic')
+      const storedModuleSearch = window.localStorage.getItem('atlas.lesson.moduleSearch')
+      const storedLessonType = window.localStorage.getItem('atlas.lesson.lessonTypeFilter')
+      const storedLastModule = window.localStorage.getItem('atlas.lesson.lastModuleId')
+      if (storedTopic) setTopic(storedTopic)
+      if (storedModuleSearch) setModuleSearch(storedModuleSearch)
+      if (storedLessonType && LESSON_TYPE_FILTERS.includes(storedLessonType)) setLessonTypeFilter(storedLessonType)
+      if (storedLastModule) setLastSelectedModuleId(storedLastModule)
+    } catch (_) {}
+  }, [])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.lesson.topic', topic)
+    } catch (_) {}
+  }, [topic])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.lesson.moduleSearch', moduleSearch)
+    } catch (_) {}
+  }, [moduleSearch])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.lesson.lessonTypeFilter', lessonTypeFilter)
+    } catch (_) {}
+  }, [lessonTypeFilter])
+  useEffect(() => {
+    if (!activeTrack?.id) return
+    setLastSelectedModuleId(activeTrack.id)
+    try {
+      window.localStorage.setItem('atlas.lesson.lastModuleId', activeTrack.id)
+    } catch (_) {}
+  }, [activeTrack?.id])
   const loadState = async () => {
     try {
       const s = await api('/atlas/status')
       setAtlasState(s)
-      if (Array.isArray(s?.available_modules) && s.available_modules.length) {
-        setModuleCatalog(s.available_modules)
+      if (s?.active_module) {
+        setActiveTrack(normalizeModuleTrack(s.active_module))
       }
-      if (s.current_exercise?.starter_files) {
+      if (Array.isArray(s?.available_modules) && s.available_modules.length) {
+        setModuleCatalog(s.available_modules.map(normalizeModuleTrack))
+      }
+      if (s.current_exercise?.starter_response) {
+        if (!code.trim()) setCode(s.current_exercise.starter_response)
+      } else if (s.current_exercise?.starter_files) {
         const files = s.current_exercise.starter_files
         const first = Object.values(files)[0] || ''
         if (!code.trim()) setCode(first)
       }
     } catch (_) {}
   }
+  const loadLibrary = async () => {
+    try {
+      const lib = await api('/atlas/library')
+      setAtlasLibrary(lib)
+    } catch (_) {}
+  }
 
-  useEffect(() => { loadState() }, [])
+  useEffect(() => {
+    loadState()
+    loadLibrary()
+  }, [])
   useEffect(() => {
     api('/atlas/modules').then((res) => {
       if (Array.isArray(res?.modules) && res.modules.length) {
-        setModuleCatalog(res.modules)
+        setModuleCatalog(res.modules.map(normalizeModuleTrack))
+      }
+      if (res?.active_module) {
+        setActiveTrack(normalizeModuleTrack(res.active_module))
       }
     }).catch(() => {})
   }, [])
@@ -129,18 +224,21 @@ export default function LessonsPage({ setPage }) {
     setResult(null)
     setCode('')
     setChecklistState({})
-    if (moduleTrack) setActiveTrack(moduleTrack)
+    if (moduleTrack) setActiveTrack(normalizeModuleTrack(moduleTrack))
     try {
       const res = await api('/atlas/lesson', {
         method: 'POST',
         body: { topic: requestedTopic, module_id: moduleTrack?.id },
       })
       setAtlasState(prev => ({ ...prev, ...res }))
-      if (res.exercise?.starter_files) {
+      if (res.exercise?.starter_response) {
+        setCode(res.exercise.starter_response)
+      } else if (res.exercise?.starter_files) {
         const first = Object.values(res.exercise.starter_files)[0] || ''
         setCode(first)
       }
       await loadState()
+      await loadLibrary()
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -152,7 +250,7 @@ export default function LessonsPage({ setPage }) {
     if (!code.trim()) return
     setLoading(true)
     try {
-      const res = await api('/atlas/submit', { method: 'POST', body: { code } })
+      const res = await api('/atlas/submit', { method: 'POST', body: { code, response: code } })
       setResult(res.result || res)
     } catch (e) {
       setResult({ error: e.message })
@@ -166,6 +264,7 @@ export default function LessonsPage({ setPage }) {
     try {
       await api('/atlas/next', { method: 'POST', body: {} })
       await loadState()
+      await loadLibrary()
       setResult(null)
       setCode('')
     } catch (_) {}
@@ -202,21 +301,77 @@ export default function LessonsPage({ setPage }) {
   const modules         = curriculum?.modules || []
   const currentLessonId = atlasState?.lesson_id
   const chatHistory     = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const lessonOverview = atlasState?.current_lesson?.summary || exercise?.lesson_summary || activeTrack?.summary || ''
+  const lessonTeachingPoints = Array.isArray(atlasState?.current_lesson?.teaching_points) ? atlasState.current_lesson.teaching_points : (Array.isArray(exercise?.teaching_points) ? exercise.teaching_points : [])
+  const lessonBody = atlasState?.current_lesson?.content || exercise?.lesson_body || ''
+  const lessonExamples = Array.isArray(atlasState?.current_lesson?.examples) ? atlasState.current_lesson.examples : (Array.isArray(exercise?.lesson_examples) ? exercise.lesson_examples : [])
+  const lessonSource = atlasState?.current_lesson?.content_source || exercise?.lesson_source || ''
   const activeModule    = atlasState?.active_module
+  const lessonSourceLabel = formatSourceLabel(lessonSource || atlasState?.curriculum?.source || '')
+  const activeTrackNote = activeTrack?.operator_note || ''
+  const activeCatalogTrack = useMemo(
+    () => moduleCatalog.find(track => track.id === activeTrack?.id) || moduleCatalog.find(track => normalizeSearchValue(track.topic) === normalizeSearchValue(activeTrack?.topic)) || null,
+    [moduleCatalog, activeTrack]
+  )
+  const activeLibraryModule = useMemo(
+    () => atlasLibrary?.modules?.find(module => module.module_id === (activeTrack?.id || activeModule?.id || lastSelectedModuleId)) || null,
+    [atlasLibrary, activeTrack?.id, activeModule?.id, lastSelectedModuleId]
+  )
+  const activeLibraryProgress = useMemo(() => {
+    const lessonCount = Array.isArray(activeLibraryModule?.lessons) ? activeLibraryModule.lessons.length : 0
+    const persistedCount = Array.isArray(activeLibraryModule?.lessons)
+      ? activeLibraryModule.lessons.filter(lesson => lesson.persisted).length
+      : 0
+    const completedCount = Array.isArray(activeLibraryModule?.lessons)
+      ? activeLibraryModule.lessons.filter(lesson => lesson.completed).length
+      : 0
+    return { lessonCount, persistedCount, completedCount }
+  }, [activeLibraryModule])
 
   // Derive lesson type and adaptive UI config
   const detectedLessonType = useMemo(() => detectLessonType(
-    exercise?.title || topic,
+    exercise?.lesson_type || atlasState?.current_lesson?.lesson_type || exercise?.title || topic,
     activeTrack || FALLBACK_MODULE_TRACKS.find(t => t.topic === topic)
   ), [exercise, topic, activeTrack])
+  const submissionMode = exercise?.submission_mode || (detectedLessonType === 'code' ? 'code' : 'text')
   const typeConfig = LESSON_TYPE_CONFIG[detectedLessonType] || LESSON_TYPE_CONFIG.knowledge
 
-  // Filtered catalog by category
-  const filteredCatalog = categoryFilter
-    ? FALLBACK_MODULE_TRACKS.filter(t => t.category === categoryFilter)
-    : FALLBACK_MODULE_TRACKS
+  // Filtered catalog by category/search/type
+  const filteredCatalog = useMemo(() => {
+    const search = normalizeSearchValue(moduleSearch)
+    return moduleCatalog
+      .filter(track => !categoryFilter || track.category === categoryFilter)
+      .filter(track => lessonTypeFilter === 'all' || normalizeSearchValue(track.lessonType || track.lesson_type) === lessonTypeFilter)
+      .filter(track => {
+        if (!search) return true
+        return [track.label, track.topic, track.summary, track.category, track.lessonType]
+          .map(normalizeSearchValue)
+          .some(value => value.includes(search))
+      })
+      .slice()
+      .sort((left, right) => {
+        const leftFeatured = FEATURED_MODULE_IDS.includes(left.id) ? 0 : 1
+        const rightFeatured = FEATURED_MODULE_IDS.includes(right.id) ? 0 : 1
+        if (leftFeatured !== rightFeatured) return leftFeatured - rightFeatured
+        return String(left.label || '').localeCompare(String(right.label || ''))
+      })
+  }, [moduleCatalog, categoryFilter, lessonTypeFilter, moduleSearch])
+  const featuredTracks = useMemo(
+    () => moduleCatalog.filter(track => FEATURED_MODULE_IDS.includes(track.id)).slice(0, 4),
+    [moduleCatalog]
+  )
+  const moduleDiscoveryCount = moduleCatalog.length
+  const filteredDiscoveryCount = filteredCatalog.length
 
   const toggleModule = (id) => setExpandedModules(prev => ({ ...prev, [id]: !prev[id] }))
+  const moduleProgress = (mod) => {
+    const lessonsList = Array.isArray(mod?.lessons) ? mod.lessons : []
+    const total = lessonsList.length
+    const completed = lessonsList.filter(lesson => lesson.completed).length
+    const currentIndex = lessonsList.findIndex(lesson => lesson.lesson_id === currentLessonId)
+    const currentLabel = currentIndex >= 0 ? `Lesson ${currentIndex + 1} of ${total}` : `${completed} of ${total} complete`
+    return { total, completed, currentIndex, currentLabel }
+  }
 
   // Checklist items parsed from exercise prompt
   const checklistItems = useMemo(() => {
@@ -265,6 +420,11 @@ export default function LessonsPage({ setPage }) {
               {activeTrack.icon} {activeTrack.label}
             </div>
           )}
+          {activeLibraryProgress.lessonCount > 0 && (
+            <div style={{ padding: '5px 12px', borderRadius: 999, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.24)', fontSize: '0.72rem', color: 'var(--violet)', fontWeight: 600 }}>
+              {activeLibraryProgress.persistedCount}/{activeLibraryProgress.lessonCount} saved
+            </div>
+          )}
           {setPage && (
             <button onClick={() => setPage('atlas')}
               style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.3)', background: 'rgba(180,124,255,0.08)', color: 'var(--violet)', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
@@ -298,6 +458,34 @@ export default function LessonsPage({ setPage }) {
                   style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', opacity: (loading || !topic.trim()) ? 0.5 : 1 }}>
                   {loading ? 'Loading…' : 'Start Lesson'}
                 </button>
+                <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+                  <input
+                    value={moduleSearch}
+                    onChange={e => setModuleSearch(e.target.value)}
+                    placeholder="Search module tracks"
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', fontSize: '0.76rem', outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {LESSON_TYPE_FILTERS.map(type => (
+                      <button
+                        key={type}
+                        onClick={() => setLessonTypeFilter(type)}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: 999,
+                          border: `1px solid ${lessonTypeFilter === type ? 'var(--photon)' : 'var(--border)'}`,
+                          background: lessonTypeFilter === type ? 'rgba(0,245,212,0.1)' : 'transparent',
+                          color: lessonTypeFilter === type ? 'var(--photon)' : 'var(--txt-mut)',
+                          fontSize: '0.63rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {type === 'all' ? 'All types' : type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               {/* Curriculum tree — clickable lessons */}
@@ -314,13 +502,26 @@ export default function LessonsPage({ setPage }) {
                           <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--txt-pri)', textAlign: 'left' }}>{mod.title || mod.module_title || `Module ${mi+1}`}</span>
                           {isExpanded ? <ChevronUp size={12} color="var(--txt-mut)" /> : <ChevronDown size={12} color="var(--txt-mut)" />}
                         </button>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontSize: '0.64rem', color: 'var(--txt-mut)' }}>{moduleProgress(mod).currentLabel}</span>
+                          <span style={{ fontSize: '0.64rem', color: 'var(--txt-mut)' }}>{moduleProgress(mod).completed}/{moduleProgress(mod).total} complete</span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.05)', overflow: 'hidden', marginBottom: 8 }}>
+                          <div
+                            style={{
+                              height: '100%',
+                              width: `${moduleProgress(mod).total ? Math.round((moduleProgress(mod).completed / moduleProgress(mod).total) * 100) : 0}%`,
+                              background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                            }}
+                          />
+                        </div>
                         {isExpanded && (mod.lessons || []).map((lesson, li) => {
                           const isCurrent = lesson.lesson_id === currentLessonId
                           const isDone = lesson.completed
                           return (
                             <button
                               key={lesson.lesson_id || li}
-                              onClick={() => startLesson(lesson.title || lesson.lesson_title || lesson.topic, mod)}
+                              onClick={() => startLesson(lesson.title || lesson.lesson_title || lesson.topic, activeTrack || atlasState?.active_module || null)}
                               disabled={loading}
                               style={{
                                 display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left',
@@ -347,8 +548,44 @@ export default function LessonsPage({ setPage }) {
               <div className="glass-card-solid" style={{ padding: 14 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--txt-sec)', fontWeight: 600, margin: 0 }}>Module Tracks</p>
-                  <span style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{FALLBACK_MODULE_TRACKS.length} topics</span>
+                  <span style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{filteredDiscoveryCount}/{moduleDiscoveryCount} topics</span>
                 </div>
+                {featuredTracks.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <p style={{ fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', margin: '0 0 6px', fontWeight: 700 }}>Featured</p>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {featuredTracks.map(track => {
+                        const isActive = activeTrack?.id === track.id
+                        return (
+                          <button
+                            key={`featured-${track.id}`}
+                            onClick={() => { setTopic(track.topic); startLesson(track.topic, track) }}
+                            disabled={loading}
+                            style={{
+                              width: '100%',
+                              textAlign: 'left',
+                              padding: '8px 10px',
+                              borderRadius: 8,
+                              border: `1px solid ${isActive ? 'rgba(0,245,212,0.35)' : 'var(--border)'}`,
+                              background: isActive ? 'rgba(0,245,212,0.08)' : 'rgba(255,255,255,0.03)',
+                              cursor: 'pointer',
+                              opacity: loading ? 0.6 : 1,
+                            }}
+                          >
+                            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: isActive ? 'var(--cyan)' : 'var(--txt-pri)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span>{track.icon}</span>
+                              {track.label}
+                              {isActive && <Flame size={11} color="var(--cyan)" />}
+                            </div>
+                            <div style={{ fontSize: '0.64rem', color: 'var(--txt-mut)', lineHeight: 1.45 }}>
+                              {track.summary}
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 {/* Category filter pills */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
                   <button onClick={() => setCategoryFilter(null)}
@@ -392,6 +629,49 @@ export default function LessonsPage({ setPage }) {
                   })}
                 </div>
               </div>
+
+              <div className="glass-card-solid" style={{ padding: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 8 }}>
+                  <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--txt-sec)', fontWeight: 600, margin: 0 }}>Curriculum Library</p>
+                  <span style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>
+                    {atlasLibrary?.totals ? `${atlasLibrary.totals.persisted_lessons || 0} saved · ${atlasLibrary.totals.lessons || 0} lessons` : 'inspect source state'}
+                  </span>
+                </div>
+                {atlasLibrary?.modules?.length ? (
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {atlasLibrary.modules.slice(0, 4).map((module) => (
+                      <details key={module.module_id || module.title} style={{ border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.03)', padding: '8px 10px' }}>
+                        <summary style={{ cursor: 'pointer', listStyle: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: '0.76rem', color: 'var(--txt-pri)', fontWeight: 600 }}>
+                          <span>{module.title}</span>
+                          <span style={{ fontSize: '0.64rem', color: 'var(--txt-mut)' }}>{module.persisted_lesson_count || 0}/{module.lesson_count || 0} persisted</span>
+                        </summary>
+                        <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                          {(module.lessons || []).slice(0, 4).map((lesson) => (
+                            <div key={lesson.lesson_id || lesson.title} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,0,0,0.12)' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                                <span style={{ fontSize: '0.74rem', color: 'var(--txt-pri)', fontWeight: 600 }}>{lesson.title}</span>
+                                <span style={{ fontSize: '0.62rem', color: lesson.persisted ? 'var(--cyan)' : 'var(--txt-mut)' }}>
+                                  {lesson.persisted ? `${lesson.chunk_count} chunks saved` : 'not saved yet'}
+                                </span>
+                              </div>
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, fontSize: '0.62rem', color: 'var(--txt-mut)' }}>
+                                <span>source: {lesson.source}</span>
+                                <span>• {lesson.lesson_type}</span>
+                                <span>• {lesson.teaching_point_count || 0} teaching points</span>
+                                <span>• {lesson.example_count || 0} examples</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: '0.74rem', color: 'var(--txt-mut)', margin: 0, lineHeight: 1.6 }}>
+                    No curriculum snapshot is loaded yet. Start a lesson to inspect what content was generated, reused, and persisted for RAG.
+                  </p>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -400,6 +680,63 @@ export default function LessonsPage({ setPage }) {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflowY: 'auto' }}>
           {exercise ? (
             <>
+              {(lessonOverview || lessonTeachingPoints.length || lessonBody || lessonExamples.length) && (
+                <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0 }}>Lesson Overview</p>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      {activeTrack?.label && (
+                        <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{activeTrack.icon} {activeTrack.label}</span>
+                      )}
+                      {lessonSourceLabel && (
+                        <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(0,245,212,0.25)', background: 'rgba(0,245,212,0.08)', color: 'var(--cyan)', fontWeight: 600 }}>
+                          {lessonSourceLabel}
+                        </span>
+                      )}
+                      {activeLibraryProgress.lessonCount > 0 && (
+                        <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(168,85,247,0.24)', background: 'rgba(168,85,247,0.08)', color: 'var(--violet)', fontWeight: 600 }}>
+                          {activeLibraryProgress.persistedCount}/{activeLibraryProgress.lessonCount} saved
+                        </span>
+                      )}
+                      <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(148,163,184,0.24)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-mut)', fontWeight: 600 }}>
+                        {typeConfig.label}
+                      </span>
+                    </div>
+                  </div>
+                  {lessonOverview && (
+                    <p style={{ fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7, margin: '0 0 10px' }}>{lessonOverview}</p>
+                  )}
+                  {lessonBody && !lessonOverview && (
+                    <p style={{ fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7, margin: '0 0 10px' }}>{lessonBody}</p>
+                  )}
+                  {lessonTeachingPoints.length > 0 && (
+                    <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
+                      {lessonTeachingPoints.slice(0, 4).map((item, index) => (
+                        <li key={index} style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {lessonExamples.length > 0 && (
+                    <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
+                      <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', margin: 0, fontWeight: 700 }}>Examples</p>
+                      {lessonExamples.slice(0, 2).map((item, index) => (
+                        <div key={index} style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', lineHeight: 1.55, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {(activeTrackNote || activeCatalogTrack?.summary) && (
+                    <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(0,0,0,0.18)', border: '1px solid var(--border)', display: 'grid', gap: 4 }}>
+                      <p style={{ margin: 0, fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700 }}>Teaching stance</p>
+                      <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--txt-pri)', lineHeight: 1.6 }}>
+                        {activeTrackNote || activeCatalogTrack?.summary}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Exercise card — shows adaptive type badge when enabled */}
               <div className="glass-card-solid" style={{ padding: 20, borderLeft: `3px solid ${adaptiveUI ? typeConfig.color : 'var(--photon)'}`, flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -421,7 +758,7 @@ export default function LessonsPage({ setPage }) {
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                     <button onClick={submitCode} disabled={loading}
                       style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
-                      <Send size={13} /> {loading ? 'Submitting…' : 'Submit'}
+                      <Send size={13} /> {loading ? 'Submitting…' : (submissionMode === 'code' ? 'Submit' : 'Submit response')}
                     </button>
                     <button onClick={nextLesson} disabled={loading}
                       style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 600 }}>
@@ -432,7 +769,9 @@ export default function LessonsPage({ setPage }) {
 
                 {exercise.expected_test && (
                   <details style={{ marginTop: 14 }}>
-                    <summary style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', cursor: 'pointer' }}>View test scaffold</summary>
+                    <summary style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', cursor: 'pointer' }}>
+                      {submissionMode === 'code' ? 'View test scaffold' : 'View evaluation rubric'}
+                    </summary>
                     <pre style={{ fontSize: '0.74rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', padding: 12, background: 'rgba(0,0,0,0.25)', borderRadius: 8, marginTop: 8, overflowX: 'auto', whiteSpace: 'pre-wrap', border: '1px solid var(--border)' }}>
                       {exercise.expected_test}
                     </pre>
@@ -444,7 +783,9 @@ export default function LessonsPage({ setPage }) {
               <div className="glass-card-solid" style={{ padding: 16, flexShrink: 0, borderLeft: adaptiveUI ? `3px solid ${typeConfig.color}` : 'none' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0 }}>Your Solution</p>
+                    <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0 }}>
+                      {submissionMode === 'code' ? 'Your Solution' : 'Your Response'}
+                    </p>
                     {adaptiveUI && (
                       <span style={{ fontSize: '0.66rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: 'var(--violet)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
                         <Wand2 size={10} /> {typeConfig.icon} {typeConfig.label}
@@ -456,7 +797,7 @@ export default function LessonsPage({ setPage }) {
                   )}
                   {!adaptiveUI && (
                     <code style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>
-                      {detectedLessonType === 'code' ? 'Python' : 'Text'}
+                      {submissionMode === 'code' ? 'Python' : 'Topic response'}
                     </code>
                   )}
                 </div>
@@ -476,7 +817,7 @@ export default function LessonsPage({ setPage }) {
                   </div>
 
                 /* Adaptive: Scenario / Writing / Knowledge — styled textarea */
-                ) : adaptiveUI && (detectedLessonType === 'scenario' || detectedLessonType === 'writing' || detectedLessonType === 'knowledge') ? (
+                ) : (adaptiveUI && (detectedLessonType === 'scenario' || detectedLessonType === 'writing' || detectedLessonType === 'knowledge')) || submissionMode !== 'code' ? (
                   <textarea value={code} onChange={e => setCode(e.target.value)}
                     placeholder={typeConfig.hint}
                     style={{ width: '100%', height: 200, background: 'rgba(255,255,255,0.03)', border: `1px solid ${typeConfig.color}44`, borderRadius: 8, padding: 14, fontSize: '0.86rem', fontFamily: 'inherit', color: 'var(--txt-pri)', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.85 }} />
@@ -564,11 +905,16 @@ export default function LessonsPage({ setPage }) {
               <div>
                 <p style={{ color: 'var(--txt-pri)', fontSize: '1rem', fontWeight: 600, marginBottom: 8 }}>No active lesson</p>
                 <p style={{ color: 'var(--txt-mut)', fontSize: '0.84rem', maxWidth: 380, lineHeight: 1.6 }}>
-                  Enter a custom topic or pick a module track from the sidebar to begin.
+                  Enter a custom topic or pick a featured module track from the sidebar to begin.
                 </p>
               </div>
+              {lastSelectedModuleId && (
+                <p style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', margin: 0 }}>
+                  Last used module: {formatSourceLabel(lastSelectedModuleId)}
+                </p>
+              )}
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-                {FALLBACK_MODULE_TRACKS.filter(t => ['wilderness-survival','personal-finance','python-programming','fitness-training','writing-storytelling'].includes(t.id)).map(t => (
+                {featuredTracks.map(t => (
                   <button key={t.id} onClick={() => { setTopic(t.topic); startLesson(t.topic, t) }} disabled={loading}
                     style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600, transition: 'all 0.15s', display: 'flex', alignItems: 'center', gap: 6 }}>
                     <span>{t.icon}</span> {t.label}

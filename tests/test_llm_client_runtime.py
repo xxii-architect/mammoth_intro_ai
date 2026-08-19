@@ -101,3 +101,11 @@ def test_fallback_adapter_uses_next_provider_for_network_failure():
     assert adapter.last_fallback_used is True
     assert adapter.last_fallback_reason == "network_or_transient"
     assert adapter.last_used_provider == "local"
+
+
+def test_fallback_adapter_describe_runtime_state_reports_contract_version():
+    adapter = FallbackAdapter(BrokenProvider(), HealthyFallback(), primary_name="deepseek", fallback_name="local")
+    state = adapter.describe_runtime_state()
+    assert state["contract_version"] == "v2"
+    assert state["primary_provider"] == "deepseek"
+    assert state["fallback_provider"] == "local"

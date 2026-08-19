@@ -1,173 +1,335 @@
 import { useState } from 'react'
 
-export default function LandingPage({ setPage }) {
-  const features = [
-    { icon: '🧠', title: 'Adaptive Learning Engine', desc: 'ATLAS tracks your mastery, confidence, and error patterns to tune every lesson to your pace.' },
-    { icon: '🎯', title: 'No-Cheat Coaching', desc: "ATLAS won't give you the answer. If you try, it generates a new exercise — keeping learning real." },
-    { icon: '🗺️', title: 'Memory Graph', desc: 'ATLAS builds a live knowledge map of your concepts, goals, and progress across every session.' },
-    { icon: '🤖', title: 'Multi-Agent Orchestration', desc: 'ATLAS coordinates a tutor, researcher, coding agent, and coach in real time to create your lesson plan.' },
-    { icon: '💾', title: 'Lesson Resume', desc: 'Never lose your place. ATLAS reconstructs your prior notes, flashcards, and next actions when you return.' },
-    { icon: '🚀', title: 'Plan + Execute', desc: 'Generate a full tutor plan from your exercise prompt, executed step-by-step with visible agent progress.' },
-  ]
+function MammothLogo({ size = 84, style = {} }) {
+  const [errored, setErrored] = useState(false)
+
+  if (errored) {
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          display: 'grid',
+          placeItems: 'center',
+          borderRadius: 22,
+          background: 'linear-gradient(135deg, rgba(77,166,255,0.18), rgba(180,124,255,0.18))',
+          border: '1px solid rgba(255,255,255,0.1)',
+          fontSize: Math.max(24, size * 0.46),
+          ...style,
+        }}
+      >
+        🐘
+      </div>
+    )
+  }
 
   return (
-    <div className="page-enter" style={{ padding: '40px 32px 80px', maxWidth: 1100, margin: '0 auto' }}>
+    <img
+      src="/branding/mammoth-logo.png"
+      alt="MammothOS logo"
+      width={size}
+      height={size}
+      onError={() => setErrored(true)}
+      style={{
+        width: size,
+        height: size,
+        objectFit: 'contain',
+        borderRadius: 20,
+        display: 'block',
+        ...style,
+      }}
+    />
+  )
+}
 
-      {/* Hero */}
-      <div style={{ textAlign: 'center', padding: '60px 0 56px', borderBottom: '1px solid var(--border)' }}>
-        <div style={{
-          fontSize: '4rem',
-          animation: 'pulse-violet 2.5s infinite',
-          display: 'inline-block',
-          filter: 'drop-shadow(0 0 18px rgba(180,124,255,0.7))',
-          marginBottom: 20,
-        }}>
-          🐘
-        </div>
-        <h1 style={{
-          margin: '0 0 12px',
-          fontSize: '2.8rem',
-          fontWeight: 800,
-          background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
-          WebkitBackgroundClip: 'text',
-          WebkitTextFillColor: 'transparent',
-          backgroundClip: 'text',
-          lineHeight: 1.15,
-        }}>
-          MammothOS
-        </h1>
-        <p style={{ fontSize: '1.15rem', fontWeight: 600, color: 'var(--txt-pri)', margin: '0 0 14px' }}>
-          ATLAS — The Adaptive Tutor Built for Real Learners
-        </p>
-        <p style={{ fontSize: '0.95rem', color: 'var(--txt-sec)', maxWidth: 620, margin: '0 auto 32px', lineHeight: 1.65 }}>
-          A cognitive AI tutor system that meets you where you are, adapts to how you learn, and coaches you toward mastery — not just answers.
-        </p>
-        <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => setPage('atlas')}
-            style={{
-              padding: '12px 28px',
-              borderRadius: 10,
-              border: 'none',
-              background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
-              color: '#050608',
-              fontWeight: 700,
-              fontSize: '0.95rem',
-              cursor: 'pointer',
-              boxShadow: '0 0 20px rgba(77,166,255,0.3)',
-            }}
-          >
-            Open ATLAS Tutor
-          </button>
-          <button
-            onClick={() => setPage('pricing')}
-            style={{
-              padding: '12px 28px',
-              borderRadius: 10,
-              border: '1px solid var(--border)',
-              background: 'rgba(255,255,255,0.04)',
-              color: 'var(--txt-sec)',
-              fontWeight: 600,
-              fontSize: '0.95rem',
-              cursor: 'pointer',
-            }}
-          >
-            Learn More
-          </button>
+const FEATURE_COLUMNS = [
+  {
+    title: 'Adaptive tutoring engine',
+    items: [
+      'ATLAS adjusts pacing, difficulty, and coaching depth from your real performance.',
+      'Learner memory tracks confidence, weak concepts, and recovery patterns.',
+      'Every lesson can resume with recap, flashcards, quiz, and next steps.',
+    ],
+  },
+  {
+    title: 'Multi-agent execution layer',
+    items: [
+      'Planner, tutor, coding, research, and safety agents can coordinate around one objective.',
+      'Plan + Execute runs stay visible through traceable steps and runtime notices.',
+      'Fallback model routing keeps workflows moving during provider outages or quota issues.',
+    ],
+  },
+  {
+    title: 'Trust-first operator controls',
+    items: [
+      'Approval-gated actions help keep powerful automations reviewable.',
+      'Audit export, observability runs, and active project context are built in.',
+      'Workspace account isolation prevents one learner profile from leaking into another.',
+    ],
+  },
+]
+
+const TRUST_POINTS = [
+  'Local-first session support',
+  'No-cheat tutoring guardrails',
+  'Approval-gated code actions',
+  'Runtime fallback notices',
+  'Workspace multi-account onboarding',
+  'Audit + observability surfaces',
+]
+
+const WORKFLOW_STEPS = [
+  {
+    label: '01',
+    title: 'Set up a workspace account',
+    text: 'Create a learner or operator identity for this workspace so progress, entitlements, and session state stay scoped correctly.',
+  },
+  {
+    label: '02',
+    title: 'Start an adaptive lesson',
+    text: 'ATLAS builds a lesson from your topic, learner context, and module track instead of dropping you into a generic chat.',
+  },
+  {
+    label: '03',
+    title: 'Review the agent plan',
+    text: 'Planner, tutor, and support agents produce visible checkpoints and safe next actions before execution.',
+  },
+  {
+    label: '04',
+    title: 'Ship with confidence',
+    text: 'Use audit trails, runtime status, and approval gates to keep product work explainable and operationally safe.',
+  },
+]
+
+export default function LandingPage({ setPage }) {
+  return (
+    <div className="page-enter" style={{ padding: '32px 20px 70px', maxWidth: 1180, margin: '0 auto' }}>
+      <div
+        style={{
+          position: 'relative',
+          overflow: 'hidden',
+          padding: '36px 30px 44px',
+          borderRadius: 30,
+          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'radial-gradient(circle at top left, rgba(77,166,255,0.18), transparent 28%), radial-gradient(circle at top right, rgba(180,124,255,0.18), transparent 30%), rgba(13,17,23,0.94)',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+        }}
+      >
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.02), transparent 52%, rgba(0,245,212,0.03))',
+            pointerEvents: 'none',
+          }}
+        />
+
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <div style={{ textAlign: 'center', marginBottom: 30 }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 110,
+                height: 110,
+                borderRadius: 28,
+                background: 'linear-gradient(135deg, rgba(77,166,255,0.18), rgba(180,124,255,0.16))',
+                border: '1px solid rgba(255,255,255,0.1)',
+                boxShadow: '0 0 30px rgba(77,166,255,0.18)',
+                marginBottom: 18,
+              }}
+            >
+              <MammothLogo size={80} />
+            </div>
+
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(255,255,255,0.03)',
+                borderRadius: 999,
+                padding: '7px 12px',
+                marginBottom: 18,
+                color: 'var(--txt-sec)',
+                fontSize: '0.72rem',
+                letterSpacing: '0.12em',
+                textTransform: 'uppercase',
+              }}
+            >
+              <span style={{ color: 'var(--cyan)' }}>MammothOS</span>
+              <span>•</span>
+              <span>Adaptive tutor + agent workspace</span>
+            </div>
+
+            <h1
+              style={{
+                margin: '0 0 12px',
+                fontSize: 'clamp(2.5rem, 5vw, 4.2rem)',
+                fontWeight: 800,
+                letterSpacing: '-0.045em',
+                background: 'linear-gradient(90deg, var(--photon), var(--cyan), var(--violet))',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent',
+                backgroundClip: 'text',
+                lineHeight: 1.02,
+              }}
+            >
+              Learn, build, and operate with a real cognitive system.
+            </h1>
+
+            <p style={{ fontSize: '1.04rem', color: 'var(--txt-sec)', maxWidth: 780, margin: '0 auto 26px', lineHeight: 1.72 }}>
+              ATLAS gives you structured tutoring, memory-backed progression, and visible multi-agent execution so you can grow real skill instead of chasing answer-shaped shortcuts.
+            </p>
+
+            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
+              <button
+                onClick={() => setPage('atlas')}
+                style={{
+                  padding: '13px 28px',
+                  borderRadius: 12,
+                  border: 'none',
+                  background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                  color: '#050608',
+                  fontWeight: 800,
+                  fontSize: '0.96rem',
+                  cursor: 'pointer',
+                  boxShadow: '0 12px 30px rgba(77,166,255,0.28)',
+                }}
+              >
+                Open ATLAS Tutor
+              </button>
+              <button
+                onClick={() => setPage('settings')}
+                style={{
+                  padding: '13px 28px',
+                  borderRadius: 12,
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  background: 'rgba(255,255,255,0.02)',
+                  color: 'var(--txt-pri)',
+                  fontWeight: 700,
+                  fontSize: '0.96rem',
+                  cursor: 'pointer',
+                }}
+              >
+                Set Up Workspace Accounts
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
+              {['Structured lessons', 'Visible agent steps', 'Safe plan execution', 'Local-first onboarding'].map((pill) => (
+                <span key={pill} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
+                  {pill}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
+            {[
+              { label: 'Primary mode', value: 'Adaptive tutoring' },
+              { label: 'Execution model', value: 'Multi-agent, traceable' },
+              { label: 'Account model', value: 'Workspace multi-account' },
+              { label: 'Trust posture', value: 'Guardrails + approvals' },
+            ].map((item) => (
+              <div key={item.label} className="glass-card-solid" style={{ padding: '14px 16px', borderRadius: 16 }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 6 }}>{item.label}</div>
+                <div style={{ fontSize: '0.92rem', color: 'var(--txt-pri)', fontWeight: 700 }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Features */}
-      <div style={{ padding: '56px 0 40px' }}>
-        <h2 style={{ textAlign: 'center', fontSize: '1.4rem', fontWeight: 700, color: 'var(--txt-pri)', marginBottom: 32 }}>
-          What makes ATLAS different
-        </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 20 }}>
-          {features.map((f) => (
-            <div key={f.title} className="glass-card-solid" style={{ padding: '22px 24px' }}>
-              <div style={{ fontSize: '1.8rem', marginBottom: 10 }}>{f.icon}</div>
-              <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem', fontWeight: 700, color: 'var(--photon)' }}>{f.title}</h3>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>{f.desc}</p>
+      <div style={{ padding: '54px 0 26px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 28 }}>
+          <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
+            Why teams and learners stick with it
+          </p>
+          <h2 style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>
+            Built for durable progress, not disposable prompts.
+          </h2>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
+          {FEATURE_COLUMNS.map((column) => (
+            <div key={column.title} className="glass-card-solid" style={{ padding: '22px 22px 18px', borderRadius: 18 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '0.98rem', fontWeight: 700, color: 'var(--photon)' }}>{column.title}</h3>
+              <div style={{ display: 'grid', gap: 10 }}>
+                {column.items.map((item) => (
+                  <div key={item} style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', lineHeight: 1.6, display: 'flex', gap: 8 }}>
+                    <span style={{ color: 'var(--cyan)' }}>✓</span>
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Pricing tiers */}
-      <div style={{ borderTop: '1px solid var(--border)', padding: '48px 0 40px' }}>
-        <h2 style={{ textAlign: 'center', fontSize: '1.4rem', fontWeight: 700, color: 'var(--txt-pri)', marginBottom: 32 }}>
-          Free to start. Built to grow.
-        </h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, maxWidth: 760, margin: '0 auto' }}>
-
-          {/* Explorer */}
-          <div className="glass-card-solid" style={{ padding: '28px 28px 24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Explorer</span>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: '#22c55e', background: 'rgba(34,197,94,0.12)', borderRadius: 20, padding: '3px 10px', border: '1px solid rgba(34,197,94,0.3)' }}>Free</span>
+      <div style={{ borderTop: '1px solid var(--border)', padding: '42px 0 24px' }}>
+        <div style={{ textAlign: 'center', marginBottom: 26 }}>
+          <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
+            How the experience flows
+          </p>
+          <h2 style={{ fontSize: '1.7rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>
+            From onboarding to execution in four steps.
+          </h2>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
+          {WORKFLOW_STEPS.map((step) => (
+            <div key={step.label} className="glass-card-solid" style={{ padding: '20px 18px', borderRadius: 18 }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--cyan)', fontWeight: 800, letterSpacing: '0.12em', marginBottom: 10 }}>{step.label}</div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem', color: 'var(--txt-pri)' }}>{step.title}</h3>
+              <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>{step.text}</p>
             </div>
-            <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--photon)', margin: '0 0 4px' }}>$0<span style={{ fontSize: '0.9rem', fontWeight: 400, color: 'var(--txt-sec)' }}> / month</span></p>
-            <p style={{ fontSize: '0.8rem', color: 'var(--txt-mut)', marginBottom: 20 }}>Forever free for individual learners</p>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {['ATLAS tutor chat', 'Adaptive lesson pacing', 'Lesson resume', 'Basic eval checks'].map(f => (
-                <li key={f} style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', display: 'flex', gap: 8 }}>
-                  <span style={{ color: 'var(--cyan)' }}>✓</span> {f}
-                </li>
-              ))}
-            </ul>
-            <button
-              onClick={() => setPage('atlas')}
-              style={{ width: '100%', padding: '10px 0', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}
-            >
-              Get Started
-            </button>
-          </div>
-
-          {/* Pro */}
-          <div className="glass-card-solid" style={{ padding: '28px 28px 24px', border: '1px solid rgba(0,245,212,0.35)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Pro</span>
-              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--cyan)', background: 'rgba(0,245,212,0.1)', borderRadius: 20, padding: '3px 10px', border: '1px solid rgba(0,245,212,0.35)' }}>Early access</span>
-            </div>
-            <p style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--cyan)', margin: '0 0 4px' }}>Coming Soon</p>
-            <p style={{ fontSize: '0.8rem', color: 'var(--txt-mut)', marginBottom: 20 }}>For serious learners and power users</p>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-              {['Everything in Explorer, plus:', 'Multi-agent plan execution', 'Team learning dashboards', 'Supabase progress sync', 'Audit export', 'Priority model routing'].map(f => (
-                <li key={f} style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', display: 'flex', gap: 8 }}>
-                  <span style={{ color: 'var(--cyan)' }}>✓</span> {f}
-                </li>
-              ))}
-            </ul>
-            <button
-              onClick={() => setPage('pricing')}
-              style={{ width: '100%', padding: '10px 0', borderRadius: 8, border: '1px solid var(--cyan)', background: 'rgba(0,245,212,0.08)', color: 'var(--cyan)', fontWeight: 700, cursor: 'pointer', fontSize: '0.9rem' }}
-            >
-              Join Waitlist
-            </button>
-          </div>
-
+          ))}
         </div>
       </div>
 
-      {/* Footer */}
-      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 28, textAlign: 'center' }}>
-        <p style={{ fontSize: '0.78rem', color: 'var(--txt-mut)', marginBottom: 10 }}>
-          © 2026 MammothOS. Educational AI software — not professional instruction.
-        </p>
-        <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginBottom: 10 }}>
-          {['Terms of Use', 'Privacy Policy', 'Acceptable Use'].map(label => (
-            <button
-              key={label}
-              onClick={() => setPage('compliance')}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}
-            >
-              {label}
-            </button>
-          ))}
+      <div style={{ borderTop: '1px solid var(--border)', padding: '42px 0 18px' }}>
+        <div className="glass-card-solid" style={{ padding: '24px 24px 18px', borderRadius: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 360px' }}>
+              <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
+                Trust signals
+              </p>
+              <h2 style={{ margin: '0 0 10px', fontSize: '1.45rem', color: 'var(--txt-pri)' }}>
+                Product polish matters, but trust posture is what makes the system usable.
+              </h2>
+              <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--txt-sec)', lineHeight: 1.68 }}>
+                MammothOS is being shaped as a serious learning and operator environment: guarded tutoring, workspace-scoped onboarding, explainable execution, and upgrade paths toward stronger compliance and team delivery.
+              </p>
+            </div>
+            <div style={{ flex: '1 1 320px', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
+              {TRUST_POINTS.map((point) => (
+                <div key={point} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)' }}>
+                  {point}
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
-        <p style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', fontStyle: 'italic' }}>
-          Product architecture, policy controls, and monetization surfaces are actively evolving.
+      </div>
+
+      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 24, marginTop: 36, textAlign: 'center' }}>
+        <p style={{ fontSize: '0.78rem', color: 'var(--txt-mut)', marginBottom: 12 }}>
+          © 2026 MammothOS. Educational AI software with safety, progress, and operator clarity at the center.
         </p>
+        <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setPage('pricing')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
+            Pricing
+          </button>
+          <button onClick={() => setPage('compliance')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
+            Legal & Compliance
+          </button>
+          <button onClick={() => setPage('settings')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
+            Workspace Setup
+          </button>
+        </div>
       </div>
     </div>
   )
