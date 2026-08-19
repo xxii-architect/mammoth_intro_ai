@@ -80,7 +80,13 @@ if not AUTH_ADMIN_POLICY_FILE.exists():
 ATLAS_STATE_DIR.mkdir(exist_ok=True)
 
 _AUTH_REQUIRED = str(os.environ.get("MAMMOTH_REQUIRE_AUTH", "")).strip().lower() in {"1", "true", "yes", "on"}
-_ADMIN_EMAILS = {item.strip().lower() for item in str(os.environ.get("MAMMOTH_ADMIN_EMAILS", "")).split(",") if item.strip()}
+_ADMIN_EMAIL_SOURCES = ",".join(
+    item for item in [
+        str(os.environ.get("MAMMOTH_ADMIN_EMAILS", "")),
+        str(os.environ.get("MAMMOTH_ADMIN_EMAILS_LIST", "")),
+    ] if item
+)
+_ADMIN_EMAILS = {item.strip().lower() for item in _ADMIN_EMAIL_SOURCES.split(",") if item.strip()}
 _ADMIN_USER_IDS = {item.strip() for item in str(os.environ.get("MAMMOTH_ADMIN_USER_IDS", "")).split(",") if item.strip()}
 _AUTH_OPTIONAL_PATHS = {
     "/api/status",

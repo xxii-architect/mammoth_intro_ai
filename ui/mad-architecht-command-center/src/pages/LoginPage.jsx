@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { guestSignInEnabled, signInAsGuest, signInWithEmail } from '../lib/supabase'
 
 export default function LoginPage() {
+  const supportEmail = import.meta.env.VITE_MAMMOTH_SUPPORT_EMAIL || 'hello@truexxiisupply.com'
+  const privacyEmail = import.meta.env.VITE_MAMMOTH_PRIVACY_EMAIL || 'privacy@truexxiisupply.com'
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [error,    setError]    = useState('')
@@ -165,6 +167,15 @@ export default function LoginPage() {
         <div style={{ marginTop: 16, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
           <p style={{ margin: 0, fontSize: '0.68rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6, textAlign: 'left' }}>
             This platform is under active development and may change without notice. By signing in, you acknowledge that you are using a prototype environment and agree to comply with all applicable laws, platform policies, and privacy obligations while using it.
+          </p>
+        </div>
+
+        <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)' }}>
+          <p style={{ margin: 0, fontSize: '0.68rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
+            Support and partnerships: {supportEmail}
+          </p>
+          <p style={{ margin: '4px 0 0', fontSize: '0.68rem', color: 'rgba(255,255,255,0.65)', lineHeight: 1.6 }}>
+            Privacy requests: {privacyEmail}
           </p>
         </div>
 

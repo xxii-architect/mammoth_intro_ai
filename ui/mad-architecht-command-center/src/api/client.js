@@ -9,7 +9,17 @@ function normalizeBackendBase(rawBase) {
   return rawBase.trim().replace(/\/+$/, '').replace(/\/api$/, '')
 }
 
-const BACKEND_BASE = normalizeBackendBase(import.meta.env.VITE_MAMMOTH_API_BASE_URL || '')
+function readBackendBase() {
+  if (import.meta.env.VITE_MAMMOTH_API_BASE_URL) return import.meta.env.VITE_MAMMOTH_API_BASE_URL
+  if (import.meta.env.VITE_MAMMOTH_BACKEND_URL) return import.meta.env.VITE_MAMMOTH_BACKEND_URL
+  if (typeof window !== 'undefined') {
+    const localOverride = window.localStorage.getItem('mammoth_api_base_url')
+    if (localOverride) return localOverride
+  }
+  return ''
+}
+
+const BACKEND_BASE = normalizeBackendBase(readBackendBase())
 
 export function buildApiUrl(path) {
   const normalizedPath = normalizePath(path)
@@ -31,7 +41,7 @@ function buildBackendErrorMessage(status, text) {
   const body = String(text || '').trim()
   const maybeHtml = body.startsWith('<') || /<!doctype html>|<html/i.test(body)
   if (maybeHtml) {
-    return 'Backend returned HTML instead of JSON. Set VITE_MAMMOTH_API_BASE_URL to your deployed API origin or serve the frontend from the same host as the backend.'
+    return 'Backend returned HTML instead of JSON. Set VITE_MAMMOTH_API_BASE_URL (or VITE_MAMMOTH_BACKEND_URL) to your deployed API origin, or set localStorage.mammoth_api_base_url for this browser session.'
   }
   return body || `Request failed (${status})`
 }

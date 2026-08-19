@@ -11,4 +11,15 @@ export default defineConfig({
       '/ws':  { target: 'ws://localhost:8000',  ws: true },
     },
   },
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom'],
+          icons: ['lucide-react'],
+        },
+      },
+    },
+  },
 })

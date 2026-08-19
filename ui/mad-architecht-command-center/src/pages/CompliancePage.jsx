@@ -1,6 +1,8 @@
 import { useState } from 'react'
 
 const TABS = ['Terms of Use', 'Privacy Policy', 'Acceptable Use', 'AI Safety', 'Enterprise Posture']
+const SUPPORT_EMAIL = import.meta.env.VITE_MAMMOTH_SUPPORT_EMAIL || 'hello@truexxiisupply.com'
+const PRIVACY_EMAIL = import.meta.env.VITE_MAMMOTH_PRIVACY_EMAIL || 'privacy@truexxiisupply.com'
 
 const CONTENT = {
   'Terms of Use': [
@@ -20,7 +22,8 @@ const CONTENT = {
     'We do not position the current build as a broad consumer data platform; it is an evolving product and should be treated accordingly.',
     'You can reset active learning sessions and maintain separate workspace accounts to reduce state leakage between users in the same environment.',
     'Data processors used by MammothOS include: Supabase (auth and database), Netlify (hosting), and any AI model providers you configure.',
-    'For privacy requests or questions, contact: privacy@truexxiisupply.com',
+    `General support contact: ${SUPPORT_EMAIL}`,
+    `For privacy requests or questions, contact: ${PRIVACY_EMAIL}`,
   ],
   'Acceptable Use': [
     'Use MammothOS to learn, reason, build, and review responsibly.',

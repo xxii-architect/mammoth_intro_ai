@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
@@ -10,26 +10,26 @@ import { signOut } from './lib/supabase'
 import { api } from './api/client'
 import LoginPage from './pages/LoginPage'
 
-import HomePage        from './pages/HomePage'
-import AgentPage       from './pages/AgentPage'
-import ChatPage        from './pages/ChatPage'
-import TerminalPage    from './pages/TerminalPage'
-import ManualPage      from './pages/ManualPage'
-import NotesPage       from './pages/NotesPage'
-import ModulesPage     from './pages/ModulesPage'
-import HealthPage      from './pages/HealthPage'
-import LessonsPage     from './pages/LessonsPage'
-import BuildLogPage    from './pages/BuildLogPage'
-import LogSalePage     from './pages/LogSalePage'
-import SettingsPage    from './pages/SettingsPage'
-import AtlasTutorPage  from './pages/AtlasTutorPage'
-import FlashcardsPage  from './pages/FlashcardsPage'
-import LandingPage     from './pages/LandingPage'
-import CompliancePage  from './pages/CompliancePage'
-import PricingPage     from './pages/PricingPage'
-import DiagnosticsPage from './pages/DiagnosticsPage'
-import LessonNotesPage from './pages/LessonNotesPage'
-import ProjectsPage    from './pages/ProjectsPage'
+const HomePage = lazy(() => import('./pages/HomePage'))
+const AgentPage = lazy(() => import('./pages/AgentPage'))
+const ChatPage = lazy(() => import('./pages/ChatPage'))
+const TerminalPage = lazy(() => import('./pages/TerminalPage'))
+const ManualPage = lazy(() => import('./pages/ManualPage'))
+const NotesPage = lazy(() => import('./pages/NotesPage'))
+const ModulesPage = lazy(() => import('./pages/ModulesPage'))
+const HealthPage = lazy(() => import('./pages/HealthPage'))
+const LessonsPage = lazy(() => import('./pages/LessonsPage'))
+const BuildLogPage = lazy(() => import('./pages/BuildLogPage'))
+const LogSalePage = lazy(() => import('./pages/LogSalePage'))
+const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const AtlasTutorPage = lazy(() => import('./pages/AtlasTutorPage'))
+const FlashcardsPage = lazy(() => import('./pages/FlashcardsPage'))
+const LandingPage = lazy(() => import('./pages/LandingPage'))
+const CompliancePage = lazy(() => import('./pages/CompliancePage'))
+const PricingPage = lazy(() => import('./pages/PricingPage'))
+const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'))
+const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage'))
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 
 const BRANDING = {
   headerLogo: '/branding/mammoth-logo.png',
@@ -114,6 +114,39 @@ const PAGE_COMPONENTS = {
   diagnostics: DiagnosticsPage,
 }
 
+function parseEmailList(raw) {
+  return new Set(
+    String(raw || '')
+      .split(',')
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean),
+  )
+}
+
+const FRONTEND_ADMIN_EMAILS = parseEmailList(
+  import.meta.env.VITE_MAMMOTH_ADMIN_EMAILS || import.meta.env.VITE_MAMMOTH_ADMIN_EMAILS_LIST || '',
+)
+
+function compactNavSections(items) {
+  const cleaned = []
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
+    if (!item.section) {
+      cleaned.push(item)
+      continue
+    }
+    let hasItems = false
+    for (let j = i + 1; j < items.length; j += 1) {
+      if (items[j].section) break
+      if (items[j].id) {
+        hasItems = true
+        break
+      }
+    }
+    if (hasItems) cleaned.push(item)
+  }
+  return cleaned
+}
 function AtlasFAB({ currentPage }) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -303,21 +336,26 @@ export default function App() {
   const [theme, setTheme] = useState('darker')
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [adminAccess, setAdminAccess] = useState(null)
+  const [backendWarning, setBackendWarning] = useState('')
   const { session, user, loading, isGuest } = useAuth()
   const isAdminHost = useIsAdminHost()
   const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  const userEmail = String(user?.email || '').trim().toLowerCase()
+  const fallbackAdminFromEmail = userEmail ? FRONTEND_ADMIN_EMAILS.has(userEmail) : false
   const explorerOnlyIds = new Set(['landing', 'pricing', 'compliance', 'lessons', 'atlas', 'flashcards', 'manual', 'lessonnotes', 'projects'])
   const adminHiddenIds = new Set(['lessonnotes', 'projects'])
   const canAccessProjectTools = isAdminHost || adminAccess === true
-  const visibleNav = canAccessProjectTools
+  const filteredNav = canAccessProjectTools
     ? NAV.filter(item => !adminHiddenIds.has(item.id))
     : NAV.filter(item => item.section || explorerOnlyIds.has(item.id))
+  const visibleNav = compactNavSections(filteredNav)
 
   useEffect(() => {
     let alive = true
 
     if (!session) {
       setAdminAccess(isAdminHost)
+      setBackendWarning('')
       return () => {
         alive = false
       }
@@ -326,16 +364,22 @@ export default function App() {
     api('/entitlements')
       .then(data => {
         if (!alive) return
-        setAdminAccess(isAdminHost || Boolean(data?.admin_controls_enabled))
+        setAdminAccess(isAdminHost || fallbackAdminFromEmail || Boolean(data?.admin_controls_enabled))
+        setBackendWarning('')
       })
-      .catch(() => {
-        if (alive) setAdminAccess(isAdminHost)
+      .catch((error) => {
+        if (!alive) return
+        setAdminAccess(isAdminHost || fallbackAdminFromEmail)
+        const message = String(error?.message || '')
+        if (message.includes('Backend returned HTML instead of JSON')) {
+          setBackendWarning(message)
+        }
       })
 
     return () => {
       alive = false
     }
-  }, [session, isAdminHost])
+  }, [session, isAdminHost, fallbackAdminFromEmail])
 
   useEffect(() => {
     const vars = THEMES[theme] || THEMES.darker
@@ -462,14 +506,21 @@ export default function App() {
           <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--txt-pri)' }}>
             {NAV.find(n => n.id === page)?.label || 'MammothOS'}
           </span>
-          {isAdminHost && (
+          {canAccessProjectTools && (
             <span style={{ marginLeft: 'auto', fontSize: '0.66rem', color: '#b47cff', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              Admin View
+              {isAdminHost ? 'Admin View' : 'Operator Access'}
             </span>
           )}
         </div>
+        {backendWarning && (
+          <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(248,113,113,0.25)', background: 'rgba(248,113,113,0.08)', color: '#fecaca', fontSize: '0.76rem', lineHeight: 1.45 }}>
+            {backendWarning}
+          </div>
+        )}
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
-          <PageComponent setPage={setPage} />
+          <Suspense fallback={<div style={{ padding: 28, color: 'var(--txt-sec)' }}>Loading page…</div>}>
+            <PageComponent setPage={setPage} />
+          </Suspense>
         </div>
       </div>
 
