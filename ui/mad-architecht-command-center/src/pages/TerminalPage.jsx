@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff, BookOpen } from 'lucide-react'
 import { authorizedFetch, openTerminalWS } from '../api/client'
+import { getAccessToken } from '../lib/supabase'
 import OnboardingGuide from '../components/OnboardingGuide'
 
 const QUICK_ACTIONS = [
@@ -82,9 +83,13 @@ export default function TerminalPage({ setPage }) {
     setLines(prev => [...prev, { text, type }])
 
   useEffect(() => {
-    const connect = () => {
+    let cancelled = false
+
+    const connect = async () => {
       try {
-        const ws = openTerminalWS()
+        const token = await getAccessToken()
+        if (cancelled) return
+        const ws = openTerminalWS(token)
         wsRef.current = ws
 
         ws.onopen = () => {
@@ -104,11 +109,15 @@ export default function TerminalPage({ setPage }) {
           addLine('⚠ WebSocket error — backend may be offline.', 'stderr')
         }
       } catch (e) {
+        if (cancelled) return
         addLine(`Could not connect: ${e.message}`, 'stderr')
       }
     }
     connect()
-    return () => wsRef.current?.close()
+    return () => {
+      cancelled = true
+      wsRef.current?.close()
+    }
   }, [])
 
   useEffect(() => {

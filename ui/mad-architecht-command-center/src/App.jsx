@@ -296,16 +296,39 @@ export default function App() {
   const [page, setPage] = useState('home')
   const [theme, setTheme] = useState('darker')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [adminAccess, setAdminAccess] = useState(null)
   const { session, user, loading, isGuest } = useAuth()
   const isAdminHost = useIsAdminHost()
   const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
-  const adminOnlyIds = new Set(['settings', 'diagnostics', 'compliance', 'pricing'])
-  const guestOnlyIds = new Set(['landing', 'pricing', 'compliance', 'lessons', 'atlas', 'flashcards', 'manual'])
-  const visibleNav = isAdminHost
-    ? NAV.filter(item => item.section || adminOnlyIds.has(item.id))
-    : isGuest
-      ? NAV.filter(item => item.section || guestOnlyIds.has(item.id))
-      : NAV
+  const explorerOnlyIds = new Set(['landing', 'pricing', 'compliance', 'lessons', 'atlas', 'flashcards', 'manual'])
+  const canAccessProjectTools = isAdminHost || adminAccess === true
+  const visibleNav = canAccessProjectTools
+    ? NAV
+    : NAV.filter(item => item.section || explorerOnlyIds.has(item.id))
+
+  useEffect(() => {
+    let alive = true
+
+    if (!session) {
+      setAdminAccess(isAdminHost)
+      return () => {
+        alive = false
+      }
+    }
+
+    api('/entitlements')
+      .then(data => {
+        if (!alive) return
+        setAdminAccess(isAdminHost || Boolean(data?.admin_controls_enabled))
+      })
+      .catch(() => {
+        if (alive) setAdminAccess(isAdminHost)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [session, isAdminHost])
 
   useEffect(() => {
     const vars = THEMES[theme] || THEMES.darker
@@ -315,9 +338,9 @@ export default function App() {
   useEffect(() => {
     const visiblePageIds = new Set(visibleNav.filter(item => item.id).map(item => item.id))
     if (!visiblePageIds.has(page)) {
-      setPage(isAdminHost ? 'settings' : isGuest ? 'atlas' : 'home')
+      setPage(canAccessProjectTools ? 'settings' : 'atlas')
     }
-  }, [isAdminHost, isGuest, page, visibleNav])
+  }, [canAccessProjectTools, page, visibleNav])
 
   // Loading splash while Supabase checks session
   if (loading) {

@@ -91,6 +91,10 @@ export async function api(path, options = {}) {
   return parseApiResponse(res)
 }
 
-export function openTerminalWS() {
-  return new WebSocket(buildWsUrl('/ws/terminal'))
+export function openTerminalWS(token = '') {
+  const wsUrl = buildWsUrl('/ws/terminal')
+  const fullUrl = token
+    ? `${wsUrl}${wsUrl.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(token)}`
+    : wsUrl
+  return new WebSocket(fullUrl)
 }

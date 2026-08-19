@@ -651,6 +651,12 @@ def _request_is_admin() -> bool:
     return bool(_REQUEST_IS_ADMIN.get())
 
 
+def _require_admin_api() -> Optional[JSONResponse]:
+    if _AUTH_REQUIRED and not _request_is_admin():
+        return JSONResponse({"status": "error", "error": "Admin privileges required."}, status_code=403)
+    return None
+
+
 def _is_auth_optional_path(path: str) -> bool:
     if path in _AUTH_OPTIONAL_PATHS:
         return True
@@ -1845,6 +1851,9 @@ except Exception as _e:
 
 @app.get("/api/status")
 async def get_status():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     uptime_s = int(time.time() - _START_TIME)
     h, rem = divmod(uptime_s, 3600)
     m, s   = divmod(rem, 60)
@@ -1888,6 +1897,9 @@ async def get_status():
 
 @app.get("/api/agents")
 async def get_agents():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     if _agent_registry_ok:
         try:
             manifests = await agent_registry.list_agents()
@@ -2016,6 +2028,9 @@ def _port_open(port: int) -> bool:
 
 @app.get("/api/health")
 async def get_health():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     env_file = ROOT / ".env"
     env_exists = env_file.exists()
     env_values = _read_env_vars()
@@ -2111,6 +2126,9 @@ async def get_health():
 
 @app.get("/api/models")
 async def get_models():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _models_snapshot()
 
 
@@ -2138,11 +2156,17 @@ async def get_active_ui_project():
 
 @app.get("/api/activity")
 async def get_activity():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _load_activity_events()
 
 
 @app.post("/api/activity")
 async def add_activity(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _append_activity(
         str(body.get("message", "")),
         agent_id=str(body.get("agent_id", "") or ""),
@@ -2154,11 +2178,17 @@ async def add_activity(body: Dict[str, Any]):
 
 @app.get("/api/tasks")
 async def get_tasks():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _load_tasks()
 
 
 @app.post("/api/tasks")
 async def upsert_task(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     task_id = str(body.get("id") or "").strip() or f"task-{uuid.uuid4().hex[:8]}"
     return _upsert_task(
         task_id,
@@ -5928,6 +5958,9 @@ async def mammoth_chat(body: Dict[str, Any]):
 
 @app.get("/api/notes")
 async def get_notes():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     notes = _read_json(NOTES_FILE, default=[])
     if not isinstance(notes, list):
         return []
@@ -5942,6 +5975,9 @@ async def get_notes():
 
 @app.post("/api/notes")
 async def upsert_note(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     notes = _read_json(NOTES_FILE, default=[])
     if not isinstance(notes, list):
         notes = []
@@ -5981,6 +6017,9 @@ async def upsert_note(body: Dict[str, Any]):
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: str):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     notes = _read_json(NOTES_FILE)
     notes = [n for n in notes if n.get("id") != note_id]
     _write_json(NOTES_FILE, notes)
@@ -5993,11 +6032,17 @@ async def delete_note(note_id: str):
 
 @app.get("/api/buildlog")
 async def get_buildlog():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _read_json(BUILDLOG_FILE)
 
 
 @app.post("/api/buildlog")
 async def append_buildlog(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     entries = _read_json(BUILDLOG_FILE)
     fields = body.get("fields", {})
     if not isinstance(fields, dict):
@@ -6197,11 +6242,17 @@ async def set_operator_health(body: Dict[str, Any]):
 
 @app.get("/api/logsale")
 async def get_sales():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _load_normalized_sales()
 
 
 @app.post("/api/logsale")
 async def log_sale(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     sales = _load_normalized_sales()
     item = str(body.get("item") or "").strip()
     if not item:
@@ -6231,6 +6282,9 @@ async def log_sale(body: Dict[str, Any]):
 
 @app.get("/api/logsale/summary")
 async def get_sales_summary():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     sales = _load_normalized_sales()
     return {"status": "ok", "summary": _sales_summary(sales)}
 
@@ -6477,6 +6531,9 @@ _STATIC_MODULES = [
 
 @app.get("/api/modules")
 async def get_modules():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     module_map: Dict[str, Dict[str, Any]] = {}
     manifest_map: Dict[str, Any] = {}
     for item in _STATIC_MODULES:
@@ -6689,6 +6746,9 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
 
 @app.get("/api/release-readiness")
 async def get_release_readiness():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return await _release_readiness_snapshot()
 
 
@@ -6699,6 +6759,9 @@ async def get_release_readiness():
 
 @app.post("/api/terminal/exec")
 async def terminal_exec(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     cmd = str(body.get("cmd", "")).strip()
     if not cmd:
         return {"stdout": "", "stderr": "No command provided.", "exit_code": 1}
@@ -6930,12 +6993,18 @@ async def _execute_terminal_command(cmd: str, timeout: Optional[int] = None) -> 
 
 @app.get("/api/audit")
 async def get_audit_log():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     entries = _load_audit_log()
     return {"status": "ok", "entries": entries[-80:]}
 
 
 @app.get("/api/audit/export")
 async def export_audit_log_csv():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     entries = _load_audit_log()
     csv_payload = _audit_entries_to_csv(entries[-250:])
     return PlainTextResponse(
@@ -6947,6 +7016,9 @@ async def export_audit_log_csv():
 
 @app.get("/api/diagnostics/export")
 async def export_diagnostics_snapshot():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     release = await _release_readiness_snapshot()
     payload = {
         "status": "ok",
@@ -6970,6 +7042,9 @@ async def export_diagnostics_snapshot():
 
 @app.post("/api/audit")
 async def append_audit_log(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     kind = str(body.get("kind") or "generic").strip() or "generic"
     message = str(body.get("message") or f"{kind} event").strip() or f"{kind} event"
     details = body.get("details") if isinstance(body.get("details"), dict) else {}
@@ -7251,6 +7326,12 @@ async def mutate_account_workspace(body: Dict[str, Any]):
 
 @app.websocket("/ws/terminal")
 async def terminal_ws(ws: WebSocket):
+    if _AUTH_REQUIRED:
+        token = str(ws.query_params.get("access_token") or "").strip()
+        user = _resolve_supabase_user(token)
+        if user is None or not user.get("is_admin"):
+            await ws.close(code=1008)
+            return
     await ws.accept()
     await ws.send_json({"line": "MammothOS Terminal ready. Type a command.", "type": "stdout"})
     try:
