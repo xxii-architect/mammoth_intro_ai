@@ -365,13 +365,16 @@ export default function AtlasTutorPage() {
   ])
 
   return (
-    <div className="page-enter" style={{ padding: 20, display: 'flex', flexWrap: 'wrap', gap: 16, height: '100%', minHeight: 0, overflow: 'hidden' }}>
-      <div style={{ flexBasis: '100%' }}>
+    <div className="page-enter" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ flexShrink: 0 }}>
         <RuntimeStatusBanner title="ATLAS runtime" compact />
       </div>
 
+      {/* Three-column row — fills all remaining height */}
+      <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0, overflow: 'hidden' }}>
+
       {/* Left: Curriculum (240px) */}
-      <div style={{ width: 240, flexShrink: 0, overflowY: 'auto' }}>
+      <div style={{ width: 240, flexShrink: 0, overflowY: 'auto', minHeight: 0 }}>
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--txt-sec)', marginBottom: 12, fontWeight: 600 }}>
             Curriculum
@@ -558,7 +561,7 @@ export default function AtlasTutorPage() {
       </div>
 
       {/* Center: Exercise + Editor */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflowY: 'auto' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
         {exercise ? (
           <>
             <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
@@ -881,6 +884,8 @@ export default function AtlasTutorPage() {
             </button>
           </div>
         </div>
+      </div>
+      {/* End three-column row */}
       </div>
     </div>
   )
