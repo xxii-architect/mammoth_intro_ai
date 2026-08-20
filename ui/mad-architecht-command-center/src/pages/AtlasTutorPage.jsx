@@ -365,7 +365,7 @@ export default function AtlasTutorPage() {
   ])
 
   return (
-    <div className="page-enter" style={{ padding: 20, display: 'flex', flexWrap: 'wrap', gap: 16, height: 'calc(100vh - 92px)', overflow: 'hidden' }}>
+    <div className="page-enter" style={{ padding: 20, display: 'flex', flexWrap: 'wrap', gap: 16, height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <div style={{ flexBasis: '100%' }}>
         <RuntimeStatusBanner title="ATLAS runtime" compact />
       </div>
