@@ -117,6 +117,83 @@ These templates are meant to help you learn the command format safely.
 - Chat with ATLAS from the right-hand tutor panel.
 - Lesson/module selection should change both the active track badge and the generated lesson/exercise content. If the badge changes but the prompt stays generic, run the targeted regression tests for `atlas_modules` and `exercise_generator`.
 
+## Account page evolution direction
+
+### What is live now
+- The **Account** page is becoming the learner's progress home:
+  - editable profile
+  - avatar photo or prehistoric fallback icons
+  - usage + credit status
+  - onboarding-to-now progress story
+  - goal tracking + milestone completion
+  - streak calendar heatmap
+  - confidence-over-time chart per concept
+  - saved wins / breakthroughs timeline
+  - trophy / award system foundations
+
+### Scaling-stage direction
+- Evolve the account experience into a **community / knowledge / support** layer rather than a traditional social-media feed.
+- Keep it oriented around:
+  - what a learner is working on
+  - what they have learned
+  - where they want help
+  - which strengths, milestones, and breakthroughs they can share safely
+- Avoid building an attention-feed product. The long-term goal is a **supportive learning network**, not an Instagram-style content loop.
+
+### Future community surfaces
+- Community-ready profile fields:
+  - what I'm learning
+  - what I can help with
+  - preferred collaboration style
+  - support circles / study groups
+- Opt-in knowledge sharing:
+  - saved wins
+  - breakthrough moments
+  - public learning milestones
+- Reputation / recognition:
+  - trophies
+  - awards
+  - consistency badges
+  - mastery-path milestones
+
+### Product guidance
+- Keep learner progress language **strength-based** and motivating.
+- Do not frame encouragement around medical or diagnostic assumptions.
+- As this grows, prefer tenant-safe and user-consented community features over public-by-default exposure.
+
+## Tester auth + admin behavior (important)
+
+How sign-in currently works:
+- The login page uses **Supabase email/password sign-in**.
+- Entering any email/password does **not** auto-create an account.
+- Tester users must already exist in Supabase Auth (or be explicitly invited/created there first).
+
+How per-user state separation works:
+- When `MAMMOTH_REQUIRE_AUTH=true`, backend state is split per authenticated user id.
+- Each tester gets a separate ATLAS state file/session state from your owner account.
+
+How admin is resolved:
+- Backend admin rights come from:
+  - `MAMMOTH_ADMIN_EMAILS` / `MAMMOTH_ADMIN_EMAILS_LIST`
+  - `MAMMOTH_ADMIN_USER_IDS`
+  - `.mammoth/auth_admin_policy.json`
+- Frontend fallback admin display checks:
+  - `VITE_MAMMOTH_ADMIN_EMAILS` / `VITE_MAMMOTH_ADMIN_EMAILS_LIST`
+  - This is a UI fallback only; backend remains source of truth for protected operations.
+
+Important implication:
+- Adding coworker emails to admin lists can grant broad admin/operator visibility.
+- If you want coworkers to help test without Terminal/Coding-Agent mutation risk, enforce a separate owner-only policy for sensitive surfaces.
+
+Current owner-only UI lock:
+- `Agent`, `Terminal`, and `Settings` are locked behind `VITE_MAMMOTH_OWNER_EMAILS`.
+- Keep only your owner email in that variable during coworker testing.
+- Coworker admins can still test learner/product surfaces without gaining mutation-capable tools.
+
+Optional beta tester visibility lane:
+- `VITE_MAMMOTH_BETA_TESTER_EMAILS` can grant broader safe-page visibility for named tester emails.
+- This is useful for testers who should explore most of the product without owner-only mutation tools.
+
 ## Recommended startup
 
 Backend:

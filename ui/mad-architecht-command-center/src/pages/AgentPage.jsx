@@ -192,6 +192,14 @@ export default function AgentPage({ setPage }) {
     } catch (_) {}
   }
 
+  const deleteApproval = async (approvalId) => {
+    try {
+      await api(`/approvals/${approvalId}`, { method: 'DELETE' })
+      await refreshApprovals()
+      await refreshTimeline()
+    } catch (_) {}
+  }
+
   const restoreSnapshot = async (snapshotId) => {
     try {
       await api(`/snapshots/${snapshotId}/restore`, { method: 'POST' })
@@ -784,10 +792,13 @@ export default function AgentPage({ setPage }) {
                 <div key={approval.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                     <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{approval.operation}</span>
-                    <button onClick={() => approveApproval(approval.id)} style={{ background: 'var(--photon)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Approve</button>
-                  </div>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
-                </div>
+                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                     <button onClick={() => approveApproval(approval.id)} style={{ background: 'var(--photon)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Approve</button>
+                     <button onClick={() => deleteApproval(approval.id)} style={{ background: 'rgba(248,113,113,0.10)', color: '#fecaca', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Delete</button>
+                   </div>
+                 </div>
+                 <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
+               </div>
               )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No pending approvals.</div>}
             </div>
 

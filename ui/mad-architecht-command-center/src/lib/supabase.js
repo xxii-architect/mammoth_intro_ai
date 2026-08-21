@@ -26,6 +26,14 @@ export async function signInWithEmail(email, password) {
   return supabase.auth.signInWithPassword({ email, password })
 }
 
+export async function signUpWithEmail(email, password, options = {}) {
+  return supabase.auth.signUp({
+    email,
+    password,
+    options,
+  })
+}
+
 export async function signInAsGuest() {
   if (!guestSignInEnabled) {
     return { data: null, error: new Error('Guest access is disabled for this deployment.') }

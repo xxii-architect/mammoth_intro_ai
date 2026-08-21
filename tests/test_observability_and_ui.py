@@ -76,3 +76,24 @@ def test_get_active_ui_project_reports_active_path(monkeypatch, tmp_path):
     assert result["status"] == "ok"
     assert result["exists"] is True
     assert result["active_ui_project"] == str(active_ui.resolve())
+
+
+def test_delete_approval_record_removes_pending_request(monkeypatch, tmp_path):
+    mammoth_dir = tmp_path / ".mammoth"
+    mammoth_dir.mkdir()
+    approvals_file = mammoth_dir / "approvals.json"
+    approvals_file.write_text(
+        json.dumps([
+            {"id": "approval-1", "status": "pending", "operation": "write_file", "target": "src/App.jsx"},
+            {"id": "approval-2", "status": "pending", "operation": "write_file", "target": "src/Other.jsx"},
+        ]),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(api_server, "MAMMOTH_DIR", mammoth_dir)
+
+    result = api_server._delete_approval_record("approval-1")
+
+    assert result["status"] == "ok"
+    remaining = json.loads(approvals_file.read_text(encoding="utf-8"))
+    assert [item["id"] for item in remaining] == ["approval-2"]

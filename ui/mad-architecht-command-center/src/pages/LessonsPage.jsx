@@ -682,8 +682,11 @@ export default function LessonsPage({ setPage }) {
             <>
               {(lessonOverview || lessonTeachingPoints.length || lessonBody || lessonExamples.length) && (
                 <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
-                    <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0 }}>Lesson Overview</p>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+                    <div>
+                      <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0 }}>Lesson Flow</p>
+                      <h2 style={{ margin: '4px 0 0', fontSize: '1rem', color: 'var(--txt-pri)' }}>1. Introduction · 2. Content delivery · 3. Practice</h2>
+                    </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {activeTrack?.label && (
                         <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{activeTrack.icon} {activeTrack.label}</span>
@@ -703,37 +706,60 @@ export default function LessonsPage({ setPage }) {
                       </span>
                     </div>
                   </div>
-                  {lessonOverview && (
-                    <p style={{ fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7, margin: '0 0 10px' }}>{lessonOverview}</p>
-                  )}
-                  {lessonBody && !lessonOverview && (
-                    <p style={{ fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7, margin: '0 0 10px' }}>{lessonBody}</p>
-                  )}
-                  {lessonTeachingPoints.length > 0 && (
-                    <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
-                      {lessonTeachingPoints.slice(0, 4).map((item, index) => (
-                        <li key={index} style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item}</li>
-                      ))}
-                    </ul>
-                  )}
-                  {lessonExamples.length > 0 && (
-                    <div style={{ marginTop: 12, display: 'grid', gap: 6 }}>
-                      <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', margin: 0, fontWeight: 700 }}>Examples</p>
-                      {lessonExamples.slice(0, 2).map((item, index) => (
-                        <div key={index} style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', lineHeight: 1.55, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
-                          {item}
-                        </div>
-                      ))}
+
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(0,245,212,0.06)', border: '1px solid rgba(0,245,212,0.22)', display: 'grid', gap: 6 }}>
+                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--cyan)', fontWeight: 700 }}>1. Introduction</p>
+                      {lessonOverview ? (
+                        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>{lessonOverview}</p>
+                      ) : (
+                        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>
+                          This lesson introduces the key idea, why it matters, and what the learner should understand before they practice.
+                        </p>
+                      )}
                     </div>
-                  )}
-                  {(activeTrackNote || activeCatalogTrack?.summary) && (
-                    <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(0,0,0,0.18)', border: '1px solid var(--border)', display: 'grid', gap: 4 }}>
-                      <p style={{ margin: 0, fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700 }}>Teaching stance</p>
-                      <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--txt-pri)', lineHeight: 1.6 }}>
-                        {activeTrackNote || activeCatalogTrack?.summary}
+
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>2. Content delivery</p>
+                      {lessonBody && (
+                        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>{lessonBody}</p>
+                      )}
+                      {lessonTeachingPoints.length > 0 && (
+                        <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
+                          {lessonTeachingPoints.slice(0, 4).map((item, index) => (
+                            <li key={index} style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+
+                    {lessonExamples.length > 0 && (
+                      <div style={{ display: 'grid', gap: 6 }}>
+                        <p style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', margin: 0, fontWeight: 700 }}>Examples</p>
+                        {lessonExamples.slice(0, 2).map((item, index) => (
+                          <div key={index} style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', lineHeight: 1.55, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+                            {item}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.22)', display: 'grid', gap: 6 }}>
+                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--violet)', fontWeight: 700 }}>Feedback loop</p>
+                      <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--txt-pri)', lineHeight: 1.6 }}>
+                        Ask ATLAS for clarification before moving into the exercise if anything feels unclear. This keeps the lesson practical and gives learners a chance to resolve confusion before they perform the task.
                       </p>
                     </div>
-                  )}
+
+                    {(activeTrackNote || activeCatalogTrack?.summary) && (
+                      <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(0,0,0,0.18)', border: '1px solid var(--border)', display: 'grid', gap: 4 }}>
+                        <p style={{ margin: 0, fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700 }}>Teaching stance</p>
+                        <p style={{ margin: 0, fontSize: '0.76rem', color: 'var(--txt-pri)', lineHeight: 1.6 }}>
+                          {activeTrackNote || activeCatalogTrack?.summary}
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 

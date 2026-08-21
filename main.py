@@ -339,22 +339,22 @@ def handle_code_commit(prompt: str) -> None:
     console.print(Text(f"Branch: {result.get('branch', 'main')}", style="green"))
     
     def handle_code_generate(prompt: str) -> None:
-    try:# type: ignore
-        from mammoth_os.agents.coding_agent import CodingAgent  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
-        return
+        try:# type: ignore
+            from mammoth_os.agents.coding_agent import CodingAgent  # type: ignore
+        except Exception as e:
+            console.print(f"[bold red]❌ CodingAgent import failed:[/bold red] {e}")
+            return
 
-    code_prompt = prompt.split("code generate:", 1)[1].strip()
-    if not code_prompt:
-        console.print("[bold red]❌ Missing prompt after 'code generate:'[/bold red]")
-        return
+        code_prompt = prompt.split("code generate:", 1)[1].strip()
+        if not code_prompt:
+            console.print("[bold red]❌ Missing prompt after 'code generate:'[/bold red]")
+            return
 
-    agent = CodingAgent(router=None)
-    try:
-        result = asyncio.run(agent.generate_code(code_prompt, context={}))  # type: ignore
-    except Exception as e:
-        console.print(f"[bold red]❌ CodingAgent.generate_code error:[/bold red] {e}")
+        agent = CodingAgent(router=None)
+        try:
+            result = asyncio.run(agent.generate_code(code_prompt, context={}))  # type: ignore
+        except Exception as e:
+            console.print(f"[bold red]❌ CodingAgent.generate_code error:[/bold red] {e}")
         return
 
     console.print(Text("\n🧠 Code Generation Result\n", style="bold cyan"))

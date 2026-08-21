@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
-  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare, LogOut,
+  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare, LogOut, User,
 } from 'lucide-react'
 
 import { useAuth, useIsAdminHost } from './lib/authContext'
@@ -30,6 +30,9 @@ const PricingPage = lazy(() => import('./pages/PricingPage'))
 const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'))
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
+const AccountPage = lazy(() => import('./pages/AccountPage'))
+
+const ACTIVE_TIME_STORAGE_KEY = 'mammoth.app.active_seconds'
 
 const BRANDING = {
   headerLogo: '/branding/mammoth-logo.png',
@@ -62,6 +65,7 @@ const THEMES = {
 const NAV = [
   { section: 'Workspace' },
   { id: 'home',     label: 'Home',        Icon: LayoutDashboard },
+  { id: 'account',  label: 'Account',     Icon: User },
   { id: 'agent',    label: 'Agent',       Icon: Bot },
   { id: 'chat',     label: 'Mammoth Mind', Icon: MessageSquare, accent: 'var(--photon)' },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
@@ -93,6 +97,7 @@ const NAV = [
 
 const PAGE_COMPONENTS = {
   home:        HomePage,
+  account:     AccountPage,
   agent:       AgentPage,
   chat:        ChatPage,
   terminal:    TerminalPage,
@@ -125,6 +130,12 @@ function parseEmailList(raw) {
 
 const FRONTEND_ADMIN_EMAILS = parseEmailList(
   import.meta.env.VITE_MAMMOTH_ADMIN_EMAILS || import.meta.env.VITE_MAMMOTH_ADMIN_EMAILS_LIST || '',
+)
+const FRONTEND_OWNER_EMAILS = parseEmailList(
+  import.meta.env.VITE_MAMMOTH_OWNER_EMAILS || '',
+)
+const FRONTEND_BETA_TESTER_EMAILS = parseEmailList(
+  import.meta.env.VITE_MAMMOTH_BETA_TESTER_EMAILS || '',
 )
 
 function compactNavSections(items) {
@@ -169,15 +180,14 @@ const PAGE_ACCESS_RULES = {
     ],
   },
   agent: {
-    kind: 'tier',
-    minimumTier: 'pro',
-    badge: 'Paid preview',
+    kind: 'owner',
+    badge: 'Owner only',
     title: 'Agent Workbench',
-    message: 'The multi-agent workbench is part of the deeper operator plan. Keep it visible as a preview, but gate live execution until the workspace is upgraded.',
+    message: 'The Agent workbench can execute mutation-capable workflows. It is reserved for the owner account while tester access is being hardened.',
     highlights: [
       'Coordinated planner, reasoner, and coding flows',
-      'Safer execution lanes for advanced workflows',
-      'A direct upgrade path from learner mode to operator mode',
+      'Mutation-capable execution lanes',
+      'Reserved to prevent unintended platform changes during coworker testing',
     ],
   },
   chat: {
@@ -193,15 +203,14 @@ const PAGE_ACCESS_RULES = {
     ],
   },
   terminal: {
-    kind: 'tier',
-    minimumTier: 'pro',
-    badge: 'Paid preview',
+    kind: 'owner',
+    badge: 'Owner only',
     title: 'Terminal Surface',
-    message: 'Command execution and coding-heavy terminal workflows should stay visible, but live access should be reserved for paid or approved operator accounts.',
+    message: 'Terminal commands can impact local platform and device state. Access is currently reserved for the owner account only.',
     highlights: [
-      'Guided execution lanes for build and debug work',
-      'Safer plan-and-run workflows',
-      'A premium operator capability instead of a hidden feature',
+      'Direct command execution surface',
+      'High-impact workflow capability',
+      'Reserved to prevent unintended local/system mutations',
     ],
   },
   notes: {
@@ -277,14 +286,14 @@ const PAGE_ACCESS_RULES = {
     ],
   },
   settings: {
-    kind: 'admin',
+    kind: 'owner',
     badge: 'Owner control',
     title: 'Workspace Settings',
-    message: 'This page changes live entitlement, developer-access, and operator controls. Keep it visible, but reserve the functioning page for the owner or admin account.',
+    message: 'This page changes entitlements, developer-access, and workspace controls. It is restricted to the owner account for now.',
     highlights: [
       'Tier overrides and developer full access',
       'Workspace account and operator control changes',
-      'Reserved for the tenant owner or approved admins',
+      'Reserved for the tenant owner during tester rollout',
     ],
   },
 }
@@ -298,10 +307,12 @@ function meetsTier(entitlements, minimumTier) {
   return TIER_RANK[effectiveTier(entitlements)] >= TIER_RANK[minimumTier]
 }
 
-function resolvePageAccess(page, { adminAccess, entitlements }) {
+function resolvePageAccess(page, { adminAccess, ownerAccess, betaTesterAccess, entitlements }) {
   const rule = PAGE_ACCESS_RULES[page]
   if (!rule) return null
+  if (rule.kind === 'owner') return ownerAccess ? null : rule
   if (adminAccess === true) return null
+  if (betaTesterAccess === true && rule.kind === 'tier') return null
   if (rule.kind === 'admin') return rule
   return meetsTier(entitlements, rule.minimumTier) ? null : rule
 }
@@ -337,6 +348,11 @@ function AccessPreviewPage({ gate, entitlements, setPage }) {
           {gate.kind === 'admin' && (
             <span style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(180,124,255,0.28)', background: 'rgba(180,124,255,0.1)', color: 'var(--violet)', fontSize: '0.76rem' }}>
               Requires owner/admin identity
+            </span>
+          )}
+          {gate.kind === 'owner' && (
+            <span style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(236,201,75,0.28)', background: 'rgba(236,201,75,0.1)', color: 'var(--amber)', fontSize: '0.76rem' }}>
+              Requires owner identity
             </span>
           )}
         </div>
@@ -585,6 +601,10 @@ export default function App() {
   const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
   const userEmail = String(user?.email || '').trim().toLowerCase()
   const fallbackAdminFromEmail = userEmail ? FRONTEND_ADMIN_EMAILS.has(userEmail) : false
+  const fallbackOwnerFromEmail = userEmail ? FRONTEND_OWNER_EMAILS.has(userEmail) : false
+  const fallbackBetaTesterFromEmail = userEmail ? FRONTEND_BETA_TESTER_EMAILS.has(userEmail) : false
+  const ownerAccess = isAdminHost || fallbackOwnerFromEmail
+  const betaTesterAccess = fallbackBetaTesterFromEmail
   const canAccessProjectTools = isAdminHost || adminAccess === true
   const visibleNav = compactNavSections(NAV)
 
@@ -627,6 +647,41 @@ export default function App() {
     Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
   }, [theme])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined
+
+    let lastTick = Date.now()
+    const flushActiveTime = () => {
+      const now = Date.now()
+      const elapsedSeconds = Math.max(0, Math.round((now - lastTick) / 1000))
+      lastTick = now
+
+      if (!elapsedSeconds) return
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+
+      let current = 0
+      try {
+        current = Number(window.localStorage.getItem(ACTIVE_TIME_STORAGE_KEY) || 0)
+      } catch {
+        return
+      }
+      const next = Number.isFinite(current) ? current + elapsedSeconds : elapsedSeconds
+      try {
+        window.localStorage.setItem(ACTIVE_TIME_STORAGE_KEY, String(next))
+      } catch {
+        // Ignore storage writes in restricted browser modes.
+      }
+    }
+
+    const intervalId = window.setInterval(flushActiveTime, 30000)
+    window.addEventListener('beforeunload', flushActiveTime)
+    return () => {
+      flushActiveTime()
+      window.clearInterval(intervalId)
+      window.removeEventListener('beforeunload', flushActiveTime)
+    }
+  }, [])
+
   // Loading splash while Supabase checks session
   if (loading) {
     return (
@@ -642,7 +697,7 @@ export default function App() {
   }
 
   const PageComponent = PAGE_COMPONENTS[page] || HomePage
-  const gate = session && adminAccess === null ? null : resolvePageAccess(page, { adminAccess, entitlements })
+  const gate = session && adminAccess === null ? null : resolvePageAccess(page, { adminAccess, ownerAccess, betaTesterAccess, entitlements })
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>

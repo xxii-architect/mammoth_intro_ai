@@ -1527,6 +1527,31 @@ def _approve_record(record_id: str) -> Dict[str, Any]:
     return {"status": "ok", "approval": updated, "result": result}
 
 
+def _delete_approval_record(record_id: str, *, reason: str = "deleted_by_user") -> Dict[str, Any]:
+    approvals = _read_json(MAMMOTH_DIR / "approvals.json", default=[])
+    remaining = []
+    deleted = None
+    for item in approvals:
+        if item.get("id") == record_id:
+            deleted = dict(item)
+            deleted["status"] = "deleted"
+            deleted["deleted_at"] = datetime.now(timezone.utc).isoformat()
+            deleted["delete_reason"] = reason
+            continue
+        remaining.append(item)
+    if deleted is None:
+        return {"status": "error", "message": "approval not found"}
+    _write_json(MAMMOTH_DIR / "approvals.json", remaining)
+    _append_activity(
+        f"Approval discarded: {deleted.get('operation', 'unknown')}",
+        agent_id=str(deleted.get("agent_id") or ""),
+        task_id=str(deleted.get("task_id") or ""),
+        kind="approval_deleted",
+        details={"approval_id": record_id, "reason": reason},
+    )
+    return {"status": "ok", "approval": deleted}
+
+
 def _load_approvals() -> List[Dict[str, Any]]:
     return _read_json(MAMMOTH_DIR / "approvals.json", default=[])
 
@@ -2279,6 +2304,14 @@ async def get_health():
         },
         "runtime": runtime,
     }
+
+
+@app.delete("/api/approvals/{record_id}")
+async def delete_approval(record_id: str):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    return _delete_approval_record(record_id)
 
 
 @app.get("/api/models")
