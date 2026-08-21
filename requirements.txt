@@ -3,6 +3,7 @@ openai
 pydantic
 python-dotenv
 requests
+rich
 supabase
 uvicorn
 pytest
