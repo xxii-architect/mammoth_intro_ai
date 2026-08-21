@@ -1,0 +1,11 @@
+Drop your custom logo image files in this folder:
+
+1) mammoth-logo.png  ->   sidebar/header logo next to "MammothOS"
+2) atlas-logo.png    -> ATLAS FAB and ATLAS tutor logo
+
+Recommended:
+- PNG with transparent background
+- 512x512 or larger
+- Keep the key mark centered with padding
+
+After adding/replacing files, refresh the browser.

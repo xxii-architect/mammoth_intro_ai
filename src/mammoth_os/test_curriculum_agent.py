@@ -1,4 +1,5 @@
 from mammoth_os.agents.curriculum_agent import CurriculumAgent
+import asyncio
 
 
 def test_run_generates_curriculum_structure():
@@ -22,3 +23,13 @@ def test_execute_action_generate_calls_run():
     assert res["status"] == "ok"
     curriculum = res["curriculum"]
     assert curriculum["subject"].lower().startswith("python")
+
+
+def test_run_safe_inside_event_loop():
+    agent = CurriculumAgent(router=None)
+
+    async def _invoke():
+        return agent.run("Python: event loop safe path")
+
+    res = asyncio.run(_invoke())
+    assert res["status"] == "ok"

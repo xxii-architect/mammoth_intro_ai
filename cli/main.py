@@ -2,14 +2,34 @@ import argparse
 import json
 import sys
 import asyncio
+import os
+from pathlib import Path
+
+_CLI_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _CLI_DIR.parent
+_SRC_DIR = _REPO_ROOT / "src"
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+# Load .env file from repo root so OPENAI_API_KEY, SUPABASE_URL, etc. are
+# available without manually setting env vars in each terminal session.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(dotenv_path=_REPO_ROOT / ".env", override=False)
+except ImportError:
+    pass  # python-dotenv not installed — env vars must be set manually
 
 # Core registries
 from mammoth_os.agent_registry import agent_registry
 from mammoth_os.engine_registry import EngineRegistry
+from mammoth_os import __version__
 
 # Maintenance tools
 from mammoth_os.maintenance.diagnostics import run_system_check
 from mammoth_os.maintenance.schema_agent import describe_schema
+
+# ATLAS CLI commands
+from cli.atlas import build_atlas_parser
 
 DEFAULT_TEST_USER = "d6c16bc9-fc2a-4efd-8d9e-a95fb6baa448"
 
@@ -18,10 +38,23 @@ DEFAULT_TEST_USER = "d6c16bc9-fc2a-4efd-8d9e-a95fb6baa448"
 # COMMAND IMPLEMENTATIONS
 # ---------------------------------------------------------
 
+def _to_jsonable(value):
+    if isinstance(value, dict):
+        return {k: _to_jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_to_jsonable(v) for v in value]
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if hasattr(value, "value"):
+        return value.value
+    if hasattr(value, "__dict__"):
+        return {k: _to_jsonable(v) for k, v in value.__dict__.items()}
+    return value
+
 def cmd_version(args):
     print("🐘 Mammoth OS Version")
     print(json.dumps({
-        "version": "0.4.0",
+        "version": __version__,
         "build": "local-dev",
         "python": sys.version,
     }, indent=2))
@@ -36,8 +69,7 @@ def cmd_engine_list(args):
 def cmd_agent_list(args):
     print("🐘 Mammoth OS Agents")
     agents = asyncio.run(agent_registry.list_agents())
-    # Serialize AgentManifest objects
-    agents_json = [a.__dict__ for a in agents]
+    agents_json = [_to_jsonable(a) for a in agents]
     print(json.dumps(agents_json, indent=2))
 
 
@@ -76,12 +108,12 @@ def cmd_diagnostics(args):
 
     # Agents (async)
     agents = asyncio.run(agent_registry.list_agents())
-    agents_json = [a.__dict__ for a in agents]
+    agents_json = [_to_jsonable(a) for a in agents]
 
     combined = {
         "system_check": report,
-        "schema": schema,
-        "engines": engines,
+        "schema": _to_jsonable(schema),
+        "engines": _to_jsonable(engines),
         "agents": agents_json,
     }
 
@@ -160,13 +192,19 @@ def build_parser():
     p_schema = sub.add_parser("schema-describe", help="Describe core schema")
     p_schema.set_defaults(func=cmd_schema_describe)
 
+    # ATLAS tutor bot
+    build_atlas_parser(sub)
+
     return parser
 
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
-    args.func(args)
+    if hasattr(args, "func"):
+        args.func(args)
+    else:
+        parser.print_help()
 
 
 if __name__ == "__main__":

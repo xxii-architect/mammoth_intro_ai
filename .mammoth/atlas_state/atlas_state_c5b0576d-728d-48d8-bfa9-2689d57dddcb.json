@@ -1,0 +1,2891 @@
+{
+  "active_account_id": "default",
+  "accounts": {
+    "default": {
+      "profile": {
+        "display_name": "XXII - Architecht",
+        "email": "truexxiisupply@gmail.com",
+        "organization": "True XXII Supply, LLC"
+      },
+      "tier": "pro",
+      "developer_access": false,
+      "created_at": "2026-08-20T00:58:59.934188+00:00",
+      "updated_at": "2026-08-20T02:27:12.012446+00:00",
+      "profile_updated_at": "2026-08-20T08:52:22.203000+00:00",
+      "tier_updated_at": "2026-08-20T07:56:03.687503+00:00",
+      "developer_access_updated_at": null
+    }
+  },
+  "account_sessions": {
+    "default": {
+      "status": "active",
+      "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+      "curriculum_topic": "Human systems neurobiology stress recovery and resilience fundamentals. Build a practical beginner-friendly lesson track for Human Systems / Neurobiology / Stress & Recovery with safety-aware, real-world scenarios and emphasis on: Map the basics of nervous-system regulation and stress response; Explain how sleep, recovery, and environment affect cognition and behavior; Practice simple resilience habits that support calm, energy, and clear decisions.",
+      "current_exercise": {
+        "exercise_id": "86ac1c5e39ad4dce99514af6c309633a-e1",
+        "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2 \u2014 Guided Response",
+        "prompt": "Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these strategies relate to the concepts of neurobiology and human systems.",
+        "starter_files": {},
+        "starter_response": "In my recent experience of feeling overwhelmed during a project deadline, I felt anxious and unable to focus. To manage this stress, I could practice deep breathing exercises to calm my nervous system and take short breaks to engage in physical activity, which helps in releasing endorphins and improving my mood.",
+        "expected_test": "1. Clearly describes the stressful situation (1 point). 2. Identifies feelings associated with the stress (1 point). 3. Lists at least two specific stress management strategies (2 points). 4. Connects strategies to neurobiology or human systems concepts (2 points). 5. Overall clarity and coherence of the response (1 point). Total: 7 points.",
+        "generation_method": "llm",
+        "module_track": {
+          "id": "human-systems-neurobiology",
+          "label": "Human Systems / Neurobiology / Stress & Recovery",
+          "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+          "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+          "category": "Human Systems",
+          "icon": "\ud83e\udde0",
+          "lesson_type": "knowledge",
+          "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions"
+          ],
+          "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+        },
+        "lesson_type": "knowledge",
+        "submission_mode": "text",
+        "category": "Human Systems",
+        "icon": "\ud83e\udde0",
+        "lesson_summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+        "teaching_points": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+          "Map the basics of nervous-system regulation and stress response",
+          "Explain how sleep, recovery, and environment affect cognition and behavior",
+          "Practice simple resilience habits that support calm, energy, and clear decisions"
+        ],
+        "lesson_body": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+        "lesson_examples": [
+          "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+          "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+          "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+        ],
+        "lesson_source": "llm_generated"
+      },
+      "curriculum": {
+        "curriculum_id": "e76923346431497ebbb028874118dd84",
+        "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Short Curriculum",
+        "subject": "Human Systems / Neurobiology / Stress & Recovery",
+        "generated_at": "2026-08-20T00:58:59.941885+00:00",
+        "source": "llm_or_template_fallback",
+        "modules": [
+          {
+            "module_id": "e76923346431497ebbb028874118dd84-m1",
+            "title": "Module 1: Foundations",
+            "lessons": [
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+                "content": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+                "teaching_points": [
+                  "Understanding the stress response: fight or flight",
+                  "The role of the autonomic nervous system in stress management",
+                  "Recognizing signs of stress in oneself and others",
+                  "Basic recovery techniques: deep breathing, mindfulness, and physical activity"
+                ],
+                "examples": [
+                  "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+                  "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+                  "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+                ]
+              },
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+                "content": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+                "teaching_points": [
+                  "Understand the physiological response to stress and its impact on health.",
+                  "Recognize the importance of recovery in maintaining overall well-being.",
+                  "Learn practical techniques for managing stress effectively."
+                ],
+                "examples": [
+                  "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+                  "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+                  "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+                ]
+              },
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m1-l3",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 3",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson provides a foundational understanding of how stress affects the human body and the importance of recovery. Students will learn about the physiological responses to stress and practical strategies for managing stress effectively.",
+                "content": "In this lesson, we will explore the concept of stress and its impact on the human body. Stress triggers a series of physiological responses, often referred to as the 'fight or flight' response, which can affect our mental and physical health. Understanding these responses is crucial for developing effective recovery strategies. We will also discuss practical techniques such as deep breathing, mindfulness, and physical activity that can help manage stress levels in everyday situations.",
+                "teaching_points": [
+                  "Understanding the physiological response to stress, including the role of hormones like cortisol and adrenaline.",
+                  "Recognizing the signs of stress in oneself and others.",
+                  "Learning practical stress management techniques that can be easily integrated into daily life."
+                ],
+                "examples": [
+                  "When feeling overwhelmed by a deadline, taking a few minutes to practice deep breathing can help calm the mind and body.",
+                  "If you notice a friend becoming anxious before a presentation, suggesting a quick walk or some light stretching can help reduce their stress levels.",
+                  "Incorporating a short mindfulness meditation into your daily routine can improve overall resilience to stress."
+                ]
+              }
+            ],
+            "estimated_minutes": 72
+          },
+          {
+            "module_id": "e76923346431497ebbb028874118dd84-m2",
+            "title": "Module 2: Core Skills",
+            "lessons": [
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m2-l1",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Core Skills Lesson 1",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for core skills work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson introduces the fundamental concepts of Human Systems, focusing on neurobiology, stress, and recovery. It emphasizes practical understanding and the development of essential skills for managing stress and promoting recovery.",
+                "content": "In this lesson, we will explore how stress affects the human body and mind, and the importance of recovery. We will discuss the neurobiological processes involved in stress response and recovery, including the role of the brain and hormones. Additionally, we will cover practical techniques for managing stress, such as mindfulness and breathing exercises, which can be easily integrated into daily life.",
+                "teaching_points": [
+                  "Understanding the stress response and its effects on the body",
+                  "Recognizing the importance of recovery for mental and physical health",
+                  "Learning practical techniques for stress management"
+                ],
+                "examples": [
+                  "When feeling overwhelmed at work, take a 5-minute break to practice deep breathing exercises.",
+                  "After a stressful day, engage in a relaxing activity such as reading or taking a walk to promote recovery."
+                ]
+              },
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m2-l2",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Core Skills Lesson 2",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for core skills work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson introduces the core skills necessary for understanding stress and recovery in human systems. It emphasizes practical applications and safe judgment in everyday scenarios.",
+                "content": "In this lesson, we will explore the basic concepts of stress and recovery within the human body. We will discuss how stress affects our neurobiology and the importance of recovery techniques. By the end of this lesson, you will understand how to recognize stress signals in yourself and others, and you will learn simple recovery strategies that can be applied in daily life.",
+                "teaching_points": [
+                  "Understanding the physiological response to stress",
+                  "Recognizing signs of stress in yourself and others",
+                  "Learning basic recovery techniques such as deep breathing and mindfulness"
+                ],
+                "examples": [
+                  "When feeling overwhelmed at work, take a moment to practice deep breathing: inhale for four counts, hold for four counts, and exhale for four counts.",
+                  "If a friend seems anxious, suggest a short walk outside to help them clear their mind and reduce stress."
+                ]
+              },
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m2-l3",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Core Skills Lesson 3",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for core skills work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson introduces the fundamental concepts of stress and recovery within human systems and neurobiology. It emphasizes practical applications and the importance of understanding these concepts in everyday situations.",
+                "content": "In this lesson, we will explore how stress affects the human body and mind, and the mechanisms of recovery. We will discuss the physiological responses to stress, such as the fight-or-flight response, and the importance of recovery practices like mindfulness and deep breathing. By understanding these concepts, you can better manage stress in your own life and support others in their recovery processes.",
+                "teaching_points": [
+                  "Understanding the physiological effects of stress on the body.",
+                  "Recognizing the signs of stress and the importance of recovery.",
+                  "Practicing simple stress-reduction techniques."
+                ],
+                "examples": [
+                  "When feeling overwhelmed at work, take a 5-minute break to practice deep breathing.",
+                  "If you notice a friend is stressed, suggest a short walk outside to help clear their mind.",
+                  "In a tense situation, use the 4-7-8 breathing technique to calm your nervous system."
+                ]
+              }
+            ],
+            "estimated_minutes": 87
+          },
+          {
+            "module_id": "e76923346431497ebbb028874118dd84-m3",
+            "title": "Module 3: Application",
+            "lessons": [
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m3-l1",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Application Lesson 1",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for application work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson introduces the fundamental concepts of stress and recovery within human systems and neurobiology. It emphasizes practical applications of these concepts in everyday situations, helping learners understand how to manage stress effectively.",
+                "content": "In this lesson, we will explore how stress affects the human body and mind, and the importance of recovery. We will discuss the physiological responses to stress, such as the fight-or-flight response, and how recovery techniques can help restore balance. Practical strategies for managing stress will be introduced, including mindfulness, deep breathing, and physical activity.",
+                "teaching_points": [
+                  "Understanding the body's stress response",
+                  "Recognizing signs of stress in oneself and others",
+                  "Implementing basic stress management techniques",
+                  "The role of recovery in maintaining mental and physical health"
+                ],
+                "examples": [
+                  "When feeling overwhelmed by work, take a 5-minute break to practice deep breathing.",
+                  "If you notice a friend is stressed, suggest going for a short walk together to help them relax.",
+                  "After a stressful day, engage in a calming activity like reading or meditating to promote recovery."
+                ]
+              },
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m3-l2",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Application Lesson 2",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for application work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson introduces key concepts of stress and recovery in human systems, focusing on how to apply these concepts in everyday situations. Students will learn practical techniques to manage stress and promote recovery.",
+                "content": "In this lesson, we will explore the physiological and psychological aspects of stress and recovery. We will discuss the body's stress response, including the fight-or-flight mechanism, and how chronic stress can impact health. Additionally, we will cover practical recovery strategies such as mindfulness, deep breathing exercises, and the importance of sleep. Students will engage in activities that promote understanding and application of these concepts in real-life scenarios.",
+                "teaching_points": [
+                  "Understanding the body's response to stress",
+                  "Recognizing the signs of stress and its effects on health",
+                  "Learning practical recovery techniques",
+                  "Applying stress management strategies in daily life"
+                ],
+                "examples": [
+                  "Practice a 5-minute deep breathing exercise to reduce immediate stress.",
+                  "Identify personal stress triggers and discuss them in small groups.",
+                  "Create a simple daily routine that includes time for relaxation and recovery."
+                ]
+              },
+              {
+                "lesson_id": "e76923346431497ebbb028874118dd84-m3-l3",
+                "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Application Lesson 3",
+                "objectives": [
+                  "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for application work",
+                  "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+                ],
+                "estimated_minutes": 20,
+                "source": "llm_generated",
+                "exercise_generation_mode": "llm_preferred",
+                "_chunks": [],
+                "summary": "This lesson introduces students to the practical applications of neurobiology concepts related to stress and recovery. Students will learn how to identify stressors and apply recovery techniques in everyday situations.",
+                "content": "In this lesson, we will explore how stress affects our bodies and minds, and how we can use recovery techniques to manage stress effectively. We will discuss the physiological responses to stress, such as the fight-or-flight response, and how these responses can impact our health. Additionally, we will introduce practical strategies for recovery, including mindfulness, deep breathing exercises, and physical activity. Students will engage in a scenario where they will identify stressors in a given situation and apply recovery techniques to manage their stress.",
+                "teaching_points": [
+                  "Understanding the physiological effects of stress on the human body.",
+                  "Recognizing common stressors in daily life.",
+                  "Learning practical recovery techniques to manage stress."
+                ],
+                "examples": [
+                  "A student feels overwhelmed by upcoming exams. They can use deep breathing exercises to calm their nerves before studying.",
+                  "An employee experiences stress from a heavy workload. They can take short breaks to practice mindfulness and recharge their focus.",
+                  "A parent feels stressed from balancing work and family responsibilities. Engaging in physical activity, like a quick walk, can help alleviate stress."
+                ]
+              }
+            ],
+            "estimated_minutes": 102
+          }
+        ],
+        "estimated_total_minutes": 261
+      },
+      "current_lesson": {
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+        "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+        "objectives": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+        ],
+        "estimated_minutes": 20,
+        "source": "llm_generated",
+        "exercise_generation_mode": "llm_preferred",
+        "_chunks": [],
+        "summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+        "content": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+        "teaching_points": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+          "Map the basics of nervous-system regulation and stress response",
+          "Explain how sleep, recovery, and environment affect cognition and behavior",
+          "Practice simple resilience habits that support calm, energy, and clear decisions"
+        ],
+        "examples": [
+          "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+          "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+          "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+        ],
+        "module_track": {
+          "id": "human-systems-neurobiology",
+          "label": "Human Systems / Neurobiology / Stress & Recovery",
+          "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+          "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+          "category": "Human Systems",
+          "icon": "\ud83e\udde0",
+          "lesson_type": "knowledge",
+          "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions"
+          ],
+          "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+        },
+        "lesson_type": "knowledge",
+        "category": "Human Systems",
+        "icon": "\ud83e\udde0",
+        "content_source": "llm_generated"
+      },
+      "curriculum_id": "e76923346431497ebbb028874118dd84",
+      "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+      "lesson_plan": {
+        "focus_concept": null,
+        "suggested_topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+        "difficulty": "intermediate",
+        "pacing": "steady",
+        "rationale": "The learner profile is still emerging, so ATLAS will keep the next lesson broad and supportive.",
+        "weakest_concepts": [],
+        "onboarding": {
+          "experience_level": "unknown",
+          "preferred_pacing": "gentle",
+          "learning_style": "guided",
+          "goals": [],
+          "focus_areas": [],
+          "completed_at": null
+        },
+        "module_track": {
+          "id": "human-systems-neurobiology",
+          "label": "Human Systems / Neurobiology / Stress & Recovery",
+          "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+          "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+          "category": "Human Systems",
+          "icon": "\ud83e\udde0",
+          "lesson_type": "knowledge",
+          "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions"
+          ],
+          "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+        },
+        "curriculum_topic": "Human systems neurobiology stress recovery and resilience fundamentals. Build a practical beginner-friendly lesson track for Human Systems / Neurobiology / Stress & Recovery with safety-aware, real-world scenarios and emphasis on: Map the basics of nervous-system regulation and stress response; Explain how sleep, recovery, and environment affect cognition and behavior; Practice simple resilience habits that support calm, energy, and clear decisions."
+      },
+      "module_id": "human-systems-neurobiology",
+      "active_module": {
+        "id": "human-systems-neurobiology",
+        "label": "Human Systems / Neurobiology / Stress & Recovery",
+        "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+        "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+        "category": "Human Systems",
+        "icon": "\ud83e\udde0",
+        "lesson_type": "knowledge",
+        "outcomes": [
+          "Map the basics of nervous-system regulation and stress response",
+          "Explain how sleep, recovery, and environment affect cognition and behavior",
+          "Practice simple resilience habits that support calm, energy, and clear decisions"
+        ],
+        "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+      },
+      "last_submission": {
+        "passed": true,
+        "recommendation": "increase",
+        "hint": "Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+        "result": {
+          "passed": true,
+          "stdout": "Keyword hits: work",
+          "stderr": ""
+        },
+        "exercise_id": "6beef61b854d422c9a8733656ff114fb-e1",
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+        "submission_mode": "text",
+        "score": 0.64
+      },
+      "chat_history": [
+        {
+          "role": "user",
+          "message": "atlas will you turn this section into flashcards?",
+          "created_at": "2026-08-20T01:26:10.623667+00:00",
+          "mode": "tutor",
+          "page": "lessons"
+        },
+        {
+          "role": "assistant",
+          "message": "1) **Diagnosis**: It seems you want to create flashcards based on the concepts from the lesson on Human Systems / Neurobiology / Stress & Recovery. This is a great way to reinforce your understanding and retention of the material.\n\n2) **Next Concrete Step**: Start by identifying key concepts or terms from the lesson that you want to include in your flashcards. For example, you might focus on definitions, key processes, or strategies related to stress and recovery.\n\n3) **Short Example**: Here\u2019s how you might structure a flashcard:\n\n   - **Front**: \"What is the stress response?\"\n   - **Back**: \"The stress response is a physiological reaction that occurs in response to perceived threats, involving the release of hormones like cortisol and adrenaline, which prepare the body for 'fight or flight.'\"\n\nOnce you have a few key concepts, you can create additional flashcards in a similar format. Would you like help identifying specific concepts to include?",
+          "created_at": "2026-08-20T01:26:27.040824+00:00",
+          "adapter": "openai",
+          "model": "gpt-4o-mini",
+          "mode": "tutor"
+        },
+        {
+          "role": "user",
+          "message": "yes please provide some top tier flashcard key concepts please!",
+          "created_at": "2026-08-20T01:27:42.589988+00:00",
+          "mode": "tutor",
+          "page": "lessons"
+        },
+        {
+          "role": "assistant",
+          "message": "1) **Diagnosis**: It seems you're looking for key concepts related to Human Systems / Neurobiology / Stress & Recovery that can help you create effective flashcards. This will reinforce your understanding and retention of the material.\n\n2) **Next Concrete Step**: Focus on identifying and summarizing key concepts from the lesson. Here are some areas to consider for your flashcards:\n   - **Stress Response**: Understand the physiological and psychological effects of stress on the body.\n   - **Neurobiology of Stress**: Explore how the brain and nervous system respond to stress.\n   - **Recovery Techniques**: Identify specific strategies for managing stress, such as mindfulness, exercise, and deep breathing.\n   - **Human Systems Perspective**: Consider how stress impacts overall human systems, including emotional, cognitive, and physical health.\n\n3) **Short Example**: For a flashcard, you might write:\n   - **Front**: \"What are the physiological effects of stress on the body?\"\n   - **Back**: \"Increased heart rate, elevated cortisol levels, muscle tension, and altered immune response.\"\n\nUse these concepts to create your flashcards, ensuring each one captures a key idea from the lesson. This will help solidify your understanding and prepare you for practical applications.",
+          "created_at": "2026-08-20T01:27:58.545978+00:00",
+          "adapter": "openai",
+          "model": "gpt-4o-mini",
+          "mode": "tutor"
+        }
+      ],
+      "mammoth_chat_history": [
+        {
+          "role": "user",
+          "message": "so i want to make the lesson delivery a little more tight... like i need to do some testing but it does seem that it starts with an exercise and doesnt really do any of the actual study or delivery of the lesson first.. which i assume is because its a tutor not a teacher.. but can we make it do like actual information or lesson delivery as well as the exercises and quizes stuff..? does that make sense? it goes straight to an exercise without providing any context on the subject first..",
+          "created_at": "2026-08-20T02:24:35.148735+00:00",
+          "agent_id": "assistant",
+          "mode": "chat",
+          "page": "chat"
+        },
+        {
+          "role": "assistant",
+          "message": "### Quick Read\nYou want to enhance the lesson delivery by incorporating a structured information delivery before jumping into exercises and quizzes. This will provide learners with the necessary context and foundational knowledge.\n\n### What I'm Seeing\n- Current flow: Starts with an exercise.\n- Desired flow: Introduce lesson content first, followed by exercises and quizzes.\n- Context: The system is designed more like a tutor, which may skip direct lesson delivery.\n\n### Next Move\n1. **Define Lesson Structure**: Create a clear outline for each lesson that includes:\n   - Introduction to the topic\n   - Key concepts and information\n   - Examples or explanations\n   - Exercises and quizzes\n\n2. **Modify Content Delivery Logic**:\n   - Adjust the algorithm to first present the lesson content.\n   - Ensure that the transition to exercises is smooth and logically follows the content.\n\n3. **Testing**: Implement a testing phase to gather feedback on the new structure. Look for:\n   - Engagement levels\n   - Understanding and retention of information\n   - User satisfaction with the new flow\n\n4. **Iterate**: Based on feedback, refine the lesson delivery further to ensure it meets educational goals.\n\nLet\u2019s tighten up that delivery and get those learners ready to charge ahead! \ud83e\udda3",
+          "created_at": "2026-08-20T02:24:49.752405+00:00",
+          "agent_id": "assistant",
+          "mode": "chat",
+          "adapter": "openai",
+          "model": "gpt-4o-mini",
+          "thought_steps": [
+            {
+              "ts": "2026-08-20T02:24:35.148760+00:00",
+              "label": "Hearing hoofbeats",
+              "detail": "agent=assistant mode=chat",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-20T02:24:35.148769+00:00",
+              "label": "Bribing the hamster",
+              "detail": "Spinning up MammothOS reasoning lanes",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-20T02:24:35.148854+00:00",
+              "label": "Consulting the herd",
+              "detail": "Running native MammothOS assistant response",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-20T02:24:45.674199+00:00",
+              "label": "Tusks charged",
+              "detail": "adapter=openai model=gpt-4o-mini",
+              "status": "success"
+            }
+          ],
+          "task_id": "",
+          "dispatched": false,
+          "evidence_items": [
+            {
+              "agent_id": "assistant",
+              "summary": "### Quick Read\nYou want to enhance the lesson delivery by incorporating a structured information delivery before jumping into exercises and quizzes. This will provide learners with the necessary context and foundational knowledge.\n\n### What I'm Seeing\n- Current flow: Starts with an exercise.\n- Desired flow: Introduce lesson content first, followed by exercises and quizzes.\n- Context: The system is designed more like a tutor, which may skip direct lesson delivery.\n\n### Next Move\n1. **Define Lesson Structure**: Create a clear outline for each lesson that includes:\n   - Introduction to the topic\n   - Key concepts and information\n   - Examples or explanations\n   - Exercises and quizzes\n\n2. **Modify Content Delivery Logic**:\n   - Adjust the algorithm to first present the lesson content.\n   - Ensure that the transition to exercises is smooth and logically follows the content.\n\n3. **Testing**: Implement a testing phase to gather feedback on the new structure. Look for:\n   - Engagement levels\n   - Understanding and retention of information\n   - User satisfaction with the new flow\n\n4. **Iterate**: Based on feedback, refine the lesson delivery further to ensure it meets educational goals.\n\nLet\u2019s tighten up that delivery and get those learners ready to charge ahead! \ud83e\udda3",
+              "source": "native-chat"
+            }
+          ],
+          "orchestrated": false,
+          "runtime_status": {
+            "state": "ready",
+            "degraded_mode": false,
+            "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+            "next_action": "Continue with the current provider path.",
+            "active_adapter": "openai",
+            "active_model": "gpt-4o-mini",
+            "providers": [
+              {
+                "provider": "deepseek",
+                "status": "ready",
+                "available": true,
+                "detail": "DeepSeek cloud reasoning"
+              },
+              {
+                "provider": "openai",
+                "status": "ready",
+                "available": true,
+                "detail": "OpenAI chat/runtime"
+              },
+              {
+                "provider": "ollama",
+                "status": "ready",
+                "available": true,
+                "detail": "http://localhost:11434"
+              },
+              {
+                "provider": "local",
+                "status": "ready",
+                "available": true,
+                "detail": "Local echo fallback"
+              }
+            ],
+            "available_providers": [
+              "deepseek",
+              "openai",
+              "ollama",
+              "local"
+            ],
+            "fallback_chain": [
+              "deepseek",
+              "openai",
+              "ollama",
+              "local"
+            ],
+            "recommendation": "openai is ready",
+            "summary": {
+              "openai_key_present": true,
+              "deepseek_key_present": true,
+              "ollama_running": true
+            }
+          },
+          "runtime_notice": null
+        },
+        {
+          "role": "user",
+          "message": "how would YOU tighten this up? like what would you change from the current layout?",
+          "created_at": "2026-08-20T02:27:01.351396+00:00",
+          "agent_id": "assistant",
+          "mode": "chat",
+          "page": "chat"
+        },
+        {
+          "role": "assistant",
+          "message": "### Quick Read\nTo tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### What I'm Seeing\n- Current layout lacks a clear introduction to the lesson topic.\n- Immediate exercises can lead to confusion or lack of engagement.\n- A more traditional educational flow could enhance understanding and retention.\n\n### Next Move\n1. **Revise Structure**:\n   - **Introduction Phase**: Start with a brief overview of the lesson topic. This could include key concepts, objectives, and real-world applications.\n   - **Content Delivery**: Follow the introduction with a concise lesson delivery\u2014text, videos, or interactive elements that explain the material.\n   - **Engagement Phase**: Introduce exercises and quizzes after the content delivery to reinforce learning.\n\n2. **Feedback Loop**:\n   - Implement a mechanism for learners to ask questions or clarify doubts after the content delivery but before exercises.\n\n3. **Iterate and Test**:\n   - Run a few test sessions with the new layout to gather feedback on engagement and understanding. Adjust based on learner responses.\n\n4. **Visual Aids**:\n   - Consider adding visual aids or infographics during the lesson delivery to break up text and enhance comprehension.\n\nBy reworking the layout this way, you\u2019ll create a more cohesive learning experience that builds knowledge before testing skills. Let\u2019s charge those tusks and get this lesson delivery roaring! \ud83d\udc18",
+          "created_at": "2026-08-20T02:27:12.012415+00:00",
+          "agent_id": "assistant",
+          "mode": "chat",
+          "adapter": "openai",
+          "model": "gpt-4o-mini",
+          "thought_steps": [
+            {
+              "ts": "2026-08-20T02:27:01.351433+00:00",
+              "label": "Hearing hoofbeats",
+              "detail": "agent=assistant mode=chat",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-20T02:27:01.351460+00:00",
+              "label": "Bribing the hamster",
+              "detail": "Spinning up MammothOS reasoning lanes",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-20T02:27:01.351532+00:00",
+              "label": "Consulting the herd",
+              "detail": "Running native MammothOS assistant response",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-20T02:27:07.944996+00:00",
+              "label": "Tusks charged",
+              "detail": "adapter=openai model=gpt-4o-mini",
+              "status": "success"
+            }
+          ],
+          "task_id": "",
+          "dispatched": false,
+          "evidence_items": [
+            {
+              "agent_id": "assistant",
+              "summary": "### Quick Read\nTo tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### What I'm Seeing\n- Current layout lacks a clear introduction to the lesson topic.\n- Immediate exercises can lead to confusion or lack of engagement.\n- A more traditional educational flow could enhance understanding and retention.\n\n### Next Move\n1. **Revise Structure**:\n   - **Introduction Phase**: Start with a brief overview of the lesson topic. This could include key concepts, objectives, and real-world applications.\n   - **Content Delivery**: Follow the introduction with a concise lesson delivery\u2014text, videos, or interactive elements that explain the material.\n   - **Engagement Phase**: Introduce exercises and quizzes after the content delivery to reinforce learning.\n\n2. **Feedback Loop**:\n   - Implement a mechanism for learners to ask questions or clarify doubts after the content delivery but before exercises.\n\n3. **Iterate and Test**:\n   - Run a few test sessions with the new layout to gather feedback on engagement and understanding. Adjust based on learner responses.\n\n4. **Visual Aids**:\n   - Consider adding visual aids or infographics during the lesson delivery to break up text and enhance comprehension.\n\nBy reworking the layout this way, you\u2019ll create a more cohesive learning experience that builds knowledge before testing skills. Let\u2019s charge those tusks and get this lesson delivery roaring! \ud83d\udc18",
+              "source": "native-chat"
+            }
+          ],
+          "orchestrated": false,
+          "runtime_status": {
+            "state": "ready",
+            "degraded_mode": false,
+            "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+            "next_action": "Continue with the current provider path.",
+            "active_adapter": "openai",
+            "active_model": "gpt-4o-mini",
+            "providers": [
+              {
+                "provider": "deepseek",
+                "status": "ready",
+                "available": true,
+                "detail": "DeepSeek cloud reasoning"
+              },
+              {
+                "provider": "openai",
+                "status": "ready",
+                "available": true,
+                "detail": "OpenAI chat/runtime"
+              },
+              {
+                "provider": "ollama",
+                "status": "ready",
+                "available": true,
+                "detail": "http://localhost:11434"
+              },
+              {
+                "provider": "local",
+                "status": "ready",
+                "available": true,
+                "detail": "Local echo fallback"
+              }
+            ],
+            "available_providers": [
+              "deepseek",
+              "openai",
+              "ollama",
+              "local"
+            ],
+            "fallback_chain": [
+              "deepseek",
+              "openai",
+              "ollama",
+              "local"
+            ],
+            "recommendation": "openai is ready",
+            "summary": {
+              "openai_key_present": true,
+              "deepseek_key_present": true,
+              "ollama_running": true
+            }
+          },
+          "runtime_notice": null
+        }
+      ],
+      "resume_packet": {
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+        "lesson_title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+        "summary": "Welcome back to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s). Latest submission passed. Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+        "prior_work_summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s), and last attempt passed. Prompt focus: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies  Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+        "objectives": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+        ],
+        "notes": [
+          {
+            "id": "cbf6610a-0e5d-4e5b-932a-b38e928dfd85",
+            "title": "To tighten up the lesson delivery, I\u2019d suggest a structured approach tha",
+            "preview": "To tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### W",
+            "updated_at": "2026-08-20T02:39:13.292263+00:00"
+          },
+          {
+            "id": "5dc841da-3737-4161-bc1b-8ac570fb4610",
+            "title": "add a version of atlas that when you install ATLAS it will do the onboar",
+            "preview": "add a version of atlas that when you install ATLAS it will do the onboarding with the user then build the app around the user onboarding and continuously improve it and make changes based on evolution of the user",
+            "updated_at": "2026-08-18T21:59:16.091608+00:00"
+          }
+        ],
+        "flashcards": [
+          {
+            "id": "obj-1",
+            "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work)",
+            "back": "Explain Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work in your own words, then write one tiny example that demonstrates it."
+          },
+          {
+            "id": "obj-2",
+            "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario)",
+            "back": "Explain Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario in your own words, then write one tiny example that demonstrates it."
+          },
+          {
+            "id": "exercise-plan",
+            "front": "What is your plan before coding this exercise?",
+            "back": "Summarize the input/output, then list 2-3 steps to solve this prompt: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these"
+          }
+        ],
+        "resource_counts": {
+          "notes": 2,
+          "flashcards": 3,
+          "total": 5
+        },
+        "latest_activity_at": "2026-08-20T01:14:37.460094+00:00",
+        "has_resources": true
+      },
+      "lesson_history": [
+        {
+          "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+          "lesson": {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+            "content": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+            "teaching_points": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+              "Map the basics of nervous-system regulation and stress response",
+              "Explain how sleep, recovery, and environment affect cognition and behavior",
+              "Practice simple resilience habits that support calm, energy, and clear decisions"
+            ],
+            "examples": [
+              "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+              "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+              "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+            ],
+            "module_track": {
+              "id": "human-systems-neurobiology",
+              "label": "Human Systems / Neurobiology / Stress & Recovery",
+              "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+              "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+              "category": "Human Systems",
+              "icon": "\ud83e\udde0",
+              "lesson_type": "knowledge",
+              "outcomes": [
+                "Map the basics of nervous-system regulation and stress response",
+                "Explain how sleep, recovery, and environment affect cognition and behavior",
+                "Practice simple resilience habits that support calm, energy, and clear decisions"
+              ],
+              "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+            },
+            "lesson_type": "knowledge",
+            "category": "Human Systems",
+            "icon": "\ud83e\udde0",
+            "content_source": "llm_generated"
+          },
+          "exercise": {
+            "exercise_id": "6beef61b854d422c9a8733656ff114fb-e1",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1 \u2014 Guided Response",
+            "prompt": "Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identify at least two recovery techniques you could apply to manage that stress effectively. Be specific about how you would implement these techniques in your daily life.",
+            "starter_files": {},
+            "starter_response": "In my recent experience during a presentation at work, I noticed my heart racing and my palms sweating. I felt anxious and had trouble concentrating. To manage this stress, I could practice deep breathing for five minutes before the presentation to calm my nerves. Additionally, I could take a short walk during my lunch break to clear my mind and reduce anxiety.",
+            "expected_test": "1. Did the response identify a specific stressful situation? (Yes/No) 2. Did the response describe physical signs of stress? (Yes/No) 3. Did the response describe emotional signs of stress? (Yes/No) 4. Did the response identify at least two recovery techniques? (Yes/No) 5. Did the response provide specific details on how to implement these techniques in daily life? (Yes/No) 6. Overall clarity and coherence of the response (1-5 scale)",
+            "generation_method": "llm",
+            "lesson": {
+              "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+              "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+              "objectives": [
+                "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+                "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+              ],
+              "estimated_minutes": 20,
+              "source": "llm_generated",
+              "exercise_generation_mode": "llm_preferred",
+              "_chunks": [],
+              "summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+              "content": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+              "teaching_points": [
+                "Understanding the stress response: fight or flight",
+                "The role of the autonomic nervous system in stress management",
+                "Recognizing signs of stress in oneself and others",
+                "Basic recovery techniques: deep breathing, mindfulness, and physical activity"
+              ],
+              "examples": [
+                "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+                "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+                "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+              ]
+            },
+            "curriculum_id": "e76923346431497ebbb028874118dd84",
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+            "module_track": {
+              "id": "human-systems-neurobiology",
+              "label": "Human Systems / Neurobiology / Stress & Recovery",
+              "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+              "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+              "category": "Human Systems",
+              "icon": "\ud83e\udde0",
+              "lesson_type": "knowledge",
+              "outcomes": [
+                "Map the basics of nervous-system regulation and stress response",
+                "Explain how sleep, recovery, and environment affect cognition and behavior",
+                "Practice simple resilience habits that support calm, energy, and clear decisions"
+              ],
+              "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+            },
+            "lesson_type": "knowledge",
+            "submission_mode": "text",
+            "category": "Human Systems",
+            "icon": "\ud83e\udde0",
+            "lesson_summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+            "teaching_points": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+              "Map the basics of nervous-system regulation and stress response",
+              "Explain how sleep, recovery, and environment affect cognition and behavior",
+              "Practice simple resilience habits that support calm, energy, and clear decisions"
+            ],
+            "lesson_body": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+            "lesson_examples": [
+              "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+              "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+              "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+            ],
+            "lesson_source": "llm_generated"
+          },
+          "created_at": "2026-08-20T01:00:10.675143+00:00",
+          "updated_at": "2026-08-20T01:14:16.064273+00:00",
+          "summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1. You previously worked on 2 objective(s), and you explored this lesson earlier. Prompt focus: Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identif",
+          "last_submission": {
+            "passed": true,
+            "recommendation": "increase",
+            "hint": "Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+            "result": {
+              "passed": true,
+              "stdout": "Keyword hits: work",
+              "stderr": ""
+            },
+            "exercise_id": "6beef61b854d422c9a8733656ff114fb-e1",
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+            "submission_mode": "text",
+            "score": 0.64
+          },
+          "study_aid_count": 4,
+          "resume_packet": {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+            "lesson_title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+            "summary": "Welcome back to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1. You previously worked on 2 objective(s). Latest submission passed. Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+            "prior_work_summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1. You previously worked on 2 objective(s), and you explored this lesson earlier. Prompt focus: Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identif",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "notes": [
+              {
+                "id": "5dc841da-3737-4161-bc1b-8ac570fb4610",
+                "title": "add a version of atlas that when you install ATLAS it will do the onboar",
+                "preview": "add a version of atlas that when you install ATLAS it will do the onboarding with the user then build the app around the user onboarding and continuously improve it and make changes based on evolution of the user",
+                "updated_at": "2026-08-18T21:59:16.091608+00:00"
+              }
+            ],
+            "flashcards": [
+              {
+                "id": "obj-1",
+                "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1: What does this objective mean? (Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work)",
+                "back": "Explain Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work in your own words, then write one tiny example that demonstrates it."
+              },
+              {
+                "id": "obj-2",
+                "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1: What does this objective mean? (Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario)",
+                "back": "Explain Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario in your own words, then write one tiny example that demonstrates it."
+              },
+              {
+                "id": "exercise-plan",
+                "front": "What is your plan before coding this exercise?",
+                "back": "Summarize the input/output, then list 2-3 steps to solve this prompt: Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identify at least two recovery techniques you could apply to manage that stress effecti"
+              }
+            ],
+            "resource_counts": {
+              "notes": 1,
+              "flashcards": 3,
+              "total": 4
+            },
+            "latest_activity_at": "2026-08-20T01:14:16.064273+00:00",
+            "has_resources": true
+          },
+          "sequence": 0
+        },
+        {
+          "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+          "lesson": {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+            "content": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+            "teaching_points": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+              "Map the basics of nervous-system regulation and stress response",
+              "Explain how sleep, recovery, and environment affect cognition and behavior",
+              "Practice simple resilience habits that support calm, energy, and clear decisions"
+            ],
+            "examples": [
+              "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+              "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+              "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+            ],
+            "module_track": {
+              "id": "human-systems-neurobiology",
+              "label": "Human Systems / Neurobiology / Stress & Recovery",
+              "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+              "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+              "category": "Human Systems",
+              "icon": "\ud83e\udde0",
+              "lesson_type": "knowledge",
+              "outcomes": [
+                "Map the basics of nervous-system regulation and stress response",
+                "Explain how sleep, recovery, and environment affect cognition and behavior",
+                "Practice simple resilience habits that support calm, energy, and clear decisions"
+              ],
+              "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+            },
+            "lesson_type": "knowledge",
+            "category": "Human Systems",
+            "icon": "\ud83e\udde0",
+            "content_source": "llm_generated"
+          },
+          "exercise": {
+            "exercise_id": "86ac1c5e39ad4dce99514af6c309633a-e1",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2 \u2014 Guided Response",
+            "prompt": "Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these strategies relate to the concepts of neurobiology and human systems.",
+            "starter_files": {},
+            "starter_response": "In my recent experience of feeling overwhelmed during a project deadline, I felt anxious and unable to focus. To manage this stress, I could practice deep breathing exercises to calm my nervous system and take short breaks to engage in physical activity, which helps in releasing endorphins and improving my mood.",
+            "expected_test": "1. Clearly describes the stressful situation (1 point). 2. Identifies feelings associated with the stress (1 point). 3. Lists at least two specific stress management strategies (2 points). 4. Connects strategies to neurobiology or human systems concepts (2 points). 5. Overall clarity and coherence of the response (1 point). Total: 7 points.",
+            "generation_method": "llm",
+            "module_track": {
+              "id": "human-systems-neurobiology",
+              "label": "Human Systems / Neurobiology / Stress & Recovery",
+              "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+              "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+              "category": "Human Systems",
+              "icon": "\ud83e\udde0",
+              "lesson_type": "knowledge",
+              "outcomes": [
+                "Map the basics of nervous-system regulation and stress response",
+                "Explain how sleep, recovery, and environment affect cognition and behavior",
+                "Practice simple resilience habits that support calm, energy, and clear decisions"
+              ],
+              "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+            },
+            "lesson_type": "knowledge",
+            "submission_mode": "text",
+            "category": "Human Systems",
+            "icon": "\ud83e\udde0",
+            "lesson_summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+            "teaching_points": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+              "Map the basics of nervous-system regulation and stress response",
+              "Explain how sleep, recovery, and environment affect cognition and behavior",
+              "Practice simple resilience habits that support calm, energy, and clear decisions"
+            ],
+            "lesson_body": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+            "lesson_examples": [
+              "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+              "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+              "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+            ],
+            "lesson_source": "llm_generated"
+          },
+          "created_at": "2026-08-20T01:14:37.460090+00:00",
+          "updated_at": "2026-08-20T01:14:37.460094+00:00",
+          "summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s), and last attempt passed. Prompt focus: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies  Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+          "last_submission": null,
+          "study_aid_count": 5,
+          "resume_packet": {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+            "lesson_title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+            "summary": "Welcome back to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s). Latest submission passed. Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+            "prior_work_summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s), and last attempt passed. Prompt focus: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies  Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "notes": [
+              {
+                "id": "cbf6610a-0e5d-4e5b-932a-b38e928dfd85",
+                "title": "To tighten up the lesson delivery, I\u2019d suggest a structured approach tha",
+                "preview": "To tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### W",
+                "updated_at": "2026-08-20T02:39:13.292263+00:00"
+              },
+              {
+                "id": "5dc841da-3737-4161-bc1b-8ac570fb4610",
+                "title": "add a version of atlas that when you install ATLAS it will do the onboar",
+                "preview": "add a version of atlas that when you install ATLAS it will do the onboarding with the user then build the app around the user onboarding and continuously improve it and make changes based on evolution of the user",
+                "updated_at": "2026-08-18T21:59:16.091608+00:00"
+              }
+            ],
+            "flashcards": [
+              {
+                "id": "obj-1",
+                "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work)",
+                "back": "Explain Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work in your own words, then write one tiny example that demonstrates it."
+              },
+              {
+                "id": "obj-2",
+                "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario)",
+                "back": "Explain Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario in your own words, then write one tiny example that demonstrates it."
+              },
+              {
+                "id": "exercise-plan",
+                "front": "What is your plan before coding this exercise?",
+                "back": "Summarize the input/output, then list 2-3 steps to solve this prompt: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these"
+              }
+            ],
+            "resource_counts": {
+              "notes": 2,
+              "flashcards": 3,
+              "total": 5
+            },
+            "latest_activity_at": "2026-08-20T01:14:37.460094+00:00",
+            "has_resources": true
+          },
+          "sequence": 1
+        }
+      ],
+      "learner_profile": {
+        "streak": 1,
+        "attempts": 28,
+        "recommended_difficulty": "beginner",
+        "preferred_pacing": "steady"
+      },
+      "fab_usage_events": [
+        {
+          "created_at": "2026-08-20T01:26:27.040854+00:00",
+          "mode": "tutor",
+          "page": "lessons",
+          "guard_triggered": false,
+          "has_lesson_context": true
+        },
+        {
+          "created_at": "2026-08-20T01:27:58.546013+00:00",
+          "mode": "tutor",
+          "page": "lessons",
+          "guard_triggered": false,
+          "has_lesson_context": true
+        }
+      ],
+      "updated_at": "2026-08-20T02:27:12.012446+00:00"
+    }
+  },
+  "account_profile": {
+    "display_name": "XXII - Architecht",
+    "email": "truexxiisupply@gmail.com",
+    "organization": "True XXII Supply, LLC"
+  },
+  "tier": "pro",
+  "developer_access": false,
+  "account_profile_updated_at": "2026-08-20T08:52:22.203000+00:00",
+  "tier_updated_at": "2026-08-20T07:56:03.687503+00:00",
+  "developer_access_updated_at": null,
+  "session_scope": "workspace_multi_account",
+  "user_id": "workspace:default",
+  "learner_model": {
+    "version": 1,
+    "user_id": "workspace:default",
+    "mastery": {
+      "lesson-1-python-environment-setup": 0.0,
+      "emt-emergency-mgmt-foundations-lesson-1": 0.39,
+      "human-systems-neurobiology-stress-recovery-foundations-lesson-1": 0.56
+    },
+    "confidence": {
+      "lesson-1-python-environment-setup": 0.0,
+      "emt-emergency-mgmt-foundations-lesson-1": 0.46,
+      "human-systems-neurobiology-stress-recovery-foundations-lesson-1": 0.55
+    },
+    "streak": 1,
+    "attempts": 28,
+    "error_patterns": {
+      "syntax_error": 1,
+      "indentation_error": 3,
+      "name_error": 1,
+      "unknown_failure": 15,
+      "assertion_error": 5,
+      "import_error": 2,
+      "passed": 1
+    },
+    "recent_outcomes": [
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 17,
+        "streak": 0,
+        "timestamp": "2026-08-05T07:13:23.080679+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 18,
+        "streak": 0,
+        "timestamp": "2026-08-05T22:30:30.593847+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 19,
+        "streak": 0,
+        "timestamp": "2026-08-06T01:35:52.746408+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 20,
+        "streak": 0,
+        "timestamp": "2026-08-06T02:24:34.343069+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 21,
+        "streak": 0,
+        "timestamp": "2026-08-12T05:58:37.673895+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 22,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:01:30.696493+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 23,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:02:30.962646+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 24,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:15:13.585695+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 25,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:20:18.020548+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 26,
+        "streak": 0,
+        "timestamp": "2026-08-17T02:35:31.034465+00:00"
+      },
+      {
+        "concept": "emt-emergency-mgmt-foundations-lesson-1",
+        "passed": false,
+        "mastery_before": 0.5,
+        "mastery_after": 0.39,
+        "mastery_delta": -0.11,
+        "confidence_before": 0.5,
+        "confidence_after": 0.46,
+        "confidence_delta": -0.04,
+        "attempts": 27,
+        "streak": 0,
+        "timestamp": "2026-08-18T10:33:56.127794+00:00"
+      },
+      {
+        "concept": "human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+        "passed": true,
+        "mastery_before": 0.5,
+        "mastery_after": 0.56,
+        "mastery_delta": 0.06,
+        "confidence_before": 0.5,
+        "confidence_after": 0.55,
+        "confidence_delta": 0.05,
+        "attempts": 28,
+        "streak": 1,
+        "timestamp": "2026-08-20T01:14:16.061489+00:00"
+      }
+    ],
+    "onboarding": {
+      "experience_level": "intermediate",
+      "preferred_pacing": "steady",
+      "learning_style": "guided",
+      "goals": [
+        "Build reliably"
+      ],
+      "focus_areas": [
+        "debugging",
+        "planning"
+      ],
+      "completed_at": "2026-08-18T10:33:56.099171+00:00"
+    },
+    "memory_graph": {
+      "nodes": [
+        {
+          "id": "goal:build-reliably-and-efficiently",
+          "type": "goal",
+          "label": "Build reliably and efficiently",
+          "title": "Build reliably and efficiently",
+          "created_at": "2026-08-05T07:03:27.944341+00:00",
+          "updated_at": "2026-08-05T07:03:27.944341+00:00"
+        },
+        {
+          "id": "outcome:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "type": "outcome",
+          "label": "needs-practice",
+          "title": "needs-practice",
+          "created_at": "2026-08-17T02:35:31.032625+00:00",
+          "updated_at": "2026-08-17T02:35:31.032625+00:00",
+          "metadata": {
+            "passed": false,
+            "hint": "Add a return statement and validate the function signature."
+          }
+        },
+        {
+          "id": "concept:lesson-1-python-environment-setup",
+          "type": "concept",
+          "label": "lesson 1 python environment setup",
+          "title": "lesson 1 python environment setup",
+          "created_at": "2026-08-17T02:35:31.032625+00:00",
+          "updated_at": "2026-08-17T02:35:31.032625+00:00",
+          "metadata": {
+            "topic": "Python basics",
+            "goals": [
+              "Build reliably"
+            ],
+            "focus_areas": [
+              "debugging",
+              "planning"
+            ]
+          }
+        },
+        {
+          "id": "exercise:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "type": "exercise",
+          "label": "Lesson 1 \u2014 Python Environment Setup \u2014 Exercise 1",
+          "title": "Lesson 1 \u2014 Python Environment Setup \u2014 Exercise 1",
+          "created_at": "2026-08-17T02:35:31.032625+00:00",
+          "updated_at": "2026-08-17T02:35:31.032625+00:00",
+          "metadata": {
+            "prompt": "Implement a Python function called 'solution' that satisfies the objective(s): ['Understand Lesson 1 \u2014 Python Environment Setup', 'Apply lesson concepts in code']. Write a clear, well-tested implementation."
+          }
+        },
+        {
+          "id": "lesson:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "type": "lesson",
+          "label": "Lesson 1 \u2014 Python Environment Setup",
+          "title": "Lesson 1 \u2014 Python Environment Setup",
+          "created_at": "2026-08-17T02:35:31.032625+00:00",
+          "updated_at": "2026-08-17T02:35:31.032625+00:00",
+          "metadata": {
+            "lesson_id": "d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+            "difficulty": null,
+            "module": null
+          }
+        },
+        {
+          "id": "lesson:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "type": "lesson",
+          "label": "EMT + Emergency Mgmt \u2014 Foundations Lesson 1",
+          "title": "EMT + Emergency Mgmt \u2014 Foundations Lesson 1",
+          "created_at": "2026-08-18T10:33:56.127675+00:00",
+          "updated_at": "2026-08-18T10:33:56.127675+00:00",
+          "metadata": {
+            "lesson_id": "761cc352d17d463dafecade2bd7527ef-m1-l1",
+            "difficulty": null,
+            "module": null
+          }
+        },
+        {
+          "id": "exercise:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "type": "exercise",
+          "label": "EMT + Emergency Mgmt \u2014 Foundations Lesson 1 \u2014 Guided Response",
+          "title": "EMT + Emergency Mgmt \u2014 Foundations Lesson 1 \u2014 Guided Response",
+          "created_at": "2026-08-18T10:33:56.127675+00:00",
+          "updated_at": "2026-08-18T10:33:56.127675+00:00",
+          "metadata": {
+            "prompt": "Knowledge exercise for 'EMT + Emergency Mgmt \u2014 Foundations Lesson 1'.\nTeach this topic in plain language for a beginner.\nCover the lesson objectives directly and include one practical real-world example.\nObjectives:\n- Id"
+          }
+        },
+        {
+          "id": "concept:emt-emergency-mgmt-foundations-lesson-1",
+          "type": "concept",
+          "label": "emt emergency mgmt foundations lesson 1",
+          "title": "emt emergency mgmt foundations lesson 1",
+          "created_at": "2026-08-18T10:33:56.127675+00:00",
+          "updated_at": "2026-08-18T10:33:56.127675+00:00",
+          "metadata": {
+            "topic": "EMT and emergency management triage and incident fundamentals",
+            "goals": [
+              "Build reliably"
+            ],
+            "focus_areas": [
+              "debugging",
+              "planning"
+            ]
+          }
+        },
+        {
+          "id": "outcome:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "type": "outcome",
+          "label": "needs-practice",
+          "title": "needs-practice",
+          "created_at": "2026-08-18T10:33:56.127675+00:00",
+          "updated_at": "2026-08-18T10:33:56.127675+00:00",
+          "metadata": {
+            "passed": false,
+            "hint": "Add a return statement and validate the function signature."
+          }
+        },
+        {
+          "id": "goal:build-reliably",
+          "type": "goal",
+          "label": "Build reliably",
+          "title": "Build reliably",
+          "created_at": "2026-08-20T01:14:16.061199+00:00",
+          "updated_at": "2026-08-20T01:14:16.061199+00:00"
+        },
+        {
+          "id": "onboarding:profile",
+          "type": "onboarding",
+          "label": "guided",
+          "title": "Learner profile",
+          "created_at": "2026-08-20T01:14:16.061199+00:00",
+          "updated_at": "2026-08-20T01:14:16.061199+00:00",
+          "metadata": {
+            "experience_level": "intermediate",
+            "preferred_pacing": "steady",
+            "learning_style": "guided",
+            "goals": [
+              "Build reliably"
+            ],
+            "focus_areas": [
+              "debugging",
+              "planning"
+            ],
+            "completed_at": "2026-08-18T10:33:56.099171+00:00"
+          }
+        },
+        {
+          "id": "lesson:e76923346431497ebbb028874118dd84-m1-l1",
+          "type": "lesson",
+          "label": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+          "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+          "created_at": "2026-08-20T01:14:16.061199+00:00",
+          "updated_at": "2026-08-20T01:14:16.061199+00:00",
+          "metadata": {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+            "difficulty": null,
+            "module": null
+          }
+        },
+        {
+          "id": "exercise:e76923346431497ebbb028874118dd84-m1-l1",
+          "type": "exercise",
+          "label": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1 \u2014 Guided Response",
+          "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1 \u2014 Guided Response",
+          "created_at": "2026-08-20T01:14:16.061199+00:00",
+          "updated_at": "2026-08-20T01:14:16.061199+00:00",
+          "metadata": {
+            "prompt": "Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identify at least two recovery techniques you could apply to manage that stress effecti"
+          }
+        },
+        {
+          "id": "concept:human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+          "type": "concept",
+          "label": "human systems neurobiology stress recovery foundations lesson 1",
+          "title": "human systems neurobiology stress recovery foundations lesson 1",
+          "created_at": "2026-08-20T01:14:16.061199+00:00",
+          "updated_at": "2026-08-20T01:14:16.061199+00:00",
+          "metadata": {
+            "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+            "goals": [
+              "Build reliably"
+            ],
+            "focus_areas": [
+              "debugging",
+              "planning"
+            ]
+          }
+        },
+        {
+          "id": "outcome:e76923346431497ebbb028874118dd84-m1-l1",
+          "type": "outcome",
+          "label": "passed",
+          "title": "passed",
+          "created_at": "2026-08-20T01:14:16.061199+00:00",
+          "updated_at": "2026-08-20T01:14:16.061199+00:00",
+          "metadata": {
+            "passed": true,
+            "hint": ""
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": "lesson:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "target": "exercise:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "relation": "includes",
+          "created_at": "2026-08-17T02:35:31.032625+00:00"
+        },
+        {
+          "source": "exercise:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "target": "outcome:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "relation": "produces",
+          "created_at": "2026-08-17T02:35:31.032625+00:00"
+        },
+        {
+          "source": "lesson:d4e2929a-1e0d-49ae-8fbf-43b72c6903fe",
+          "target": "concept:lesson-1-python-environment-setup",
+          "relation": "teaches",
+          "created_at": "2026-08-17T02:35:31.032625+00:00"
+        },
+        {
+          "source": "onboarding:profile",
+          "target": "goal:build-reliably",
+          "relation": "goal",
+          "created_at": "2026-08-20T01:14:16.061199+00:00"
+        },
+        {
+          "source": "goal:build-reliably",
+          "target": "concept:lesson-1-python-environment-setup",
+          "relation": "focuses",
+          "created_at": "2026-08-17T02:35:31.032625+00:00"
+        },
+        {
+          "source": "onboarding:profile",
+          "target": "goal:build-reliably-and-efficiently",
+          "relation": "goal",
+          "created_at": "2026-08-05T07:03:27.944341+00:00"
+        },
+        {
+          "source": "goal:build-reliably-and-efficiently",
+          "target": "concept:lesson-1-python-environment-setup",
+          "relation": "focuses",
+          "created_at": "2026-08-05T07:03:27.944341+00:00"
+        },
+        {
+          "source": "lesson:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "target": "exercise:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "relation": "includes",
+          "created_at": "2026-08-18T10:33:56.127675+00:00"
+        },
+        {
+          "source": "exercise:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "target": "outcome:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "relation": "produces",
+          "created_at": "2026-08-18T10:33:56.127675+00:00"
+        },
+        {
+          "source": "lesson:761cc352d17d463dafecade2bd7527ef-m1-l1",
+          "target": "concept:emt-emergency-mgmt-foundations-lesson-1",
+          "relation": "teaches",
+          "created_at": "2026-08-18T10:33:56.127675+00:00"
+        },
+        {
+          "source": "goal:build-reliably",
+          "target": "concept:emt-emergency-mgmt-foundations-lesson-1",
+          "relation": "focuses",
+          "created_at": "2026-08-18T10:33:56.127675+00:00"
+        },
+        {
+          "source": "lesson:e76923346431497ebbb028874118dd84-m1-l1",
+          "target": "exercise:e76923346431497ebbb028874118dd84-m1-l1",
+          "relation": "includes",
+          "created_at": "2026-08-20T01:14:16.061199+00:00"
+        },
+        {
+          "source": "exercise:e76923346431497ebbb028874118dd84-m1-l1",
+          "target": "outcome:e76923346431497ebbb028874118dd84-m1-l1",
+          "relation": "produces",
+          "created_at": "2026-08-20T01:14:16.061199+00:00"
+        },
+        {
+          "source": "lesson:e76923346431497ebbb028874118dd84-m1-l1",
+          "target": "concept:human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+          "relation": "teaches",
+          "created_at": "2026-08-20T01:14:16.061199+00:00"
+        },
+        {
+          "source": "goal:build-reliably",
+          "target": "concept:human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+          "relation": "focuses",
+          "created_at": "2026-08-20T01:14:16.061199+00:00"
+        }
+      ],
+      "last_updated": "2026-08-20T01:14:16.061199+00:00"
+    },
+    "last_updated": "2026-08-20T01:14:16.061541+00:00"
+  },
+  "learner_context": {
+    "user_id": "workspace:default",
+    "streak": 1,
+    "attempts": 28,
+    "mastery": {
+      "lesson-1-python-environment-setup": 0.0,
+      "emt-emergency-mgmt-foundations-lesson-1": 0.39,
+      "human-systems-neurobiology-stress-recovery-foundations-lesson-1": 0.56
+    },
+    "confidence": {
+      "lesson-1-python-environment-setup": 0.0,
+      "emt-emergency-mgmt-foundations-lesson-1": 0.46,
+      "human-systems-neurobiology-stress-recovery-foundations-lesson-1": 0.55
+    },
+    "weakest_concepts": [
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "mastery": 0.0
+      },
+      {
+        "concept": "emt-emergency-mgmt-foundations-lesson-1",
+        "mastery": 0.39
+      },
+      {
+        "concept": "human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+        "mastery": 0.56
+      }
+    ],
+    "strongest_concepts": [
+      {
+        "concept": "human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+        "confidence": 0.55
+      },
+      {
+        "concept": "emt-emergency-mgmt-foundations-lesson-1",
+        "confidence": 0.46
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "confidence": 0.0
+      }
+    ],
+    "recommended_difficulty": "beginner",
+    "preferred_pacing": "steady",
+    "adaptive_coaching": {
+      "hint_depth": "foundational",
+      "challenge_level": "support",
+      "remediation_needed": true,
+      "coaching_tone": "step_by_step",
+      "style": "guided",
+      "pacing": "steady"
+    },
+    "latest_mastery_delta": 0.06,
+    "latest_confidence_delta": 0.05,
+    "onboarding": {
+      "experience_level": "intermediate",
+      "preferred_pacing": "steady",
+      "learning_style": "guided",
+      "goals": [
+        "Build reliably"
+      ],
+      "focus_areas": [
+        "debugging",
+        "planning"
+      ],
+      "completed_at": "2026-08-18T10:33:56.099171+00:00"
+    },
+    "memory_graph_summary": {
+      "node_count": 15,
+      "edge_count": 15,
+      "recent_nodes": [
+        {
+          "id": "goal:build-reliably",
+          "type": "goal",
+          "label": "Build reliably"
+        },
+        {
+          "id": "onboarding:profile",
+          "type": "onboarding",
+          "label": "guided"
+        },
+        {
+          "id": "lesson:e76923346431497ebbb028874118dd84-m1-l1",
+          "type": "lesson",
+          "label": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1"
+        },
+        {
+          "id": "exercise:e76923346431497ebbb028874118dd84-m1-l1",
+          "type": "exercise",
+          "label": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1 \u2014 Guided Response"
+        },
+        {
+          "id": "concept:human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+          "type": "concept",
+          "label": "human systems neurobiology stress recovery foundations lesson 1"
+        },
+        {
+          "id": "outcome:e76923346431497ebbb028874118dd84-m1-l1",
+          "type": "outcome",
+          "label": "passed"
+        }
+      ]
+    },
+    "error_patterns": {
+      "syntax_error": 1,
+      "indentation_error": 3,
+      "name_error": 1,
+      "unknown_failure": 15,
+      "assertion_error": 5,
+      "import_error": 2,
+      "passed": 1
+    },
+    "recent_outcomes": [
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 17,
+        "streak": 0,
+        "timestamp": "2026-08-05T07:13:23.080679+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 18,
+        "streak": 0,
+        "timestamp": "2026-08-05T22:30:30.593847+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 19,
+        "streak": 0,
+        "timestamp": "2026-08-06T01:35:52.746408+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 20,
+        "streak": 0,
+        "timestamp": "2026-08-06T02:24:34.343069+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 21,
+        "streak": 0,
+        "timestamp": "2026-08-12T05:58:37.673895+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 22,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:01:30.696493+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 23,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:02:30.962646+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 24,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:15:13.585695+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 25,
+        "streak": 0,
+        "timestamp": "2026-08-12T06:20:18.020548+00:00"
+      },
+      {
+        "concept": "lesson-1-python-environment-setup",
+        "passed": false,
+        "mastery_before": 0.0,
+        "mastery_after": 0.0,
+        "mastery_delta": 0.0,
+        "confidence_before": 0.0,
+        "confidence_after": 0.0,
+        "confidence_delta": 0.0,
+        "attempts": 26,
+        "streak": 0,
+        "timestamp": "2026-08-17T02:35:31.034465+00:00"
+      },
+      {
+        "concept": "emt-emergency-mgmt-foundations-lesson-1",
+        "passed": false,
+        "mastery_before": 0.5,
+        "mastery_after": 0.39,
+        "mastery_delta": -0.11,
+        "confidence_before": 0.5,
+        "confidence_after": 0.46,
+        "confidence_delta": -0.04,
+        "attempts": 27,
+        "streak": 0,
+        "timestamp": "2026-08-18T10:33:56.127794+00:00"
+      },
+      {
+        "concept": "human-systems-neurobiology-stress-recovery-foundations-lesson-1",
+        "passed": true,
+        "mastery_before": 0.5,
+        "mastery_after": 0.56,
+        "mastery_delta": 0.06,
+        "confidence_before": 0.5,
+        "confidence_after": 0.55,
+        "confidence_delta": 0.05,
+        "attempts": 28,
+        "streak": 1,
+        "timestamp": "2026-08-20T01:14:16.061489+00:00"
+      }
+    ]
+  },
+  "status": "active",
+  "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+  "curriculum_topic": "Human systems neurobiology stress recovery and resilience fundamentals. Build a practical beginner-friendly lesson track for Human Systems / Neurobiology / Stress & Recovery with safety-aware, real-world scenarios and emphasis on: Map the basics of nervous-system regulation and stress response; Explain how sleep, recovery, and environment affect cognition and behavior; Practice simple resilience habits that support calm, energy, and clear decisions.",
+  "current_exercise": {
+    "exercise_id": "86ac1c5e39ad4dce99514af6c309633a-e1",
+    "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2 \u2014 Guided Response",
+    "prompt": "Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these strategies relate to the concepts of neurobiology and human systems.",
+    "starter_files": {},
+    "starter_response": "In my recent experience of feeling overwhelmed during a project deadline, I felt anxious and unable to focus. To manage this stress, I could practice deep breathing exercises to calm my nervous system and take short breaks to engage in physical activity, which helps in releasing endorphins and improving my mood.",
+    "expected_test": "1. Clearly describes the stressful situation (1 point). 2. Identifies feelings associated with the stress (1 point). 3. Lists at least two specific stress management strategies (2 points). 4. Connects strategies to neurobiology or human systems concepts (2 points). 5. Overall clarity and coherence of the response (1 point). Total: 7 points.",
+    "generation_method": "llm",
+    "module_track": {
+      "id": "human-systems-neurobiology",
+      "label": "Human Systems / Neurobiology / Stress & Recovery",
+      "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+      "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+      "category": "Human Systems",
+      "icon": "\ud83e\udde0",
+      "lesson_type": "knowledge",
+      "outcomes": [
+        "Map the basics of nervous-system regulation and stress response",
+        "Explain how sleep, recovery, and environment affect cognition and behavior",
+        "Practice simple resilience habits that support calm, energy, and clear decisions"
+      ],
+      "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+    },
+    "lesson_type": "knowledge",
+    "submission_mode": "text",
+    "category": "Human Systems",
+    "icon": "\ud83e\udde0",
+    "lesson_summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+    "teaching_points": [
+      "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+      "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+      "Map the basics of nervous-system regulation and stress response",
+      "Explain how sleep, recovery, and environment affect cognition and behavior",
+      "Practice simple resilience habits that support calm, energy, and clear decisions"
+    ],
+    "lesson_body": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+    "lesson_examples": [
+      "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+      "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+      "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+    ],
+    "lesson_source": "llm_generated"
+  },
+  "curriculum": {
+    "curriculum_id": "e76923346431497ebbb028874118dd84",
+    "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Short Curriculum",
+    "subject": "Human Systems / Neurobiology / Stress & Recovery",
+    "generated_at": "2026-08-20T00:58:59.941885+00:00",
+    "source": "llm_or_template_fallback",
+    "modules": [
+      {
+        "module_id": "e76923346431497ebbb028874118dd84-m1",
+        "title": "Module 1: Foundations",
+        "lessons": [
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+            "content": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+            "teaching_points": [
+              "Understanding the stress response: fight or flight",
+              "The role of the autonomic nervous system in stress management",
+              "Recognizing signs of stress in oneself and others",
+              "Basic recovery techniques: deep breathing, mindfulness, and physical activity"
+            ],
+            "examples": [
+              "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+              "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+              "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+            ]
+          },
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+            "content": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+            "teaching_points": [
+              "Understand the physiological response to stress and its impact on health.",
+              "Recognize the importance of recovery in maintaining overall well-being.",
+              "Learn practical techniques for managing stress effectively."
+            ],
+            "examples": [
+              "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+              "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+              "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+            ]
+          },
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m1-l3",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 3",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson provides a foundational understanding of how stress affects the human body and the importance of recovery. Students will learn about the physiological responses to stress and practical strategies for managing stress effectively.",
+            "content": "In this lesson, we will explore the concept of stress and its impact on the human body. Stress triggers a series of physiological responses, often referred to as the 'fight or flight' response, which can affect our mental and physical health. Understanding these responses is crucial for developing effective recovery strategies. We will also discuss practical techniques such as deep breathing, mindfulness, and physical activity that can help manage stress levels in everyday situations.",
+            "teaching_points": [
+              "Understanding the physiological response to stress, including the role of hormones like cortisol and adrenaline.",
+              "Recognizing the signs of stress in oneself and others.",
+              "Learning practical stress management techniques that can be easily integrated into daily life."
+            ],
+            "examples": [
+              "When feeling overwhelmed by a deadline, taking a few minutes to practice deep breathing can help calm the mind and body.",
+              "If you notice a friend becoming anxious before a presentation, suggesting a quick walk or some light stretching can help reduce their stress levels.",
+              "Incorporating a short mindfulness meditation into your daily routine can improve overall resilience to stress."
+            ]
+          }
+        ],
+        "estimated_minutes": 72
+      },
+      {
+        "module_id": "e76923346431497ebbb028874118dd84-m2",
+        "title": "Module 2: Core Skills",
+        "lessons": [
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m2-l1",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Core Skills Lesson 1",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for core skills work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson introduces the fundamental concepts of Human Systems, focusing on neurobiology, stress, and recovery. It emphasizes practical understanding and the development of essential skills for managing stress and promoting recovery.",
+            "content": "In this lesson, we will explore how stress affects the human body and mind, and the importance of recovery. We will discuss the neurobiological processes involved in stress response and recovery, including the role of the brain and hormones. Additionally, we will cover practical techniques for managing stress, such as mindfulness and breathing exercises, which can be easily integrated into daily life.",
+            "teaching_points": [
+              "Understanding the stress response and its effects on the body",
+              "Recognizing the importance of recovery for mental and physical health",
+              "Learning practical techniques for stress management"
+            ],
+            "examples": [
+              "When feeling overwhelmed at work, take a 5-minute break to practice deep breathing exercises.",
+              "After a stressful day, engage in a relaxing activity such as reading or taking a walk to promote recovery."
+            ]
+          },
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m2-l2",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Core Skills Lesson 2",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for core skills work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson introduces the core skills necessary for understanding stress and recovery in human systems. It emphasizes practical applications and safe judgment in everyday scenarios.",
+            "content": "In this lesson, we will explore the basic concepts of stress and recovery within the human body. We will discuss how stress affects our neurobiology and the importance of recovery techniques. By the end of this lesson, you will understand how to recognize stress signals in yourself and others, and you will learn simple recovery strategies that can be applied in daily life.",
+            "teaching_points": [
+              "Understanding the physiological response to stress",
+              "Recognizing signs of stress in yourself and others",
+              "Learning basic recovery techniques such as deep breathing and mindfulness"
+            ],
+            "examples": [
+              "When feeling overwhelmed at work, take a moment to practice deep breathing: inhale for four counts, hold for four counts, and exhale for four counts.",
+              "If a friend seems anxious, suggest a short walk outside to help them clear their mind and reduce stress."
+            ]
+          },
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m2-l3",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Core Skills Lesson 3",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for core skills work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson introduces the fundamental concepts of stress and recovery within human systems and neurobiology. It emphasizes practical applications and the importance of understanding these concepts in everyday situations.",
+            "content": "In this lesson, we will explore how stress affects the human body and mind, and the mechanisms of recovery. We will discuss the physiological responses to stress, such as the fight-or-flight response, and the importance of recovery practices like mindfulness and deep breathing. By understanding these concepts, you can better manage stress in your own life and support others in their recovery processes.",
+            "teaching_points": [
+              "Understanding the physiological effects of stress on the body.",
+              "Recognizing the signs of stress and the importance of recovery.",
+              "Practicing simple stress-reduction techniques."
+            ],
+            "examples": [
+              "When feeling overwhelmed at work, take a 5-minute break to practice deep breathing.",
+              "If you notice a friend is stressed, suggest a short walk outside to help clear their mind.",
+              "In a tense situation, use the 4-7-8 breathing technique to calm your nervous system."
+            ]
+          }
+        ],
+        "estimated_minutes": 87
+      },
+      {
+        "module_id": "e76923346431497ebbb028874118dd84-m3",
+        "title": "Module 3: Application",
+        "lessons": [
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m3-l1",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Application Lesson 1",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for application work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson introduces the fundamental concepts of stress and recovery within human systems and neurobiology. It emphasizes practical applications of these concepts in everyday situations, helping learners understand how to manage stress effectively.",
+            "content": "In this lesson, we will explore how stress affects the human body and mind, and the importance of recovery. We will discuss the physiological responses to stress, such as the fight-or-flight response, and how recovery techniques can help restore balance. Practical strategies for managing stress will be introduced, including mindfulness, deep breathing, and physical activity.",
+            "teaching_points": [
+              "Understanding the body's stress response",
+              "Recognizing signs of stress in oneself and others",
+              "Implementing basic stress management techniques",
+              "The role of recovery in maintaining mental and physical health"
+            ],
+            "examples": [
+              "When feeling overwhelmed by work, take a 5-minute break to practice deep breathing.",
+              "If you notice a friend is stressed, suggest going for a short walk together to help them relax.",
+              "After a stressful day, engage in a calming activity like reading or meditating to promote recovery."
+            ]
+          },
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m3-l2",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Application Lesson 2",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for application work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson introduces key concepts of stress and recovery in human systems, focusing on how to apply these concepts in everyday situations. Students will learn practical techniques to manage stress and promote recovery.",
+            "content": "In this lesson, we will explore the physiological and psychological aspects of stress and recovery. We will discuss the body's stress response, including the fight-or-flight mechanism, and how chronic stress can impact health. Additionally, we will cover practical recovery strategies such as mindfulness, deep breathing exercises, and the importance of sleep. Students will engage in activities that promote understanding and application of these concepts in real-life scenarios.",
+            "teaching_points": [
+              "Understanding the body's response to stress",
+              "Recognizing the signs of stress and its effects on health",
+              "Learning practical recovery techniques",
+              "Applying stress management strategies in daily life"
+            ],
+            "examples": [
+              "Practice a 5-minute deep breathing exercise to reduce immediate stress.",
+              "Identify personal stress triggers and discuss them in small groups.",
+              "Create a simple daily routine that includes time for relaxation and recovery."
+            ]
+          },
+          {
+            "lesson_id": "e76923346431497ebbb028874118dd84-m3-l3",
+            "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Application Lesson 3",
+            "objectives": [
+              "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for application work",
+              "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+            ],
+            "estimated_minutes": 20,
+            "source": "llm_generated",
+            "exercise_generation_mode": "llm_preferred",
+            "_chunks": [],
+            "summary": "This lesson introduces students to the practical applications of neurobiology concepts related to stress and recovery. Students will learn how to identify stressors and apply recovery techniques in everyday situations.",
+            "content": "In this lesson, we will explore how stress affects our bodies and minds, and how we can use recovery techniques to manage stress effectively. We will discuss the physiological responses to stress, such as the fight-or-flight response, and how these responses can impact our health. Additionally, we will introduce practical strategies for recovery, including mindfulness, deep breathing exercises, and physical activity. Students will engage in a scenario where they will identify stressors in a given situation and apply recovery techniques to manage their stress.",
+            "teaching_points": [
+              "Understanding the physiological effects of stress on the human body.",
+              "Recognizing common stressors in daily life.",
+              "Learning practical recovery techniques to manage stress."
+            ],
+            "examples": [
+              "A student feels overwhelmed by upcoming exams. They can use deep breathing exercises to calm their nerves before studying.",
+              "An employee experiences stress from a heavy workload. They can take short breaks to practice mindfulness and recharge their focus.",
+              "A parent feels stressed from balancing work and family responsibilities. Engaging in physical activity, like a quick walk, can help alleviate stress."
+            ]
+          }
+        ],
+        "estimated_minutes": 102
+      }
+    ],
+    "estimated_total_minutes": 261
+  },
+  "current_lesson": {
+    "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+    "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+    "objectives": [
+      "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+      "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+    ],
+    "estimated_minutes": 20,
+    "source": "llm_generated",
+    "exercise_generation_mode": "llm_preferred",
+    "_chunks": [],
+    "summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+    "content": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+    "teaching_points": [
+      "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+      "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+      "Map the basics of nervous-system regulation and stress response",
+      "Explain how sleep, recovery, and environment affect cognition and behavior",
+      "Practice simple resilience habits that support calm, energy, and clear decisions"
+    ],
+    "examples": [
+      "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+      "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+      "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+    ],
+    "module_track": {
+      "id": "human-systems-neurobiology",
+      "label": "Human Systems / Neurobiology / Stress & Recovery",
+      "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+      "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+      "category": "Human Systems",
+      "icon": "\ud83e\udde0",
+      "lesson_type": "knowledge",
+      "outcomes": [
+        "Map the basics of nervous-system regulation and stress response",
+        "Explain how sleep, recovery, and environment affect cognition and behavior",
+        "Practice simple resilience habits that support calm, energy, and clear decisions"
+      ],
+      "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+    },
+    "lesson_type": "knowledge",
+    "category": "Human Systems",
+    "icon": "\ud83e\udde0",
+    "content_source": "llm_generated"
+  },
+  "curriculum_id": "e76923346431497ebbb028874118dd84",
+  "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+  "lesson_plan": {
+    "focus_concept": null,
+    "suggested_topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+    "difficulty": "intermediate",
+    "pacing": "steady",
+    "rationale": "The learner profile is still emerging, so ATLAS will keep the next lesson broad and supportive.",
+    "weakest_concepts": [],
+    "onboarding": {
+      "experience_level": "unknown",
+      "preferred_pacing": "gentle",
+      "learning_style": "guided",
+      "goals": [],
+      "focus_areas": [],
+      "completed_at": null
+    },
+    "module_track": {
+      "id": "human-systems-neurobiology",
+      "label": "Human Systems / Neurobiology / Stress & Recovery",
+      "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+      "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+      "category": "Human Systems",
+      "icon": "\ud83e\udde0",
+      "lesson_type": "knowledge",
+      "outcomes": [
+        "Map the basics of nervous-system regulation and stress response",
+        "Explain how sleep, recovery, and environment affect cognition and behavior",
+        "Practice simple resilience habits that support calm, energy, and clear decisions"
+      ],
+      "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+    },
+    "curriculum_topic": "Human systems neurobiology stress recovery and resilience fundamentals. Build a practical beginner-friendly lesson track for Human Systems / Neurobiology / Stress & Recovery with safety-aware, real-world scenarios and emphasis on: Map the basics of nervous-system regulation and stress response; Explain how sleep, recovery, and environment affect cognition and behavior; Practice simple resilience habits that support calm, energy, and clear decisions."
+  },
+  "module_id": "human-systems-neurobiology",
+  "active_module": {
+    "id": "human-systems-neurobiology",
+    "label": "Human Systems / Neurobiology / Stress & Recovery",
+    "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+    "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+    "category": "Human Systems",
+    "icon": "\ud83e\udde0",
+    "lesson_type": "knowledge",
+    "outcomes": [
+      "Map the basics of nervous-system regulation and stress response",
+      "Explain how sleep, recovery, and environment affect cognition and behavior",
+      "Practice simple resilience habits that support calm, energy, and clear decisions"
+    ],
+    "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+  },
+  "last_submission": {
+    "passed": true,
+    "recommendation": "increase",
+    "hint": "Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+    "result": {
+      "passed": true,
+      "stdout": "Keyword hits: work",
+      "stderr": ""
+    },
+    "exercise_id": "6beef61b854d422c9a8733656ff114fb-e1",
+    "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+    "submission_mode": "text",
+    "score": 0.64
+  },
+  "chat_history": [
+    {
+      "role": "user",
+      "message": "atlas will you turn this section into flashcards?",
+      "created_at": "2026-08-20T01:26:10.623667+00:00",
+      "mode": "tutor",
+      "page": "lessons"
+    },
+    {
+      "role": "assistant",
+      "message": "1) **Diagnosis**: It seems you want to create flashcards based on the concepts from the lesson on Human Systems / Neurobiology / Stress & Recovery. This is a great way to reinforce your understanding and retention of the material.\n\n2) **Next Concrete Step**: Start by identifying key concepts or terms from the lesson that you want to include in your flashcards. For example, you might focus on definitions, key processes, or strategies related to stress and recovery.\n\n3) **Short Example**: Here\u2019s how you might structure a flashcard:\n\n   - **Front**: \"What is the stress response?\"\n   - **Back**: \"The stress response is a physiological reaction that occurs in response to perceived threats, involving the release of hormones like cortisol and adrenaline, which prepare the body for 'fight or flight.'\"\n\nOnce you have a few key concepts, you can create additional flashcards in a similar format. Would you like help identifying specific concepts to include?",
+      "created_at": "2026-08-20T01:26:27.040824+00:00",
+      "adapter": "openai",
+      "model": "gpt-4o-mini",
+      "mode": "tutor"
+    },
+    {
+      "role": "user",
+      "message": "yes please provide some top tier flashcard key concepts please!",
+      "created_at": "2026-08-20T01:27:42.589988+00:00",
+      "mode": "tutor",
+      "page": "lessons"
+    },
+    {
+      "role": "assistant",
+      "message": "1) **Diagnosis**: It seems you're looking for key concepts related to Human Systems / Neurobiology / Stress & Recovery that can help you create effective flashcards. This will reinforce your understanding and retention of the material.\n\n2) **Next Concrete Step**: Focus on identifying and summarizing key concepts from the lesson. Here are some areas to consider for your flashcards:\n   - **Stress Response**: Understand the physiological and psychological effects of stress on the body.\n   - **Neurobiology of Stress**: Explore how the brain and nervous system respond to stress.\n   - **Recovery Techniques**: Identify specific strategies for managing stress, such as mindfulness, exercise, and deep breathing.\n   - **Human Systems Perspective**: Consider how stress impacts overall human systems, including emotional, cognitive, and physical health.\n\n3) **Short Example**: For a flashcard, you might write:\n   - **Front**: \"What are the physiological effects of stress on the body?\"\n   - **Back**: \"Increased heart rate, elevated cortisol levels, muscle tension, and altered immune response.\"\n\nUse these concepts to create your flashcards, ensuring each one captures a key idea from the lesson. This will help solidify your understanding and prepare you for practical applications.",
+      "created_at": "2026-08-20T01:27:58.545978+00:00",
+      "adapter": "openai",
+      "model": "gpt-4o-mini",
+      "mode": "tutor"
+    }
+  ],
+  "mammoth_chat_history": [
+    {
+      "role": "user",
+      "message": "so i want to make the lesson delivery a little more tight... like i need to do some testing but it does seem that it starts with an exercise and doesnt really do any of the actual study or delivery of the lesson first.. which i assume is because its a tutor not a teacher.. but can we make it do like actual information or lesson delivery as well as the exercises and quizes stuff..? does that make sense? it goes straight to an exercise without providing any context on the subject first..",
+      "created_at": "2026-08-20T02:24:35.148735+00:00",
+      "agent_id": "assistant",
+      "mode": "chat",
+      "page": "chat"
+    },
+    {
+      "role": "assistant",
+      "message": "### Quick Read\nYou want to enhance the lesson delivery by incorporating a structured information delivery before jumping into exercises and quizzes. This will provide learners with the necessary context and foundational knowledge.\n\n### What I'm Seeing\n- Current flow: Starts with an exercise.\n- Desired flow: Introduce lesson content first, followed by exercises and quizzes.\n- Context: The system is designed more like a tutor, which may skip direct lesson delivery.\n\n### Next Move\n1. **Define Lesson Structure**: Create a clear outline for each lesson that includes:\n   - Introduction to the topic\n   - Key concepts and information\n   - Examples or explanations\n   - Exercises and quizzes\n\n2. **Modify Content Delivery Logic**:\n   - Adjust the algorithm to first present the lesson content.\n   - Ensure that the transition to exercises is smooth and logically follows the content.\n\n3. **Testing**: Implement a testing phase to gather feedback on the new structure. Look for:\n   - Engagement levels\n   - Understanding and retention of information\n   - User satisfaction with the new flow\n\n4. **Iterate**: Based on feedback, refine the lesson delivery further to ensure it meets educational goals.\n\nLet\u2019s tighten up that delivery and get those learners ready to charge ahead! \ud83e\udda3",
+      "created_at": "2026-08-20T02:24:49.752405+00:00",
+      "agent_id": "assistant",
+      "mode": "chat",
+      "adapter": "openai",
+      "model": "gpt-4o-mini",
+      "thought_steps": [
+        {
+          "ts": "2026-08-20T02:24:35.148760+00:00",
+          "label": "Hearing hoofbeats",
+          "detail": "agent=assistant mode=chat",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-20T02:24:35.148769+00:00",
+          "label": "Bribing the hamster",
+          "detail": "Spinning up MammothOS reasoning lanes",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-20T02:24:35.148854+00:00",
+          "label": "Consulting the herd",
+          "detail": "Running native MammothOS assistant response",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-20T02:24:45.674199+00:00",
+          "label": "Tusks charged",
+          "detail": "adapter=openai model=gpt-4o-mini",
+          "status": "success"
+        }
+      ],
+      "task_id": "",
+      "dispatched": false,
+      "evidence_items": [
+        {
+          "agent_id": "assistant",
+          "summary": "### Quick Read\nYou want to enhance the lesson delivery by incorporating a structured information delivery before jumping into exercises and quizzes. This will provide learners with the necessary context and foundational knowledge.\n\n### What I'm Seeing\n- Current flow: Starts with an exercise.\n- Desired flow: Introduce lesson content first, followed by exercises and quizzes.\n- Context: The system is designed more like a tutor, which may skip direct lesson delivery.\n\n### Next Move\n1. **Define Lesson Structure**: Create a clear outline for each lesson that includes:\n   - Introduction to the topic\n   - Key concepts and information\n   - Examples or explanations\n   - Exercises and quizzes\n\n2. **Modify Content Delivery Logic**:\n   - Adjust the algorithm to first present the lesson content.\n   - Ensure that the transition to exercises is smooth and logically follows the content.\n\n3. **Testing**: Implement a testing phase to gather feedback on the new structure. Look for:\n   - Engagement levels\n   - Understanding and retention of information\n   - User satisfaction with the new flow\n\n4. **Iterate**: Based on feedback, refine the lesson delivery further to ensure it meets educational goals.\n\nLet\u2019s tighten up that delivery and get those learners ready to charge ahead! \ud83e\udda3",
+          "source": "native-chat"
+        }
+      ],
+      "orchestrated": false,
+      "runtime_status": {
+        "state": "ready",
+        "degraded_mode": false,
+        "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+        "next_action": "Continue with the current provider path.",
+        "active_adapter": "openai",
+        "active_model": "gpt-4o-mini",
+        "providers": [
+          {
+            "provider": "deepseek",
+            "status": "ready",
+            "available": true,
+            "detail": "DeepSeek cloud reasoning"
+          },
+          {
+            "provider": "openai",
+            "status": "ready",
+            "available": true,
+            "detail": "OpenAI chat/runtime"
+          },
+          {
+            "provider": "ollama",
+            "status": "ready",
+            "available": true,
+            "detail": "http://localhost:11434"
+          },
+          {
+            "provider": "local",
+            "status": "ready",
+            "available": true,
+            "detail": "Local echo fallback"
+          }
+        ],
+        "available_providers": [
+          "deepseek",
+          "openai",
+          "ollama",
+          "local"
+        ],
+        "fallback_chain": [
+          "deepseek",
+          "openai",
+          "ollama",
+          "local"
+        ],
+        "recommendation": "openai is ready",
+        "summary": {
+          "openai_key_present": true,
+          "deepseek_key_present": true,
+          "ollama_running": true
+        }
+      },
+      "runtime_notice": null
+    },
+    {
+      "role": "user",
+      "message": "how would YOU tighten this up? like what would you change from the current layout?",
+      "created_at": "2026-08-20T02:27:01.351396+00:00",
+      "agent_id": "assistant",
+      "mode": "chat",
+      "page": "chat"
+    },
+    {
+      "role": "assistant",
+      "message": "### Quick Read\nTo tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### What I'm Seeing\n- Current layout lacks a clear introduction to the lesson topic.\n- Immediate exercises can lead to confusion or lack of engagement.\n- A more traditional educational flow could enhance understanding and retention.\n\n### Next Move\n1. **Revise Structure**:\n   - **Introduction Phase**: Start with a brief overview of the lesson topic. This could include key concepts, objectives, and real-world applications.\n   - **Content Delivery**: Follow the introduction with a concise lesson delivery\u2014text, videos, or interactive elements that explain the material.\n   - **Engagement Phase**: Introduce exercises and quizzes after the content delivery to reinforce learning.\n\n2. **Feedback Loop**:\n   - Implement a mechanism for learners to ask questions or clarify doubts after the content delivery but before exercises.\n\n3. **Iterate and Test**:\n   - Run a few test sessions with the new layout to gather feedback on engagement and understanding. Adjust based on learner responses.\n\n4. **Visual Aids**:\n   - Consider adding visual aids or infographics during the lesson delivery to break up text and enhance comprehension.\n\nBy reworking the layout this way, you\u2019ll create a more cohesive learning experience that builds knowledge before testing skills. Let\u2019s charge those tusks and get this lesson delivery roaring! \ud83d\udc18",
+      "created_at": "2026-08-20T02:27:12.012415+00:00",
+      "agent_id": "assistant",
+      "mode": "chat",
+      "adapter": "openai",
+      "model": "gpt-4o-mini",
+      "thought_steps": [
+        {
+          "ts": "2026-08-20T02:27:01.351433+00:00",
+          "label": "Hearing hoofbeats",
+          "detail": "agent=assistant mode=chat",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-20T02:27:01.351460+00:00",
+          "label": "Bribing the hamster",
+          "detail": "Spinning up MammothOS reasoning lanes",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-20T02:27:01.351532+00:00",
+          "label": "Consulting the herd",
+          "detail": "Running native MammothOS assistant response",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-20T02:27:07.944996+00:00",
+          "label": "Tusks charged",
+          "detail": "adapter=openai model=gpt-4o-mini",
+          "status": "success"
+        }
+      ],
+      "task_id": "",
+      "dispatched": false,
+      "evidence_items": [
+        {
+          "agent_id": "assistant",
+          "summary": "### Quick Read\nTo tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### What I'm Seeing\n- Current layout lacks a clear introduction to the lesson topic.\n- Immediate exercises can lead to confusion or lack of engagement.\n- A more traditional educational flow could enhance understanding and retention.\n\n### Next Move\n1. **Revise Structure**:\n   - **Introduction Phase**: Start with a brief overview of the lesson topic. This could include key concepts, objectives, and real-world applications.\n   - **Content Delivery**: Follow the introduction with a concise lesson delivery\u2014text, videos, or interactive elements that explain the material.\n   - **Engagement Phase**: Introduce exercises and quizzes after the content delivery to reinforce learning.\n\n2. **Feedback Loop**:\n   - Implement a mechanism for learners to ask questions or clarify doubts after the content delivery but before exercises.\n\n3. **Iterate and Test**:\n   - Run a few test sessions with the new layout to gather feedback on engagement and understanding. Adjust based on learner responses.\n\n4. **Visual Aids**:\n   - Consider adding visual aids or infographics during the lesson delivery to break up text and enhance comprehension.\n\nBy reworking the layout this way, you\u2019ll create a more cohesive learning experience that builds knowledge before testing skills. Let\u2019s charge those tusks and get this lesson delivery roaring! \ud83d\udc18",
+          "source": "native-chat"
+        }
+      ],
+      "orchestrated": false,
+      "runtime_status": {
+        "state": "ready",
+        "degraded_mode": false,
+        "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+        "next_action": "Continue with the current provider path.",
+        "active_adapter": "openai",
+        "active_model": "gpt-4o-mini",
+        "providers": [
+          {
+            "provider": "deepseek",
+            "status": "ready",
+            "available": true,
+            "detail": "DeepSeek cloud reasoning"
+          },
+          {
+            "provider": "openai",
+            "status": "ready",
+            "available": true,
+            "detail": "OpenAI chat/runtime"
+          },
+          {
+            "provider": "ollama",
+            "status": "ready",
+            "available": true,
+            "detail": "http://localhost:11434"
+          },
+          {
+            "provider": "local",
+            "status": "ready",
+            "available": true,
+            "detail": "Local echo fallback"
+          }
+        ],
+        "available_providers": [
+          "deepseek",
+          "openai",
+          "ollama",
+          "local"
+        ],
+        "fallback_chain": [
+          "deepseek",
+          "openai",
+          "ollama",
+          "local"
+        ],
+        "recommendation": "openai is ready",
+        "summary": {
+          "openai_key_present": true,
+          "deepseek_key_present": true,
+          "ollama_running": true
+        }
+      },
+      "runtime_notice": null
+    }
+  ],
+  "resume_packet": {
+    "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+    "lesson_title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+    "summary": "Welcome back to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s). Latest submission passed. Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+    "prior_work_summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s), and last attempt passed. Prompt focus: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies  Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+    "objectives": [
+      "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+      "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+    ],
+    "notes": [
+      {
+        "id": "cbf6610a-0e5d-4e5b-932a-b38e928dfd85",
+        "title": "To tighten up the lesson delivery, I\u2019d suggest a structured approach tha",
+        "preview": "To tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### W",
+        "updated_at": "2026-08-20T02:39:13.292263+00:00"
+      },
+      {
+        "id": "5dc841da-3737-4161-bc1b-8ac570fb4610",
+        "title": "add a version of atlas that when you install ATLAS it will do the onboar",
+        "preview": "add a version of atlas that when you install ATLAS it will do the onboarding with the user then build the app around the user onboarding and continuously improve it and make changes based on evolution of the user",
+        "updated_at": "2026-08-18T21:59:16.091608+00:00"
+      }
+    ],
+    "flashcards": [
+      {
+        "id": "obj-1",
+        "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work)",
+        "back": "Explain Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work in your own words, then write one tiny example that demonstrates it."
+      },
+      {
+        "id": "obj-2",
+        "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario)",
+        "back": "Explain Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario in your own words, then write one tiny example that demonstrates it."
+      },
+      {
+        "id": "exercise-plan",
+        "front": "What is your plan before coding this exercise?",
+        "back": "Summarize the input/output, then list 2-3 steps to solve this prompt: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these"
+      }
+    ],
+    "resource_counts": {
+      "notes": 2,
+      "flashcards": 3,
+      "total": 5
+    },
+    "latest_activity_at": "2026-08-20T01:14:37.460094+00:00",
+    "has_resources": true
+  },
+  "lesson_history": [
+    {
+      "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+      "lesson": {
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+        "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+        "objectives": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+        ],
+        "estimated_minutes": 20,
+        "source": "llm_generated",
+        "exercise_generation_mode": "llm_preferred",
+        "_chunks": [],
+        "summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+        "content": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+        "teaching_points": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+          "Map the basics of nervous-system regulation and stress response",
+          "Explain how sleep, recovery, and environment affect cognition and behavior",
+          "Practice simple resilience habits that support calm, energy, and clear decisions"
+        ],
+        "examples": [
+          "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+          "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+          "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+        ],
+        "module_track": {
+          "id": "human-systems-neurobiology",
+          "label": "Human Systems / Neurobiology / Stress & Recovery",
+          "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+          "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+          "category": "Human Systems",
+          "icon": "\ud83e\udde0",
+          "lesson_type": "knowledge",
+          "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions"
+          ],
+          "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+        },
+        "lesson_type": "knowledge",
+        "category": "Human Systems",
+        "icon": "\ud83e\udde0",
+        "content_source": "llm_generated"
+      },
+      "exercise": {
+        "exercise_id": "6beef61b854d422c9a8733656ff114fb-e1",
+        "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1 \u2014 Guided Response",
+        "prompt": "Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identify at least two recovery techniques you could apply to manage that stress effectively. Be specific about how you would implement these techniques in your daily life.",
+        "starter_files": {},
+        "starter_response": "In my recent experience during a presentation at work, I noticed my heart racing and my palms sweating. I felt anxious and had trouble concentrating. To manage this stress, I could practice deep breathing for five minutes before the presentation to calm my nerves. Additionally, I could take a short walk during my lunch break to clear my mind and reduce anxiety.",
+        "expected_test": "1. Did the response identify a specific stressful situation? (Yes/No) 2. Did the response describe physical signs of stress? (Yes/No) 3. Did the response describe emotional signs of stress? (Yes/No) 4. Did the response identify at least two recovery techniques? (Yes/No) 5. Did the response provide specific details on how to implement these techniques in daily life? (Yes/No) 6. Overall clarity and coherence of the response (1-5 scale)",
+        "generation_method": "llm",
+        "lesson": {
+          "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+          "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+          "objectives": [
+            "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+            "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+          ],
+          "estimated_minutes": 20,
+          "source": "llm_generated",
+          "exercise_generation_mode": "llm_preferred",
+          "_chunks": [],
+          "summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+          "content": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+          "teaching_points": [
+            "Understanding the stress response: fight or flight",
+            "The role of the autonomic nervous system in stress management",
+            "Recognizing signs of stress in oneself and others",
+            "Basic recovery techniques: deep breathing, mindfulness, and physical activity"
+          ],
+          "examples": [
+            "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+            "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+            "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+          ]
+        },
+        "curriculum_id": "e76923346431497ebbb028874118dd84",
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+        "module_track": {
+          "id": "human-systems-neurobiology",
+          "label": "Human Systems / Neurobiology / Stress & Recovery",
+          "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+          "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+          "category": "Human Systems",
+          "icon": "\ud83e\udde0",
+          "lesson_type": "knowledge",
+          "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions"
+          ],
+          "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+        },
+        "lesson_type": "knowledge",
+        "submission_mode": "text",
+        "category": "Human Systems",
+        "icon": "\ud83e\udde0",
+        "lesson_summary": "This lesson provides a foundational understanding of how human systems respond to stress and the importance of recovery. It emphasizes practical applications and safe practices for managing stress in everyday life.",
+        "teaching_points": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+          "Map the basics of nervous-system regulation and stress response",
+          "Explain how sleep, recovery, and environment affect cognition and behavior",
+          "Practice simple resilience habits that support calm, energy, and clear decisions"
+        ],
+        "lesson_body": "In this lesson, we will explore the basic concepts of stress and recovery within the context of human neurobiology. We will discuss how stress affects our bodies and minds, the physiological responses involved, and the importance of recovery for overall health. We will also introduce simple techniques to manage stress effectively.",
+        "lesson_examples": [
+          "When you feel your heart racing before a big presentation, your body is in a stress response. Recognizing this can help you take steps to calm down.",
+          "Practicing deep breathing for five minutes when feeling overwhelmed can significantly reduce stress levels.",
+          "Taking a short walk outside can help clear your mind and reduce stress after a long day."
+        ],
+        "lesson_source": "llm_generated"
+      },
+      "created_at": "2026-08-20T01:00:10.675143+00:00",
+      "updated_at": "2026-08-20T01:14:16.064273+00:00",
+      "summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1. You previously worked on 2 objective(s), and you explored this lesson earlier. Prompt focus: Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identif",
+      "last_submission": {
+        "passed": true,
+        "recommendation": "increase",
+        "hint": "Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+        "result": {
+          "passed": true,
+          "stdout": "Keyword hits: work",
+          "stderr": ""
+        },
+        "exercise_id": "6beef61b854d422c9a8733656ff114fb-e1",
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+        "submission_mode": "text",
+        "score": 0.64
+      },
+      "study_aid_count": 4,
+      "resume_packet": {
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l1",
+        "lesson_title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1",
+        "summary": "Welcome back to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1. You previously worked on 2 objective(s). Latest submission passed. Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+        "prior_work_summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1. You previously worked on 2 objective(s), and you explored this lesson earlier. Prompt focus: Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identif",
+        "objectives": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+        ],
+        "notes": [
+          {
+            "id": "5dc841da-3737-4161-bc1b-8ac570fb4610",
+            "title": "add a version of atlas that when you install ATLAS it will do the onboar",
+            "preview": "add a version of atlas that when you install ATLAS it will do the onboarding with the user then build the app around the user onboarding and continuously improve it and make changes based on evolution of the user",
+            "updated_at": "2026-08-18T21:59:16.091608+00:00"
+          }
+        ],
+        "flashcards": [
+          {
+            "id": "obj-1",
+            "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1: What does this objective mean? (Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work)",
+            "back": "Explain Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work in your own words, then write one tiny example that demonstrates it."
+          },
+          {
+            "id": "obj-2",
+            "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 1: What does this objective mean? (Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario)",
+            "back": "Explain Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario in your own words, then write one tiny example that demonstrates it."
+          },
+          {
+            "id": "exercise-plan",
+            "front": "What is your plan before coding this exercise?",
+            "back": "Summarize the input/output, then list 2-3 steps to solve this prompt: Reflect on a recent situation where you experienced stress. Describe the physical and emotional signs you noticed in yourself. Then, identify at least two recovery techniques you could apply to manage that stress effecti"
+          }
+        ],
+        "resource_counts": {
+          "notes": 1,
+          "flashcards": 3,
+          "total": 4
+        },
+        "latest_activity_at": "2026-08-20T01:14:16.064273+00:00",
+        "has_resources": true
+      },
+      "sequence": 0
+    },
+    {
+      "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+      "lesson": {
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+        "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+        "objectives": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+        ],
+        "estimated_minutes": 20,
+        "source": "llm_generated",
+        "exercise_generation_mode": "llm_preferred",
+        "_chunks": [],
+        "summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+        "content": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+        "teaching_points": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+          "Map the basics of nervous-system regulation and stress response",
+          "Explain how sleep, recovery, and environment affect cognition and behavior",
+          "Practice simple resilience habits that support calm, energy, and clear decisions"
+        ],
+        "examples": [
+          "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+          "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+          "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+        ],
+        "module_track": {
+          "id": "human-systems-neurobiology",
+          "label": "Human Systems / Neurobiology / Stress & Recovery",
+          "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+          "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+          "category": "Human Systems",
+          "icon": "\ud83e\udde0",
+          "lesson_type": "knowledge",
+          "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions"
+          ],
+          "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+        },
+        "lesson_type": "knowledge",
+        "category": "Human Systems",
+        "icon": "\ud83e\udde0",
+        "content_source": "llm_generated"
+      },
+      "exercise": {
+        "exercise_id": "86ac1c5e39ad4dce99514af6c309633a-e1",
+        "title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2 \u2014 Guided Response",
+        "prompt": "Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these strategies relate to the concepts of neurobiology and human systems.",
+        "starter_files": {},
+        "starter_response": "In my recent experience of feeling overwhelmed during a project deadline, I felt anxious and unable to focus. To manage this stress, I could practice deep breathing exercises to calm my nervous system and take short breaks to engage in physical activity, which helps in releasing endorphins and improving my mood.",
+        "expected_test": "1. Clearly describes the stressful situation (1 point). 2. Identifies feelings associated with the stress (1 point). 3. Lists at least two specific stress management strategies (2 points). 4. Connects strategies to neurobiology or human systems concepts (2 points). 5. Overall clarity and coherence of the response (1 point). Total: 7 points.",
+        "generation_method": "llm",
+        "module_track": {
+          "id": "human-systems-neurobiology",
+          "label": "Human Systems / Neurobiology / Stress & Recovery",
+          "topic": "Human systems neurobiology stress recovery and resilience fundamentals",
+          "summary": "Understand how stress, nervous system regulation, and recovery shape human performance and well-being.",
+          "category": "Human Systems",
+          "icon": "\ud83e\udde0",
+          "lesson_type": "knowledge",
+          "outcomes": [
+            "Map the basics of nervous-system regulation and stress response",
+            "Explain how sleep, recovery, and environment affect cognition and behavior",
+            "Practice simple resilience habits that support calm, energy, and clear decisions"
+          ],
+          "operator_note": "Keep the discovery grounded in human biology, not hype. Emphasize safety, recovery, and sustainable habits."
+        },
+        "lesson_type": "knowledge",
+        "submission_mode": "text",
+        "category": "Human Systems",
+        "icon": "\ud83e\udde0",
+        "lesson_summary": "This lesson provides an introduction to the fundamental concepts of human systems, neurobiology, and the processes of stress and recovery. It emphasizes practical understanding and the development of safe habits.",
+        "teaching_points": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario",
+          "Map the basics of nervous-system regulation and stress response",
+          "Explain how sleep, recovery, and environment affect cognition and behavior",
+          "Practice simple resilience habits that support calm, energy, and clear decisions"
+        ],
+        "lesson_body": "In this lesson, we will explore how stress affects the human body and mind, the neurobiological responses to stress, and the importance of recovery. We will discuss the stress response system, including the role of hormones like cortisol and adrenaline, and how these affect our daily lives. Additionally, we will cover simple techniques for managing stress and promoting recovery, such as mindfulness and deep breathing exercises.",
+        "lesson_examples": [
+          "When feeling overwhelmed at work, take a five-minute break to practice deep breathing.",
+          "After a stressful day, engage in a calming activity like reading or taking a walk to aid recovery.",
+          "Use mindfulness techniques, such as focusing on your breath, to reduce anxiety in stressful situations."
+        ],
+        "lesson_source": "llm_generated"
+      },
+      "created_at": "2026-08-20T01:14:37.460090+00:00",
+      "updated_at": "2026-08-20T01:14:37.460094+00:00",
+      "summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s), and last attempt passed. Prompt focus: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies  Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+      "last_submission": null,
+      "study_aid_count": 5,
+      "resume_packet": {
+        "lesson_id": "e76923346431497ebbb028874118dd84-m1-l2",
+        "lesson_title": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2",
+        "summary": "Welcome back to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s). Latest submission passed. Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+        "prior_work_summary": "Returning to Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2. You previously worked on 2 objective(s), and last attempt passed. Prompt focus: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies  Last feedback: Strong response. You stayed on-topic and connected the lesson to practical use. For the next pass, tighten your explanation into clearer steps or examples.",
+        "objectives": [
+          "Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work",
+          "Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario"
+        ],
+        "notes": [
+          {
+            "id": "cbf6610a-0e5d-4e5b-932a-b38e928dfd85",
+            "title": "To tighten up the lesson delivery, I\u2019d suggest a structured approach tha",
+            "preview": "To tighten up the lesson delivery, I\u2019d suggest a structured approach that balances information delivery with interactive elements. This will ensure learners have the context they need before diving into exercises.\n\n### W",
+            "updated_at": "2026-08-20T02:39:13.292263+00:00"
+          },
+          {
+            "id": "5dc841da-3737-4161-bc1b-8ac570fb4610",
+            "title": "add a version of atlas that when you install ATLAS it will do the onboar",
+            "preview": "add a version of atlas that when you install ATLAS it will do the onboarding with the user then build the app around the user onboarding and continuously improve it and make changes based on evolution of the user",
+            "updated_at": "2026-08-18T21:59:16.091608+00:00"
+          }
+        ],
+        "flashcards": [
+          {
+            "id": "obj-1",
+            "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work)",
+            "back": "Explain Identify the key ideas in Human Systems / Neurobiology / Stress & Recovery for foundations work in your own words, then write one tiny example that demonstrates it."
+          },
+          {
+            "id": "obj-2",
+            "front": "Human Systems / Neurobiology / Stress & Recovery \u2014 Foundations Lesson 2: What does this objective mean? (Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario)",
+            "back": "Explain Apply Human Systems / Neurobiology / Stress & Recovery in a practical beginner-friendly scenario in your own words, then write one tiny example that demonstrates it."
+          },
+          {
+            "id": "exercise-plan",
+            "front": "What is your plan before coding this exercise?",
+            "back": "Summarize the input/output, then list 2-3 steps to solve this prompt: Reflect on a recent stressful situation you experienced. Describe the situation, how it made you feel, and identify at least two strategies you could use to manage stress and promote recovery. Be specific about how these"
+          }
+        ],
+        "resource_counts": {
+          "notes": 2,
+          "flashcards": 3,
+          "total": 5
+        },
+        "latest_activity_at": "2026-08-20T01:14:37.460094+00:00",
+        "has_resources": true
+      },
+      "sequence": 1
+    }
+  ],
+  "learner_profile": {
+    "streak": 1,
+    "attempts": 28,
+    "recommended_difficulty": "beginner",
+    "preferred_pacing": "steady"
+  },
+  "fab_usage_events": [
+    {
+      "created_at": "2026-08-20T01:26:27.040854+00:00",
+      "mode": "tutor",
+      "page": "lessons",
+      "guard_triggered": false,
+      "has_lesson_context": true
+    },
+    {
+      "created_at": "2026-08-20T01:27:58.546013+00:00",
+      "mode": "tutor",
+      "page": "lessons",
+      "guard_triggered": false,
+      "has_lesson_context": true
+    }
+  ],
+  "updated_at": "2026-08-20T02:27:12.012446+00:00"
+}

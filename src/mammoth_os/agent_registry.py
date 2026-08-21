@@ -1,23 +1,28 @@
-"""
-Mammoth OS — Agent Registry
-Central lookup table for all autonomous agents.
-"""
+# mammoth_os/registry/agent_registry.py
+# Mammoth OS — Unified Agent Registry
+# Preserves lazy-loading for instantiation.
+# Adds AgentManifest tracking, health checks, and status management.
 
-from typing import Dict, Type, Any
+from __future__ import annotations
 
-# Import agents
-from mammoth_os.agents.plant_the_seed_agent import PlantTheSeedAgent
-from mammoth_os.agents.field_ops_agent import FieldOpsAgent
-from mammoth_os.agents.market_intel_agent import MarketIntelAgent
-from mammoth_os.agents.reflection_agent import ReflectionAgent
-from mammoth_os.agents.brand_voice_agent import BrandVoiceAgent
-from mammoth_os.agents.visual_engine_agent import VisualEngineAgent # type: ignore
-from mammoth_os.agents.community_engine_agent import CommunityEngineAgent # type: ignore
+import asyncio
+import datetime
+import inspect
+import json
+import logging
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, Callable, Dict, Optional
+
+from mammoth_os.cortex.router import CortexRouter
+
+logger = logging.getLogger("mammoth.registry.agents")
+router = CortexRouter()
 
 
-# ----------------------------------------
-# REGISTRY
-# ----------------------------------------
+# ─────────────────────────────────────────────
+# MANIFEST LAYER  (new — metadata & health)
+# ─────────────────────────────────────────────
 
 class AgentStatus(str, Enum):
     ACTIVE   = "ACTIVE"
@@ -159,7 +164,19 @@ def load_agent(agent_name: str, router=None):
 
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
-        return ResearchAgent()  # type: ignore
+        return ResearchAgent(router)  # type: ignore
+
+    if agent_name == "curriculum":
+        from mammoth_os.agents.curriculum_agent import CurriculumAgent
+        return CurriculumAgent(router)  # type: ignore
+
+    if agent_name == "tutor":
+        from mammoth_os.agents.tutor_agent import TutorAgent
+        return TutorAgent(router=router)  # type: ignore
+
+    if agent_name == "reasoning":
+        from mammoth_os.agents.reasoning_agent import ReasoningAgent
+        return ReasoningAgent(router)  # type: ignore
 
     if agent_name == "coding":
         from mammoth_os.agents.coding_agent import CodingAgent
@@ -176,48 +193,106 @@ def load_agent(agent_name: str, router=None):
 # PUBLIC CALL INTERFACE  (your existing lambdas, fixed)
 # ─────────────────────────────────────────────
 
-AGENTS: Dict[str, Callable[[str], str]] = {
-    "plant_the_seed":  lambda prompt: load_agent("plant_the_seed").run(prompt),       # type: ignore
-    "field_ops":       lambda prompt: load_agent("field_ops").run(prompt),             # type: ignore
-    "market_intel":    lambda prompt: load_agent("market_intel").run(prompt),          # type: ignore
-    "reflection":      lambda prompt: load_agent("reflection").run(prompt),            # type: ignore
-    "brand_voice":     lambda prompt: load_agent("brand_voice").run(prompt),           # type: ignore
-    "visual_engine":   lambda prompt: load_agent("visual_engine").run(prompt),         # type: ignore
-    "community_engine":lambda prompt: load_agent("community_engine").run(prompt),      # type: ignore
-    "research":        lambda prompt: load_agent("research").run(prompt),              # type: ignore
-    "coding":          lambda prompt: load_agent("coding", router).run(prompt),        # type: ignore
-    "custodial":       lambda prompt: load_agent("custodial", router).run(prompt),     # type: ignore
+def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
+    if isinstance(payload, dict):
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops"}:
+            normalized = dict(payload)
+            if agent_name == "tutor" and isinstance(normalized.get("prompt"), str) and not normalized.get("topic"):
+                normalized["topic"] = normalized["prompt"]
+            elif agent_name == "reasoning" and isinstance(normalized.get("prompt"), str) and not normalized.get("problem"):
+                normalized["problem"] = normalized["prompt"]
+            elif "topic" not in normalized and isinstance(normalized.get("prompt"), str):
+                normalized["topic"] = normalized["prompt"]
+            if agent_name == "coding" and not normalized.get("prompt"):
+                prompt_value = normalized.get("task") or normalized.get("description") or normalized.get("content")
+                if isinstance(prompt_value, str):
+                    normalized["prompt"] = prompt_value
+            return normalized
+        if agent_name in {"curriculum", "research", "custodial"}:
+            if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
+                return payload["prompt"]
+            if isinstance(payload.get("topic"), str) and payload.get("topic").strip():
+                return payload["topic"]
+            return json.dumps(payload)
+    if isinstance(payload, str):
+        return payload
+    if payload is None:
+        return ""
+    return str(payload)
+
+
+def run_agent(agent_name: str, payload: Any = None, router=None) -> Any:
+    agent = load_agent(agent_name, router)
+    normalized_payload = _normalize_runtime_payload(agent_name, payload)
+    result = agent.run(normalized_payload)
+    if inspect.isawaitable(result):
+        return asyncio.run(result)
+    return result
+
+
+AGENTS: Dict[str, Callable[[Any], Any]] = {
+    "plant_the_seed":  lambda prompt: run_agent("plant_the_seed", prompt),           # type: ignore
+    "field_ops":       lambda prompt: run_agent("field_ops", prompt),                # type: ignore
+    "market_intel":    lambda prompt: run_agent("market_intel", prompt),             # type: ignore
+    "reflection":      lambda prompt: run_agent("reflection", prompt),               # type: ignore
+    "brand_voice":     lambda prompt: run_agent("brand_voice", prompt),              # type: ignore
+    "visual_engine":   lambda prompt: run_agent("visual_engine", prompt),            # type: ignore
+    "community_engine":lambda prompt: run_agent("community_engine", prompt),         # type: ignore
+    "research":        lambda prompt: run_agent("research", prompt),                 # type: ignore
+    "curriculum":      lambda prompt: run_agent("curriculum", prompt),               # type: ignore
+    "tutor":           lambda prompt: run_agent("tutor", prompt),                    # type: ignore
+    "reasoning":       lambda prompt: run_agent("reasoning", prompt, router),        # type: ignore
+    "coding":          lambda prompt: run_agent("coding", prompt, router),           # type: ignore
+    "custodial":       lambda prompt: run_agent("custodial", prompt, router),        # type: ignore
 }
 
 
-# ----------------------------------------
-# LOOKUP
-# ----------------------------------------
+# ─────────────────────────────────────────────
+# AUTO-DISCOVERY  — scan agents dir at import
+# ─────────────────────────────────────────────
 
-def get_agent(agent_name: str):
+def _auto_register_agents() -> None:
     """
-    Return an agent class by name.
-    Raises KeyError if not found.
+    Scan src/mammoth_os/agents/ for *_agent.py files and register each
+    one into agent_registry with a sensible manifest.
+    Called once at module import so list_agents() is never empty.
     """
-    if agent_name not in AGENT_REGISTRY:
-        raise KeyError(f"Agent '{agent_name}' is not registered.")
-    return AGENT_REGISTRY[agent_name]
+    import datetime
+    from pathlib import Path
+    agents_dir = Path(__file__).parent / "agents"
+    if not agents_dir.exists():
+        return
+
+    registered = []
+    for fpath in sorted(agents_dir.glob("*_agent.py")):
+        stem = fpath.stem  # e.g. "tutor_agent"
+        if stem == "base_agent":
+            continue
+        agent_id = stem  # keep full name as id
+        # pretty name: "tutor_agent" → "TutorAgent"
+        name = "".join(w.title() for w in stem.split("_"))
+        # infer capabilities from the filename
+        caps = [stem.replace("_agent", "")]
+
+        manifest = AgentManifest(
+            agent_id=agent_id,
+            name=name,
+            version="v1.0.0",
+            capabilities=caps,
+            status=AgentStatus.IDLE,
+            level=1,
+            dependencies=[],
+            endpoint=f"internal://{agent_id}",
+            registered_at=datetime.datetime.now(datetime.timezone.utc),
+            last_heartbeat=datetime.datetime.now(datetime.timezone.utc),
+        )
+        # Use a synchronous direct insert to avoid asyncio.run() at import time
+        agent_registry._agents[agent_id] = manifest
+        registered.append(agent_id)
+
+    if registered:
+        logger.info("Auto-registered %d agents: %s", len(registered), registered)
 
 
-def list_agents() -> Dict[str, Type[Any]]:
-    """
-    Return the full agent registry.
-    """
-    return AGENT_REGISTRY.copy()
-
-
-# ----------------------------------------
-# INSTANTIATION
-# ----------------------------------------
-
-def create_agent(agent_name: str, **kwargs):
-    """
-    Instantiate an agent with optional kwargs.
-    """
-    agent_cls = get_agent(agent_name)
-    return agent_cls(**kwargs)
+# Run auto-discovery immediately so any import of this module populates the registry
+_auto_register_agents()

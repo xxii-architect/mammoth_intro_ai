@@ -32,3 +32,25 @@ _pre_migration_snapshot_*/
 *.egg-info/
 src/mammoth_os.egg-info/
 mammoth_os.egg-info/
+
+# Node / UI
+node_modules/
+ui/**/node_modules/
+ui/**/dist/
+ui/**/.vite/
+ui/**/package-lock.json
+
+# Python test cache
+.pytest_cache/
+coverage/
+.coverage
+
+# Runtime data / local session state
+.mammoth/*.json
+.mammoth/*.jsonl
+.mammoth/seccomp.json
+src/.mammoth/
+test-approval.txt
+
+# Local Netlify folder
+.netlify

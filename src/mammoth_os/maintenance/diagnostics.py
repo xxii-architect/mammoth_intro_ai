@@ -1,8 +1,8 @@
 from datetime import datetime
 from typing import Dict, Any
-from mammoth_os.supabase_client import supabase
+from mammoth_os.supabase_client import get_supabase
 from mammoth_os.leaderboard_engine import get_top_leaderboard
-from mammoth_os.streak_engine import update_streak
+from mammoth_os.streak_engine import get_user_streak
 
 
 def run_system_check(test_user: str) -> Dict[str, Any]:
@@ -17,16 +17,23 @@ def run_system_check(test_user: str) -> Dict[str, Any]:
 
     # 1) Supabase connectivity
     try:
+        client = get_supabase()
+        if client is None:
+            report["errors"].append(
+                "Supabase not configured. Set SUPABASE_URL and one of: SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY"
+            )
+            return report
+
         resp = (
-            supabase
+            client
             .schema("atlas")
             .from_("community_stats")
-            .select("count", count="exact") # type: ignore
+            .select("count", count="exact")  # type: ignore
             .limit(1)
             .execute()
         )
         report["supabase_ok"] = True
-        report["community_stats_count"] = resp.count
+        report["community_stats_count"] = getattr(resp, "count", None)
     except Exception as e:
         report["errors"].append(f"Supabase connectivity failed: {e}")
         return report
@@ -39,9 +46,9 @@ def run_system_check(test_user: str) -> Dict[str, Any]:
     except Exception as e:
         report["errors"].append(f"XP/leaderboard failed: {e}")
 
-    # 3) Streak engine (non-destructive test)
+    # 3) Streak engine (read-only test)
     try:
-        _ = update_streak(test_user)
+        _ = get_user_streak(test_user)
         report["streak_engine_ok"] = True
     except Exception as e:
         report["errors"].append(f"Streak engine failed: {e}")
@@ -55,3 +62,4 @@ def run_system_check(test_user: str) -> Dict[str, Any]:
         report["errors"].append(f"Leaderboard view failed: {e}")
 
     return report
+

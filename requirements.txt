@@ -1,5 +1,9 @@
-supabase
+fastapi
+openai
+pydantic
 python-dotenv
 requests
-openai
+rich
+supabase
+uvicorn
 pytest

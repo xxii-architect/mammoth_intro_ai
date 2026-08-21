@@ -20,7 +20,7 @@ def get_supabase() -> Optional[Any]:
         return _supabase
 
     url = os.getenv("SUPABASE_URL")
-    key = os.getenv("SUPABASE_KEY")
+    key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_ANON_KEY")
 
     # CLI mode or missing env vars → return None safely
     if not url or not key:
@@ -167,3 +167,5 @@ def rpc_increment_user_xp(user_id: str, amount: int):
 # DO NOT call get_supabase() at import time.
 # This breaks tests and CLI because env vars are not set yet.
 supabase = None
+
+
