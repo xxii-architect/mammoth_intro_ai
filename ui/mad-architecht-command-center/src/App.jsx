@@ -417,7 +417,7 @@ function AccessPreviewPage({ gate, entitlements, setPage }) {
   )
 }
 
-function AtlasFAB({ currentPage }) {
+function AtlasFAB({ currentPage, isMobile = false }) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [history, setHistory] = useState([])
@@ -511,7 +511,7 @@ function AtlasFAB({ currentPage }) {
           zIndex: 8999,
           width: isMobile ? '100vw' : 360,
           height: isMobile ? '92dvh' : 480,
-          background: 'rgba(13,17,23,0.98)',
+          background: 'var(--card)',
           backdropFilter: 'blur(20px)',
           border: '1px solid rgba(180,124,255,0.3)',
           borderRadius: isMobile ? '16px 16px 0 0' : 16,
@@ -844,7 +844,7 @@ export default function App() {
         </div>
       </div>
 
-      <AtlasFAB currentPage={page} />
+      <AtlasFAB currentPage={page} isMobile={isMobile} />
     </div>
   )
 }
