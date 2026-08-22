@@ -61,6 +61,18 @@ const THEMES = {
   darker:   { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
   dark:     { '--shell': '#0d1117', '--card': '#161b22', '--card-hover': '#1f2937' },
   midnight: { '--shell': '#080c14', '--card': '#0f1520', '--card-hover': '#1a2233' },
+  aurora:   {
+    '--shell': '#f4f7fb',
+    '--card': '#ffffff',
+    '--card-hover': '#eaf0f8',
+    '--photon': '#2563eb',
+    '--cyan': '#0ea5a4',
+    '--violet': '#7c3aed',
+    '--txt-pri': '#0f172a',
+    '--txt-sec': '#475569',
+    '--txt-mut': '#64748b',
+    '--border': 'rgba(15,23,42,0.12)',
+  },
 }
 
 const NAV = [

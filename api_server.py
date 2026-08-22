@@ -75,8 +75,14 @@ ATLAS_EVALS_FILE = MAMMOTH_DIR / "atlas_evals.json"
 AUDIT_LOG_FILE = MAMMOTH_DIR / "audit_log.json"
 AUTH_ADMIN_POLICY_FILE = MAMMOTH_DIR / "auth_admin_policy.json"
 UI_DIR        = ROOT / "ui" / "mad-architecht-command-center"
-VENV_PYTHON   = ROOT / ".venv" / "Scripts" / "python.exe"
-VENV_UVICORN  = ROOT / ".venv" / "Scripts" / "uvicorn.exe"
+if os.name == "nt":
+    _VENV_PYTHON_CANDIDATES = [ROOT / ".venv" / "Scripts" / "python.exe", ROOT / "venv" / "Scripts" / "python.exe"]
+    _VENV_UVICORN_CANDIDATES = [ROOT / ".venv" / "Scripts" / "uvicorn.exe", ROOT / "venv" / "Scripts" / "uvicorn.exe"]
+else:
+    _VENV_PYTHON_CANDIDATES = [ROOT / ".venv" / "bin" / "python", ROOT / "venv" / "bin" / "python"]
+    _VENV_UVICORN_CANDIDATES = [ROOT / ".venv" / "bin" / "uvicorn", ROOT / "venv" / "bin" / "uvicorn"]
+VENV_PYTHON   = next((path for path in _VENV_PYTHON_CANDIDATES if path.exists()), _VENV_PYTHON_CANDIDATES[0])
+VENV_UVICORN  = next((path for path in _VENV_UVICORN_CANDIDATES if path.exists()), _VENV_UVICORN_CANDIDATES[0])
 AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
 TASKS_FILE = MAMMOTH_DIR / "tasks.json"
 
@@ -2229,7 +2235,9 @@ async def get_health():
     git_ok = (ROOT / ".git").exists()
 
     # check venv
-    venv_ok = (ROOT / ".venv").exists()
+    venv_paths = [ROOT / ".venv", ROOT / "venv"]
+    active_venv = next((path for path in venv_paths if path.exists()), venv_paths[0])
+    venv_ok = any(path.exists() for path in venv_paths)
 
     services = [
         {
@@ -2264,7 +2272,7 @@ async def get_health():
         },
         {
             "label":  "Python venv",
-            "detail": str(ROOT / ".venv"),
+            "detail": str(active_venv),
             "status": "green" if venv_ok else "yellow",
             "up":     venv_ok,
         },

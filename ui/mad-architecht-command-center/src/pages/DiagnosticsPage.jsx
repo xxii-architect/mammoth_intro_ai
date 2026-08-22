@@ -1,14 +1,26 @@
 import { useEffect, useState } from 'react'
-import { Activity, RefreshCw, ShieldCheck, Trash2, Cpu, HeartPulse, Download } from 'lucide-react'
+import { Activity, RefreshCw, ShieldCheck, Trash2, Cpu, HeartPulse, Download, AlertTriangle, CheckCircle2, ServerCog } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { clearSelfAuditHistory, loadSelfAuditHistory, runSystemSelfAudit } from '../api/diagnostics'
 
+function serviceRecommendation(service) {
+  const label = String(service?.label || '')
+  if (label.includes('Python venv')) return 'Point MammothOS at the active virtual environment or create a .venv/venv alias so backend checks find it.'
+  if (label.includes('Backend API')) return 'Restart the mammothos systemd service and verify port 8000 is bound.'
+  if (label.includes('React Dev Server')) return 'For production this can stay down if nginx is serving a built dist folder; use it for local Vite development only.'
+  if (label.includes('.env Config')) return 'Create or update the repo .env on the server so runtime keys are present.'
+  if (label.includes('OpenAI Key')) return 'Add OPENAI_API_KEY to the server .env if you want cloud model support.'
+  if (label.includes('Supabase URL')) return 'Add SUPABASE_URL and SUPABASE_ANON_KEY to the server .env for full auth and ATLAS flows.'
+  if (label.includes('Ollama Runtime')) return 'Start Ollama locally or rely on cloud providers instead.'
+  return 'Review runtime logs and the server environment for this service.'
+}
 export default function DiagnosticsPage() {
   const [history, setHistory] = useState([])
   const [selectedId, setSelectedId] = useState(null)
   const [health, setHealth] = useState(null)
   const [releaseReadiness, setReleaseReadiness] = useState(null)
   const [busy, setBusy] = useState(false)
+  const [refreshBusy, setRefreshBusy] = useState(false)
   const [exportBusy, setExportBusy] = useState(false)
   const [jsonExportBusy, setJsonExportBusy] = useState(false)
   const [auditEvents, setAuditEvents] = useState([])
@@ -50,14 +62,20 @@ export default function DiagnosticsPage() {
     } catch (_) {}
   }
 
+  const refreshAll = async () => {
+    setRefreshBusy(true)
+    try {
+      await Promise.all([loadHealth(), loadReleaseReadiness(), loadAuditEvents(), loadStreams()])
+    } finally {
+      setRefreshBusy(false)
+    }
+  }
+
   useEffect(() => {
     const stored = loadSelfAuditHistory()
     setHistory(stored)
     setSelectedId(stored[0]?.id || null)
-    loadHealth()
-    loadReleaseReadiness()
-    loadAuditEvents()
-    loadStreams()
+    refreshAll()
   }, [])
 
   const runAudit = async () => {
@@ -67,10 +85,7 @@ export default function DiagnosticsPage() {
       setHistory(nextHistory)
       setSelectedId(result.id)
       setHealth(prev => prev || null)
-      await loadHealth()
-      await loadReleaseReadiness()
-      await loadAuditEvents()
-      await loadStreams()
+      await refreshAll()
     } finally {
       setBusy(false)
     }
@@ -129,6 +144,16 @@ export default function DiagnosticsPage() {
   const selectedChecks = Array.isArray(selectedAudit?.checks) ? selectedAudit.checks : []
   const selectedRecommendations = Array.isArray(selectedAudit?.recommendations) ? selectedAudit.recommendations : []
   const selectedObservability = selectedAudit?.observability || null
+  const runtime = health?.runtime || {}
+  const providers = Array.isArray(runtime?.providers) ? runtime.providers : []
+  const envKeys = Array.isArray(health?.env_keys) ? health.env_keys : []
+  const checkedAt = health?.checked_at ? new Date(health.checked_at).toLocaleString() : 'Waiting on health snapshot...'
+  const serviceCounts = services.reduce((acc, service) => {
+    const key = String(service?.status || 'red')
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, { green: 0, yellow: 0, red: 0 })
+  const flaggedServices = services.filter(service => service.status !== 'green')
 
   return (
     <div className="page-enter" style={{ padding: '28px 24px 80px' }}>
@@ -138,7 +163,7 @@ export default function DiagnosticsPage() {
             <Activity size={20} color="var(--cyan)" /> Diagnostics
           </h1>
           <p style={{ fontSize: '0.84rem', color: 'var(--txt-sec)', maxWidth: 720, lineHeight: 1.6 }}>
-            MammothOS can now self-evaluate. This page keeps a history of shell audits, ATLAS eval health, model routing visibility, and current platform diagnostics.
+            MammothOS can now self-evaluate. This page keeps a history of shell audits, ATLAS eval health, model routing visibility, and current platform diagnostics, including service triage and runtime fallback state.
           </p>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -148,7 +173,13 @@ export default function DiagnosticsPage() {
             style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.7 : 1 }}
           >
             <RefreshCw size={14} style={{ animation: busy ? 'spin 1s linear infinite' : 'none' }} />
-            {busy ? 'Running audit…' : 'Run audit now'}
+            {busy ? 'Running audit...' : 'Run audit now'}
+          </button>
+          <button
+            onClick={refreshAll}
+            disabled={refreshBusy}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)', cursor: refreshBusy ? 'not-allowed' : 'pointer', opacity: refreshBusy ? 0.6 : 1 }}>
+            <ServerCog size={14} /> {refreshBusy ? 'Refreshing...' : 'Refresh live status'}
           </button>
           <button
             onClick={clearHistory}
@@ -247,6 +278,53 @@ export default function DiagnosticsPage() {
             </div>
           </div>
 
+          <div className="glass-card-solid" style={{ padding: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ServerCog size={16} color="var(--photon)" />
+                <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Runtime diagnosis</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <span style={{ padding: '5px 10px', borderRadius: 999, background: runtime?.state === 'ready' ? 'rgba(34,197,94,0.08)' : 'rgba(234,179,8,0.08)', border: runtime?.state === 'ready' ? '1px solid rgba(34,197,94,0.24)' : '1px solid rgba(234,179,8,0.24)', color: runtime?.state === 'ready' ? '#22c55e' : '#eab308', fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase' }}>
+                  {runtime?.state || 'pending'}
+                </span>
+                <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', color: 'var(--txt-sec)', fontSize: '0.68rem' }}>
+                  Checked: {checkedAt}
+                </span>
+              </div>
+            </div>
+            <div style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', lineHeight: 1.6, marginBottom: 12 }}>
+              {runtime?.issue || 'Waiting on runtime snapshot...'}
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(77,166,255,0.24)', background: 'rgba(77,166,255,0.06)', marginBottom: 12 }}>
+              <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Recommended next action</div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', lineHeight: 1.6 }}>
+                {runtime?.next_action || runtime?.recommendation || 'Continue monitoring the runtime chain.'}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--txt-sec)' }}>
+                Active adapter: {runtime?.active_adapter || 'pending'}
+              </span>
+              <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--txt-sec)' }}>
+                Active model: {runtime?.active_model || 'pending'}
+              </span>
+              <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--txt-sec)' }}>
+                Fallback chain: {(runtime?.fallback_chain || []).join(' -> ') || 'pending'}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
+              {providers.map((provider) => (
+                <div key={provider.provider} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid ' + (service.status === 'green' ? 'rgba(34,197,94,0.24)' : service.status === 'yellow' ? 'rgba(234,179,8,0.24)' : 'rgba(248,113,113,0.24)'), background: provider.available ? 'rgba(34,197,94,0.06)' : 'rgba(234,179,8,0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700, textTransform: 'capitalize' }}>{provider.provider}</div>
+                    <div style={{ fontSize: '0.68rem', color: provider.available ? '#22c55e' : '#eab308', fontWeight: 700, textTransform: 'uppercase' }}>{provider.status}</div>
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)' }}>{provider.detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
           {releaseReadiness && (
             <div className="glass-card-solid" style={{ padding: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -406,23 +484,44 @@ export default function DiagnosticsPage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 16 }}>
             <div className="glass-card-solid" style={{ padding: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <HeartPulse size={16} color="var(--cyan)" />
-                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Live services</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <HeartPulse size={16} color="var(--cyan)" />
+                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Service triage</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ padding: '4px 8px', borderRadius: 999, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.24)', color: '#22c55e', fontSize: '0.66rem', fontWeight: 700 }}>{serviceCounts.green} green</span>
+                  <span style={{ padding: '4px 8px', borderRadius: 999, background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.24)', color: '#eab308', fontSize: '0.66rem', fontWeight: 700 }}>{serviceCounts.yellow} yellow</span>
+                  <span style={{ padding: '4px 8px', borderRadius: 999, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.24)', color: '#f87171', fontSize: '0.66rem', fontWeight: 700 }}>{serviceCounts.red} red</span>
+                </div>
               </div>
-              <div style={{ display: 'grid', gap: 8 }}>
+              {flaggedServices.length === 0 ? (
+                <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(34,197,94,0.24)', background: 'rgba(34,197,94,0.06)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <CheckCircle2 size={15} color="#22c55e" />
+                  <div style={{ fontSize: '0.78rem', color: 'var(--txt-pri)' }}>All tracked services are healthy right now.</div>
+                </div>
+              ) : (
+                <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(234,179,8,0.24)', background: 'rgba(234,179,8,0.06)', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                  <AlertTriangle size={15} color="#eab308" />
+                  <div style={{ fontSize: '0.78rem', color: 'var(--txt-pri)' }}>{flaggedServices.length} service{flaggedServices.length === 1 ? '' : 's'} need attention.</div>
+                </div>
+              )}
+              <div style={{ display: 'grid', gap: 10 }}>
                 {services.length > 0 ? services.map(service => (
-                  <div key={service.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                    <div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)' }}>{service.label}</div>
-                      <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>{service.detail}</div>
+                  <div key={service.label} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid ' + (service.status === 'green' ? 'rgba(34,197,94,0.24)' : service.status === 'yellow' ? 'rgba(234,179,8,0.24)' : 'rgba(248,113,113,0.24)'), background: service.status === 'green' ? 'rgba(34,197,94,0.06)' : service.status === 'yellow' ? 'rgba(234,179,8,0.06)' : 'rgba(248,113,113,0.06)' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                      <div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700 }}>{service.label}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>{service.detail}</div>
+                      </div>
+                      <span style={{ fontSize: '0.68rem', fontWeight: 700, color: service.status === 'green' ? '#22c55e' : service.status === 'yellow' ? '#eab308' : '#f87171' }}>
+                        {service.status?.toUpperCase()}
+                      </span>
                     </div>
-                    <span style={{ fontSize: '0.68rem', fontWeight: 700, color: service.status === 'green' ? '#22c55e' : service.status === 'yellow' ? '#eab308' : '#f87171' }}>
-                      {service.status?.toUpperCase()}
-                    </span>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>{serviceRecommendation(service)}</div>
                   </div>
                 )) : (
-                  <div style={{ fontSize: '0.8rem', color: 'var(--txt-mut)' }}>Waiting on backend health snapshot…</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--txt-mut)' }}>Waiting on backend health snapshot...</div>
                 )}
               </div>
             </div>
@@ -430,28 +529,32 @@ export default function DiagnosticsPage() {
             <div className="glass-card-solid" style={{ padding: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                 <Cpu size={16} color="var(--photon)" />
-                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Model + CLI snapshot</span>
+                <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Model + environment snapshot</span>
               </div>
-              {selectedAudit ? (
-                <div style={{ display: 'grid', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Active model</div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--txt-sec)' }}>{selectedAudit.models?.active_model || 'No model reported'}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>CLI command count</div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--txt-sec)' }}>{selectedAudit.commandCount}</div>
-                  </div>
-                  <div>
-                    <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Latest ATLAS activity</div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>
-                      {selectedAudit.latestActivity?.event || 'No recent activity captured'}
-                    </div>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Active adapter / model</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--txt-sec)' }}>{runtime?.active_adapter || 'pending'} • {runtime?.active_model || selectedAudit?.models?.active_model || 'No model reported'}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>CLI command count</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--txt-sec)' }}>{selectedAudit?.commandCount || 0}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>Latest ATLAS activity</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>
+                    {selectedAudit?.latestActivity?.event || 'No recent activity captured'}
                   </div>
                 </div>
-              ) : (
-                <div style={{ fontSize: '0.8rem', color: 'var(--txt-mut)' }}>No audit snapshot selected.</div>
-              )}
+                <div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>Loaded env keys</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {envKeys.length > 0 ? envKeys.map(key => (
+                      <span key={key} style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.66rem', color: 'var(--txt-sec)' }}>{key}</span>
+                    )) : <span style={{ fontSize: '0.74rem', color: 'var(--txt-mut)' }}>No env keys detected in health snapshot.</span>}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
