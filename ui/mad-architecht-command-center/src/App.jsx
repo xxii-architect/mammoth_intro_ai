@@ -31,6 +31,7 @@ const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'))
 const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 const AccountPage = lazy(() => import('./pages/AccountPage'))
+const CommandLibraryPage = lazy(() => import('./pages/CommandLibraryPage'))
 
 const ACTIVE_TIME_STORAGE_KEY = 'mammoth.app.active_seconds'
 
@@ -70,6 +71,7 @@ const NAV = [
   { id: 'chat',     label: 'Mammoth Mind', Icon: MessageSquare, accent: 'var(--photon)' },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
   { id: 'manual',   label: 'Manual',      Icon: BookOpen },
+  { id: 'commandlib', label: 'Command Library', Icon: BookOpen, accent: 'var(--cyan)' },
 
   { section: 'Tools' },
   { id: 'notes',    label: 'Notes',       Icon: FileText },
@@ -112,6 +114,7 @@ const PAGE_COMPONENTS = {
   buildlog:    BuildLogPage,
   lessonnotes: LessonNotesPage,
   projects:    ProjectsPage,
+  commandlib:  CommandLibraryPage,
   settings:    SettingsPage,
   landing:     LandingPage,
   pricing:     PricingPage,
@@ -131,9 +134,10 @@ function parseEmailList(raw) {
 const FRONTEND_ADMIN_EMAILS = parseEmailList(
   import.meta.env.VITE_MAMMOTH_ADMIN_EMAILS || import.meta.env.VITE_MAMMOTH_ADMIN_EMAILS_LIST || '',
 )
-const FRONTEND_OWNER_EMAILS = parseEmailList(
-  import.meta.env.VITE_MAMMOTH_OWNER_EMAILS || '',
-)
+const FRONTEND_OWNER_EMAILS = new Set([
+  ...parseEmailList(import.meta.env.VITE_MAMMOTH_OWNER_EMAILS || ''),
+  'truexxiisupply@gmail.com',
+])
 const FRONTEND_BETA_TESTER_EMAILS = parseEmailList(
   import.meta.env.VITE_MAMMOTH_BETA_TESTER_EMAILS || '',
 )
@@ -488,12 +492,17 @@ function AtlasFAB({ currentPage }) {
 
       {open && (
         <div style={{
-          position: 'fixed', bottom: 86, right: 24, zIndex: 8999,
-          width: 360, height: 480,
-          background: 'rgba(13,17,23,0.96)',
+          position: 'fixed',
+          bottom: isMobile ? 0 : 86,
+          right: isMobile ? 0 : 24,
+          left: isMobile ? 0 : 'auto',
+          zIndex: 8999,
+          width: isMobile ? '100vw' : 360,
+          height: isMobile ? '92dvh' : 480,
+          background: 'rgba(13,17,23,0.98)',
           backdropFilter: 'blur(20px)',
           border: '1px solid rgba(180,124,255,0.3)',
-          borderRadius: 16,
+          borderRadius: isMobile ? '16px 16px 0 0' : 16,
           boxShadow: '0 8px 48px rgba(0,0,0,0.6), 0 0 24px rgba(180,124,255,0.15)',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
@@ -592,7 +601,8 @@ function AtlasFAB({ currentPage }) {
 export default function App() {
   const [page, setPage] = useState('home')
   const [theme, setTheme] = useState('darker')
-  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768)
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   const [adminAccess, setAdminAccess] = useState(null)
   const [entitlements, setEntitlements] = useState(null)
   const [backendWarning, setBackendWarning] = useState('')
@@ -700,8 +710,15 @@ export default function App() {
   const gate = session && adminAccess === null ? null : resolvePageAccess(page, { adminAccess, ownerAccess, betaTesterAccess, entitlements })
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100dvh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
 
+      {/* Mobile sidebar overlay backdrop */}
+      {isMobile && sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 998, background: 'rgba(0,0,0,0.55)' }}
+        />
+      )}
       {/* Sidebar */}
       <div style={{
         width: sidebarOpen ? 220 : 0,
@@ -711,6 +728,7 @@ export default function App() {
         background: 'var(--card)',
         borderRight: '1px solid rgba(255,255,255,0.06)',
         display: 'flex', flexDirection: 'column',
+        ...(isMobile && sidebarOpen ? { position: 'fixed', top: 0, left: 0, height: '100dvh', zIndex: 999 } : {}),
       }}>
         <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <LogoMark src={BRANDING.headerLogo} alt="MammothOS logo" fallback="🐘" size={30} />
