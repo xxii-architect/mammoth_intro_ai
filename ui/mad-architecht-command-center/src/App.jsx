@@ -32,6 +32,7 @@ const LessonNotesPage = lazy(() => import('./pages/LessonNotesPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 const AccountPage = lazy(() => import('./pages/AccountPage'))
 const CommandLibraryPage = lazy(() => import('./pages/CommandLibraryPage'))
+const BetaFeedbackPage = lazy(() => import('./pages/BetaFeedbackPage'))
 
 const ACTIVE_TIME_STORAGE_KEY = 'mammoth.app.active_seconds'
 
@@ -102,6 +103,7 @@ const NAV = [
   { id: 'flashcards', label: 'Flashcards',  Icon: Brain, accent: 'var(--violet)' },
   { id: 'lessonnotes', label: 'Lesson Notes', Icon: FileText, accent: 'var(--cyan)' },
   { id: 'projects',    label: 'Projects',     Icon: ClipboardList, accent: 'var(--photon)' },
+  { id: 'betafeedback', label: 'Beta Feedback', Icon: MessageSquare, accent: 'var(--cyan)' },
   { id: 'buildlog',   label: 'Build Log',   Icon: ClipboardList },
 
   { section: 'System' },
@@ -127,6 +129,7 @@ const PAGE_COMPONENTS = {
   lessonnotes: LessonNotesPage,
   projects:    ProjectsPage,
   commandlib:  CommandLibraryPage,
+  betafeedback: BetaFeedbackPage,
   settings:    SettingsPage,
   landing:     LandingPage,
   pricing:     PricingPage,
