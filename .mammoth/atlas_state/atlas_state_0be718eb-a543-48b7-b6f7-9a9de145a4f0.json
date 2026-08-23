@@ -1,0 +1,331 @@
+{
+  "active_account_id": "default",
+  "accounts": {
+    "default": {
+      "profile": {
+        "display_name": "Operator",
+        "email": "",
+        "organization": ""
+      },
+      "tier": "explorer",
+      "developer_access": false,
+      "created_at": "2026-08-23T08:50:35.954977+00:00",
+      "updated_at": "2026-08-23T08:50:35.977882+00:00",
+      "profile_updated_at": null,
+      "tier_updated_at": null,
+      "developer_access_updated_at": null
+    }
+  },
+  "account_sessions": {
+    "default": {
+      "status": "no_session",
+      "mammoth_chat_history": [
+        {
+          "role": "user",
+          "message": "Draft a safe shell-oriented step plan for the next MammothOS maintenance task.",
+          "created_at": "2026-08-23T08:50:35.956006+00:00",
+          "agent_id": "shell_agent",
+          "mode": "chat",
+          "page": "chat"
+        },
+        {
+          "role": "assistant",
+          "message": "No response produced.",
+          "created_at": "2026-08-23T08:50:35.977870+00:00",
+          "agent_id": "shell_agent",
+          "mode": "chat",
+          "adapter": "agent-runtime",
+          "model": "shell_agent",
+          "thought_steps": [
+            {
+              "ts": "2026-08-23T08:50:35.956026+00:00",
+              "label": "Hearing hoofbeats",
+              "detail": "agent=shell_agent mode=chat",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.956033+00:00",
+              "label": "Bribing the hamster",
+              "detail": "Spinning up MammothOS reasoning lanes",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.956148+00:00",
+              "label": "Routing through the herd",
+              "detail": "intent=shell agent=shell_agent",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.957031+00:00",
+              "label": "Received request",
+              "detail": "intent='shell'  agent='shell_agent'  approval_mode=False",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.958278+00:00",
+              "label": "Agent resolved",
+              "detail": "name='ShellAgent'  type='unknown'",
+              "status": "success"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.958298+00:00",
+              "label": "Routing decision",
+              "detail": "runtime_agent=''  agent_id='shell_agent'",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.958324+00:00",
+              "label": "Falling back to CortexRouter",
+              "detail": "intent='shell'  no matching AGENTS key",
+              "status": "warning"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.977768+00:00",
+              "label": "Run failed",
+              "detail": "Unknown intent: shell",
+              "status": "error"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.977840+00:00",
+              "label": "Lane complete",
+              "detail": "task_id=task-08e1ea42",
+              "status": "success"
+            },
+            {
+              "ts": "2026-08-23T08:50:35.977865+00:00",
+              "label": "Packaged response",
+              "detail": "task_id=task-08e1ea42",
+              "status": "success"
+            }
+          ],
+          "task_id": "task-08e1ea42",
+          "dispatched": true,
+          "evidence_items": [
+            {
+              "agent_id": "shell_agent",
+              "intent": "shell",
+              "summary": "No response produced.",
+              "task_id": "task-08e1ea42",
+              "status": "error",
+              "source": "agent-runtime"
+            }
+          ],
+          "orchestrated": false,
+          "runtime_status": {
+            "state": "ready",
+            "degraded_mode": false,
+            "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+            "next_action": "Continue with the current provider path.",
+            "active_adapter": "openai",
+            "active_model": "gpt-4o-mini",
+            "providers": [
+              {
+                "provider": "deepseek",
+                "status": "ready",
+                "available": true,
+                "detail": "DeepSeek cloud reasoning"
+              },
+              {
+                "provider": "openai",
+                "status": "ready",
+                "available": true,
+                "detail": "OpenAI chat/runtime"
+              },
+              {
+                "provider": "ollama",
+                "status": "offline",
+                "available": false,
+                "detail": "http://localhost:11434"
+              },
+              {
+                "provider": "local",
+                "status": "ready",
+                "available": true,
+                "detail": "Local echo fallback"
+              }
+            ],
+            "available_providers": [
+              "deepseek",
+              "openai",
+              "local"
+            ],
+            "fallback_chain": [
+              "deepseek",
+              "openai",
+              "ollama",
+              "local"
+            ],
+            "recommendation": "openai is ready",
+            "summary": {
+              "openai_key_present": true,
+              "deepseek_key_present": true,
+              "ollama_running": false
+            }
+          },
+          "runtime_notice": null
+        }
+      ],
+      "updated_at": "2026-08-23T08:50:35.977882+00:00"
+    }
+  },
+  "status": "no_session",
+  "account_profile": {
+    "display_name": "Operator",
+    "email": "",
+    "organization": ""
+  },
+  "tier": "explorer",
+  "developer_access": false,
+  "account_profile_updated_at": null,
+  "tier_updated_at": null,
+  "developer_access_updated_at": null,
+  "session_scope": "workspace_multi_account",
+  "user_id": "workspace:default",
+  "mammoth_chat_history": [
+    {
+      "role": "user",
+      "message": "Draft a safe shell-oriented step plan for the next MammothOS maintenance task.",
+      "created_at": "2026-08-23T08:50:35.956006+00:00",
+      "agent_id": "shell_agent",
+      "mode": "chat",
+      "page": "chat"
+    },
+    {
+      "role": "assistant",
+      "message": "No response produced.",
+      "created_at": "2026-08-23T08:50:35.977870+00:00",
+      "agent_id": "shell_agent",
+      "mode": "chat",
+      "adapter": "agent-runtime",
+      "model": "shell_agent",
+      "thought_steps": [
+        {
+          "ts": "2026-08-23T08:50:35.956026+00:00",
+          "label": "Hearing hoofbeats",
+          "detail": "agent=shell_agent mode=chat",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.956033+00:00",
+          "label": "Bribing the hamster",
+          "detail": "Spinning up MammothOS reasoning lanes",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.956148+00:00",
+          "label": "Routing through the herd",
+          "detail": "intent=shell agent=shell_agent",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.957031+00:00",
+          "label": "Received request",
+          "detail": "intent='shell'  agent='shell_agent'  approval_mode=False",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.958278+00:00",
+          "label": "Agent resolved",
+          "detail": "name='ShellAgent'  type='unknown'",
+          "status": "success"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.958298+00:00",
+          "label": "Routing decision",
+          "detail": "runtime_agent=''  agent_id='shell_agent'",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.958324+00:00",
+          "label": "Falling back to CortexRouter",
+          "detail": "intent='shell'  no matching AGENTS key",
+          "status": "warning"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.977768+00:00",
+          "label": "Run failed",
+          "detail": "Unknown intent: shell",
+          "status": "error"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.977840+00:00",
+          "label": "Lane complete",
+          "detail": "task_id=task-08e1ea42",
+          "status": "success"
+        },
+        {
+          "ts": "2026-08-23T08:50:35.977865+00:00",
+          "label": "Packaged response",
+          "detail": "task_id=task-08e1ea42",
+          "status": "success"
+        }
+      ],
+      "task_id": "task-08e1ea42",
+      "dispatched": true,
+      "evidence_items": [
+        {
+          "agent_id": "shell_agent",
+          "intent": "shell",
+          "summary": "No response produced.",
+          "task_id": "task-08e1ea42",
+          "status": "error",
+          "source": "agent-runtime"
+        }
+      ],
+      "orchestrated": false,
+      "runtime_status": {
+        "state": "ready",
+        "degraded_mode": false,
+        "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+        "next_action": "Continue with the current provider path.",
+        "active_adapter": "openai",
+        "active_model": "gpt-4o-mini",
+        "providers": [
+          {
+            "provider": "deepseek",
+            "status": "ready",
+            "available": true,
+            "detail": "DeepSeek cloud reasoning"
+          },
+          {
+            "provider": "openai",
+            "status": "ready",
+            "available": true,
+            "detail": "OpenAI chat/runtime"
+          },
+          {
+            "provider": "ollama",
+            "status": "offline",
+            "available": false,
+            "detail": "http://localhost:11434"
+          },
+          {
+            "provider": "local",
+            "status": "ready",
+            "available": true,
+            "detail": "Local echo fallback"
+          }
+        ],
+        "available_providers": [
+          "deepseek",
+          "openai",
+          "local"
+        ],
+        "fallback_chain": [
+          "deepseek",
+          "openai",
+          "ollama",
+          "local"
+        ],
+        "recommendation": "openai is ready",
+        "summary": {
+          "openai_key_present": true,
+          "deepseek_key_present": true,
+          "ollama_running": false
+        }
+      },
+      "runtime_notice": null
+    }
+  ],
+  "updated_at": "2026-08-23T08:50:35.977882+00:00"
+}
