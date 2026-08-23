@@ -154,7 +154,10 @@ const FRONTEND_OWNER_EMAILS = new Set([
   'truexxiisupply@gmail.com',
 ])
 const FRONTEND_BETA_TESTER_EMAILS = parseEmailList(
-  import.meta.env.VITE_MAMMOTH_BETA_TESTER_EMAILS || '',
+  [
+    import.meta.env.VITE_MAMMOTH_BETA_TESTER_EMAILS,
+    import.meta.env.VITE_MAMMOTH_BETA_EMAILS_LIST,
+  ].filter(Boolean).join(','),
 )
 
 function compactNavSections(items) {
@@ -851,3 +854,4 @@ export default function App() {
     </div>
   )
 }
+

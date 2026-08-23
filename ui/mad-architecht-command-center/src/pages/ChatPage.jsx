@@ -176,12 +176,13 @@ export default function ChatPage({ setPage }) {
   const [error, setError] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState(-1)
-  const [quickActionsOpen, setQuickActionsOpen] = useState(true)
+  const [quickActionsOpen, setQuickActionsOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 768 : true))
   const [taskCards, setTaskCards] = useState(() => loadTaskCards())
   const [approvals, setApprovals] = useState([])
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 1540 : false))
   const [isShortViewport, setIsShortViewport] = useState(() => (typeof window !== 'undefined' ? window.innerHeight < 860 : false))
+  const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false))
   const [rightRailOpen, setRightRailOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1540 : true))
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
@@ -238,6 +239,7 @@ export default function ChatPage({ setPage }) {
     const onResize = () => {
       setIsNarrowLayout(window.innerWidth < 1540)
       setIsShortViewport(window.innerHeight < 860)
+      setIsMobile(window.innerWidth < 768)
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
@@ -770,7 +772,7 @@ export default function ChatPage({ setPage }) {
                     send()
                   }
                 }}
-                rows={4}
+                rows={isMobile ? 2 : 4}
                 placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
                 style={{ flex: 1, resize: 'vertical', minHeight: 88, maxHeight: 160, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.9rem', padding: '13px 15px', outline: 'none', lineHeight: 1.55 }}
               />
