@@ -68,6 +68,7 @@ NOTES_FILE    = MAMMOTH_DIR / "notes.json"
 BUILDLOG_FILE = MAMMOTH_DIR / "buildlog.json"
 SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
 OPERATOR_HEALTH_FILE = MAMMOTH_DIR / "operator_health.json"
+BETA_FEEDBACK_FILE = MAMMOTH_DIR / "beta_feedback.json"
 ATLAS_FILE    = MAMMOTH_DIR / "atlas_cli_session.json"
 ATLAS_STATE_DIR = MAMMOTH_DIR / "atlas_state"
 SNAPSHOTS_FILE = MAMMOTH_DIR / "snapshots.json"
@@ -86,7 +87,7 @@ VENV_UVICORN  = next((path for path in _VENV_UVICORN_CANDIDATES if path.exists()
 AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
 TASKS_FILE = MAMMOTH_DIR / "tasks.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 if not AUTH_ADMIN_POLICY_FILE.exists():
@@ -6224,6 +6225,104 @@ async def delete_note(note_id: str):
     return {"status": "ok"}
 
 
+@app.get("/api/beta-feedback")
+async def get_beta_feedback():
+    entries = _read_json(BETA_FEEDBACK_FILE, default=[])
+    if not isinstance(entries, list):
+        entries = []
+    normalized: List[Dict[str, Any]] = []
+    now = datetime.now(timezone.utc).isoformat()
+    for raw in entries:
+        record = _normalize_beta_feedback_record(raw, now=now)
+        if record:
+            normalized.append(record)
+
+    is_admin = _request_is_admin()
+    if _AUTH_REQUIRED and not is_admin:
+        requester_id = str(_REQUEST_USER_ID.get() or "").strip()
+        requester_email = str(_REQUEST_USER_EMAIL.get() or "").strip().lower()
+        normalized = [
+            item for item in normalized
+            if item.get("reporter_user_id") == requester_id
+            or (requester_email and item.get("reporter_email") == requester_email)
+        ]
+
+    normalized.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return {"entries": normalized, "can_manage": bool(is_admin)}
+
+
+@app.post("/api/beta-feedback")
+async def submit_beta_feedback(body: Dict[str, Any]):
+    if not isinstance(body, dict):
+        return {"status": "error", "error": "Invalid payload"}
+    if not bool(body.get("safety_acknowledged")):
+        return {"status": "error", "error": "Safety acknowledgment is required."}
+
+    now = datetime.now(timezone.utc).isoformat()
+    reporter_user_id = str(_REQUEST_USER_ID.get() or "").strip()
+    reporter_email = str(_REQUEST_USER_EMAIL.get() or "").strip().lower()
+    if not _AUTH_REQUIRED:
+        reporter_user_id = str(body.get("reporter_user_id") or reporter_user_id).strip()
+        reporter_email = str(body.get("reporter_email") or reporter_email).strip().lower()
+
+    candidate = {
+        "id": str(uuid.uuid4()),
+        "title": body.get("title"),
+        "summary": body.get("summary"),
+        "area": body.get("area"),
+        "severity": body.get("severity"),
+        "status": "new",
+        "expected_behavior": body.get("expected_behavior"),
+        "actual_behavior": body.get("actual_behavior"),
+        "reproduction_steps": body.get("reproduction_steps"),
+        "device": body.get("device"),
+        "browser": body.get("browser"),
+        "reproducible": body.get("reproducible", True),
+        "safety_acknowledged": body.get("safety_acknowledged"),
+        "reporter_user_id": reporter_user_id,
+        "reporter_email": reporter_email,
+        "created_at": now,
+        "updated_at": now,
+        "metadata": body.get("metadata"),
+    }
+    normalized = _normalize_beta_feedback_record(candidate, now=now)
+    if normalized is None:
+        return {"status": "error", "error": "summary and reproduction_steps are required."}
+
+    entries = _read_json(BETA_FEEDBACK_FILE, default=[])
+    if not isinstance(entries, list):
+        entries = []
+    entries.append(normalized)
+    _write_json(BETA_FEEDBACK_FILE, entries)
+    return {"status": "ok", "entry": normalized}
+
+
+@app.post("/api/beta-feedback/{feedback_id}/status")
+async def update_beta_feedback_status(feedback_id: str, body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    status = str((body or {}).get("status") or "").strip().lower()
+    if status not in {"new", "triaged", "in_progress", "fixed", "closed"}:
+        return {"status": "error", "error": "Invalid status."}
+
+    entries = _read_json(BETA_FEEDBACK_FILE, default=[])
+    if not isinstance(entries, list):
+        entries = []
+    now = datetime.now(timezone.utc).isoformat()
+    for index, raw in enumerate(entries):
+        if str((raw or {}).get("id") or "").strip() != feedback_id:
+            continue
+        updated = _normalize_beta_feedback_record({**raw, "status": status, "updated_at": now}, now=now)
+        if updated is None:
+            return {"status": "error", "error": "Record payload is invalid."}
+        entries[index] = updated
+        _write_json(BETA_FEEDBACK_FILE, entries)
+        return {"status": "ok", "entry": updated}
+
+    return {"status": "error", "error": "Feedback record not found."}
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/buildlog
 # ─────────────────────────────────────────────────────────────────────────────
@@ -6340,6 +6439,54 @@ def _normalize_note_record(raw: Any, *, now: Optional[str] = None) -> Optional[D
         "type": note_type,
         "priority": priority,
         "subsystem": subsystem,
+        "metadata": metadata,
+    }
+
+
+def _normalize_beta_feedback_record(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+
+    fallback_now = now or datetime.now(timezone.utc).isoformat()
+    feedback_id = str(raw.get("id") or "").strip() or str(uuid.uuid4())
+    title = str(raw.get("title") or "").strip()
+    summary = str(raw.get("summary") or "").strip()
+    reproduction_steps = str(raw.get("reproduction_steps") or "").strip()
+    if not summary or not reproduction_steps:
+        return None
+
+    severity = str(raw.get("severity") or "medium").strip().lower()
+    if severity not in {"low", "medium", "high", "critical"}:
+        severity = "medium"
+
+    status = str(raw.get("status") or "new").strip().lower()
+    if status not in {"new", "triaged", "in_progress", "fixed", "closed"}:
+        status = "new"
+
+    reporter_user_id = str(raw.get("reporter_user_id") or "").strip()
+    reporter_email = str(raw.get("reporter_email") or "").strip().lower()
+    metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    created_at = str(raw.get("created_at") or fallback_now)
+    updated_at = str(raw.get("updated_at") or fallback_now)
+
+    return {
+        "id": feedback_id,
+        "title": title or _derive_note_title(summary),
+        "summary": summary,
+        "area": str(raw.get("area") or "Other").strip() or "Other",
+        "severity": severity,
+        "status": status,
+        "expected_behavior": str(raw.get("expected_behavior") or "").strip(),
+        "actual_behavior": str(raw.get("actual_behavior") or "").strip(),
+        "reproduction_steps": reproduction_steps,
+        "device": str(raw.get("device") or "").strip(),
+        "browser": str(raw.get("browser") or "").strip(),
+        "reproducible": bool(raw.get("reproducible", True)),
+        "safety_acknowledged": bool(raw.get("safety_acknowledged")),
+        "reporter_user_id": reporter_user_id,
+        "reporter_email": reporter_email,
+        "created_at": created_at,
+        "updated_at": updated_at,
         "metadata": metadata,
     }
 
