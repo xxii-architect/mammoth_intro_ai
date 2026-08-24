@@ -10,7 +10,7 @@
       "tier": "pro",
       "developer_access": false,
       "created_at": "2026-08-20T00:58:59.934188+00:00",
-      "updated_at": "2026-08-23T07:24:50.981660+00:00",
+      "updated_at": "2026-08-23T20:49:07.522128+00:00",
       "profile_updated_at": "2026-08-20T08:52:22.203000+00:00",
       "tier_updated_at": "2026-08-20T07:56:03.687503+00:00",
       "developer_access_updated_at": null
@@ -690,6 +690,156 @@
             }
           },
           "runtime_notice": null
+        },
+        {
+          "role": "user",
+          "message": "Patch DiagnosticsPage provider card crash: in providers.map it uses service.status (undefined). Replace with provider.available-based styling, then return exact diff.",
+          "created_at": "2026-08-23T20:49:03.447993+00:00",
+          "agent_id": "coding_agent",
+          "mode": "chat",
+          "page": "chat"
+        },
+        {
+          "role": "assistant",
+          "message": "Handled generate_code request for providers.map.",
+          "created_at": "2026-08-23T20:49:07.522118+00:00",
+          "agent_id": "coding_agent",
+          "mode": "chat",
+          "adapter": "agent-runtime",
+          "model": "coding_agent",
+          "thought_steps": [
+            {
+              "ts": "2026-08-23T20:49:03.448013+00:00",
+              "label": "Hearing hoofbeats",
+              "detail": "agent=coding_agent mode=chat",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T20:49:03.448020+00:00",
+              "label": "Bribing the hamster",
+              "detail": "Spinning up MammothOS reasoning lanes",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T20:49:03.448059+00:00",
+              "label": "Routing through the herd",
+              "detail": "intent=patch_existing agent=coding_agent",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T20:49:03.448878+00:00",
+              "label": "Received request",
+              "detail": "intent='patch_existing'  agent='coding_agent'  approval_mode=False",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T20:49:03.450322+00:00",
+              "label": "Agent resolved",
+              "detail": "name='CodingAgent'  type='unknown'",
+              "status": "success"
+            },
+            {
+              "ts": "2026-08-23T20:49:03.450335+00:00",
+              "label": "Routing decision",
+              "detail": "runtime_agent='coding'  agent_id='coding_agent'",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T20:49:03.450365+00:00",
+              "label": "Dispatching to agent",
+              "detail": "runtime_agent='coding'",
+              "status": "info"
+            },
+            {
+              "ts": "2026-08-23T20:49:06.319625+00:00",
+              "label": "Agent returned",
+              "detail": "type=dict  preview=\"{'code': '# implementation here \u2014 main function MUST be named `solution`\\\\ndef solution(*args, **kwargs):\\\\n    # Assuming\"",
+              "status": "success"
+            },
+            {
+              "ts": "2026-08-23T20:49:07.522030+00:00",
+              "label": "Run complete",
+              "detail": "task_status='completed'",
+              "status": "success"
+            },
+            {
+              "ts": "2026-08-23T20:49:07.522087+00:00",
+              "label": "Lane complete",
+              "detail": "task_id=task-ffac2094",
+              "status": "success"
+            },
+            {
+              "ts": "2026-08-23T20:49:07.522112+00:00",
+              "label": "Packaged response",
+              "detail": "task_id=task-ffac2094",
+              "status": "success"
+            }
+          ],
+          "task_id": "task-ffac2094",
+          "dispatched": true,
+          "evidence_items": [
+            {
+              "agent_id": "coding_agent",
+              "intent": "patch_existing",
+              "summary": "Handled generate_code request for providers.map.",
+              "task_id": "task-ffac2094",
+              "status": "ok",
+              "source": "agent-runtime"
+            }
+          ],
+          "orchestrated": false,
+          "runtime_status": {
+            "state": "ready",
+            "degraded_mode": false,
+            "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+            "next_action": "Continue with the current provider path.",
+            "active_adapter": "openai",
+            "active_model": "gpt-4o-mini",
+            "providers": [
+              {
+                "provider": "deepseek",
+                "status": "ready",
+                "available": true,
+                "detail": "DeepSeek cloud reasoning"
+              },
+              {
+                "provider": "openai",
+                "status": "ready",
+                "available": true,
+                "detail": "OpenAI chat/runtime"
+              },
+              {
+                "provider": "ollama",
+                "status": "offline",
+                "available": false,
+                "detail": "http://localhost:11434"
+              },
+              {
+                "provider": "local",
+                "status": "ready",
+                "available": true,
+                "detail": "Local echo fallback"
+              }
+            ],
+            "available_providers": [
+              "deepseek",
+              "openai",
+              "local"
+            ],
+            "fallback_chain": [
+              "deepseek",
+              "openai",
+              "ollama",
+              "local"
+            ],
+            "recommendation": "openai is ready",
+            "summary": {
+              "openai_key_present": true,
+              "deepseek_key_present": true,
+              "ollama_running": false
+            }
+          },
+          "runtime_notice": null
         }
       ],
       "resume_packet": {
@@ -1277,7 +1427,7 @@
           "has_lesson_context": true
         }
       ],
-      "updated_at": "2026-08-23T07:24:50.981660+00:00"
+      "updated_at": "2026-08-23T20:49:07.522128+00:00"
     }
   },
   "account_profile": {
@@ -2346,6 +2496,156 @@
         }
       },
       "runtime_notice": null
+    },
+    {
+      "role": "user",
+      "message": "Patch DiagnosticsPage provider card crash: in providers.map it uses service.status (undefined). Replace with provider.available-based styling, then return exact diff.",
+      "created_at": "2026-08-23T20:49:03.447993+00:00",
+      "agent_id": "coding_agent",
+      "mode": "chat",
+      "page": "chat"
+    },
+    {
+      "role": "assistant",
+      "message": "Handled generate_code request for providers.map.",
+      "created_at": "2026-08-23T20:49:07.522118+00:00",
+      "agent_id": "coding_agent",
+      "mode": "chat",
+      "adapter": "agent-runtime",
+      "model": "coding_agent",
+      "thought_steps": [
+        {
+          "ts": "2026-08-23T20:49:03.448013+00:00",
+          "label": "Hearing hoofbeats",
+          "detail": "agent=coding_agent mode=chat",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T20:49:03.448020+00:00",
+          "label": "Bribing the hamster",
+          "detail": "Spinning up MammothOS reasoning lanes",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T20:49:03.448059+00:00",
+          "label": "Routing through the herd",
+          "detail": "intent=patch_existing agent=coding_agent",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T20:49:03.448878+00:00",
+          "label": "Received request",
+          "detail": "intent='patch_existing'  agent='coding_agent'  approval_mode=False",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T20:49:03.450322+00:00",
+          "label": "Agent resolved",
+          "detail": "name='CodingAgent'  type='unknown'",
+          "status": "success"
+        },
+        {
+          "ts": "2026-08-23T20:49:03.450335+00:00",
+          "label": "Routing decision",
+          "detail": "runtime_agent='coding'  agent_id='coding_agent'",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T20:49:03.450365+00:00",
+          "label": "Dispatching to agent",
+          "detail": "runtime_agent='coding'",
+          "status": "info"
+        },
+        {
+          "ts": "2026-08-23T20:49:06.319625+00:00",
+          "label": "Agent returned",
+          "detail": "type=dict  preview=\"{'code': '# implementation here \u2014 main function MUST be named `solution`\\\\ndef solution(*args, **kwargs):\\\\n    # Assuming\"",
+          "status": "success"
+        },
+        {
+          "ts": "2026-08-23T20:49:07.522030+00:00",
+          "label": "Run complete",
+          "detail": "task_status='completed'",
+          "status": "success"
+        },
+        {
+          "ts": "2026-08-23T20:49:07.522087+00:00",
+          "label": "Lane complete",
+          "detail": "task_id=task-ffac2094",
+          "status": "success"
+        },
+        {
+          "ts": "2026-08-23T20:49:07.522112+00:00",
+          "label": "Packaged response",
+          "detail": "task_id=task-ffac2094",
+          "status": "success"
+        }
+      ],
+      "task_id": "task-ffac2094",
+      "dispatched": true,
+      "evidence_items": [
+        {
+          "agent_id": "coding_agent",
+          "intent": "patch_existing",
+          "summary": "Handled generate_code request for providers.map.",
+          "task_id": "task-ffac2094",
+          "status": "ok",
+          "source": "agent-runtime"
+        }
+      ],
+      "orchestrated": false,
+      "runtime_status": {
+        "state": "ready",
+        "degraded_mode": false,
+        "issue": "All configured providers are available, and the runtime is operating in its normal chain.",
+        "next_action": "Continue with the current provider path.",
+        "active_adapter": "openai",
+        "active_model": "gpt-4o-mini",
+        "providers": [
+          {
+            "provider": "deepseek",
+            "status": "ready",
+            "available": true,
+            "detail": "DeepSeek cloud reasoning"
+          },
+          {
+            "provider": "openai",
+            "status": "ready",
+            "available": true,
+            "detail": "OpenAI chat/runtime"
+          },
+          {
+            "provider": "ollama",
+            "status": "offline",
+            "available": false,
+            "detail": "http://localhost:11434"
+          },
+          {
+            "provider": "local",
+            "status": "ready",
+            "available": true,
+            "detail": "Local echo fallback"
+          }
+        ],
+        "available_providers": [
+          "deepseek",
+          "openai",
+          "local"
+        ],
+        "fallback_chain": [
+          "deepseek",
+          "openai",
+          "ollama",
+          "local"
+        ],
+        "recommendation": "openai is ready",
+        "summary": {
+          "openai_key_present": true,
+          "deepseek_key_present": true,
+          "ollama_running": false
+        }
+      },
+      "runtime_notice": null
     }
   ],
   "resume_packet": {
@@ -2933,5 +3233,5 @@
       "has_lesson_context": true
     }
   ],
-  "updated_at": "2026-08-23T07:24:50.981660+00:00"
+  "updated_at": "2026-08-23T20:49:07.522128+00:00"
 }
