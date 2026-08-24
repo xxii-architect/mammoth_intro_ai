@@ -2533,6 +2533,8 @@ _INTENT_TO_AGENT_ID = {
     "research_survival": "research_agent",
     "research_plants": "research_agent",
     "compare_gear": "research_agent",
+    "browse_web": "browser_agent",
+    "task_queue": "task_queue_agent",
     "summarize": "research_agent",
     "lesson_curriculum": "curriculum_agent",
     "grade_submission": "tutor_agent",
@@ -2559,6 +2561,8 @@ _AGENT_ID_TO_RUNTIME = {
     "reasoning_agent": "reasoning",
     "coding_agent": "coding",
     "community_engine_agent": "community_engine",
+    "browser_agent": "browser",
+    "task_queue_agent": "task_queue",
     "custodial_agent": "custodial",
 }
 
@@ -3737,7 +3741,7 @@ async def run_agent(body: Dict[str, Any]):
         elif runtime_agent and (runtime_agent == "custodial" or (_agent_registry_ok and runtime_agent in AGENTS)):
             handled_special_result = False
             payload_for_agent: Any = prompt_text or json.dumps(payload)
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
                 if not isinstance(payload_for_agent, dict):
@@ -3756,6 +3760,12 @@ async def run_agent(body: Dict[str, Any]):
                         payload_for_agent.setdefault("mode", "stakeholder_summary")
                         payload_for_agent.setdefault("tone", "rugged")
                         payload_for_agent.setdefault("audience", "operator")
+                    elif runtime_agent == "browser":
+                        payload_for_agent.setdefault("prompt", prompt_text)
+                        if prompt_text.lower().startswith(("http://", "https://")) and not payload_for_agent.get("url"):
+                            payload_for_agent["url"] = prompt_text
+                    elif runtime_agent == "task_queue":
+                        payload_for_agent.setdefault("prompt", prompt_text)
                     else:
                         if not payload_for_agent.get("topic") and not payload_for_agent.get("prompt") and not payload_for_agent.get("problem"):
                             payload_for_agent["topic"] = prompt_text

@@ -24,11 +24,15 @@ def test_run_agent_normalizes_payloads(monkeypatch):
     tutor_result = agent_registry_mod.run_agent("tutor", {"prompt": "coach"})
     plant_result = agent_registry_mod.run_agent("plant_the_seed", {"prompt": "hello"})
     field_ops_result = agent_registry_mod.run_agent("field_ops", {"topic": "navigation", "environment": "forest", "hazards": ["fog"]})
+    browser_result = agent_registry_mod.run_agent("browser", {"url": "https://example.com", "follow_links": False})
+    task_queue_result = agent_registry_mod.run_agent("task_queue", {"action": "status", "prompt": "show queue"})
 
     assert curriculum_result["payload"] == "build lesson"
     assert tutor_result["payload"]["topic"] == "coach"
     assert plant_result["payload"]["topic"] == "hello"
     assert field_ops_result["payload"]["environment"] == "forest"
+    assert browser_result["payload"]["url"] == "https://example.com"
+    assert task_queue_result["payload"]["action"] == "status"
 
 
 def test_research_agent_emits_grounded_evidence_fields(monkeypatch):

@@ -10,7 +10,7 @@ import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
-  'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'summarize',
+  'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'browse_web', 'summarize',
   'lesson_curriculum', 'lesson_coaching', 'grade_submission',
   'generate_code', 'patch_existing', 'refactor_code', 'analyze_codebase', 'run_tests', 'write_docs',
 ]
@@ -25,6 +25,7 @@ const INTENT_TO_AGENT = {
   research_survival:   'research_agent',
   research_plants:     'research_agent',
   compare_gear:        'research_agent',
+  browse_web:          'browser_agent',
   summarize:           'research_agent',
   lesson_curriculum:   'curriculum_agent',
   lesson_coaching:     'tutor_agent',
@@ -44,6 +45,7 @@ const AGENT_TO_INTENT = {
   reflection_agent:     'reflection',
   brand_voice_agent:    'brand_voice',
   research_agent:       'research_curriculum',
+  browser_agent:        'browse_web',
   curriculum_agent:     'lesson_curriculum',
   tutor_agent:          'lesson_coaching',
   coding_agent:         'generate_code',
@@ -68,6 +70,7 @@ const SMOKE_TESTS = [
   { agent_id: 'reflection_agent', intent: 'reflection', prompt: 'Smoke test: provide a one-sentence reflection prompt.' },
   { agent_id: 'brand_voice_agent', intent: 'brand_voice', prompt: 'Smoke test: provide one sentence in brand voice.' },
   { agent_id: 'research_agent', intent: 'research_curriculum', prompt: 'Smoke test: summarize one curriculum tip in one sentence.' },
+  { agent_id: 'browser_agent', intent: 'browse_web', prompt: 'Smoke test: snapshot https://example.com and report the page title.' },
   { agent_id: 'curriculum_agent', intent: 'lesson_curriculum', prompt: 'Smoke test: provide one sentence on lesson framing.' },
   { agent_id: 'tutor_agent', intent: 'lesson_coaching', prompt: 'Smoke test: provide one coaching checkpoint.' },
   { agent_id: 'coding_agent', intent: 'generate_code', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
@@ -86,7 +89,13 @@ const PROMPT_PLAYBOOK = [
     agent_id: 'coding_agent',
     intent: 'patch_existing',
     codingIntent: 'patch_existing',
-    prompt: 'Create a user tutorial panel for the command center. Scope: ui\\mad-architecht-command-center\\src. Keep preview first on and preserve existing navigation.',
+    prompt: 'Create a user tutorial panel for the command center. Scope: ui\mad-architecht-command-center\src. Keep preview first on and preserve existing navigation.',
+  },
+  {
+    label: 'Browser snapshot',
+    agent_id: 'browser_agent',
+    intent: 'browse_web',
+    prompt: 'Snapshot https://example.com and summarize the title, headings, and links.',
   },
   {
     label: 'Plan + Execute objective',
@@ -100,14 +109,14 @@ const PROMPT_PLAYBOOK = [
     planProfile: 'coding',
     codingIntent: 'patch_existing',
     executionMode: 'plan',
-    prompt: 'Plan and implement Health page split: keep existing System Health, add Personal Health module with habit metrics and daily check-in. Scope: ui\\mad-architecht-command-center\\src\\pages\\HealthPage.jsx and related UI components only. Preserve existing backend health wiring and dark theme.',
+    prompt: 'Plan and implement Health page split: keep existing System Health, add Personal Health module with habit metrics and daily check-in. Scope: ui\mad-architecht-command-center\src\pages\HealthPage.jsx and related UI components only. Preserve existing backend health wiring and dark theme.',
   },
   {
     label: 'Finance split test',
     planProfile: 'coding',
     codingIntent: 'patch_existing',
     executionMode: 'plan',
-    prompt: 'Plan and implement Log Sale page split: Personal Finances and Business Finances sections with separate totals and entries. Scope: ui\\mad-architecht-command-center\\src\\pages\\LogSalePage.jsx and related local UI state only. Keep existing styling and current behavior intact.',
+    prompt: 'Plan and implement Log Sale page split: Personal Finances and Business Finances sections with separate totals and entries. Scope: ui\mad-architecht-command-center\src\pages\LogSalePage.jsx and related local UI state only. Keep existing styling and current behavior intact.',
   },
 ]
 
