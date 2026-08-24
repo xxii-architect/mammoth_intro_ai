@@ -11,12 +11,13 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || (secrets.DO_SSH_PRIVATE_KEY != '' && secrets.DO_HOST != '' && secrets.DO_USER != '' && secrets.DO_APP_PATH != '' && secrets.DO_DEPLOY_COMMAND != '') }}
     runs-on: ubuntu-latest
     environment: production
     steps:
       - name: Validate required secrets
+        id: validate
         env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_USER: ${{ secrets.DO_USER }}
@@ -27,15 +28,24 @@ jobs:
           missing=0
           for var in DO_SSH_PRIVATE_KEY DO_HOST DO_USER DO_APP_PATH DO_DEPLOY_COMMAND; do
             if [ -z "${!var:-}" ]; then
-              echo "::error::Missing required secret: ${var}"
               missing=1
+              if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+                echo "::error::Missing required secret: ${var}"
+              fi
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            exit 1
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+              exit 1
+            fi
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Deploy secrets are not configured; skipping push-triggered deploy."
+            exit 0
           fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
 
       - name: Start ssh-agent and add private key
+        if: steps.validate.outputs.skip != 'true'
         env:
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
         run: |
@@ -44,6 +54,7 @@ jobs:
           echo "$DO_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
 
       - name: Configure known_hosts
+        if: steps.validate.outputs.skip != 'true'
         env:
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_KNOWN_HOSTS: ${{ secrets.DO_KNOWN_HOSTS }}
@@ -59,6 +70,7 @@ jobs:
           chmod 644 ~/.ssh/known_hosts
 
       - name: Deploy on droplet
+        if: steps.validate.outputs.skip != 'true'
         env:
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_USER: ${{ secrets.DO_USER }}
