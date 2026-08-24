@@ -21,6 +21,30 @@ This repo is now in a strong “operator-grade prototype” position rather than
 | UI / Command Center | 7.5 / 10 | Operationally useful and polished, but still needs a finishing pass for broad operator usability |
 | LLM Runtime / Provider Chain | 5.5 / 10 | The fallback chain exists but still produces rough edges when keys or credits are unavailable |
 
+### Where Mammoth stands vs Copilot
+
+- Mammoth overall: about **6.5-7 / 10** against Copilot's **8 / 10**
+- Mammoth is strongest in:
+  - multi-agent ownership and workflow control
+  - ATLAS-specific tutoring and runtime visibility
+  - operator-grade task handling
+- The main gap is still:
+  - smoother execution quality
+  - richer browser automation
+  - less generic output across agents
+
+### Phase plan to reach 8+
+
+1. **Execution quality loop**
+   - Require plan -> act -> verify -> retry for coding and agent work
+   - Make success criteria explicit so agents do not return generic summaries
+2. **Browser automation layer**
+   - Expand beyond snapshots into stateful navigation, form filling, and replayable flows
+3. **Agent memory + evals**
+   - Persist task outcomes, regression cases, and quality benchmarks
+4. **Docs + UI alignment**
+   - Keep this manual, the in-app Manual page, and the root README in sync as behavior changes
+
 ### What is “ready enough” now
 
 - Developer/operator testing flows are working and validated

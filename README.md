@@ -13,10 +13,26 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Coding patch apply status is reflected in both artifact detail and run history markers
   - Internet command runs (`/research`, `/web`) are persisted as structured chat events with evidence metadata
 
+## 7 -> 8 upgrade phases
+
+Keep the next pass small, visible, and verifiable:
+
+1. Execution quality loop
+   - plan -> act -> verify -> retry with explicit success checks
+   - stop generic outputs by requiring structured agent responses
+2. Browser automation layer
+   - move from page snapshots to stateful browser actions and task replay
+3. Agent memory + evals
+   - track outcomes, regressions, and repeatable benchmarks
+4. UI/manual/docs refresh
+   - keep `ATLAS_MANUAL.md`, the in-app Manual page, and this README in sync
+
 ## Product docs
 
 - `docs\atlas_fab_product_guide.md` - ATLAS FAB positioning, workflow diagram, and pricing skeleton
 - `docs\mammoth_os_package_offering.md` - package offering, install tiers, and commercialization framing
+- `ATLAS_MANUAL.md` - operator/CLI playbook and phased upgrade notes
+- `ui\mad-architecht-command-center\src\pages\ManualPage.jsx` - in-app UI manual
 
 ## Standalone ATLAS FAB SDK
 

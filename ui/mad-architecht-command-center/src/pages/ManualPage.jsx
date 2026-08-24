@@ -40,6 +40,25 @@ const firstRunChecklist = [
   },
 ]
 
+const upgradePhases = [
+  {
+    title: 'Phase 1: execution quality loop',
+    detail: 'Require plan -> act -> verify -> retry with explicit success checks so agents stop returning generic summaries.',
+  },
+  {
+    title: 'Phase 2: browser automation',
+    detail: 'Move beyond page snapshots into stateful navigation, form filling, and replayable browser actions.',
+  },
+  {
+    title: 'Phase 3: memory + evals',
+    detail: 'Track task outcomes, regression cases, and quality benchmarks so improvements stay measurable.',
+  },
+  {
+    title: 'Phase 4: docs + UI alignment',
+    detail: 'Keep this Manual page, ATLAS_MANUAL.md, and the root README in sync whenever behavior changes.',
+  },
+]
+
 const atlasFabPatterns = [
   {
     title: 'Clarify a concept',
@@ -193,6 +212,20 @@ export default function ManualPage({ setPage }) {
         </div>
         <div style={{ color: 'var(--txt-sec)', lineHeight: 1.7, fontSize: '0.88rem' }}>
           This is the operator + tester playbook for MammothOS and ATLAS. It explains how to prompt well, where guardrails apply, what each page is for, and how to run efficient test sessions without unintended platform changes.
+        </div>
+      </div>
+
+      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '2px solid var(--violet)' }}>
+        <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Gauge size={16} color="var(--violet)" /> 7 to 8 upgrade phases
+        </h2>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
+          {upgradePhases.map((item) => (
+            <div key={item.title} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--txt-pri)', fontWeight: 700, marginBottom: 6 }}>{item.title}</div>
+              <div style={{ color: 'var(--txt-sec)', fontSize: '0.76rem', lineHeight: 1.6 }}>{item.detail}</div>
+            </div>
+          ))}
         </div>
       </div>
 
