@@ -43,6 +43,8 @@ const QUICK_ACTIONS = [
 const SLASH_ACTIONS = [
   '/agent coding_agent Patch the current feature safely',
   '/plan Build the next MammothOS upgrade slice',
+  '/commit feat: summarize these staged upgrades',
+  '/push origin main',
   '/approvals',
   '/runs',
 ]
@@ -94,7 +96,25 @@ function parseSlashCommand(input) {
       message: remaining.join(' ').trim(),
     }
   }
-  return { kind: 'unknown', command }
+  return null
+}
+
+function inferRepoTargets(message) {
+  const text = String(message || '')
+  const matches = text.match(/(?:[A-Za-z]:)?[\\/](?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:py|ts|tsx|js|jsx|json|md|toml|yaml|yml)/g) || []
+  return [...new Set(matches.map((item) => item.replace(/\//g, '\\').trim()).filter(Boolean))].slice(0, 6)
+}
+
+function buildLivePageContext() {
+  const selection = typeof window !== 'undefined' && window.getSelection ? String(window.getSelection() || '').trim() : ''
+  return {
+    current_page: 'chat',
+    route: typeof window !== 'undefined' ? window.location.pathname : '/chat',
+    url: typeof window !== 'undefined' ? window.location.href : '',
+    title: typeof document !== 'undefined' ? document.title : 'MammothOS Chat',
+    selected_text: selection ? selection.slice(0, 400) : '',
+    updated_at: new Date().toISOString(),
+  }
 }
 
 function findLastAssistantIndex(list) {
@@ -624,7 +644,6 @@ export default function ChatPage({ setPage }) {
         setAgentId(slash.agentId)
         return send(slash.message, slash.agentId)
       }
-      setError(`Unknown slash action: ${slash.command}`)
       return
     }
 
@@ -662,7 +681,7 @@ export default function ChatPage({ setPage }) {
     })
     setThoughtSteps([
       { ts: new Date().toISOString(), label: 'Hearing hoofbeats', detail: `agent=${effectiveAgentId} mode=chat`, status: 'info' },
-      { ts: new Date().toISOString(), label: 'Bribing the hamster', detail: 'Spinning up MammothOS reasoning lanes', status: 'info' },
+      { ts: new Date().toISOString(), label: 'Priming mammoth cores', detail: 'Spinning up MammothOS reasoning lanes', status: 'info' },
     ])
     setMeta(null)
     setExpandedThoughtIndex(-1)
@@ -674,7 +693,16 @@ export default function ChatPage({ setPage }) {
         agent_id: effectiveAgentId,
         mode: 'chat',
         coding_intent: effectiveAgentId === 'coding_agent' ? codingIntent : undefined,
-        page_context: { current_page: 'chat' },
+        page_context: buildLivePageContext(),
+        repo_context: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent'
+          ? {
+              query: message,
+              files: inferRepoTargets(message),
+              include_git_status: true,
+              max_results: 4,
+              max_snippets: 3,
+            }
+          : undefined,
       }
       await streamChat(body, effectiveAgentId, placeholderIndex)
     } catch (e) {

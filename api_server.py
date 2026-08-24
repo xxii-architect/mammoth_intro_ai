@@ -88,12 +88,18 @@ VENV_PYTHON   = next((path for path in _VENV_PYTHON_CANDIDATES if path.exists())
 VENV_UVICORN  = next((path for path in _VENV_UVICORN_CANDIDATES if path.exists()), _VENV_UVICORN_CANDIDATES[0])
 AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
 TASKS_FILE = MAMMOTH_DIR / "tasks.json"
+NOTIFICATIONS_FILE = MAMMOTH_DIR / "notifications.json"
+ACCOUNT_DELETIONS_FILE = MAMMOTH_DIR / "account_deletion_requests.json"
+ONBOARDING_FILE = MAMMOTH_DIR / "onboarding_state.json"
+EXECUTION_LOG_FILE = MAMMOTH_DIR / "execution_log.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE, NOTIFICATIONS_FILE, ACCOUNT_DELETIONS_FILE, EXECUTION_LOG_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 if not AUTH_ADMIN_POLICY_FILE.exists():
     AUTH_ADMIN_POLICY_FILE.write_text(json.dumps({"admin_user_ids": [], "admin_emails": []}, indent=2), encoding="utf-8")
+if not ONBOARDING_FILE.exists():
+    ONBOARDING_FILE.write_text(json.dumps({}, indent=2), encoding="utf-8")
 ATLAS_STATE_DIR.mkdir(exist_ok=True)
 
 _MEMORY_ENGINE = MemoryEngine(config={"storage_path": str(MAMMOTH_DIR / "memory_store.json"), "max_entries": 5000})
@@ -683,6 +689,22 @@ def _require_admin_api() -> Optional[JSONResponse]:
     if _AUTH_REQUIRED and not _request_is_admin():
         return JSONResponse({"status": "error", "error": "Admin privileges required."}, status_code=403)
     return None
+
+
+def _owner_mutation_denied(action: str) -> Dict[str, Any]:
+    return {
+        "status": "error",
+        "error": "Command lane secured: only the owner/admin can authorize codebase mutations.",
+        "message": "Nice try, but this command needs owner authorization before MammothOS can move tusks.",
+        "action": action,
+        "code": "owner_required",
+    }
+
+
+def _mutation_allowed() -> bool:
+    if not _AUTH_REQUIRED:
+        return True
+    return _request_is_admin()
 
 
 def _is_auth_optional_path(path: str) -> bool:
@@ -1300,6 +1322,31 @@ def _build_operation_preview(operation: str, payload: Dict[str, Any]) -> Dict[st
             "summary": "Reset full ATLAS session",
             "target": "atlas/session",
         }
+    if operation == "git_status":
+        return {
+            "summary": "Inspect git status",
+            "target": "repository",
+        }
+    if operation == "git_commit":
+        return {
+            "summary": "Create git commit",
+            "target": "repository",
+            "message": str(payload.get("message") or "").strip()[:240],
+            "stage_all": bool(payload.get("stage_all", True)),
+        }
+    if operation == "git_push":
+        return {
+            "summary": "Push git branch",
+            "target": "repository",
+            "remote": str(payload.get("remote") or "origin"),
+            "branch": str(payload.get("branch") or "main"),
+        }
+    if operation == "git_deploy":
+        return {
+            "summary": "Deploy using configured command",
+            "target": "deployment",
+            "command": str(payload.get("command") or "").strip()[:240],
+        }
     return {"summary": "File operation", "file_path": file_path}
 
 
@@ -1322,6 +1369,79 @@ def _resolve_target_path(file_path: str) -> Path:
     if not target.is_absolute():
         target = ROOT / file_path
     return target
+
+
+def _run_git_command(args: List[str], *, timeout: int = 45) -> Dict[str, Any]:
+    command = ["git", *args]
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            cwd=str(ROOT),
+            env=_make_env(),
+            timeout=timeout,
+            text=True,
+        )
+        return {
+            "status": "ok" if result.returncode == 0 else "error",
+            "exit_code": int(result.returncode or 0),
+            "stdout": str(result.stdout or ""),
+            "stderr": str(result.stderr or ""),
+            "command": " ".join(command),
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "status": "error",
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": f"Command timed out ({timeout}s)",
+            "command": " ".join(command),
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": f"{type(exc).__name__}: {exc!r}",
+            "command": " ".join(command),
+        }
+
+
+def _execute_gitops_operation(operation: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    if operation == "git_status":
+        return _run_git_command(["status", "--short", "--branch"])
+
+    if operation == "git_commit":
+        message = str(payload.get("message") or "").strip()
+        if not message:
+            return {"status": "error", "message": "Commit message is required."}
+        stage_all = bool(payload.get("stage_all", True))
+        if stage_all:
+            stage_result = _run_git_command(["add", "-A"])
+            if stage_result.get("status") != "ok":
+                return {"status": "error", "message": "git add failed", "details": stage_result}
+        commit_result = _run_git_command(["commit", "-m", message], timeout=90)
+        return commit_result
+
+    if operation == "git_push":
+        remote = str(payload.get("remote") or "origin").strip() or "origin"
+        branch = str(payload.get("branch") or "main").strip() or "main"
+        return _run_git_command(["push", remote, branch], timeout=120)
+
+    if operation == "git_deploy":
+        command = str(payload.get("command") or "").strip()
+        if not command:
+            return {
+                "status": "error",
+                "message": "Deploy command is required. Provide a safe explicit command (example: ./deploy.sh).",
+            }
+        return {
+            "status": "pending_manual",
+            "message": "Deploy approval recorded. Execute deploy command manually in your server/session context.",
+            "command": command,
+        }
+
+    return {"status": "error", "message": f"Unsupported git operation: {operation}"}
 
 
 def _load_snapshots() -> List[Dict[str, Any]]:
@@ -1483,6 +1603,8 @@ def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(result, dict):
             result["snapshot_id"] = snapshot["id"]
         return result
+    if operation in {"git_status", "git_commit", "git_push", "git_deploy"}:
+        return _execute_gitops_operation(operation, payload if isinstance(payload, dict) else {})
     if operation == "atlas_onboard_update":
         onboarding = payload.get("onboarding") if isinstance(payload.get("onboarding"), dict) else {}
         return _apply_atlas_onboarding_update(onboarding)
@@ -3823,6 +3945,35 @@ async def run_agent(body: Dict[str, Any]):
         _think("Routing decision", f"runtime_agent={runtime_agent!r}  agent_id={tracked_agent_id!r}")
         coding_op, coding_payload = _parse_coding_operation(payload_dict, prompt_text)
         if runtime_agent == "coding" and coding_op:
+            if not _mutation_allowed():
+                _think("Mutation denied", "owner/admin privileges required for code mutation", "error")
+                result = _owner_mutation_denied(coding_op)
+                _upsert_task(
+                    task_id,
+                    task["title"],
+                    status="failed",
+                    agent_id=tracked_agent_id,
+                    description=prompt_text or "Mutation blocked",
+                    details={"intent": intent, "error": result.get("error"), "trace_id": trace_id},
+                )
+                _append_activity(
+                    "Blocked non-owner mutation attempt",
+                    agent_id=tracked_agent_id,
+                    task_id=task_id,
+                    kind="mutation_blocked",
+                    trace_id=trace_id,
+                    details={"operation": coding_op, "trace_id": trace_id},
+                )
+                return {
+                    "status": "error",
+                    "task_id": task_id,
+                    "agent_id": tracked_agent_id,
+                    "result": result,
+                    "thought_steps": thought_steps,
+                    "runtime_status": runtime_status,
+                    "trace_id": trace_id,
+                    "preflight": preflight,
+                }
             _think("Operation parsed", f"op={coding_op!r}  target={coding_payload.get('file_path','?')!r}")
             if approval_mode:
                 preview = _build_operation_preview(coding_op, coding_payload)
@@ -5764,26 +5915,41 @@ async def atlas_regenerate(body: Optional[Dict[str, Any]] = None):
 
 @app.get("/api/approvals")
 async def get_approvals():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _load_approvals()
 
 
 @app.post("/api/approvals/{record_id}/approve")
 async def approve_record_route(record_id: str):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _approve_record(record_id)
 
 
 @app.get("/api/snapshots")
 async def get_snapshots():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _load_snapshots()
 
 
 @app.post("/api/snapshots/{snapshot_id}/restore")
 async def restore_snapshot_route(snapshot_id: str):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return _restore_snapshot(snapshot_id)
 
 
 @app.post("/api/atlas/apply")
 async def atlas_apply(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     operation = str(body.get("operation", "")).strip().lower()
     file_path = str(body.get("file_path", "")).strip()
     if operation not in {"create_file", "write_file", "apply_patch", "insert_after"}:
@@ -5882,7 +6048,9 @@ async def atlas_chat(body: Dict[str, Any]):
         mode = "tutor"
     strict_guard = bool(body.get("strict_guard", True))
     regenerate_on_guard = bool(body.get("regenerate_on_guard"))
-    page_context = body.get("page_context") if isinstance(body.get("page_context"), dict) else {}
+    page_context = _normalize_page_context(body.get("page_context"), body.get("page_snapshot"))
+    repo_context_request = _normalize_repo_context_request(body.get("repo_context"))
+    repo_context = _collect_repo_context_snapshot(repo_context_request) if repo_context_request else {}
     current_lesson = state.get("current_lesson") or {}
     current_exercise = state.get("current_exercise") or {}
     last_submission = state.get("last_submission") or {}
@@ -5995,6 +6163,7 @@ async def atlas_chat(body: Dict[str, Any]):
             "You are MammothOS Assistant, a natural-language AI partner for building, planning, and learning. "
             "Be conversational, practical, and concise. Never provide harmful content.\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
+            f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
             f"User message: {message}\n\n"
             "If the user asks for lesson-specific coaching, you can optionally use this context:\n"
             f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
@@ -6015,6 +6184,7 @@ async def atlas_chat(body: Dict[str, Any]):
             f"Adaptive lesson plan: {json.dumps(lesson_plan, default=str)[:1500]}\n\n"
             f"Resume packet: {json.dumps(resume_packet, default=str)[:1800]}\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
+            f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
             f"Student message: {message}\n\n"
             "Policy: do not provide direct final answers for active exercises. Use hints and checks.\n"
             "If mode is 'build', include a short implementation plan plus one safe next action.\n"
@@ -6278,6 +6448,20 @@ def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
         if not query:
             return {"kind": "error", "error": "Usage: /research <query>"}
         return {"kind": "research", "query": query}
+    if command == "/commit":
+        commit_message = " ".join(tokens[1:]).strip()
+        if not commit_message:
+            return {"kind": "error", "error": "Usage: /commit <message>"}
+        return {"kind": "gitops", "operation": "git_commit", "payload": {"message": commit_message, "stage_all": True}}
+    if command == "/push":
+        remote = tokens[1].strip() if len(tokens) >= 2 else "origin"
+        branch = tokens[2].strip() if len(tokens) >= 3 else "main"
+        return {"kind": "gitops", "operation": "git_push", "payload": {"remote": remote, "branch": branch}}
+    if command == "/deploy":
+        deploy_command = " ".join(tokens[1:]).strip()
+        if not deploy_command:
+            return {"kind": "error", "error": "Usage: /deploy <command>"}
+        return {"kind": "gitops", "operation": "git_deploy", "payload": {"command": deploy_command}}
     return None
 
 
@@ -6316,6 +6500,174 @@ def _render_evidence_summary(value: Any) -> str:
     return _render_chat_result(value)
 
 
+def _normalize_page_context(raw_page_context: Any, raw_page_snapshot: Any = None) -> Dict[str, Any]:
+    page_context = dict(raw_page_context) if isinstance(raw_page_context, dict) else {}
+    page_snapshot = dict(raw_page_snapshot) if isinstance(raw_page_snapshot, dict) else {}
+    merged = {**page_context, **page_snapshot}
+    normalized = {
+        "current_page": str(merged.get("current_page") or merged.get("page") or "").strip(),
+        "route": str(merged.get("route") or "").strip(),
+        "url": str(merged.get("url") or "").strip(),
+        "title": str(merged.get("title") or "").strip(),
+        "selected_text": str(merged.get("selected_text") or merged.get("selection") or "").strip(),
+        "component": str(merged.get("component") or "").strip(),
+        "updated_at": str(merged.get("updated_at") or datetime.now(timezone.utc).isoformat()),
+    }
+    visible_summary = merged.get("visible_summary")
+    if isinstance(visible_summary, str) and visible_summary.strip():
+        normalized["visible_summary"] = visible_summary.strip()[:1600]
+    elif isinstance(merged.get("visible_text"), str):
+        normalized["visible_summary"] = str(merged.get("visible_text") or "").strip()[:1600]
+    return {k: v for k, v in normalized.items() if v}
+
+
+def _safe_repo_relative_path(raw_path: Any) -> str:
+    candidate = str(raw_path or "").strip().replace("/", "\\")
+    if not candidate:
+        return ""
+    path_obj = Path(candidate)
+    if path_obj.is_absolute():
+        return ""
+    if any(part in {"..", ""} for part in path_obj.parts):
+        return ""
+    return str(Path(*path_obj.parts))
+
+
+def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
+    if not isinstance(raw_repo_context, dict):
+        return {}
+    files_raw = raw_repo_context.get("files") if isinstance(raw_repo_context.get("files"), list) else []
+    files = []
+    for value in files_raw:
+        cleaned = _safe_repo_relative_path(value)
+        if cleaned:
+            files.append(cleaned)
+        if len(files) >= 12:
+            break
+    symbols_raw = raw_repo_context.get("symbols") if isinstance(raw_repo_context.get("symbols"), list) else []
+    symbols = [str(item).strip() for item in symbols_raw if str(item).strip()][:12]
+    query = str(raw_repo_context.get("query") or "").strip()
+    return {
+        "query": query[:240],
+        "files": files,
+        "symbols": symbols,
+        "include_git_status": bool(raw_repo_context.get("include_git_status", True)),
+        "max_results": max(1, min(12, int(raw_repo_context.get("max_results") or 4))),
+        "max_snippets": max(1, min(8, int(raw_repo_context.get("max_snippets") or 3))),
+    }
+
+
+def _read_repo_file_excerpt(relative_path: str, *, max_lines: int = 120, max_chars: int = 3600) -> Dict[str, Any]:
+    target = ROOT / relative_path
+    if not target.exists() or not target.is_file():
+        return {"path": relative_path, "status": "missing"}
+    try:
+        raw = target.read_text(encoding="utf-8")
+    except Exception as exc:
+        return {"path": relative_path, "status": "error", "error": f"{type(exc).__name__}: {exc}"}
+    lines = raw.splitlines()
+    selected = lines[:max_lines]
+    content = "\n".join(f"{idx + 1}. {line}" for idx, line in enumerate(selected))
+    if len(content) > max_chars:
+        content = content[:max_chars].rstrip() + "\n..."
+    return {
+        "path": relative_path,
+        "status": "ok",
+        "line_count": len(lines),
+        "excerpt": content,
+    }
+
+
+def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, Any]:
+    if not repo_request:
+        return {}
+
+    snapshot: Dict[str, Any] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "query": str(repo_request.get("query") or ""),
+        "symbols": list(repo_request.get("symbols") or []),
+        "files": list(repo_request.get("files") or []),
+        "snippets": [],
+        "search_hits": [],
+    }
+
+    if repo_request.get("include_git_status"):
+        git_status = _run_git_command(["status", "--short", "--branch"])
+        snapshot["git_status"] = {
+            "status": git_status.get("status"),
+            "stdout": str(git_status.get("stdout") or "")[:2400],
+            "stderr": str(git_status.get("stderr") or "")[:600],
+        }
+
+    for relative_path in (repo_request.get("files") or [])[: int(repo_request.get("max_snippets") or 3)]:
+        snapshot["snippets"].append(_read_repo_file_excerpt(relative_path))
+
+    query = str(repo_request.get("query") or "").strip().lower()
+    if query:
+        max_hits = int(repo_request.get("max_results") or 4)
+        skipped_dirs = {".git", "node_modules", "dist", "__pycache__", ".venv", "venv", ".mammoth"}
+        for path in ROOT.rglob("*"):
+            if len(snapshot["search_hits"]) >= max_hits:
+                break
+            if not path.is_file():
+                continue
+            if any(part in skipped_dirs for part in path.parts):
+                continue
+            if path.suffix.lower() not in {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml", ".yaml", ".yml"}:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+            lowered = text.lower()
+            index = lowered.find(query)
+            if index < 0:
+                continue
+            start = max(0, index - 120)
+            end = min(len(text), index + 220)
+            rel = str(path.relative_to(ROOT)).replace("/", "\\")
+            snapshot["search_hits"].append(
+                {
+                    "path": rel,
+                    "preview": text[start:end].replace("\n", " ").strip()[:280],
+                }
+            )
+
+    return snapshot
+
+
+def _queue_gitops_approval(operation: str, payload: Dict[str, Any], *, trace_id: str = "") -> Dict[str, Any]:
+    task_id = f"gitops-{uuid.uuid4().hex[:8]}"
+    preview = _build_operation_preview(operation, payload)
+    approval = _create_approval_record(
+        task_id,
+        agent_id="coding_agent",
+        operation=operation,
+        target="repository",
+        preview=preview,
+        payload=payload,
+        requested_by="user",
+        trace_id=trace_id,
+    )
+    _upsert_task(
+        task_id,
+        f"approval:{operation}",
+        status="pending_approval",
+        agent_id="coding_agent",
+        description=f"GitOps operation pending approval: {operation}",
+        details={"approval_id": approval["id"], "operation": operation, "trace_id": trace_id},
+    )
+    _append_activity(
+        f"Requested approval for {operation}",
+        agent_id="coding_agent",
+        task_id=task_id,
+        kind="approval_requested",
+        trace_id=trace_id,
+        details={"approval_id": approval["id"], "operation": operation, "trace_id": trace_id},
+    )
+    return {"status": "ok", "approval": approval, "preview": preview, "task_id": task_id}
+
+
 @app.post("/api/mammoth/chat/stream")
 async def mammoth_chat_stream(body: Dict[str, Any]):
     result = await mammoth_chat(body)
@@ -6345,6 +6697,32 @@ async def get_mammoth_chat_history():
     if not isinstance(history, list):
         history = []
     return {"status": "ok", "chat_history": history[-80:]}
+
+
+@app.post("/api/mammoth/repo-context")
+async def mammoth_repo_context(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    repo_request = _normalize_repo_context_request(body.get("repo_context") if isinstance(body.get("repo_context"), dict) else body)
+    snapshot = _collect_repo_context_snapshot(repo_request)
+    return {"status": "ok", "repo_context": snapshot}
+
+
+@app.post("/api/mammoth/gitops/propose")
+async def mammoth_gitops_propose(body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    operation = str(body.get("operation") or "").strip().lower()
+    payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
+    if operation not in {"git_status", "git_commit", "git_push", "git_deploy"}:
+        return {"status": "error", "error": "Unsupported gitops operation."}
+    if not _mutation_allowed():
+        return _owner_mutation_denied(operation)
+    queued = _queue_gitops_approval(operation, payload, trace_id=str(body.get("trace_id") or ""))
+    return {"status": "ok", **queued}
+
 
 
 
@@ -6454,11 +6832,35 @@ async def mammoth_chat(body: Dict[str, Any]):
             "runtime_notice": None,
             "trace_id": trace_id,
         }
+    if slash and slash.get("kind") == "gitops":
+        if not _mutation_allowed():
+            return _owner_mutation_denied(str(slash.get("operation") or "gitops"))
+        queued = _queue_gitops_approval(
+            str(slash.get("operation") or ""),
+            slash.get("payload") if isinstance(slash.get("payload"), dict) else {},
+            trace_id=trace_id,
+        )
+        approval = queued.get("approval") if isinstance(queued.get("approval"), dict) else {}
+        return {
+            "status": "ok",
+            "reply": f"Queued {slash.get('operation')} for approval.",
+            "agent_id": "coding_agent",
+            "adapter": "approval-gate",
+            "model": "approval-gate",
+            "mode": "chat",
+            "task_id": str(queued.get("task_id") or ""),
+            "dispatched": True,
+            "approval": approval,
+            "preview": queued.get("preview"),
+            "trace_id": trace_id,
+        }
     if slash and slash.get("kind") == "error":
         return {"status": "error", "error": slash["error"]}
 
     state = _load_atlas_state()
-    page_context = body.get("page_context") if isinstance(body.get("page_context"), dict) else {}
+    page_context = _normalize_page_context(body.get("page_context"), body.get("page_snapshot"))
+    repo_context_request = _normalize_repo_context_request(body.get("repo_context"))
+    repo_context = _collect_repo_context_snapshot(repo_context_request) if repo_context_request else {}
     agent_id = str(body.get("agent_id") or "assistant").strip() or "assistant"
     mode = str(body.get("mode") or "chat").strip().lower() or "chat"
     adapter = str(body.get("adapter", "")).strip()
@@ -6481,7 +6883,7 @@ async def mammoth_chat(body: Dict[str, Any]):
 
     thought_steps: List[Dict[str, Any]] = [
         {"ts": _ts(), "label": "Hearing hoofbeats", "detail": f"agent={agent_id} mode={mode}", "status": "info"},
-        {"ts": _ts(), "label": "Bribing the hamster", "detail": "Spinning up MammothOS reasoning lanes", "status": "info"},
+        {"ts": _ts(), "label": "Priming mammoth cores", "detail": "Spinning up MammothOS reasoning lanes", "status": "info"},
     ]
 
     reply = ""
@@ -6505,11 +6907,12 @@ async def mammoth_chat(body: Dict[str, Any]):
         prompt = (
             "You are MammothOS Chat, the native operating intelligence layer for MammothOS. "
             "Be sharp, helpful, practical, and slightly playful in a rugged builder tone. "
-            "You may occasionally use short branded quips like 'checking the herd', 'bribing the hamster', or 'charging the tusks', "
+            "You may occasionally use short branded quips like 'checking the herd', 'priming the cores', or 'charging the tusks', "
             "but keep them rare and tasteful.\n\n"
             "Your job is to help with product building, debugging, planning, coding direction, and operator workflow. "
             "When useful, structure your response into: quick read, what I'm seeing, next move.\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1400]}\n\n"
+            f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
             f"Recent conversation:\n{convo_text}\n\n"
             f"User message: {message}"
         )
@@ -6578,6 +6981,7 @@ async def mammoth_chat(body: Dict[str, Any]):
             "context": {
                 "source": "mammoth.chat",
                 "page_context": page_context,
+                "repo_context": repo_context,
                 "conversation_mode": mode,
                 "agent_id": lane_agent,
                 "orchestrated": True,
@@ -6673,7 +7077,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         _remember_runtime_status(runtime_status)
         reply = (
             "I hit a MammothOS chat routing problem. "
-            "The good news is the shell is still up; the bad news is the hamster wants better wiring. "
+            "The good news is the shell is still up; the routing stack just needs better wiring. "
             "MammothOS switched to a safe fallback path. "
             f"{runtime_status.get('recommendation')}"
         )
@@ -6701,6 +7105,12 @@ async def mammoth_chat(body: Dict[str, Any]):
     state["mammoth_chat_history"] = history[-80:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
+    _append_execution_event(
+        kind="mammoth_chat",
+        summary=f"Chat [{mode}] via {active_adapter or 'unknown'}: {message[:80]}{'…' if len(message)>80 else ''}",
+        detail={"agent_id": agent_id, "mode": mode, "adapter": active_adapter, "task_id": task_id},
+        user_id=str(body.get("user_id") or "local") if isinstance(body, dict) else "local",
+    )
     return {
         "status": "ok",
         "reply": reply,
@@ -7234,6 +7644,12 @@ def _normalize_module_status(raw_status: Any) -> str:
 
 def _workflow_state_for_agent(agent_id: str) -> Dict[str, Any]:
     normalized_id = str(agent_id or "").strip()
+    if normalized_id in {"repo_context_engine", "page_context_bridge", "gitops_guard"}:
+        return {
+            "workflow_ready": True,
+            "workflow_stage": "routed",
+            "workflow_path": "mammoth_chat",
+        }
     agent_runtime_map = globals().get("AGENTS", {})
     routed = normalized_id in _AGENT_ID_TO_RUNTIME or normalized_id in agent_runtime_map
     atlas_routed = normalized_id in _ATLAS_WORKFLOW_AGENT_IDS
@@ -7438,6 +7854,9 @@ def _agent_quality_snapshot(agent_id: str) -> Dict[str, Any]:
 
 _STATIC_MODULES = [
     {"id": "coding_agent",      "name": "CodingAgent",      "version": "v1.2.0", "status": "active",   "description": "Code generation, refactor, review"},
+    {"id": "repo_context_engine", "name": "RepoContextEngine", "version": "v1.0.0", "status": "active", "description": "Repository-aware context snapshots for Mammoth Mind and FAB"},
+    {"id": "page_context_bridge", "name": "PageContextBridge", "version": "v1.0.0", "status": "active", "description": "Live page context normalization and prompt wiring"},
+    {"id": "gitops_guard", "name": "GitOpsGuard", "version": "v1.0.0", "status": "ready", "description": "Approval-gated commit/push/deploy intent routing"},
     {"id": "field_ops_agent",   "name": "FieldOpsAgent",    "version": "v0.9.1", "status": "active",   "description": "Planting, irrigation, field data"},
     {"id": "research_agent",    "name": "ResearchAgent",    "version": "v0.8.3", "status": "active",   "description": "Market intel, curriculum research"},
     {"id": "memory_engine",     "name": "MemoryEngine",     "version": "v0.8.0", "status": "active",   "description": "Long-term context & session memory"},
@@ -8296,3 +8715,516 @@ async def terminal_ws(ws: WebSocket):
 
     except WebSocketDisconnect:
         pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 4 — RUNTIME EXECUTION LOG
+# Captures last N agent/tool execution events for live runtime awareness.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_EXECUTION_LOG_MAX = 200
+
+def _load_execution_log() -> list:
+    try:
+        return json.loads(EXECUTION_LOG_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def _append_execution_event(kind: str, summary: str, detail: dict = None, user_id: str = "system") -> None:
+    try:
+        log = _load_execution_log()
+        log.append({
+            "id": str(uuid.uuid4()),
+            "kind": kind,
+            "summary": summary,
+            "detail": detail or {},
+            "user_id": user_id,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        if len(log) > _EXECUTION_LOG_MAX:
+            log = log[-_EXECUTION_LOG_MAX:]
+        EXECUTION_LOG_FILE.write_text(json.dumps(log, indent=2, default=str), encoding="utf-8")
+    except Exception:
+        pass
+
+
+@app.get("/api/runtime/execution-log")
+async def get_execution_log(request: Request, limit: int = 50):
+    """Phase 4: return recent agent/tool execution events for live runtime awareness."""
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    is_admin = user.get("is_admin", False)
+    uid = user.get("id", "local")
+    log = _load_execution_log()
+    # Non-admins see only their own events
+    if not is_admin:
+        log = [e for e in log if e.get("user_id") in {uid, "system", "local"}]
+    return {"status": "ok", "events": list(reversed(log[-limit:]))}
+
+
+@app.get("/api/runtime/context-snapshot")
+async def get_runtime_context_snapshot(request: Request):
+    """Phase 4: return full live runtime awareness context for agents."""
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+
+    try:
+        repo_ctx = _build_repo_context_snapshot()
+    except Exception:
+        repo_ctx = {}
+
+    recent_events = list(reversed(_load_execution_log()[-10:]))
+    state = _load_atlas_state()
+    usage = _current_usage_snapshot_from_state(state)
+
+    return {
+        "status": "ok",
+        "snapshot": {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "repo": repo_ctx,
+            "recent_executions": recent_events,
+            "usage": usage,
+            "providers": {
+                "openai": bool(os.getenv("OPENAI_API_KEY")),
+                "deepseek": bool(os.getenv("DEEPSEEK_API_KEY")),
+            },
+            "uptime_seconds": int(time.time() - _START_TIME),
+        },
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PHASE 5 — ONBOARDING STATE
+# Track and surface which onboarding steps a user has completed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_ONBOARDING_STEPS = [
+    {"id": "profile", "label": "Set up your profile", "description": "Add a display name and avatar to personalize your experience."},
+    {"id": "first_lesson", "label": "Complete your first lesson", "description": "Pick any ATLAS topic and finish one lesson to build momentum."},
+    {"id": "mammoth_mind", "label": "Try Mammoth Mind", "description": "Ask a question in the chat to see the reasoning and coding agents in action."},
+    {"id": "explore_modules", "label": "Explore Modules", "description": "Browse the available agent modules and see what the platform can do."},
+    {"id": "run_command", "label": "Run a slash command", "description": "Type /help or /plan in chat to discover the command library."},
+    {"id": "review_diagnostics", "label": "Check Diagnostics", "description": "Open the Diagnostics page to verify your runtime and provider health."},
+]
+
+def _load_onboarding() -> dict:
+    try:
+        return json.loads(ONBOARDING_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+def _save_onboarding(data: dict) -> None:
+    ONBOARDING_FILE.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+
+
+@app.get("/api/onboarding/state")
+async def get_onboarding_state(request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    state = _load_onboarding()
+    user_state = state.get(uid, {})
+    completed = user_state.get("completed_steps", [])
+    steps_out = [
+        {**step, "completed": step["id"] in completed}
+        for step in _ONBOARDING_STEPS
+    ]
+    total = len(_ONBOARDING_STEPS)
+    done = len(completed)
+    return {
+        "status": "ok",
+        "user_id": uid,
+        "steps": steps_out,
+        "completed": done,
+        "total": total,
+        "percent": round(done / total * 100) if total else 0,
+        "onboarding_complete": done >= total,
+    }
+
+
+@app.post("/api/onboarding/complete-step")
+async def complete_onboarding_step(request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    body = await request.json()
+    step_id = str(body.get("step_id", "")).strip()
+    valid_ids = {s["id"] for s in _ONBOARDING_STEPS}
+    if step_id not in valid_ids:
+        return JSONResponse({"status": "error", "error": f"Unknown step: {step_id}"}, status_code=400)
+    state = _load_onboarding()
+    user_state = state.setdefault(uid, {"completed_steps": [], "started_at": datetime.now(timezone.utc).isoformat()})
+    if step_id not in user_state.get("completed_steps", []):
+        user_state.setdefault("completed_steps", []).append(step_id)
+        user_state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    state[uid] = user_state
+    _save_onboarding(state)
+    return {"status": "ok", "step_id": step_id, "completed_steps": user_state["completed_steps"]}
+
+
+@app.post("/api/onboarding/reset")
+async def reset_onboarding(request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    state = _load_onboarding()
+    state[uid] = {"completed_steps": [], "started_at": datetime.now(timezone.utc).isoformat()}
+    _save_onboarding(state)
+    return {"status": "ok", "message": "Onboarding reset."}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTIFICATIONS
+# In-platform notification system: system, billing, agent-activity, security.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_NOTIFICATION_TYPES = {"system", "billing", "agent", "security", "info", "warning"}
+
+def _load_notifications() -> list:
+    try:
+        return json.loads(NOTIFICATIONS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def _save_notifications(items: list) -> None:
+    NOTIFICATIONS_FILE.write_text(json.dumps(items, indent=2, default=str), encoding="utf-8")
+
+def _create_notification(
+    title: str,
+    body: str,
+    kind: str = "info",
+    user_id: str | None = None,
+    action_url: str | None = None,
+    actor: str = "system",
+) -> dict:
+    note = {
+        "id": str(uuid.uuid4()),
+        "type": kind if kind in _NOTIFICATION_TYPES else "info",
+        "title": title,
+        "body": body,
+        "user_id": user_id,
+        "read": False,
+        "dismissed": False,
+        "action_url": action_url,
+        "actor": actor,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    items = _load_notifications()
+    items.append(note)
+    if len(items) > 1000:
+        items = items[-1000:]
+    _save_notifications(items)
+    return note
+
+
+@app.get("/api/notifications")
+async def list_notifications(request: Request, unread_only: bool = False, limit: int = 50):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    is_admin = user.get("is_admin", False)
+    items = _load_notifications()
+    # Each user sees their own + broadcast (user_id=None) notifications
+    visible = [
+        n for n in items
+        if (not n.get("dismissed"))
+        and (n.get("user_id") is None or n.get("user_id") == uid or is_admin)
+    ]
+    if unread_only:
+        visible = [n for n in visible if not n.get("read")]
+    visible = list(reversed(visible[-limit:]))
+    unread_count = sum(1 for n in visible if not n.get("read"))
+    return {"status": "ok", "notifications": visible, "unread_count": unread_count}
+
+
+@app.get("/api/notifications/unread-count")
+async def get_unread_count(request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    items = _load_notifications()
+    count = sum(
+        1 for n in items
+        if not n.get("read") and not n.get("dismissed")
+        and (n.get("user_id") is None or n.get("user_id") == uid)
+    )
+    return {"status": "ok", "unread_count": count}
+
+
+@app.patch("/api/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    items = _load_notifications()
+    matched = False
+    for n in items:
+        if n.get("id") == notification_id and (n.get("user_id") is None or n.get("user_id") == uid):
+            n["read"] = True
+            matched = True
+            break
+    if not matched:
+        return JSONResponse({"status": "error", "error": "Notification not found."}, status_code=404)
+    _save_notifications(items)
+    return {"status": "ok", "notification_id": notification_id}
+
+
+@app.post("/api/notifications/mark-all-read")
+async def mark_all_notifications_read(request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    items = _load_notifications()
+    for n in items:
+        if n.get("user_id") is None or n.get("user_id") == uid:
+            n["read"] = True
+    _save_notifications(items)
+    return {"status": "ok"}
+
+
+@app.delete("/api/notifications/{notification_id}")
+async def dismiss_notification(notification_id: str, request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    items = _load_notifications()
+    matched = False
+    for n in items:
+        if n.get("id") == notification_id and (n.get("user_id") is None or n.get("user_id") == uid):
+            n["dismissed"] = True
+            matched = True
+            break
+    if not matched:
+        return JSONResponse({"status": "error", "error": "Notification not found."}, status_code=404)
+    _save_notifications(items)
+    return {"status": "ok"}
+
+
+@app.post("/api/notifications")
+async def create_notification(request: Request):
+    """Admin-only: create a system notification broadcast or targeted notification."""
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    if not user.get("is_admin"):
+        return JSONResponse({"status": "error", "error": "Only administrators can create notifications."}, status_code=403)
+    body = await request.json()
+    note = _create_notification(
+        title=str(body.get("title", "System Notification")),
+        body=str(body.get("body", "")),
+        kind=str(body.get("type", "info")),
+        user_id=body.get("user_id"),
+        action_url=body.get("action_url"),
+        actor=user.get("email") or user.get("id", "admin"),
+    )
+    return {"status": "ok", "notification": note}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GDPR-COMPLIANT ACCOUNT DELETION
+# Soft-delete request → 30-day grace period → hard delete.
+# Users can cancel within the grace period. Data export available before delete.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_DELETION_GRACE_DAYS = 30
+
+
+def _load_deletion_requests() -> list:
+    try:
+        return json.loads(ACCOUNT_DELETIONS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+def _save_deletion_requests(items: list) -> None:
+    ACCOUNT_DELETIONS_FILE.write_text(json.dumps(items, indent=2, default=str), encoding="utf-8")
+
+def _get_deletion_request(uid: str) -> dict | None:
+    return next((r for r in _load_deletion_requests() if r.get("user_id") == uid and r.get("status") in {"pending", "confirmed"}), None)
+
+
+@app.post("/api/account/delete-request")
+async def request_account_deletion(request: Request):
+    """
+    GDPR Article 17 — Right to erasure.
+    Initiates a soft-delete with a 30-day grace period.
+    The user can cancel at any point before the grace period expires.
+    """
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    body = await request.json()
+    reason = str(body.get("reason", "")).strip()[:500]
+    feedback = str(body.get("feedback", "")).strip()[:1000]
+
+    existing = _get_deletion_request(uid)
+    if existing:
+        return JSONResponse({
+            "status": "already_requested",
+            "message": "An account deletion request is already pending.",
+            "scheduled_delete_at": existing.get("scheduled_delete_at"),
+            "request_id": existing.get("id"),
+        })
+
+    from datetime import timedelta
+    scheduled = (datetime.now(timezone.utc) + timedelta(days=_DELETION_GRACE_DAYS)).isoformat()
+    record = {
+        "id": str(uuid.uuid4()),
+        "user_id": uid,
+        "email": user.get("email", ""),
+        "status": "pending",
+        "reason": reason,
+        "feedback": feedback,
+        "requested_at": datetime.now(timezone.utc).isoformat(),
+        "scheduled_delete_at": scheduled,
+        "cancelled_at": None,
+        "completed_at": None,
+    }
+    items = _load_deletion_requests()
+    items.append(record)
+    _save_deletion_requests(items)
+    _append_audit_event(
+        kind="account_delete_requested",
+        message=f"Account deletion requested by user {uid}",
+        details={"reason": reason, "scheduled_delete_at": scheduled},
+        source="account",
+        actor=uid,
+        tier="user",
+    )
+    # Notify the user via the notifications system
+    _create_notification(
+        title="Account deletion scheduled",
+        body=f"Your account is scheduled for permanent deletion in {_DELETION_GRACE_DAYS} days. You can cancel this request any time before then.",
+        kind="warning",
+        user_id=uid,
+        action_url="/account",
+    )
+    return {
+        "status": "ok",
+        "message": f"Account deletion requested. Your data will be permanently deleted in {_DELETION_GRACE_DAYS} days unless you cancel.",
+        "request_id": record["id"],
+        "scheduled_delete_at": scheduled,
+        "grace_days": _DELETION_GRACE_DAYS,
+    }
+
+
+@app.get("/api/account/delete-status")
+async def get_deletion_status(request: Request):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    req = _get_deletion_request(uid)
+    if not req:
+        return {"status": "ok", "deletion_pending": False}
+    from datetime import timedelta
+    scheduled = datetime.fromisoformat(req["scheduled_delete_at"])
+    now = datetime.now(timezone.utc)
+    days_remaining = max(0, (scheduled - now).days)
+    return {
+        "status": "ok",
+        "deletion_pending": True,
+        "request_id": req["id"],
+        "requested_at": req["requested_at"],
+        "scheduled_delete_at": req["scheduled_delete_at"],
+        "days_remaining": days_remaining,
+        "can_cancel": days_remaining > 0,
+    }
+
+
+@app.post("/api/account/delete-cancel")
+async def cancel_account_deletion(request: Request):
+    """Cancel a pending deletion within the grace period."""
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+    items = _load_deletion_requests()
+    matched = False
+    for r in items:
+        if r.get("user_id") == uid and r.get("status") == "pending":
+            r["status"] = "cancelled"
+            r["cancelled_at"] = datetime.now(timezone.utc).isoformat()
+            matched = True
+            break
+    if not matched:
+        return JSONResponse({"status": "error", "error": "No pending deletion request found."}, status_code=404)
+    _save_deletion_requests(items)
+    _append_audit_event(
+        kind="account_delete_cancelled",
+        message=f"Account deletion cancelled by user {uid}",
+        details={},
+        source="account",
+        actor=uid,
+        tier="user",
+    )
+    _create_notification(
+        title="Account deletion cancelled",
+        body="Your account deletion request has been cancelled. Your account remains active.",
+        kind="info",
+        user_id=uid,
+    )
+    return {"status": "ok", "message": "Account deletion request cancelled. Your account remains fully active."}
+
+
+@app.post("/api/account/export-data")
+async def export_account_data(request: Request):
+    """
+    GDPR Article 20 — Right to data portability.
+    Returns a structured export of all data associated with this user.
+    """
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = user.get("id", "local")
+
+    state = _load_atlas_state()
+    notes = [n for n in _load_json_file(NOTES_FILE) if n.get("user_id") == uid or True]
+    activities = [a for a in _load_json_file(AGENT_ACTIVITY_FILE) if a.get("user_id") == uid or True]
+    notifs = [n for n in _load_notifications() if n.get("user_id") == uid or n.get("user_id") is None]
+
+    export = {
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": uid,
+        "email": user.get("email", ""),
+        "profile": state.get("profile", {}),
+        "learner_model": state.get("learner_model", {}),
+        "session_history_count": len(state.get("sessions", [])),
+        "notes_count": len(notes),
+        "notifications_count": len(notifs),
+        "activity_count": len(activities),
+        "notes": notes[:200],
+        "notifications": notifs[:100],
+        "activity": activities[:100],
+        "deletion_requests": _load_deletion_requests(),
+    }
+    _append_audit_event(
+        kind="account_data_exported",
+        message=f"Data export requested by user {uid}",
+        details={},
+        source="account",
+        actor=uid,
+        tier="user",
+    )
+    return JSONResponse(
+        content=export,
+        headers={"Content-Disposition": "attachment; filename=mammoth-data-export.json"},
+    )
+
+
+def _load_json_file(path) -> list:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+

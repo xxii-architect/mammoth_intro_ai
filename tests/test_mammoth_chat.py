@@ -38,7 +38,7 @@ def test_mammoth_chat_assistant_uses_separate_history(monkeypatch):
     assert state.get('mammoth_chat_history')
     assert 'assistant_chat_history' not in state
     assert prompt_log and 'MammothOS Chat' in prompt_log[-1]
-    assert any(step['label'] == 'Bribing the hamster' for step in response['thought_steps'])
+    assert any(step['label'] == 'Priming mammoth cores' for step in response['thought_steps'])
 
 
 def test_mammoth_chat_dispatches_to_agent_runtime(monkeypatch):
@@ -127,6 +127,8 @@ def test_mammoth_chat_stream_emits_sse_events(monkeypatch):
 def test_parse_mammoth_chat_command_internet_variants():
     assert api_server._parse_mammoth_chat_command('/web https://example.com')['kind'] == 'web'
     assert api_server._parse_mammoth_chat_command('/research runtime fallback handling')['kind'] == 'research'
+    assert api_server._parse_mammoth_chat_command('/commit chore: test')['operation'] == 'git_commit'
+    assert api_server._parse_mammoth_chat_command('/push origin main')['operation'] == 'git_push'
     assert api_server._parse_mammoth_chat_command('/web')['kind'] == 'error'
 
 
@@ -190,3 +192,73 @@ def test_atlas_chat_research_command_uses_internet_tool(monkeypatch):
     assert response['adapter'] == 'internet-tool'
     assert 'research brief' in response['reply']
     assert response['chat_history'][-1]['adapter'] == 'internet-tool'
+
+
+def test_mammoth_chat_gitops_requires_owner_when_auth_enabled(monkeypatch):
+    monkeypatch.setattr(api_server, '_AUTH_REQUIRED', True)
+    monkeypatch.setattr(api_server, '_mutation_allowed', lambda: False)
+
+    response = asyncio.run(
+        api_server.mammoth_chat(
+            {
+                'message': '/commit chore: unsafe',
+                'agent_id': 'coding_agent',
+                'mode': 'chat',
+            }
+        )
+    )
+
+    assert response['status'] == 'error'
+    assert response['code'] == 'owner_required'
+
+
+def test_mammoth_chat_gitops_queues_approval(monkeypatch):
+    monkeypatch.setattr(api_server, '_AUTH_REQUIRED', False)
+    monkeypatch.setattr(
+        api_server,
+        '_queue_gitops_approval',
+        lambda operation, payload, trace_id='': {
+            'status': 'ok',
+            'task_id': 'gitops-1',
+            'approval': {'id': 'approval-1', 'operation': operation},
+            'preview': {'summary': operation},
+        },
+    )
+
+    response = asyncio.run(
+        api_server.mammoth_chat(
+            {
+                'message': '/commit feat: ship it',
+                'agent_id': 'coding_agent',
+                'mode': 'chat',
+            }
+        )
+    )
+
+    assert response['status'] == 'ok'
+    assert response['task_id'] == 'gitops-1'
+    assert response['approval']['id'] == 'approval-1'
+
+
+def test_mammoth_repo_context_endpoint_returns_snapshot(monkeypatch):
+    monkeypatch.setattr(api_server, '_AUTH_REQUIRED', False)
+    monkeypatch.setattr(
+        api_server,
+        '_collect_repo_context_snapshot',
+        lambda req: {'query': req.get('query'), 'snippets': [{'path': 'api_server.py'}]},
+    )
+
+    response = asyncio.run(
+        api_server.mammoth_repo_context(
+            {
+                'repo_context': {
+                    'query': 'atlas',
+                    'files': ['api_server.py'],
+                }
+            }
+        )
+    )
+
+    assert response['status'] == 'ok'
+    assert response['repo_context']['query'] == 'atlas'
+    assert response['repo_context']['snippets'][0]['path'] == 'api_server.py'
