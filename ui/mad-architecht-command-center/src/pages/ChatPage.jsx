@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow } from 'lucide-react'
+import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import RuntimeStatusBanner from '../components/RuntimeStatusBanner'
+import ChatMessageBody from '../components/ChatMessageBody'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
 
@@ -161,6 +162,117 @@ function ThoughtTrail({ steps, busy, expandedIndex, onToggle, compact = false })
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard, onOpenHandoff }) {
+  const [copied, setCopied] = useState(false)
+  const isUser = entry.role === 'user'
+  const isStreamingBubble = !isUser && entry.stream
+
+  const agentLabel = isUser
+    ? 'You'
+    : entry.agent_id === 'assistant'
+      ? 'MammothOS'
+      : (entry.agent_id || 'assistant').replaceAll('_', ' ')
+
+  const hasHandoff = !isUser && (entry.task_id || (Array.isArray(approvals) && approvals.some((a) => a.agent_id === entry.agent_id && a.status === 'pending')))
+
+  const copyMessage = async () => {
+    if (!entry.message) return
+    try {
+      await navigator.clipboard.writeText(entry.message)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch { /* no-op */ }
+  }
+
+  return (
+    <div style={{ alignSelf: isUser ? 'flex-end' : 'flex-start', maxWidth: '94%' }}>
+      {/* Sender label */}
+      <div style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span>{agentLabel}</span>
+        {!isUser && entry.created_at && (
+          <span style={{ fontWeight: 400 }}>{new Date(entry.created_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>
+        )}
+      </div>
+
+      {/* Bubble */}
+      <div style={{
+        background: isUser ? 'rgba(77,166,255,0.15)' : 'rgba(255,255,255,0.04)',
+        border: `1px solid ${isUser ? 'rgba(77,166,255,0.3)' : isStreamingBubble ? 'rgba(77,166,255,0.2)' : 'rgba(255,255,255,0.08)'}`,
+        borderRadius: isUser ? '14px 14px 4px 14px' : '4px 14px 14px 14px',
+        padding: '13px 15px',
+        color: 'var(--txt-pri)',
+        fontSize: '0.9rem',
+        lineHeight: 1.72,
+        boxShadow: isStreamingBubble ? '0 0 0 1px rgba(77,166,255,0.06) inset' : 'none',
+        position: 'relative',
+      }}>
+        {isUser
+          ? <div style={{ whiteSpace: 'pre-wrap' }}>{entry.message}</div>
+          : entry.message
+            ? <ChatMessageBody text={entry.message} />
+            : (isStreamingBubble
+              ? <span style={{ color: 'var(--txt-mut)' }}>MammothOS is composing…</span>
+              : null)
+        }
+        {isStreamingBubble && busy && (
+          <span style={{ display: 'inline-block', width: 8, height: 8, marginLeft: 6, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)', verticalAlign: 'middle' }} />
+        )}
+      </div>
+
+      {/* Meta row */}
+      {!isUser && (entry.model || entry.adapter || entry.task_id) && (
+        <div style={{ marginTop: 4, fontSize: '0.66rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>
+          {(entry.adapter || 'runtime')} • {(entry.model || 'unknown')}{entry.task_id ? ` • ${entry.task_id}` : ''}
+        </div>
+      )}
+
+      {/* Evidence cards */}
+      {!isUser && Array.isArray(entry.evidence_items) && entry.evidence_items.length > 0 && (
+        <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+          {entry.evidence_items.slice(0, 4).map((item, i) => (
+            <div key={`${item.agent_id || 'e'}-${i}`} style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)' }}>
+              <div style={{ fontSize: '0.66rem', color: 'var(--photon)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 3 }}>
+                {item.agent_id || 'source'} • {item.source || 'runtime'}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item.summary || 'No summary.'}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Action row for assistant messages */}
+      {!isUser && (
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={copyMessage}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-mut)', fontSize: '0.66rem', cursor: 'pointer' }}
+          >
+            {copied ? <Check size={11} color="#22c55e" /> : <Copy size={11} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          <button
+            type="button"
+            onClick={onSaveCard}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.66rem', cursor: 'pointer' }}
+          >
+            Save card
+          </button>
+          {hasHandoff && (
+            <button
+              type="button"
+              onClick={onOpenHandoff}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 8px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.3)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)', fontSize: '0.66rem', cursor: 'pointer' }}
+            >
+              Open handoff →
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -703,56 +815,18 @@ export default function ChatPage({ setPage }) {
                 </p>
               </div>
             )}
-            {history.map((entry, idx) => {
-              const isUser = entry.role === 'user'
-              const isStreamingBubble = !isUser && entry.stream
-              return (
-                <div key={`${entry.created_at || idx}-${idx}`} style={{ alignSelf: isUser ? 'flex-end' : 'flex-start', maxWidth: '94%' }}>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
-                    {isUser ? 'You' : entry.agent_id === 'assistant' ? 'MammothOS' : entry.agent_id?.replaceAll('_', ' ') || 'Assistant'}
-                  </div>
-                  <div style={{ background: isUser ? 'rgba(77,166,255,0.18)' : 'rgba(255,255,255,0.05)', border: `1px solid ${isUser ? 'rgba(77,166,255,0.35)' : isStreamingBubble ? 'rgba(77,166,255,0.25)' : 'rgba(255,255,255,0.08)'}`, borderRadius: isUser ? '14px 14px 4px 14px' : '14px 14px 14px 4px', padding: '13px 15px', color: 'var(--txt-pri)', fontSize: '0.9rem', lineHeight: 1.72, whiteSpace: 'pre-wrap', boxShadow: isStreamingBubble ? '0 0 0 1px rgba(77,166,255,0.08) inset' : 'none' }}>
-                    {entry.message || (isStreamingBubble ? 'MammothOS is composing…' : '')}
-                    {isStreamingBubble && busy && <span style={{ display: 'inline-block', width: 8, height: 8, marginLeft: 6, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)' }} />}
-                  </div>
-                  {!isUser && (entry.model || entry.adapter || entry.task_id) && (
-                    <div style={{ marginTop: 5, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>
-                      {(entry.adapter || 'runtime')} • {(entry.model || 'unknown')}{entry.task_id ? ` • ${entry.task_id}` : ''}
-                    </div>
-                  )}
-                  {!isUser && Array.isArray(entry.evidence_items) && entry.evidence_items.length > 0 && (
-                    <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
-                      {entry.evidence_items.slice(0, 4).map((item, evidenceIdx) => (
-                        <div key={`${item.agent_id || 'evidence'}-${evidenceIdx}`} style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)' }}>
-                          <div style={{ fontSize: '0.68rem', color: 'var(--photon)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
-                            {item.agent_id || 'source'} • {item.source || 'runtime'}
-                          </div>
-                          <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item.summary || 'No evidence summary provided.'}</div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {!isUser && (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                      <button
-                        onClick={() => saveTaskCardFromEntry(entry, { prompt: history[idx - 1]?.role === 'user' ? history[idx - 1].message : '' })}
-                        style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.68rem', cursor: 'pointer' }}
-                      >
-                        Save task card
-                      </button>
-                      {(entry.task_id || approvals.some((item) => item.agent_id === entry.agent_id && item.status === 'pending')) && (
-                        <button
-                          onClick={() => setPage?.('agent')}
-                          style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.3)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)', fontSize: '0.68rem', cursor: 'pointer' }}
-                        >
-                          Open handoff
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+            {history.map((entry, idx) => (
+              <ChatBubble
+                key={`${entry.created_at || idx}-${idx}`}
+                entry={entry}
+                busy={busy}
+                streaming={streaming}
+                approvals={approvals}
+                prevMessage={history[idx - 1]}
+                onSaveCard={() => saveTaskCardFromEntry(entry, { prompt: history[idx - 1]?.role === 'user' ? history[idx - 1].message : '' })}
+                onOpenHandoff={() => setPage?.('agent')}
+              />
+            ))}
             {busy && !streaming && (
               <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.8rem', color: 'var(--txt-mut)' }}>
                 MammothOS is checking the herd…

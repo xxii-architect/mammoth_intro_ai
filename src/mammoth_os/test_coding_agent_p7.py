@@ -339,7 +339,7 @@ def test_generate_and_test_sets_default_logging_context():
 def test_atlas_code_generate_cli_smoke(tmp_path, capsys):
     """CLI generate command should print generated code and hint."""
     import argparse
-    from cli.atlas import cmd_atlas_code_generate, _SESSION_STATE_FILE
+    from cli.atlas import cmd_atlas_code_generate
 
     mock_gen_result = {
         "code": "def add(a, b): return a + b",
@@ -351,10 +351,11 @@ def test_atlas_code_generate_cli_smoke(tmp_path, capsys):
     }
 
     args = argparse.Namespace(prompt=["write", "an", "add", "function"], no_save=True)
-    with patch("cli.atlas._load_session") as mock_load, \
-         patch("cli.atlas.asyncio.run", return_value=mock_gen_result):
-        from mammoth_os.atlas_session import ATLASSession
-        mock_load.return_value = ATLASSession(user_id="cli_user")
+    session = MagicMock()
+    session.user_id = "cli_user"
+    session.generate_and_test = AsyncMock(return_value=mock_gen_result)
+
+    with patch("cli.atlas._load_session", return_value=session):
         cmd_atlas_code_generate(args)
 
     out = capsys.readouterr().out
