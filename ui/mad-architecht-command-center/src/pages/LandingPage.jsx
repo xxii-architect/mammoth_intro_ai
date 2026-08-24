@@ -72,10 +72,17 @@ const FEATURE_COLUMNS = [
 const TRUST_POINTS = [
   'Local-first session support',
   'No-cheat tutoring guardrails',
+  'Live web commands (/research, /web)',
   'Approval-gated code actions',
   'Runtime fallback notices',
   'Workspace multi-account onboarding',
   'Audit + observability surfaces',
+]
+
+const RECENT_UPGRADES = [
+  '8 -> 9 phase pass is complete (execution quality, browser automation, memory + evals, docs/UI alignment).',
+  'ATLAS now supports live-source commands for current context: /research and /web.',
+  'MemoryEngine and eval history are wired for measurable improvement loops.',
 ]
 
 const WORKFLOW_STEPS = [
@@ -295,6 +302,20 @@ export default function LandingPage({ setPage }) {
       </div>
 
       <div style={{ padding: '54px 0 26px' }}>
+        <div className="glass-card-solid" style={{ padding: '18px 20px', borderRadius: 18, marginBottom: 24, border: '1px solid rgba(0,245,212,0.35)' }}>
+          <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 10 }}>
+            Latest upgrades now live
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {RECENT_UPGRADES.map((line) => (
+              <div key={line} style={{ fontSize: '0.83rem', color: 'var(--txt-sec)', lineHeight: 1.6, display: 'flex', gap: 8 }}>
+                <span style={{ color: 'var(--cyan)' }}>✓</span>
+                <span>{line}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
             Why teams and learners stick with it

@@ -36,6 +36,7 @@ const CONTENT = {
     'ATLAS is intentionally designed to coach instead of simply completing assignments.',
     'Riskier actions can be routed through approval workflows so operators keep a human checkpoint before execution.',
     'Runtime fallback behavior should degrade safely when providers fail, rather than dead-ending the learning or build flow.',
+    'When using live web commands like /research or /web, treat external content as untrusted until verified against primary sources.',
     'Observability, audit trails, and trace IDs exist to make agent behavior reviewable instead of opaque.',
     'Generated outputs can still be wrong. Safety features reduce risk; they do not eliminate the need for review.',
   ],

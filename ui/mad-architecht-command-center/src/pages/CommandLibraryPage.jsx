@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Search, ChevronDown, ChevronRight, BookOpen, Brain, FileText, Calendar, FolderOpen, Microscope, Zap, Shield } from 'lucide-react'
+import { Search, ChevronDown, ChevronRight, BookOpen, Brain, FileText, Calendar, FolderOpen, Microscope, Zap, Shield, Globe } from 'lucide-react'
 
 const COMMANDS = [
   {
@@ -100,8 +100,8 @@ const COMMANDS = [
           { name: 'topic', description: 'The subject or question you want researched.' },
         ],
         output: 'An organized research summary with key findings, context, and topic sections.',
-        guardrails: 'ATLAS uses its training knowledge, not real-time web search. Information has a knowledge cutoff date.',
-        tips: 'For deeper results, ask ATLAS to "break the research into sub-topics" first.',
+        guardrails: 'By default this is model-guided synthesis. For live sources, use the /research or /web commands in the Internet Access section below.',
+        tips: 'For deeper results, ask ATLAS to "break the research into sub-topics" first, then run /research on the highest-priority sub-topic.',
       },
       {
         name: 'Generate a report outline',
@@ -126,6 +126,38 @@ const COMMANDS = [
         output: 'Three to five focused research question options with brief rationale for each.',
         guardrails: 'Research questions are suggestions. Academic validity depends on your institution\'s guidelines.',
         tips: 'Tell ATLAS your level (high school, college, professional) for better calibration.',
+      },
+    ],
+  },
+  {
+    category: 'Internet Access (Live Web)',
+    icon: Globe,
+    accent: 'var(--photon)',
+    description: 'Use slash commands for current-source retrieval and web-grounded summaries.',
+    commands: [
+      {
+        name: 'Run live internet research',
+        syntax: '/research [query]',
+        example: '/research deepseek flash v4 release notes',
+        description: 'Runs a web research pass and returns a concise brief with evidence-oriented context.',
+        parameters: [
+          { name: 'query', description: 'The research topic, question, or target source domain.' },
+        ],
+        output: 'A source-aware summary with key findings and practical takeaways.',
+        guardrails: 'Web sources can be wrong, stale, or biased. Verify critical claims with primary documentation before taking action.',
+        tips: 'Add scope like "official docs", "release notes", or a domain name to reduce noisy results.',
+      },
+      {
+        name: 'Fetch and summarize one URL',
+        syntax: '/web [url]',
+        example: '/web https://docs.python.org/3/whatsnew/3.12.html',
+        description: 'Fetches a specific public URL and returns an extracted summary for quick review.',
+        parameters: [
+          { name: 'url', description: 'A public page URL you want ATLAS to parse and summarize.' },
+        ],
+        output: 'Cleaned page summary with the most relevant points for your current task.',
+        guardrails: 'Some sites block automated fetches or require login; those pages can fail or return partial content.',
+        tips: 'Best for documentation pages when you already trust the source and want faster extraction.',
       },
     ],
   },
@@ -333,7 +365,7 @@ const COMMANDS = [
           { name: 'scope', description: 'Say "keep it short" or "go deep" to control detail.' },
         ],
         output: 'Higher accuracy, more useful, and better-formatted responses.',
-        guardrails: 'ATLAS still uses its training knowledge — more context does not give it new information.',
+        guardrails: 'Context improves answer quality but does not guarantee factual correctness. For current events, use /research or /web and verify sources.',
         tips: 'Start your message with "I\'m a [level] student studying [subject] and I want to [goal]" for best results.',
       },
     ],
@@ -472,7 +504,7 @@ export default function CommandLibraryPage() {
           <h1 style={{ margin: 0, fontSize: '1.7rem', fontWeight: 800, color: 'var(--txt-pri)' }}>Command Library</h1>
         </div>
         <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--txt-sec)', lineHeight: 1.6, maxWidth: 620 }}>
-          A full reference for ATLAS commands, prompts, and features. Click any command to see syntax, parameters, expected output, and guardrails.
+          A full reference for ATLAS prompts, slash commands, and workflow features. Click any command to see syntax, parameters, expected output, and guardrails.
         </p>
       </div>
 

@@ -76,6 +76,10 @@ const atlasFabPatterns = [
     title: 'Internet research command',
     prompt: 'Use /research mammoth os provider fallback to get a concise internet brief, then save the response as a report.',
   },
+  {
+    title: 'Live URL extraction command',
+    prompt: 'Use /web https://example.com/article to fetch that page, summarize it into 5 bullets, and list one actionable takeaway.',
+  },
 ]
 
 const atlasTutorPatterns = [
@@ -128,7 +132,7 @@ const pagePlaybook = [
   {
     page: 'Mammoth Mind / ATLAS FAB chat',
     purpose: 'Fast conversational assistant for context-aware help.',
-    bestUse: 'Use scoped prompts with explicit outcome, constraints, and expected format.',
+    bestUse: 'Use scoped prompts with explicit outcome, constraints, and expected format. Use /research and /web when you need current external sources.',
     avoid: 'Broad vague prompts that hide objective and success criteria.',
   },
   {
