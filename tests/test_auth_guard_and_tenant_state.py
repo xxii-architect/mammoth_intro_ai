@@ -79,6 +79,17 @@ def test_optional_admin_routes_do_not_leak_to_anonymous_users(monkeypatch):
     assert response.status_code == 403
     assert response.json()["error"] == "Admin privileges required."
 
+    approvals_response = client.get("/api/approvals")
+    assert approvals_response.status_code == 401
+    assert approvals_response.json()["error"] == "Authentication required"
+
+    atlas_apply_response = client.post(
+        "/api/atlas/apply",
+        json={"operation": "write_file", "file_path": "README.md", "content": "x"},
+    )
+    assert atlas_apply_response.status_code == 401
+    assert atlas_apply_response.json()["error"] == "Authentication required"
+
 
 def test_supabase_admin_resolution_reads_policy_file(monkeypatch, tmp_path):
     policy_file = tmp_path / "auth_admin_policy.json"

@@ -4,7 +4,10 @@ from pathlib import Path
 import api_server
 
 
-def test_atlas_apply_patch_writes_target_file(tmp_path):
+def test_atlas_apply_patch_writes_target_file(tmp_path, monkeypatch):
+    # Bypass the admin API guard so the function body can be tested directly
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+
     target = tmp_path / "artifact.txt"
     target.write_text("before\n", encoding="utf-8")
 

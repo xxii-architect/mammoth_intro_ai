@@ -9,6 +9,7 @@ import { useAuth, useIsAdminHost } from './lib/authContext'
 import { signOut } from './lib/supabase'
 import { api } from './api/client'
 import RuntimeStatusBanner from './components/RuntimeStatusBanner'
+import NotificationsDropdown from './components/NotificationsDropdown'
 import LoginPage from './pages/LoginPage'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
@@ -980,6 +981,9 @@ export default function App() {
               {isAdminHost ? 'Admin View' : 'Operator Access'}
             </span>
           )}
+          <div style={{ marginLeft: canAccessProjectTools ? 8 : 'auto' }}>
+            <NotificationsDropdown />
+          </div>
         </div>
         {backendWarning && (
           <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(248,113,113,0.25)', background: 'rgba(248,113,113,0.08)', color: '#fecaca', fontSize: '0.76rem', lineHeight: 1.45 }}>

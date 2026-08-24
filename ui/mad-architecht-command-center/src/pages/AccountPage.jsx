@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { User, Clock3, BarChart3, ShieldCheck, Sparkles, Save, Shuffle, RefreshCw, Brain, Target, GitBranch, Trophy, Award, CheckCircle2, BookmarkPlus, BookmarkCheck } from 'lucide-react'
+import { User, Clock3, BarChart3, ShieldCheck, Sparkles, Save, Shuffle, RefreshCw, Brain, Target, GitBranch, Trophy, Award, CheckCircle2, BookmarkPlus, BookmarkCheck, Trash2, Download, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../lib/authContext'
 
@@ -97,6 +97,15 @@ export default function AccountPage({ setPage }) {
   const [savedWins, setSavedWins] = useState({})
   const [selectedConfidenceConcept, setSelectedConfidenceConcept] = useState('')
 
+  // Account deletion state
+  const [deletionStatus, setDeletionStatus] = useState(null)
+  const [deletionModal, setDeletionModal] = useState(false)
+  const [deletionReason, setDeletionReason] = useState('')
+  const [deletionFeedback, setDeletionFeedback] = useState('')
+  const [deletionBusy, setDeletionBusy] = useState(false)
+  const [deletionNotice, setDeletionNotice] = useState('')
+  const [exportBusy, setExportBusy] = useState(false)
+
   const refreshAccount = async () => {
     setLoading(true)
     setError('')
@@ -144,8 +153,69 @@ export default function AccountPage({ setPage }) {
     setLoading(false)
   }
 
+  const loadDeletionStatus = async () => {
+    try {
+      const data = await api('/account/delete-status')
+      setDeletionStatus(data)
+    } catch { /* ignore */ }
+  }
+
+  const requestDeletion = async () => {
+    if (deletionBusy) return
+    setDeletionBusy(true)
+    setDeletionNotice('')
+    try {
+      const data = await api('/account/delete-request', {
+        method: 'POST',
+        body: { reason: deletionReason, feedback: deletionFeedback },
+      })
+      setDeletionNotice(data?.message || 'Deletion request submitted.')
+      setDeletionModal(false)
+      await loadDeletionStatus()
+    } catch (e) {
+      setDeletionNotice(e?.message || 'Failed to submit deletion request.')
+    } finally {
+      setDeletionBusy(false)
+    }
+  }
+
+  const cancelDeletion = async () => {
+    if (deletionBusy) return
+    setDeletionBusy(true)
+    try {
+      const data = await api('/account/delete-cancel', { method: 'POST', body: {} })
+      setDeletionNotice(data?.message || 'Deletion cancelled.')
+      await loadDeletionStatus()
+    } catch (e) {
+      setDeletionNotice(e?.message || 'Failed to cancel.')
+    } finally {
+      setDeletionBusy(false)
+    }
+  }
+
+  const exportData = async () => {
+    if (exportBusy) return
+    setExportBusy(true)
+    try {
+      const res = await api('/account/export-data', { method: 'POST', body: {} })
+      // api() already parsed the JSON, so re-serialize for download
+      const blob = new Blob([JSON.stringify(res, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'mammoth-data-export.json'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setDeletionNotice(e?.message || 'Export failed.')
+    } finally {
+      setExportBusy(false)
+    }
+  }
+
   useEffect(() => {
     refreshAccount()
+    loadDeletionStatus()
   }, [])
 
   useEffect(() => {
@@ -993,6 +1063,140 @@ export default function AccountPage({ setPage }) {
       {loading && (
         <div style={{ marginTop: 14, fontSize: '0.76rem', color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Sparkles size={13} /> Refreshing account data...
+        </div>
+      )}
+
+      {/* ── DANGER ZONE ─────────────────────────────────────────────────── */}
+      <div style={{ marginTop: 32 }}>
+        <p style={{ margin: '0 0 12px', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: '#f87171' }}>
+          Danger Zone
+        </p>
+
+        {deletionNotice && (
+          <div style={{ marginBottom: 12, padding: '10px 12px', borderRadius: 8, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.25)', color: '#fecaca', fontSize: '0.76rem', lineHeight: 1.5 }}>
+            {deletionNotice}
+          </div>
+        )}
+
+        {deletionStatus?.deletion_pending ? (
+          <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid #f87171' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <AlertTriangle size={15} color="#f87171" />
+              <span style={{ fontWeight: 700, fontSize: '0.82rem', color: '#fecaca' }}>Account deletion scheduled</span>
+            </div>
+            <p style={{ margin: '0 0 6px', fontSize: '0.76rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>
+              Your account is scheduled for permanent deletion in <strong style={{ color: '#fecaca' }}>{deletionStatus.days_remaining} day{deletionStatus.days_remaining !== 1 ? 's' : ''}</strong>.
+              All your data will be permanently erased. You can cancel this request before the deadline.
+            </p>
+            <p style={{ margin: '0 0 14px', fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+              Scheduled: {new Date(deletionStatus.scheduled_delete_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={cancelDeletion}
+                disabled={deletionBusy}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.08)', color: '#86efac', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', opacity: deletionBusy ? 0.6 : 1 }}
+              >
+                Cancel deletion request
+              </button>
+              <button
+                onClick={exportData}
+                disabled={exportBusy}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', opacity: exportBusy ? 0.6 : 1 }}
+              >
+                <Download size={13} /> {exportBusy ? 'Exporting…' : 'Export my data first'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid rgba(248,113,113,0.3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <Trash2 size={15} color="#f87171" />
+              <span style={{ fontWeight: 700, fontSize: '0.82rem', color: 'var(--txt-pri)' }}>Delete account</span>
+            </div>
+            <p style={{ margin: '0 0 14px', fontSize: '0.76rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>
+              Permanently delete your account and all associated data. You will have a 30-day grace period to change your mind.
+              After that, your data is gone for good — no recovery is possible.
+            </p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setDeletionModal(true)}
+                style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid rgba(248,113,113,0.35)', background: 'rgba(248,113,113,0.08)', color: '#f87171', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer' }}
+              >
+                Request account deletion
+              </button>
+              <button
+                onClick={exportData}
+                disabled={exportBusy}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer', opacity: exportBusy ? 0.6 : 1 }}
+              >
+                <Download size={13} /> {exportBusy ? 'Exporting…' : 'Export my data (JSON)'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── DELETION CONFIRMATION MODAL ─────────────────────────────────── */}
+      {deletionModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setDeletionModal(false) }}
+        >
+          <div style={{ width: '100%', maxWidth: 440, background: 'var(--card)', borderRadius: 14, border: '1px solid rgba(248,113,113,0.35)', padding: 24, boxShadow: '0 16px 48px rgba(0,0,0,0.6)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <AlertTriangle size={18} color="#f87171" />
+              <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Confirm account deletion</h2>
+            </div>
+            <p style={{ margin: '0 0 16px', fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
+              This will schedule your account and all data for permanent deletion in <strong>30 days</strong>.
+              You can cancel at any time within that window. After 30 days, this action cannot be undone.
+            </p>
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ fontSize: '0.73rem', color: 'var(--txt-sec)', display: 'block', marginBottom: 4 }}>
+                Why are you leaving? <span style={{ color: 'var(--txt-mut)' }}>(optional)</span>
+              </label>
+              <select
+                value={deletionReason}
+                onChange={(e) => setDeletionReason(e.target.value)}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--shell)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}
+              >
+                <option value="">Choose a reason…</option>
+                <option value="not_using">Not using the platform</option>
+                <option value="privacy">Privacy concerns</option>
+                <option value="cost">Cost concerns</option>
+                <option value="switching">Switching to another tool</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div style={{ marginBottom: 18 }}>
+              <label style={{ fontSize: '0.73rem', color: 'var(--txt-sec)', display: 'block', marginBottom: 4 }}>
+                Additional feedback <span style={{ color: 'var(--txt-mut)' }}>(optional — helps us improve)</span>
+              </label>
+              <textarea
+                value={deletionFeedback}
+                onChange={(e) => setDeletionFeedback(e.target.value)}
+                rows={3}
+                placeholder="Anything you'd like to share…"
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--shell)', color: 'var(--txt-sec)', fontSize: '0.76rem', resize: 'vertical', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={requestDeletion}
+                disabled={deletionBusy}
+                style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: 'none', background: '#f87171', color: '#fff', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem', opacity: deletionBusy ? 0.6 : 1 }}
+              >
+                {deletionBusy ? 'Processing…' : 'Yes, schedule deletion'}
+              </button>
+              <button
+                onClick={() => setDeletionModal(false)}
+                style={{ padding: '10px 18px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

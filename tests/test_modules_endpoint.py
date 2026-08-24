@@ -27,6 +27,7 @@ class DummyRegistry:
 
 
 def test_get_modules_uses_registry_status_and_workflow_state(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
     monkeypatch.setattr(api_server, "_agent_registry_ok", True)
     monkeypatch.setattr(api_server, "agent_registry", DummyRegistry())
     monkeypatch.setattr(api_server, "_load_activity_events", lambda: [])
@@ -49,6 +50,7 @@ def test_get_modules_uses_registry_status_and_workflow_state(monkeypatch):
 
 
 def test_get_modules_promotes_recent_activity_to_active(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
     monkeypatch.setattr(api_server, "_agent_registry_ok", True)
     monkeypatch.setattr(api_server, "agent_registry", DummyRegistry())
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -76,6 +78,7 @@ def test_get_modules_promotes_recent_activity_to_active(monkeypatch):
 
 
 def test_get_modules_promotes_recent_heartbeat_when_agent_ran(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
     class HeartbeatRegistry:
         async def list_agents(self):
             return [

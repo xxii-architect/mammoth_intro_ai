@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { loadSelfAuditHistory, normalizeSelfAuditEntry, runSystemSelfAudit } from '../api/diagnostics'
 import { useInterval } from '../hooks/useApi'
 import OnboardingGuide from '../components/OnboardingGuide'
+import OnboardingChecklist from '../components/OnboardingChecklist'
 
 function Sparkline({ points, color, gradId }) {
   return (
@@ -141,6 +142,7 @@ export default function HomePage({ setPage }) {
       </h1>
 
       <OnboardingGuide currentPage="home" setPage={setPage} />
+      <OnboardingChecklist setPage={setPage} />
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 24 }}>
