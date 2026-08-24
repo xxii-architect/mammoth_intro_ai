@@ -32,6 +32,24 @@ All four phases of the 8 → 9 pass are now done:
 - `ATLAS_MANUAL.md` - operator/CLI playbook and phased upgrade notes
 - `ui\mad-architecht-command-center\src\pages\ManualPage.jsx` - in-app UI manual
 
+## Deploy to DigitalOcean droplet (live site)
+
+This repo now includes `.github/workflows/deploy-digitalocean.yml` for push-to-`main` and manual deploys.
+
+Configure these repository secrets before first use:
+
+- `DO_SSH_PRIVATE_KEY` - private key that can SSH into your droplet
+- `DO_HOST` - droplet hostname or IP
+- `DO_USER` - SSH user on the droplet
+- `DO_APP_PATH` - absolute path to your app repo on the droplet
+- `DO_DEPLOY_COMMAND` - command to run after pull (example: `docker compose up -d --build`)
+
+Optional:
+
+- `DO_PORT` - SSH port (default `22`)
+- `DO_BRANCH` - branch to deploy (default `main`)
+- `DO_KNOWN_HOSTS` - static known_hosts line(s); if omitted, workflow uses `ssh-keyscan`
+
 ## Standalone ATLAS FAB SDK
 
 MammothOS now exposes an embeddable Python SDK surface for ATLAS so it can be positioned as a standalone product inside another app, workflow, or developer tool.

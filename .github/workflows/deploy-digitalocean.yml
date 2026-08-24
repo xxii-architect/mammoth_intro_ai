@@ -1,0 +1,83 @@
+name: Deploy to DigitalOcean
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy-digitalocean-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Validate required secrets
+        env:
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DO_APP_PATH: ${{ secrets.DO_APP_PATH }}
+          DO_DEPLOY_COMMAND: ${{ secrets.DO_DEPLOY_COMMAND }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for var in DO_SSH_PRIVATE_KEY DO_HOST DO_USER DO_APP_PATH DO_DEPLOY_COMMAND; do
+            if [ -z "${!var:-}" ]; then
+              echo "::error::Missing required secret: ${var}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Start ssh-agent and add private key
+        env:
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          eval "$(ssh-agent -s)"
+          echo "$DO_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+
+      - name: Configure known_hosts
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_KNOWN_HOSTS: ${{ secrets.DO_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          if [ -n "${DO_KNOWN_HOSTS:-}" ]; then
+            echo "$DO_KNOWN_HOSTS" >> ~/.ssh/known_hosts
+          else
+            ssh-keyscan -H "$DO_HOST" >> ~/.ssh/known_hosts
+          fi
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy on droplet
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DO_PORT: ${{ secrets.DO_PORT }}
+          DO_BRANCH: ${{ secrets.DO_BRANCH }}
+          DO_APP_PATH: ${{ secrets.DO_APP_PATH }}
+          DO_DEPLOY_COMMAND: ${{ secrets.DO_DEPLOY_COMMAND }}
+        run: |
+          set -euo pipefail
+          PORT="${DO_PORT:-22}"
+          BRANCH="${DO_BRANCH:-main}"
+          ssh -p "$PORT" "${DO_USER}@${DO_HOST}" "bash -s -- \"$DO_APP_PATH\" \"$BRANCH\" \"$DO_DEPLOY_COMMAND\"" <<'REMOTE'
+          set -euo pipefail
+          APP_PATH="$1"
+          BRANCH="$2"
+          DEPLOY_COMMAND="$3"
+
+          cd "$APP_PATH"
+          git fetch origin
+          git checkout "$BRANCH"
+          git pull --ff-only origin "$BRANCH"
+          bash -lc "$DEPLOY_COMMAND"
+          REMOTE
