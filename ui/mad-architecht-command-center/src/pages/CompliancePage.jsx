@@ -123,7 +123,7 @@ export default function CompliancePage({ setPage }) {
           ))}
         </div>
         <p style={{ marginTop: 28, marginBottom: 0, fontSize: '0.72rem', color: 'var(--txt-mut)', fontStyle: 'italic' }}>
-          Last updated: August 19, 2026
+          Last updated: August 24, 2026
         </p>
       </div>
 

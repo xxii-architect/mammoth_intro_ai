@@ -13,19 +13,14 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Coding patch apply status is reflected in both artifact detail and run history markers
   - Internet command runs (`/research`, `/web`) are persisted as structured chat events with evidence metadata
 
-## 7 -> 8 upgrade phases
+## 8 → 9 upgrade phases (completed)
 
-Keep the next pass small, visible, and verifiable:
+All four phases of the 8 → 9 pass are now done:
 
-1. Execution quality loop
-   - plan -> act -> verify -> retry with explicit success checks
-   - stop generic outputs by requiring structured agent responses
-2. Browser automation layer
-   - move from page snapshots to stateful browser actions and task replay
-3. Agent memory + evals
-   - track outcomes, regressions, and repeatable benchmarks
-4. UI/manual/docs refresh
-   - keep `ATLAS_MANUAL.md`, the in-app Manual page, and this README in sync
+1. **Execution quality loop ✓** — plan → act → verify → retry with explicit success checks; structured agent responses in place.
+2. **Browser automation layer ✓** — stateful navigation, form filling, and replayable browser actions.
+3. **Agent memory + evals ✓** — durable `MemoryEngine` records ATLAS lesson outcomes; `/api/memory` and `/api/atlas/evals` expose history; eval observability is wired.
+4. **UI / manual / docs refresh ✓** — `ATLAS_MANUAL.md`, the in-app Manual page, `LandingPage` doc links, and this README are now in sync.
 
 ## Product docs
 
