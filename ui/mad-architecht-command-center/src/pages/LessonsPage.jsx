@@ -128,7 +128,8 @@ export default function LessonsPage({ setPage }) {
   const [moduleCatalog, setModuleCatalog] = useState(FALLBACK_MODULE_TRACKS)
   const [moduleSearch, setModuleSearch] = useState('')
   const [lessonTypeFilter, setLessonTypeFilter] = useState('all')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   const [expandedModules, setExpandedModules] = useState({})
   const [adaptiveUI, setAdaptiveUI] = useState(false)
   const [activeTrack, setActiveTrack] = useState(null)
@@ -199,6 +200,15 @@ export default function LessonsPage({ setPage }) {
   useEffect(() => {
     loadState()
     loadLibrary()
+  }, [])
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (mobile) setSidebarCollapsed(true)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
   useEffect(() => {
     api('/atlas/modules').then((res) => {
@@ -435,8 +445,17 @@ export default function LessonsPage({ setPage }) {
       </div>
 
       <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
+        {/* Mobile: floating module button when sidebar is collapsed */}
+        {isMobile && sidebarCollapsed && (
+          <button
+            onClick={() => setSidebarCollapsed(false)}
+            style={{ position: 'fixed', bottom: 88, left: 16, zIndex: 50, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.82rem', boxShadow: '0 4px 24px rgba(77,166,255,0.4)', cursor: 'pointer' }}
+          >
+            📚 Modules
+          </button>
+        )}
         {/* Left sidebar */}
-        <div style={{ width: sidebarCollapsed ? 40 : 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, transition: 'width 0.2s' }}>
+        <div style={{ width: sidebarCollapsed ? (isMobile ? 0 : 40) : 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, transition: 'width 0.2s', overflow: 'hidden' }}>
           <button onClick={() => setSidebarCollapsed(c => !c)} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronRight size={14} style={{ transform: sidebarCollapsed ? 'none' : 'rotate(180deg)', transition: 'transform 0.2s' }} />

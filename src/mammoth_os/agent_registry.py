@@ -162,6 +162,14 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.community_engine_agent import CommunityEngineAgent
         return CommunityEngineAgent()
 
+    if agent_name in {"browser", "browser_agent"}:
+        from mammoth_os.agents.browser_agent import BrowserAgent
+        return BrowserAgent(router)
+
+    if agent_name in {"task_queue", "task_queue_agent"}:
+        from mammoth_os.agents.task_queue_agent import TaskQueueAgent
+        return TaskQueueAgent(router)
+
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
         return ResearchAgent(router)  # type: ignore
@@ -195,6 +203,17 @@ def load_agent(agent_name: str, router=None):
 
 def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
     if isinstance(payload, dict):
+        if agent_name in {"browser", "browser_agent", "task_queue", "task_queue_agent"}:
+            normalized = dict(payload)
+            if agent_name in {"browser", "browser_agent"} and not normalized.get("url"):
+                prompt_value = normalized.get("prompt") or normalized.get("target") or normalized.get("query")
+                if isinstance(prompt_value, str) and prompt_value.strip():
+                    prompt_value = prompt_value.strip()
+                    if prompt_value.startswith(("http://", "https://")):
+                        normalized["url"] = prompt_value
+                    else:
+                        normalized.setdefault("prompt", prompt_value)
+            return normalized
         if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops"}:
             normalized = dict(payload)
             if agent_name == "tutor" and isinstance(normalized.get("prompt"), str) and not normalized.get("topic"):
@@ -238,6 +257,8 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "brand_voice":     lambda prompt: run_agent("brand_voice", prompt),              # type: ignore
     "visual_engine":   lambda prompt: run_agent("visual_engine", prompt),            # type: ignore
     "community_engine":lambda prompt: run_agent("community_engine", prompt),         # type: ignore
+    "browser":         lambda prompt: run_agent("browser", prompt),                  # type: ignore
+    "task_queue":      lambda prompt: run_agent("task_queue", prompt),               # type: ignore
     "research":        lambda prompt: run_agent("research", prompt),                 # type: ignore
     "curriculum":      lambda prompt: run_agent("curriculum", prompt),               # type: ignore
     "tutor":           lambda prompt: run_agent("tutor", prompt),                    # type: ignore

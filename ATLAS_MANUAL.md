@@ -21,12 +21,46 @@ This repo is now in a strong “operator-grade prototype” position rather than
 | UI / Command Center | 7.5 / 10 | Operationally useful and polished, but still needs a finishing pass for broad operator usability |
 | LLM Runtime / Provider Chain | 5.5 / 10 | The fallback chain exists but still produces rough edges when keys or credits are unavailable |
 
+### Where Mammoth stands vs Copilot
+
+- Mammoth overall: about **6.5-7 / 10** against Copilot's **8 / 10**
+- Mammoth is strongest in:
+  - multi-agent ownership and workflow control
+  - ATLAS-specific tutoring and runtime visibility
+  - operator-grade task handling
+- The main gap is still:
+  - smoother execution quality
+  - richer browser automation
+  - less generic output across agents
+
+### Phase plan to reach 8+
+
+1. **Execution quality loop**
+   - Require plan -> act -> verify -> retry for coding and agent work
+   - Make success criteria explicit so agents do not return generic summaries
+2. **Browser automation layer**
+   - Expand beyond snapshots into stateful navigation, form filling, and replayable flows
+3. **Agent memory + evals**
+   - Persist task outcomes, regression cases, and quality benchmarks
+4. **Docs + UI alignment**
+   - Keep this manual, the in-app Manual page, and the root README in sync as behavior changes
+
 ### What is “ready enough” now
 
 - Developer/operator testing flows are working and validated
 - Approval gating, diagnostics export, and health pages are operational
 - Core agent lanes are normalized around structured outputs
 - Native chat can route to agent work and keep operational context visible
+
+### Phase 3/4 operator workflow surfaces now live
+
+- Agent Console now renders structured coding artifacts (overview/code/tests/docs/diff) with apply/write feedback.
+- Run History replay now preserves backend-linked metadata (`task_id`, `trace_id`, runtime adapter/model).
+- FAB chat responses can be saved directly into Artifact Library records (`.md` or `.txt`).
+- Task Inbox provides a lightweight queue for follow-through on workflow cards.
+- Internet commands are available in chat:
+  - `/research <query>`
+  - `/web <url>`
 
 ### What still needs a final pass
 

@@ -122,3 +122,71 @@ def test_mammoth_chat_stream_emits_sse_events(monkeypatch):
     assert 'event: thought' in body
     assert 'event: chunk' in body
     assert 'event: done' in body
+
+
+def test_parse_mammoth_chat_command_internet_variants():
+    assert api_server._parse_mammoth_chat_command('/web https://example.com')['kind'] == 'web'
+    assert api_server._parse_mammoth_chat_command('/research runtime fallback handling')['kind'] == 'research'
+    assert api_server._parse_mammoth_chat_command('/web')['kind'] == 'error'
+
+
+def test_mammoth_chat_web_command_uses_internet_tool(monkeypatch):
+    state = {}
+
+    monkeypatch.setattr(api_server, '_load_atlas_state', lambda: state)
+    monkeypatch.setattr(api_server, '_save_atlas_state', lambda payload: None)
+    monkeypatch.setattr(
+        api_server,
+        '_run_internet_command',
+        lambda slash: {
+            'status': 'ok',
+            'reply': 'Web summary for https://example.com',
+            'evidence': {'source': 'internet', 'kind': slash.get('kind')},
+        },
+    )
+
+    response = asyncio.run(
+        api_server.mammoth_chat(
+            {
+                'message': '/web https://example.com',
+                'agent_id': 'assistant',
+                'mode': 'chat',
+            }
+        )
+    )
+
+    assert response['status'] == 'ok'
+    assert response['adapter'] == 'internet-tool'
+    assert response['reply'].startswith('Web summary')
+    assert response['chat_history'][-1]['adapter'] == 'internet-tool'
+
+
+def test_atlas_chat_research_command_uses_internet_tool(monkeypatch):
+    state = {}
+
+    monkeypatch.setattr(api_server, '_load_atlas_state', lambda: state)
+    monkeypatch.setattr(api_server, '_save_atlas_state', lambda payload: None)
+    monkeypatch.setattr(
+        api_server,
+        '_run_internet_command',
+        lambda slash: {
+            'status': 'ok',
+            'reply': 'Internet research brief for: mammoth os',
+            'evidence': {'source': 'internet', 'kind': slash.get('kind')},
+        },
+    )
+
+    response = asyncio.run(
+        api_server.atlas_chat(
+            {
+                'message': '/research mammoth os',
+                'mode': 'assistant',
+                'page_context': {'current_page': 'atlas'},
+            }
+        )
+    )
+
+    assert response['status'] == 'ok'
+    assert response['adapter'] == 'internet-tool'
+    assert 'research brief' in response['reply']
+    assert response['chat_history'][-1]['adapter'] == 'internet-tool'

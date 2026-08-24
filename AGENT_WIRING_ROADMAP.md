@@ -39,6 +39,11 @@ Get every major agent from the MammothOS registry into a visible, understandable
 - Phase 5 — deeper autonomous orchestration: medium-to-high (~3-5%) depending on how many agents are upgraded in one pass.
 
 ## Current focus
+- Phase 3 and Phase 4 operator surfaces are now active in the Command Center:
+  - backend-backed module workflow metadata
+  - coding artifact panel + run replay UX
+  - artifact/task workflow pages
+  - run-history observability metadata (`task_id`, `trace_id`, runtime adapter/model)
 - Keep the registry-backed module payload and observability slices stable.
 - Expand approval-aware execution to non-coding ATLAS state mutation operations.
 - Use the autonomous run contract (`/api/autonomous/runs`) to drive Phase 5 run panels and orchestration UX.

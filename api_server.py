@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from contextvars import ContextVar
@@ -113,6 +114,7 @@ _AUTH_OPTIONAL_PATHS = {
 _REQUEST_USER_ID: ContextVar[str] = ContextVar("mammoth_request_user_id", default="local")
 _REQUEST_USER_EMAIL: ContextVar[str] = ContextVar("mammoth_request_user_email", default="")
 _REQUEST_IS_ADMIN: ContextVar[bool] = ContextVar("mammoth_request_is_admin", default=False)
+_LATEST_RUNTIME_STATUS: Dict[str, Any] = {}
 
 ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
     {
@@ -1808,6 +1810,60 @@ def _runtime_metadata_from_client(client: Any, requested_adapter: str = "") -> D
     }
 
 
+def _remember_runtime_status(runtime_status: Dict[str, Any]) -> None:
+    global _LATEST_RUNTIME_STATUS
+    remembered: Dict[str, Any] = {}
+    for key in (
+        "state",
+        "degraded_mode",
+        "active_adapter",
+        "active_model",
+        "effective_adapter",
+        "used_provider",
+        "primary_provider",
+        "fallback_used",
+        "fallback_reason",
+        "fallback_error_type",
+        "recommendation",
+        "next_action",
+    ):
+        value = runtime_status.get(key)
+        if value not in (None, "", []):
+            remembered[key] = deepcopy(value)
+    remembered["checked_at"] = datetime.now(timezone.utc).isoformat()
+    _LATEST_RUNTIME_STATUS = remembered
+
+
+def _merge_latest_runtime_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    merged = deepcopy(snapshot)
+    latest = deepcopy(_LATEST_RUNTIME_STATUS)
+    for key, value in latest.items():
+        if value not in (None, "", []):
+            merged[key] = value
+
+    preferred_provider = str(
+        merged.get("used_provider")
+        or merged.get("effective_adapter")
+        or merged.get("active_adapter")
+        or "local"
+    ).strip().lower() or "local"
+    merged["active_provider"] = preferred_provider
+    merged["checked_at"] = str(
+        merged.get("checked_at") or datetime.now(timezone.utc).isoformat()
+    )
+
+    providers: List[Dict[str, Any]] = []
+    for provider in merged.get("providers", []):
+        item = dict(provider)
+        provider_name = str(item.get("provider") or "").strip().lower()
+        item["active"] = provider_name == preferred_provider
+        item["selected"] = provider_name == str(merged.get("active_adapter") or "").strip().lower()
+        item["fallback_target"] = bool(merged.get("fallback_used")) and item["active"] and not item["selected"]
+        providers.append(item)
+    merged["providers"] = providers
+    return merged
+
+
 def _runtime_status_snapshot() -> Dict[str, Any]:
     models = _models_snapshot()
     deepseek_key_present = bool(models.get("deepseek_key_present"))
@@ -2333,7 +2389,7 @@ async def get_models():
 
 @app.get("/api/runtime/status")
 async def get_runtime_status():
-    return _runtime_status_snapshot()
+    return _merge_latest_runtime_status(_runtime_status_snapshot())
 
 
 @app.get("/api/ui/active-project")
@@ -2477,6 +2533,8 @@ _INTENT_TO_AGENT_ID = {
     "research_survival": "research_agent",
     "research_plants": "research_agent",
     "compare_gear": "research_agent",
+    "browse_web": "browser_agent",
+    "task_queue": "task_queue_agent",
     "summarize": "research_agent",
     "lesson_curriculum": "curriculum_agent",
     "grade_submission": "tutor_agent",
@@ -2503,6 +2561,8 @@ _AGENT_ID_TO_RUNTIME = {
     "reasoning_agent": "reasoning",
     "coding_agent": "coding",
     "community_engine_agent": "community_engine",
+    "browser_agent": "browser",
+    "task_queue_agent": "task_queue",
     "custodial_agent": "custodial",
 }
 
@@ -3421,6 +3481,7 @@ async def get_autonomous_runs():
         profile_name = str(profile or "balanced").strip() or "balanced"
         return f"{label} • {status} • {profile_name}"
 
+
     plan_tasks = [
         task for task in _load_tasks()
         if isinstance(task, dict) and (
@@ -3535,16 +3596,133 @@ async def get_autonomous_runs():
     }
 
 
+def _execution_policy_for_run(body: Dict[str, Any], payload: Dict[str, Any], *, runtime_agent: str) -> Dict[str, Any]:
+    raw = body.get("execution_policy")
+    if not isinstance(raw, dict):
+        raw = payload.get("execution_policy") if isinstance(payload.get("execution_policy"), dict) else {}
+    retry_on_status = raw.get("retry_on_status")
+    retry_statuses = [str(item).strip().lower() for item in retry_on_status] if isinstance(retry_on_status, list) else ["error", "needs_context", "unknown_action"]
+    required_fields = raw.get("required_fields")
+    if isinstance(required_fields, list):
+        required = [str(item).strip() for item in required_fields if str(item).strip()]
+    elif runtime_agent == "browser":
+        required = ["status", "summary", "execution"]
+    elif runtime_agent == "task_queue":
+        required = ["status", "action"]
+    else:
+        required = ["status"]
+    try:
+        max_attempts = int(raw.get("max_attempts", 2) or 2)
+    except (TypeError, ValueError):
+        max_attempts = 2
+    max_attempts = max(1, min(3, max_attempts))
+    min_summary_length_raw = raw.get("min_summary_length", 16)
+    try:
+        min_summary_length = max(0, int(min_summary_length_raw or 16))
+    except (TypeError, ValueError):
+        min_summary_length = 16
+    return {
+        "contract_version": "v1",
+        "max_attempts": max_attempts,
+        "retry_on_status": retry_statuses,
+        "required_fields": required,
+        "require_structured_output": bool(raw.get("require_structured_output", True)),
+        "min_summary_length": min_summary_length,
+    }
+
+
+def _normalize_agent_output(runtime_agent: str, raw_result: Any) -> Dict[str, Any]:
+    if isinstance(raw_result, dict):
+        output = dict(raw_result)
+        structured = True
+    elif isinstance(raw_result, list):
+        output = {"items": raw_result}
+        structured = False
+    else:
+        output = {"message": str(raw_result or "")}
+        structured = False
+
+    status = str(output.get("status") or "ok").strip().lower() or "ok"
+    if status == "passed":
+        status = "ok"
+    summary = str(
+        output.get("summary")
+        or output.get("message")
+        or output.get("title")
+        or output.get("description")
+        or output.get("result")
+        or ""
+    ).strip()
+    return {
+        "runtime_agent": runtime_agent,
+        "status": status,
+        "structured": structured,
+        "output": output,
+        "summary": summary,
+    }
+
+
+def _verify_execution_contract(envelope: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
+    output = envelope.get("output") if isinstance(envelope.get("output"), dict) else {}
+    status = str(envelope.get("status") or "ok").strip().lower()
+    generic_markers = ("let me know if you", "i'm here to help", "happy to help")
+    summary = str(envelope.get("summary") or "").strip().lower()
+    checks: List[Dict[str, Any]] = []
+    retry_statuses = set(policy.get("retry_on_status") or [])
+
+    checks.append(
+        {
+            "name": "status_not_retryable",
+            "passed": status not in retry_statuses,
+            "detail": f"status={status}",
+        }
+    )
+    checks.append(
+        {
+            "name": "structured_output",
+            "passed": not policy.get("require_structured_output") or bool(envelope.get("structured")),
+            "detail": "Output must be structured JSON/dict.",
+        }
+    )
+
+    required_fields = [str(field).strip() for field in (policy.get("required_fields") or []) if str(field).strip()]
+    missing_fields = [field for field in required_fields if field not in output]
+    checks.append(
+        {
+            "name": "required_fields_present",
+            "passed": not missing_fields,
+            "detail": "All required fields present." if not missing_fields else f"Missing fields: {', '.join(missing_fields)}",
+        }
+    )
+
+    min_summary_length = int(policy.get("min_summary_length") or 0)
+    checks.append(
+        {
+            "name": "non_generic_summary",
+            "passed": len(summary) >= min_summary_length and not any(marker in summary for marker in generic_markers),
+            "detail": "Summary is specific enough to avoid generic output.",
+        }
+    )
+
+    passed = all(bool(check.get("passed")) for check in checks)
+    return {
+        "passed": passed,
+        "checks": checks,
+        "failed_checks": [check for check in checks if not check.get("passed")],
+    }
+
+
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
     intent = str(body.get("intent", "")).strip()
     payload = body.get("payload", {})
+    payload_dict = dict(payload) if isinstance(payload, dict) else {}
     temperature = body.get("temperature", 0.7)
     requested_agent_id = str(body.get("agent_id", "")).strip()
     tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
-    prompt_text = str(payload.get("prompt", "") or "").strip()
-    approval_mode = bool(body.get("approval_mode") or payload.get("approval_mode") or payload.get("preview_only"))
-    coding_intent = _normalize_coding_intent(payload.get("coding_intent") if isinstance(payload, dict) else "") or _normalize_coding_intent(intent)
+    prompt_text = str(payload_dict.get("prompt", "") or "").strip()
+    approval_mode = bool(body.get("approval_mode") or payload_dict.get("approval_mode") or payload_dict.get("preview_only"))
+    coding_intent = _normalize_coding_intent(payload_dict.get("coding_intent")) or _normalize_coding_intent(intent)
     trace_id = str(body.get("trace_id") or new_trace_id("run"))
     runtime_status = _runtime_status_snapshot()
     preflight_checks: List[Dict[str, Any]] = []
@@ -3626,8 +3804,21 @@ async def run_agent(body: Dict[str, Any]):
 
     try:
         runtime_agent = _runtime_agent_name(intent, tracked_agent_id)
+        execution_policy = _execution_policy_for_run(body, payload_dict, runtime_agent=runtime_agent)
+        preflight_checks.append(
+            {
+                "name": "execution_contract",
+                "status": "pass",
+                "detail": f"max_attempts={execution_policy['max_attempts']} required_fields={','.join(execution_policy['required_fields'])}",
+            }
+        )
+        preflight = {
+            "contract_version": "v2",
+            "status": "warn" if any(item.get("status") == "warn" for item in preflight_checks) else "ok",
+            "checks": preflight_checks,
+        }
         _think("Routing decision", f"runtime_agent={runtime_agent!r}  agent_id={tracked_agent_id!r}")
-        coding_op, coding_payload = _parse_coding_operation(payload if isinstance(payload, dict) else {}, prompt_text)
+        coding_op, coding_payload = _parse_coding_operation(payload_dict, prompt_text)
         if runtime_agent == "coding" and coding_op:
             _think("Operation parsed", f"op={coding_op!r}  target={coding_payload.get('file_path','?')!r}")
             if approval_mode:
@@ -3681,7 +3872,7 @@ async def run_agent(body: Dict[str, Any]):
         elif runtime_agent and (runtime_agent == "custodial" or (_agent_registry_ok and runtime_agent in AGENTS)):
             handled_special_result = False
             payload_for_agent: Any = prompt_text or json.dumps(payload)
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
                 if not isinstance(payload_for_agent, dict):
@@ -3700,6 +3891,12 @@ async def run_agent(body: Dict[str, Any]):
                         payload_for_agent.setdefault("mode", "stakeholder_summary")
                         payload_for_agent.setdefault("tone", "rugged")
                         payload_for_agent.setdefault("audience", "operator")
+                    elif runtime_agent == "browser":
+                        payload_for_agent.setdefault("prompt", prompt_text)
+                        if prompt_text.lower().startswith(("http://", "https://")) and not payload_for_agent.get("url"):
+                            payload_for_agent["url"] = prompt_text
+                    elif runtime_agent == "task_queue":
+                        payload_for_agent.setdefault("prompt", prompt_text)
                     else:
                         if not payload_for_agent.get("topic") and not payload_for_agent.get("prompt") and not payload_for_agent.get("problem"):
                             payload_for_agent["topic"] = prompt_text
@@ -3853,21 +4050,68 @@ async def run_agent(body: Dict[str, Any]):
                     handled_special_result = True
 
             if runtime_agent != "custodial" and not handled_special_result:
-                _think("Dispatching to agent", f"runtime_agent={runtime_agent!r}")
-                raw_result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: registry_run_agent(runtime_agent, payload_for_agent)
-                )
+                _think("Execution loop plan", f"runtime_agent={runtime_agent!r} max_attempts={execution_policy['max_attempts']}")
+                attempts: List[Dict[str, Any]] = []
+                final_envelope: Dict[str, Any] = {}
+                verification: Dict[str, Any] = {"passed": False, "checks": [], "failed_checks": []}
+                raw_result: Any = None
+                last_failure_detail = ""
+                for attempt in range(1, int(execution_policy.get("max_attempts") or 1) + 1):
+                    attempt_payload = payload_for_agent
+                    if isinstance(payload_for_agent, dict):
+                        attempt_payload = dict(payload_for_agent)
+                        attempt_payload["execution_contract"] = {
+                            "attempt": attempt,
+                            "max_attempts": execution_policy["max_attempts"],
+                            "required_fields": execution_policy["required_fields"],
+                            "previous_failure": last_failure_detail,
+                        }
+                    _think("Dispatching to agent", f"attempt={attempt} runtime_agent={runtime_agent!r}")
+                    raw_result = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: registry_run_agent(runtime_agent, attempt_payload)
+                    )
+                    final_envelope = _normalize_agent_output(runtime_agent, raw_result)
+                    verification = _verify_execution_contract(final_envelope, execution_policy)
+                    attempts.append(
+                        {
+                            "attempt": attempt,
+                            "status": final_envelope.get("status"),
+                            "summary": final_envelope.get("summary", ""),
+                            "passed": verification.get("passed", False),
+                            "checks": verification.get("checks", []),
+                        }
+                    )
+                    _think(
+                        "Verify step",
+                        f"attempt={attempt} passed={verification.get('passed')} status={final_envelope.get('status')!r}",
+                        "success" if verification.get("passed") else "warning",
+                    )
+                    if verification.get("passed"):
+                        break
+                    if final_envelope.get("status") == "pending_approval":
+                        break
+                    failed_checks = verification.get("failed_checks") if isinstance(verification.get("failed_checks"), list) else []
+                    last_failure_detail = "; ".join(str(item.get("name") or "check_failed") for item in failed_checks if isinstance(item, dict))
+                    if attempt < int(execution_policy.get("max_attempts") or 1):
+                        _think("Retrying run", f"attempt={attempt + 1} reason={last_failure_detail or 'verification_failed'}", "warning")
+
                 _think("Agent returned", f"type={type(raw_result).__name__}  preview={str(raw_result)[:120]!r}", "success")
+                status = "ok" if verification.get("passed") or final_envelope.get("status") == "pending_approval" else "error"
                 result = {
-                    "status": "ok",
+                    "status": status,
                     "runtime_agent": runtime_agent,
-                    "output": raw_result,
+                    "output": final_envelope.get("output", raw_result),
+                    "execution_loop": {
+                        "plan": execution_policy,
+                        "attempts": attempts,
+                        "verification": verification,
+                    },
                 }
                 attach_reasoning = runtime_agent == "tutor" and (
-                    intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(raw_result))
+                    intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(final_envelope.get("output", raw_result)))
                 )
                 if attach_reasoning:
-                    if _is_failure_payload(raw_result):
+                    if _is_failure_payload(final_envelope.get("output", raw_result)):
                         _think("Tutor failure detected", "Preparing reasoning guidance for the learner", "warning")
                     else:
                         _think("Coaching extension", "Attaching Socratic reasoning guidance", "info")
@@ -3876,7 +4120,7 @@ async def run_agent(body: Dict[str, Any]):
                         "context": {
                             "intent": intent,
                             "prompt": prompt_text,
-                            "tutor_result": raw_result,
+                            "tutor_result": final_envelope.get("output", raw_result),
                             "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
                         },
                         "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
@@ -3902,7 +4146,12 @@ async def run_agent(body: Dict[str, Any]):
             manifest.metadata["last_intent"] = intent
             manifest.metadata["last_run_at"] = datetime.now(timezone.utc).isoformat()
 
-        task_status = "completed" if result.get("status") != "pending_approval" else "pending_approval"
+        if result.get("status") == "pending_approval":
+            task_status = "pending_approval"
+        elif result.get("status") == "error":
+            task_status = "failed"
+        else:
+            task_status = "completed"
         _upsert_task(
             task_id,
             task["title"],
@@ -3917,6 +4166,15 @@ async def run_agent(body: Dict[str, Any]):
                 agent_id=tracked_agent_id,
                 task_id=task_id,
                 kind="task_completed",
+                trace_id=trace_id,
+                details={"result": str(result)[:1000], "trace_id": trace_id},
+            )
+        elif task_status == "failed":
+            _append_activity(
+                f"Failed task for {intent or 'agent'}",
+                agent_id=tracked_agent_id,
+                task_id=task_id,
+                kind="task_failed",
                 trace_id=trace_id,
                 details={"result": str(result)[:1000], "trace_id": trace_id},
             )
@@ -5593,6 +5851,43 @@ async def atlas_chat(body: Dict[str, Any]):
         "page": str(page_context.get("current_page") or ""),
     })
 
+    slash = _parse_mammoth_chat_command(message)
+    if slash and slash.get("kind") in {"web", "research"}:
+        command_result = _run_internet_command(slash)
+        internet_reply = str(command_result.get("reply") or "No response produced.")
+        history.append({
+            "role": "assistant",
+            "message": internet_reply,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "mode": mode,
+            "evidence_items": [command_result.get("evidence")],
+        })
+        state[history_key] = history[-60:]
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _append_fab_usage_event(
+            state,
+            mode=mode,
+            page_context=page_context,
+            guard_triggered=False,
+        )
+        _save_atlas_state(state)
+        return {
+            "status": "ok" if command_result.get("status") == "ok" else "error",
+            "reply": internet_reply,
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "chat_history": state[history_key],
+            "guard_triggered": False,
+            "mode": mode,
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None,
+            "trace_id": trace_id,
+        }
+    if slash and slash.get("kind") == "error":
+        return {"status": "error", "error": slash.get("error") or "Invalid command."}
+
     if guard_triggered:
         regenerated_exercise = None
         if regenerate_on_guard:
@@ -5704,6 +5999,7 @@ async def atlas_chat(body: Dict[str, Any]):
                 runtime_status["fallback_reason"] = client_meta.get("fallback_reason")
             if client_meta.get("fallback_error_type"):
                 runtime_status["fallback_error_type"] = client_meta.get("fallback_error_type")
+        _remember_runtime_status(runtime_status)
     except Exception as e:
         runtime_status = _runtime_status_snapshot()
         safe_error = _sanitize_runtime_error_message(e)
@@ -5718,6 +6014,7 @@ async def atlas_chat(body: Dict[str, Any]):
             active_adapter = "fallback-local"
         runtime_status["error_type"] = type(e).__name__
         runtime_status["safe_error"] = safe_error
+        _remember_runtime_status(runtime_status)
 
     history.append({
         "role": "assistant",
@@ -5753,6 +6050,147 @@ async def atlas_chat(body: Dict[str, Any]):
 
 
 
+def _clean_web_text(raw: str, *, max_chars: int = 2200) -> str:
+    text = str(raw or "")
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > max_chars:
+        return text[:max_chars].rstrip() + "..."
+    return text
+
+
+def _internet_fetch_url(url: str) -> Dict[str, Any]:
+    cleaned = str(url or "").strip()
+    parsed = urllib.parse.urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return {"status": "error", "error": "URL must be absolute and start with http:// or https://"}
+    req = urllib.request.Request(
+        cleaned,
+        headers={"User-Agent": "MammothOS/1.0 (+https://command.truexxiisupply.com)"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            content_type = str(resp.headers.get("Content-Type") or "").lower()
+            payload = resp.read(50000)
+    except urllib.error.URLError as exc:
+        return {"status": "error", "error": _sanitize_runtime_error_message(exc, "Could not reach the requested URL.")}
+    except ValueError:
+        return {"status": "error", "error": "URL is invalid or unsupported."}
+
+    text = payload.decode("utf-8", errors="replace")
+    title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
+    title = _clean_web_text(title_match.group(1), max_chars=140) if title_match else ""
+    summary = _clean_web_text(text)
+    return {
+        "status": "ok",
+        "url": cleaned,
+        "title": title or parsed.netloc,
+        "summary": summary or "No readable text was extracted from this page.",
+        "content_type": content_type,
+    }
+
+
+def _internet_research_query(query: str) -> Dict[str, Any]:
+    q = str(query or "").strip()
+    if not q:
+        return {"status": "error", "error": "Research query is required."}
+    endpoint = (
+        "https://api.duckduckgo.com/?"
+        + urllib.parse.urlencode({"q": q, "format": "json", "no_html": 1, "skip_disambig": 1})
+    )
+    req = urllib.request.Request(
+        endpoint,
+        headers={"User-Agent": "MammothOS/1.0 (+https://command.truexxiisupply.com)"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        return {"status": "error", "error": _sanitize_runtime_error_message(exc, "Could not reach internet research endpoint.")}
+    except json.JSONDecodeError:
+        return {"status": "error", "error": "Research endpoint returned an unreadable response."}
+
+    highlights: List[Dict[str, str]] = []
+    abstract = str(payload.get("AbstractText") or "").strip()
+    if abstract:
+        highlights.append({
+            "title": str(payload.get("Heading") or "Primary finding"),
+            "snippet": abstract,
+            "url": str(payload.get("AbstractURL") or ""),
+        })
+    related = payload.get("RelatedTopics") if isinstance(payload.get("RelatedTopics"), list) else []
+    for item in related:
+        if len(highlights) >= 5:
+            break
+        if isinstance(item, dict) and isinstance(item.get("Topics"), list):
+            nested = item.get("Topics") or []
+            for sub in nested:
+                if len(highlights) >= 5:
+                    break
+                if isinstance(sub, dict):
+                    snippet = str(sub.get("Text") or "").strip()
+                    if snippet:
+                        highlights.append({
+                            "title": str(sub.get("FirstURL") or "Related source"),
+                            "snippet": snippet,
+                            "url": str(sub.get("FirstURL") or ""),
+                        })
+            continue
+        if isinstance(item, dict):
+            snippet = str(item.get("Text") or "").strip()
+            if snippet:
+                highlights.append({
+                    "title": str(item.get("FirstURL") or "Related source"),
+                    "snippet": snippet,
+                    "url": str(item.get("FirstURL") or ""),
+                })
+
+    if not highlights:
+        return {
+            "status": "ok",
+            "query": q,
+            "highlights": [],
+            "summary": "No concise internet highlights were found for this query.",
+        }
+
+    summary_lines = [f"Internet research brief for: {q}"]
+    for idx, item in enumerate(highlights[:5], start=1):
+        url = f" ({item['url']})" if item.get("url") else ""
+        summary_lines.append(f"{idx}. {item['snippet']}{url}")
+    return {"status": "ok", "query": q, "highlights": highlights[:5], "summary": "\n".join(summary_lines)}
+
+
+def _run_internet_command(slash: Dict[str, Any]) -> Dict[str, Any]:
+    kind = str(slash.get("kind") or "").strip()
+    if kind == "web":
+        result = _internet_fetch_url(str(slash.get("url") or ""))
+        if result.get("status") != "ok":
+            return {
+                "status": "error",
+                "reply": f"Internet fetch failed: {result.get('error') or 'unknown error'}",
+                "evidence": {"source": "internet", "kind": "web", "url": str(slash.get("url") or ""), "status": "error"},
+            }
+        reply = (
+            f"Web summary for {result.get('url')}:\n"
+            f"Title: {result.get('title')}\n\n"
+            f"{result.get('summary')}"
+        )
+        return {"status": "ok", "reply": reply, "evidence": {"source": "internet", "kind": "web", **result}}
+
+    if kind == "research":
+        result = _internet_research_query(str(slash.get("query") or ""))
+        if result.get("status") != "ok":
+            return {
+                "status": "error",
+                "reply": f"Internet research failed: {result.get('error') or 'unknown error'}",
+                "evidence": {"source": "internet", "kind": "research", "query": str(slash.get("query") or ""), "status": "error"},
+            }
+        return {"status": "ok", "reply": str(result.get("summary") or ""), "evidence": {"source": "internet", "kind": "research", **result}}
+
+    return {"status": "error", "reply": "Unsupported internet command.", "evidence": {"source": "internet", "kind": kind, "status": "error"}}
+
+
 def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
     text = (message or "").strip()
     if not text or not text.startswith("/"):
@@ -5770,6 +6208,16 @@ def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
         agent_id = tokens[1].strip()
         prompt = " ".join(tokens[2:]).strip()
         return {"kind": "agent", "agent_id": agent_id, "message": prompt}
+    if command == "/web":
+        url = " ".join(tokens[1:]).strip()
+        if not url:
+            return {"kind": "error", "error": "Usage: /web <url>"}
+        return {"kind": "web", "url": url}
+    if command == "/research":
+        query = " ".join(tokens[1:]).strip()
+        if not query:
+            return {"kind": "error", "error": "Usage: /research <query>"}
+        return {"kind": "research", "query": query}
     return None
 
 
@@ -5887,6 +6335,65 @@ async def mammoth_chat(body: Dict[str, Any]):
             return {"status": "error", "error": "Usage: /agent <agent_id> <message>"}
         body = {**body, "agent_id": slash["agent_id"], "message": slash["message"]}
         return await mammoth_chat(body)
+    if slash and slash.get("kind") in {"web", "research"}:
+        command_result = _run_internet_command(slash)
+        reply = str(command_result.get("reply") or "No response produced.")
+        state = _load_atlas_state()
+        history = state.get("mammoth_chat_history") or []
+        if not isinstance(history, list):
+            history = []
+        history.append({
+            "role": "user",
+            "message": message,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "agent_id": "assistant",
+            "mode": "chat",
+            "page": "",
+        })
+        history.append({
+            "role": "assistant",
+            "message": reply,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "agent_id": "assistant",
+            "mode": "chat",
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "thought_steps": [{
+                "ts": _ts(),
+                "label": "Internet command completed",
+                "detail": f"kind={slash.get('kind')}",
+                "status": "success" if command_result.get("status") == "ok" else "warning",
+            }],
+            "evidence_items": [command_result.get("evidence")],
+            "orchestrated": False,
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None,
+        })
+        state["mammoth_chat_history"] = history[-80:]
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _save_atlas_state(state)
+        return {
+            "status": "ok" if command_result.get("status") == "ok" else "error",
+            "reply": reply,
+            "chat_history": state["mammoth_chat_history"],
+            "thought_steps": [{
+                "ts": _ts(),
+                "label": "Internet command completed",
+                "detail": f"kind={slash.get('kind')}",
+                "status": "success" if command_result.get("status") == "ok" else "warning",
+            }],
+            "agent_id": "assistant",
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "mode": "chat",
+            "task_id": "",
+            "dispatched": False,
+            "evidence_items": [command_result.get("evidence")],
+            "orchestrated": False,
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None,
+            "trace_id": trace_id,
+        }
     if slash and slash.get("kind") == "error":
         return {"status": "error", "error": slash["error"]}
 
@@ -5971,6 +6478,7 @@ async def mammoth_chat(body: Dict[str, Any]):
                 runtime_status["fallback_reason"] = client_meta.get("fallback_reason")
             if client_meta.get("fallback_error_type"):
                 runtime_status["fallback_error_type"] = client_meta.get("fallback_error_type")
+        _remember_runtime_status(runtime_status)
         return {
             "agent_id": "assistant",
             "adapter": assistant_adapter,
@@ -6102,6 +6610,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         safe_error = _sanitize_runtime_error_message(exc)
         runtime_status["error_type"] = type(exc).__name__
         runtime_status["safe_error"] = safe_error
+        _remember_runtime_status(runtime_status)
         reply = (
             "I hit a MammothOS chat routing problem. "
             "The good news is the shell is still up; the bad news is the hamster wants better wiring. "

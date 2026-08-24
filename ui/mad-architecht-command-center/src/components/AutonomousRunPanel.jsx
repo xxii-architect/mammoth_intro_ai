@@ -46,6 +46,9 @@ export default function AutonomousRunPanel({ summary, runs, onReplayRun }) {
           <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
             Lane: {formatLane(latest)} • Approvals: {latest.approvals_needed_count || 0}
           </div>
+          <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
+            {latest.run_id || 'run n/a'}{latest.created_at ? ` • ${new Date(latest.created_at).toLocaleString()}` : ''}
+          </div>
           <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
             Replay: {(latest.replay?.execution_mode || 'plan')} / {(latest.replay?.plan_profile || 'balanced')} / {(latest.replay?.coding_intent || 'summarize')}
           </div>
@@ -81,6 +84,9 @@ export default function AutonomousRunPanel({ summary, runs, onReplayRun }) {
               </div>
               <div style={{ color: 'var(--txt-sec)', fontSize: '0.66rem', marginTop: 4 }}>
                 {run.source} • {run.plan_profile || 'balanced'} • {run.progress?.completed || 0}/{run.progress?.total || 0}
+              </div>
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
+                {run.run_id || 'run n/a'}{run.updated_at ? ` • ${new Date(run.updated_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
               </div>
               <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
                 {formatLane(run)} • {run.approvals_needed_count || 0} approvals needed

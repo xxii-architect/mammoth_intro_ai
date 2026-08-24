@@ -4,10 +4,13 @@ import { api } from '../api/client'
 import RunHistoryPanel from '../components/RunHistoryPanel'
 import AutonomousRunPanel from '../components/AutonomousRunPanel'
 import OnboardingGuide from '../components/OnboardingGuide'
+import CodingArtifactPanel from '../components/CodingArtifactPanel'
+import ResearchArtifactPanel from '../components/ResearchArtifactPanel'
+import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
-  'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'summarize',
+  'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'browse_web', 'summarize',
   'lesson_curriculum', 'lesson_coaching', 'grade_submission',
   'generate_code', 'patch_existing', 'refactor_code', 'analyze_codebase', 'run_tests', 'write_docs',
 ]
@@ -22,6 +25,7 @@ const INTENT_TO_AGENT = {
   research_survival:   'research_agent',
   research_plants:     'research_agent',
   compare_gear:        'research_agent',
+  browse_web:          'browser_agent',
   summarize:           'research_agent',
   lesson_curriculum:   'curriculum_agent',
   lesson_coaching:     'tutor_agent',
@@ -41,6 +45,7 @@ const AGENT_TO_INTENT = {
   reflection_agent:     'reflection',
   brand_voice_agent:    'brand_voice',
   research_agent:       'research_curriculum',
+  browser_agent:        'browse_web',
   curriculum_agent:     'lesson_curriculum',
   tutor_agent:          'lesson_coaching',
   coding_agent:         'generate_code',
@@ -65,6 +70,7 @@ const SMOKE_TESTS = [
   { agent_id: 'reflection_agent', intent: 'reflection', prompt: 'Smoke test: provide a one-sentence reflection prompt.' },
   { agent_id: 'brand_voice_agent', intent: 'brand_voice', prompt: 'Smoke test: provide one sentence in brand voice.' },
   { agent_id: 'research_agent', intent: 'research_curriculum', prompt: 'Smoke test: summarize one curriculum tip in one sentence.' },
+  { agent_id: 'browser_agent', intent: 'browse_web', prompt: 'Smoke test: snapshot https://example.com and report the page title.' },
   { agent_id: 'curriculum_agent', intent: 'lesson_curriculum', prompt: 'Smoke test: provide one sentence on lesson framing.' },
   { agent_id: 'tutor_agent', intent: 'lesson_coaching', prompt: 'Smoke test: provide one coaching checkpoint.' },
   { agent_id: 'coding_agent', intent: 'generate_code', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
@@ -83,7 +89,13 @@ const PROMPT_PLAYBOOK = [
     agent_id: 'coding_agent',
     intent: 'patch_existing',
     codingIntent: 'patch_existing',
-    prompt: 'Create a user tutorial panel for the command center. Scope: ui\\mad-architecht-command-center\\src. Keep preview first on and preserve existing navigation.',
+    prompt: 'Create a user tutorial panel for the command center. Scope: ui\mad-architecht-command-center\src. Keep preview first on and preserve existing navigation.',
+  },
+  {
+    label: 'Browser snapshot',
+    agent_id: 'browser_agent',
+    intent: 'browse_web',
+    prompt: 'Snapshot https://example.com and summarize the title, headings, and links.',
   },
   {
     label: 'Plan + Execute objective',
@@ -97,16 +109,88 @@ const PROMPT_PLAYBOOK = [
     planProfile: 'coding',
     codingIntent: 'patch_existing',
     executionMode: 'plan',
-    prompt: 'Plan and implement Health page split: keep existing System Health, add Personal Health module with habit metrics and daily check-in. Scope: ui\\mad-architecht-command-center\\src\\pages\\HealthPage.jsx and related UI components only. Preserve existing backend health wiring and dark theme.',
+    prompt: 'Plan and implement Health page split: keep existing System Health, add Personal Health module with habit metrics and daily check-in. Scope: ui\mad-architecht-command-center\src\pages\HealthPage.jsx and related UI components only. Preserve existing backend health wiring and dark theme.',
   },
   {
     label: 'Finance split test',
     planProfile: 'coding',
     codingIntent: 'patch_existing',
     executionMode: 'plan',
-    prompt: 'Plan and implement Log Sale page split: Personal Finances and Business Finances sections with separate totals and entries. Scope: ui\\mad-architecht-command-center\\src\\pages\\LogSalePage.jsx and related local UI state only. Keep existing styling and current behavior intact.',
+    prompt: 'Plan and implement Log Sale page split: Personal Finances and Business Finances sections with separate totals and entries. Scope: ui\mad-architecht-command-center\src\pages\LogSalePage.jsx and related local UI state only. Keep existing styling and current behavior intact.',
   },
 ]
+
+function normalizeCodingArtifact(runResult) {
+  if (!runResult || typeof runResult !== 'object') return null
+  let output = runResult?.result?.output ?? runResult?.output ?? null
+  if (typeof output === 'string') {
+    try {
+      output = JSON.parse(output)
+    } catch {
+      output = null
+    }
+
+    function normalizeResearchArtifact(runResult) {
+      if (!runResult || typeof runResult !== 'object') return null
+      let output = runResult?.result?.output ?? runResult?.output ?? null
+      if (typeof output === 'string') {
+        try {
+          output = JSON.parse(output)
+        } catch {
+          output = null
+        }
+      }
+      if (!output || typeof output !== 'object' || Array.isArray(output)) return null
+      if (!Array.isArray(output.citations) && !Array.isArray(output.sources) && !Array.isArray(output.references)) return null
+
+      const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
+
+      return {
+        status: String(output.status || runResult.status || 'ok'),
+        agent: String(output.agent || runResult.agent || 'ResearchAgent'),
+        mode: String(output.mode || runResult.mode || 'research'),
+        prompt: String(output.prompt || runResult.prompt || ''),
+        focus: String(output.focus || ''),
+        summary: String(output.summary || ''),
+        findings: Array.isArray(output.findings) ? output.findings : [],
+        citations: Array.isArray(output.citations) ? output.citations : [],
+        references: Array.isArray(output.references) ? output.references : [],
+        sources: Array.isArray(output.sources) ? output.sources : [],
+        sourceCoverage: output.source_coverage && typeof output.source_coverage === 'object' ? output.source_coverage : null,
+        qualityFlags: normalizeList(output.quality_flags),
+        retrievalErrors: normalizeList(output.retrieval_errors),
+        workflowHints: output.workflow_hints && typeof output.workflow_hints === 'object' ? output.workflow_hints : null,
+        confidence: typeof output.confidence === 'number' ? output.confidence : null,
+        raw: output,
+      }
+    }
+  }
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return null
+
+  const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
+  const taskPlan = output.task_plan && typeof output.task_plan === 'object' ? output.task_plan : null
+
+  return {
+    status: String(output.status || runResult.status || 'ok'),
+    agent: String(output.agent || runResult.agent || 'CodingAgent'),
+    mode: String(output.mode || runResult.mode || 'coding'),
+    taskKind: String(output.task_kind || runResult.task_kind || runResult.intent || 'generate_code'),
+    target: String(output.target || runResult.target || ''),
+    prompt: String(output.prompt || runResult.prompt || ''),
+    summary: String(output.summary || ''),
+    code: String(output.code || ''),
+    tests: String(output.tests || ''),
+    docs: String(output.docs || ''),
+    diff: String(output.diff || ''),
+    confidence: typeof output.confidence === 'number' ? output.confidence : null,
+    warnings: normalizeList(output.warnings),
+    qualityChecks: normalizeList(output.quality_checks),
+    qualityFlags: normalizeList(output.quality_flags),
+    taskPlan,
+    evidence: output.evidence && typeof output.evidence === 'object' ? output.evidence : null,
+    raw: output,
+  }
+}
 
 export default function AgentPage({ setPage }) {
   const [agents, setAgents] = useState([])
@@ -138,6 +222,9 @@ export default function AgentPage({ setPage }) {
   const [codingIntent, setCodingIntent] = useState('generate_code')
   const [planRun, setPlanRun] = useState(null)
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
+  const [codingArtifact, setCodingArtifact] = useState(null)
+  const [researchArtifact, setResearchArtifact] = useState(null)
+  const [applyingPatch, setApplyingPatch] = useState(false)
 
   const refreshAgents = async () => {
     try {
@@ -247,6 +334,9 @@ export default function AgentPage({ setPage }) {
     setCodingIntent('generate_code')
     setAgentPinned(true)
     setApprovalMode(true)
+    setCodingArtifact(null)
+    setResearchArtifact(null)
+    setOutput(null)
     setPrompt(template)
   }
 
@@ -262,6 +352,9 @@ export default function AgentPage({ setPage }) {
       if (entry.codingIntent) setCodingIntent(entry.codingIntent)
     }
     setApprovalMode(true)
+    setCodingArtifact(null)
+    setResearchArtifact(null)
+    setOutput(null)
     setPrompt(entry.prompt)
   }
 
@@ -279,6 +372,9 @@ export default function AgentPage({ setPage }) {
       prompt: currentPrompt,
       status: res?.status || 'unknown',
       task_id: res?.task_id || null,
+      trace_id: res?.trace_id || null,
+      runtime_adapter: res?.adapter || null,
+      runtime_model: res?.model || null,
       ...extras,
     }
     setRunHistory(prev => {
@@ -301,6 +397,8 @@ export default function AgentPage({ setPage }) {
       if (entry.coding_intent) setCodingIntent(entry.coding_intent)
     }
     setPrompt(entry.prompt || '')
+    setCodingArtifact(entry.coding_artifact || null)
+    setResearchArtifact(entry.research_artifact || null)
   }
 
   const replayAutonomousRun = (run) => {
@@ -312,22 +410,34 @@ export default function AgentPage({ setPage }) {
     setPrompt(run.objective || '')
   }
 
-  const clearRunHistory = () => persistRunHistory([])
+  const clearRunHistory = () => {
+    setCodingArtifact(null)
+    setResearchArtifact(null)
+    persistRunHistory([])
+  }
 
   const run = async () => {
     if (!prompt.trim() && !intent) return
     setRunning(true)
     setOutput(null)
+    setCodingArtifact(null)
+    setResearchArtifact(null)
     await refreshAgents()
     try {
       const res = await api('/run', {
         method: 'POST',
         body: { intent, payload: { prompt, coding_intent: selectedAgent === 'coding_agent' ? codingIntent : undefined }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
       })
+      const artifact = normalizeCodingArtifact(res)
+      const research = normalizeResearchArtifact(res)
+      setCodingArtifact(artifact)
+      setResearchArtifact(research)
       if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
       addRunHistoryEntry(res, prompt, selectedAgent, intent, {
         execution_mode: 'single',
         coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
+        coding_artifact: artifact,
+        research_artifact: research,
         replay: {
           execution_mode: 'single',
           prompt,
@@ -340,6 +450,8 @@ export default function AgentPage({ setPage }) {
     } catch (e) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
+      setCodingArtifact(null)
+      setResearchArtifact(null)
     } finally {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
@@ -350,6 +462,8 @@ export default function AgentPage({ setPage }) {
     if (!prompt.trim()) return
     setRunning(true)
     setOutput(null)
+    setCodingArtifact(null)
+    setResearchArtifact(null)
     setPlanRun({
       status: 'ok',
       objective: prompt,
@@ -365,11 +479,17 @@ export default function AgentPage({ setPage }) {
         method: 'POST',
         body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true, plan_profile: planProfile, coding_intent: codingIntent },
       })
+      const artifact = normalizeCodingArtifact(res)
+      const research = normalizeResearchArtifact(res)
+      setCodingArtifact(artifact)
+      setResearchArtifact(research)
       setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile, coding_intent: res.coding_intent || codingIntent })
       addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
         execution_mode: 'plan',
         plan_profile: res.plan_profile || planProfile,
         coding_intent: res.coding_intent || codingIntent,
+        coding_artifact: artifact,
+        research_artifact: research,
         replay: {
           execution_mode: 'plan',
           objective: prompt,
@@ -399,6 +519,8 @@ export default function AgentPage({ setPage }) {
       })
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Plan run failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
+      setCodingArtifact(null)
+      setResearchArtifact(null)
     } finally {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
@@ -464,6 +586,69 @@ export default function AgentPage({ setPage }) {
   const planProgressPercent = planRun?.progress?.total
     ? Math.round(((planRun.progress.completed || 0) / planRun.progress.total) * 100)
     : 0
+
+  const applyCodingArtifactPatch = async () => {
+    if (!codingArtifact?.target || !codingArtifact?.code || applyingPatch) return
+    setApplyingPatch(true)
+    try {
+      const result = await api('/atlas/apply', {
+        method: 'POST',
+        body: {
+          operation: 'apply_patch',
+          file_path: codingArtifact.target,
+          new_content: codingArtifact.code,
+          approval_mode: false,
+        },
+      })
+      const nextArtifact = {
+        ...codingArtifact,
+        applied: true,
+        applyResult: result,
+      }
+      setCodingArtifact(nextArtifact)
+      setRunHistory(prev => {
+        const next = [...prev]
+        for (let i = next.length - 1; i >= 0; i -= 1) {
+          if (next[i]?.coding_artifact?.target !== codingArtifact.target) continue
+          next[i] = {
+            ...next[i],
+            coding_artifact: {
+              ...next[i].coding_artifact,
+              applied: true,
+              applyResult: result,
+            },
+          }
+          break
+        }
+        localStorage.setItem('mammoth_run_history', JSON.stringify(next))
+        return next
+      })
+      setOutput(JSON.stringify(result, null, 2))
+      setThoughtSteps(prev => [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          label: 'Patch applied',
+          detail: `${codingArtifact.target} updated through /api/atlas/apply`,
+          status: 'success',
+        },
+      ])
+      await Promise.all([refreshTimeline(), refreshSnapshots(), refreshApprovals()])
+    } catch (e) {
+      setThoughtSteps(prev => [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          label: 'Patch apply failed',
+          detail: e.message,
+          status: 'error',
+        },
+      ])
+      setOutput(`Apply error: ${e.message}`)
+    } finally {
+      setApplyingPatch(false)
+    }
+  }
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -624,7 +809,16 @@ export default function AgentPage({ setPage }) {
           </div>
 
           <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 400, overflowY: 'auto' }}>
-            {output ? (
+            {researchArtifact ? (
+              <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />
+            ) : codingArtifact ? (
+              <CodingArtifactPanel
+                artifact={codingArtifact}
+                rawJson={output}
+                onApplyPatch={applyCodingArtifactPatch}
+                applyingPatch={applyingPatch}
+              />
+            ) : output ? (
               <pre style={{ fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{output}</pre>
             ) : (
               <div style={{ color: 'var(--txt-sec)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -772,6 +966,10 @@ export default function AgentPage({ setPage }) {
               runs={autonomousRuns.runs}
               onReplayRun={replayAutonomousRun}
             />
+
+            <div style={{ marginTop: 16 }}>
+              <WorkspaceMemoryPanel />
+            </div>
 
             <div style={{ marginTop: 16 }}>
               <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Task Queue</p>

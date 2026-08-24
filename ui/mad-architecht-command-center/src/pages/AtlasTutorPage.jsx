@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { BookOpen, Send, ChevronRight, MessageSquare } from 'lucide-react'
 import { api } from '../api/client'
 import { useInterval } from '../hooks/useApi'
-import RuntimeStatusBanner from '../components/RuntimeStatusBanner'
 
 export default function AtlasTutorPage() {
   const [atlasState, setAtlasState] = useState(null)
@@ -25,8 +24,24 @@ export default function AtlasTutorPage() {
     goals: '',
     focus_areas: '',
   })
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
+  const [showLeftPanel, setShowLeftPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
+  const [showRightPanel, setShowRightPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
   const chatBottomRef = useRef(null)
   const onboardingSeededRef = useRef(false)
+
+  useEffect(() => {
+    const onResize = () => {
+      const mobile = window.innerWidth < 768
+      setIsMobile(mobile)
+      if (mobile) {
+        setShowLeftPanel(false)
+        setShowRightPanel(false)
+      }
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   const loadState = async () => {
     try {
@@ -367,14 +382,30 @@ export default function AtlasTutorPage() {
   return (
     <div className="page-enter" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <div style={{ flexShrink: 0 }}>
-        <RuntimeStatusBanner title="ATLAS runtime" compact />
+        {isMobile && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button
+              onClick={() => { setShowLeftPanel(p => !p); setShowRightPanel(false) }}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: `1px solid ${showLeftPanel ? 'rgba(77,166,255,0.5)' : 'var(--border)'}`, background: showLeftPanel ? 'rgba(77,166,255,0.1)' : 'rgba(255,255,255,0.04)', color: showLeftPanel ? 'var(--photon)' : 'var(--txt-sec)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+            >
+              📚 Curriculum
+            </button>
+            <button
+              onClick={() => { setShowRightPanel(p => !p); setShowLeftPanel(false) }}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: `1px solid ${showRightPanel ? 'rgba(180,124,255,0.5)' : 'var(--border)'}`, background: showRightPanel ? 'rgba(180,124,255,0.1)' : 'rgba(255,255,255,0.04)', color: showRightPanel ? 'var(--violet)' : 'var(--txt-sec)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+            >
+              💬 ATLAS Chat
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Three-column row — fills all remaining height */}
-      <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0, overflow: 'hidden' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 16, minHeight: 0, overflow: isMobile ? 'auto' : 'hidden' }}>
 
-      {/* Left: Curriculum (240px) */}
-      <div style={{ width: 240, flexShrink: 0, overflowY: 'auto', minHeight: 0 }}>
+      {/* Left: Curriculum */}
+      {(!isMobile || showLeftPanel) && (
+      <div style={{ width: isMobile ? '100%' : 240, flexShrink: 0, overflowY: 'auto', minHeight: 0 }}>
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--txt-sec)', marginBottom: 12, fontWeight: 600 }}>
             Curriculum
@@ -559,6 +590,7 @@ export default function AtlasTutorPage() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Center: Exercise + Editor */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
@@ -819,7 +851,8 @@ export default function AtlasTutorPage() {
       </div>
 
       {/* Right: Chat (280px) */}
-      <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+      {(!isMobile || showRightPanel) && (
+      <div style={{ width: isMobile ? '100%' : 280, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
         <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -885,6 +918,7 @@ export default function AtlasTutorPage() {
           </div>
         </div>
       </div>
+      )}
       {/* End three-column row */}
       </div>
     </div>

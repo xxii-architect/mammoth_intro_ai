@@ -315,7 +315,7 @@ export default function DiagnosticsPage() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
               {providers.map((provider) => (
-                <div key={provider.provider} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid ' + (service.status === 'green' ? 'rgba(34,197,94,0.24)' : service.status === 'yellow' ? 'rgba(234,179,8,0.24)' : 'rgba(248,113,113,0.24)'), background: provider.available ? 'rgba(34,197,94,0.06)' : 'rgba(234,179,8,0.06)' }}>
+                <div key={provider.provider} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid ' + (provider.available ? 'rgba(34,197,94,0.24)' : 'rgba(234,179,8,0.24)'), background: provider.available ? 'rgba(34,197,94,0.06)' : 'rgba(234,179,8,0.06)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
                     <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700, textTransform: 'capitalize' }}>{provider.provider}</div>
                     <div style={{ fontSize: '0.68rem', color: provider.available ? '#22c55e' : '#eab308', fontWeight: 700, textTransform: 'uppercase' }}>{provider.status}</div>
