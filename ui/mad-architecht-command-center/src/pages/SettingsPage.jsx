@@ -19,9 +19,8 @@ import {
 import { api } from '../api/client'
 
 const THEME_OPTIONS = [
-  { id: 'darker', label: 'Darker', bg: '#050608' },
-  { id: 'dark', label: 'Dark', bg: '#0d1117' },
-  { id: 'midnight', label: 'Midnight', bg: '#080c14' },
+  { id: 'dark', label: 'Dark', bg: '#050608' },
+  { id: 'aurora', label: 'Aurora', bg: '#f4f7fb' },
 ]
 
 const emptyProfile = { display_name: '', email: '', organization: '' }
@@ -266,7 +265,7 @@ export default function SettingsPage({ theme, setTheme }) {
           </div>
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
             {THEME_OPTIONS.map((t) => {
-              const active = theme === t.id
+              const active = (theme || 'dark') === t.id || (theme === 'darker' && t.id === 'dark') || (theme === 'midnight' && t.id === 'dark')
               return (
                 <div
                   key={t.id}
@@ -290,7 +289,7 @@ export default function SettingsPage({ theme, setTheme }) {
             })}
           </div>
           <p style={{ marginBottom: 0, fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
-            Active: <span style={{ color: 'var(--violet)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 600 }}>{theme || 'darker'}</span>
+            Active: <span style={{ color: 'var(--violet)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 600 }}>{theme === 'darker' || theme === 'midnight' || !theme ? 'dark' : theme}</span>
           </p>
         </div>
 

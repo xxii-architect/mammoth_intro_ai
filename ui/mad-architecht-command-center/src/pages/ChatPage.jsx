@@ -338,18 +338,41 @@ export default function ChatPage({ setPage }) {
   }
 
   useEffect(() => {
+    let stored = null
+    try {
+      stored = typeof window !== 'undefined' ? JSON.parse(window.localStorage.getItem('mammoth_chat_history') || 'null') : null
+    } catch {
+      stored = null
+    }
+    if (Array.isArray(stored) && stored.length > 0) {
+      setHistory(stored)
+    }
     api('/mammoth/chat/history')
       .then((data) => {
         const chatHistory = Array.isArray(data?.chat_history) ? data.chat_history : []
-        setHistory(chatHistory)
-        const lastAssistant = [...chatHistory].reverse().find((entry) => entry.role === 'assistant')
+        const nextHistory = chatHistory.length > 0 ? chatHistory : stored || []
+        setHistory(nextHistory)
+        const lastAssistant = [...nextHistory].reverse().find((entry) => entry.role === 'assistant')
         if (lastAssistant?.thought_steps) {
           setThoughtSteps(lastAssistant.thought_steps)
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (Array.isArray(stored) && stored.length > 0) {
+          setHistory(stored)
+        }
+      })
     refreshOps()
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (history.length > 0) {
+      window.localStorage.setItem('mammoth_chat_history', JSON.stringify(history.slice(-50)))
+    } else {
+      window.localStorage.removeItem('mammoth_chat_history')
+    }
+  }, [history])
 
   useEffect(() => {
     const timer = setInterval(() => {

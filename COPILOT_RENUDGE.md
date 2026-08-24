@@ -68,7 +68,7 @@ All 17+ endpoints bridging the React UI to the Python agents:
 
 **Global features:**
 - Floating ATLAS FAB chat widget (🧠 violet button, fixed bottom-right, ALL pages)
-- Theme toggle: Darker / Dark / Midnight — writes CSS custom properties live, persists to localStorage
+- Theme toggle: Dark / Aurora — writes CSS custom properties live, persists to localStorage, and normalizes legacy darker/midnight values to Dark
 - Design system: `--shell #050608`, `--photon #4da6ff`, `--cyan #00f5d4`, `--violet #b47cff`, glass cards, CRT scanlines, JetBrains Mono
 
 ### Supabase

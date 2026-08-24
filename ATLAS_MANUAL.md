@@ -602,7 +602,7 @@ Open **http://localhost:5173**
 | **Lessons** | Quick-access ATLAS lesson start + embedded tutor chat |
 | **ATLAS Tutor** | Full 3-column ATLAS experience: curriculum tree | exercise + code editor | live chat with model selector, lesson memory, and latest submission summary |
 | **Build Log** | Log + browse project build entries with tags, persisted to `.mammoth/buildlog.json` |
-| **Settings** | System info, env key inspector, ATLAS reset, **theme toggle** (Darker/Dark/Midnight), AI runtime status |
+| **Settings** | System info, env key inspector, ATLAS reset, **theme toggle** (Dark/Aurora), AI runtime status |
 
 ### Agent Console safety flow
 - Turn on **Preview first** before using the coding agent for file edits.
@@ -667,12 +667,16 @@ Phase 2 upgrades now wired in the FAB:
 - usage telemetry events (`fab_usage_events`) recorded for future monetization analytics
 
 ### Theme Toggle
-Settings → Theme section. Three options:
-- **Darker** `#050608` — near-black (default)
-- **Dark** `#0d1117` — GitHub dark
-- **Midnight** `#080c14` — deep blue-black
+Settings → Theme section. Two options:
+- **Dark** `#050608` — near-black default
+- **Aurora** `#f4f7fb` — clean, light, high-contrast workspace variant
 
-Applies instantly via CSS custom properties. Persists across sessions via `localStorage`.
+Applies instantly via CSS custom properties. Legacy `darker`/`midnight` values normalize to the current Dark theme so older saved preferences still behave correctly.
+
+### Runtime Status Bar
+- The runtime status surface in the top shell is now compact by default.
+- Use **Show runtime** to expand provider details and **Hide runtime** to collapse it.
+- The expanded/collapsed state persists in browser storage across sessions.
 
 ### Design System
 - Colors: `--shell`, `--photon: #4da6ff`, `--cyan: #00f5d4`, `--violet: #b47cff`
@@ -726,7 +730,7 @@ Applies instantly via CSS custom properties. Persists across sessions via `local
 - Mad Architecht Command Center: 11-page React UI fully wired to FastAPI backend
 - Floating ATLAS FAB chat widget on all pages
 - Dedicated ATLAS Tutor page (3-column: curriculum | editor | chat)
-- Working theme toggle (Darker/Dark/Midnight) with CSS variable mutation + localStorage
+- Working theme toggle (Dark/Aurora) with CSS variable mutation + localStorage normalization for legacy values
 - Terminal WebSocket + HTTP fallback
 - All data files auto-initialized in `.mammoth/`
 - Branch pushed to origin: `ui/compliance-legal-shell`

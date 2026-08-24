@@ -174,6 +174,18 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.research_agent import ResearchAgent
         return ResearchAgent(router)  # type: ignore
 
+    if agent_name in {"memory", "memory_agent"}:
+        from mammoth_os.agents.memory_agent import MemoryAgent
+        return MemoryAgent(router)  # type: ignore
+
+    if agent_name in {"auth", "auth_agent"}:
+        from mammoth_os.agents.auth_agent import AuthAgent
+        return AuthAgent(router)
+
+    if agent_name in {"build", "build_agent"}:
+        from mammoth_os.agents.build_agent import BuildAgent
+        return BuildAgent(router)
+
     if agent_name == "curriculum":
         from mammoth_os.agents.curriculum_agent import CurriculumAgent
         return CurriculumAgent(router)  # type: ignore

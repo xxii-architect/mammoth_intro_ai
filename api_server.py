@@ -673,15 +673,21 @@ def _normalize_user_storage_key(user_id: str) -> str:
 
 
 def _atlas_state_file_for_request() -> Path:
-    if not _AUTH_REQUIRED:
+    user_id = str(_REQUEST_USER_ID.get() or "").strip()
+    if not _AUTH_REQUIRED or not user_id or user_id == "local":
         return ATLAS_FILE
-    user_key = _normalize_user_storage_key(_REQUEST_USER_ID.get())
+    user_key = _normalize_user_storage_key(user_id)
     return ATLAS_STATE_DIR / f"atlas_state_{user_key}.json"
 
 
 def _request_is_admin() -> bool:
     if not _AUTH_REQUIRED:
         return True
+    user_id = str(_REQUEST_USER_ID.get() or "").strip()
+    if user_id == "local":
+        return True
+    if not user_id:
+        return False
     return bool(_REQUEST_IS_ADMIN.get())
 
 
@@ -766,7 +772,15 @@ async def auth_guard_middleware(request: Request, call_next):
             request.state.auth_user_id = ""
             request.state.auth_email = ""
             request.state.auth_is_admin = False
-            return await call_next(request)
+            token_user = _REQUEST_USER_ID.set("")
+            token_email = _REQUEST_USER_EMAIL.set("")
+            token_admin = _REQUEST_IS_ADMIN.set(False)
+            try:
+                return await call_next(request)
+            finally:
+                _REQUEST_USER_ID.reset(token_user)
+                _REQUEST_USER_EMAIL.reset(token_email)
+                _REQUEST_IS_ADMIN.reset(token_admin)
         return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
 
     token_user, token_email, token_admin = _set_request_auth_context(request, user)
@@ -2075,7 +2089,8 @@ def _runtime_status_snapshot() -> Dict[str, Any]:
 def _auth_mode_from_state(state: Dict[str, Any]) -> str:
     if bool(state.get("developer_access", False)):
         return "developer_override"
-    if _AUTH_REQUIRED:
+    user_id = str(_REQUEST_USER_ID.get() or "").strip()
+    if _AUTH_REQUIRED and user_id and user_id != "local":
         return "supabase_admin" if _request_is_admin() else "supabase_user"
     return "local_operator"
 

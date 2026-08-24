@@ -62,11 +62,11 @@ function LogoMark({ src, alt, fallback, size = 20, style = {} }) {
   )
 }
 
+const THEME_STORAGE_KEY = 'mammoth-theme'
+
 const THEMES = {
-  darker:   { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
-  dark:     { '--shell': '#0d1117', '--card': '#161b22', '--card-hover': '#1f2937' },
-  midnight: { '--shell': '#080c14', '--card': '#0f1520', '--card-hover': '#1a2233' },
-  aurora:   {
+  dark: { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
+  aurora: {
     '--shell': '#f4f7fb',
     '--card': '#ffffff',
     '--card-hover': '#eaf0f8',
@@ -78,6 +78,12 @@ const THEMES = {
     '--txt-mut': '#64748b',
     '--border': 'rgba(15,23,42,0.12)',
   },
+}
+
+const normalizeTheme = (value) => {
+  if (value === 'darker' || value === 'midnight' || value === 'dark') return 'dark'
+  if (value === 'aurora') return 'aurora'
+  return 'dark'
 }
 
 const NAV = [
@@ -762,7 +768,15 @@ function AtlasFAB({ currentPage, isMobile = false }) {
 
 export default function App() {
   const [page, setPage] = useState('home')
-  const [theme, setTheme] = useState('darker')
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === 'undefined') return 'dark'
+    try {
+      const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
+      return normalizeTheme(saved || 'dark')
+    } catch {
+      return 'dark'
+    }
+  })
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768)
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
   const [adminAccess, setAdminAccess] = useState(null)
@@ -815,8 +829,14 @@ export default function App() {
   }, [session, isAdminHost, fallbackAdminFromEmail])
 
   useEffect(() => {
-    const vars = THEMES[theme] || THEMES.darker
+    const safeTheme = normalizeTheme(theme)
+    const vars = THEMES[safeTheme] || THEMES.dark
     Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, safeTheme)
+    } catch {
+      // Ignore restricted browser storage errors.
+    }
   }, [theme])
 
   useEffect(() => {
@@ -937,12 +957,12 @@ export default function App() {
             </div>
           )}
           <select
-            value={theme}
-            onChange={e => setTheme(e.target.value)}
+            value={normalizeTheme(theme)}
+            onChange={e => setTheme(normalizeTheme(e.target.value))}
             style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: 'var(--txt-sec)', fontSize: '0.72rem', padding: '4px 6px', cursor: 'pointer' }}
           >
             {Object.keys(THEMES).map(t => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t}>{t === 'dark' ? 'Dark' : 'Aurora'}</option>
             ))}
           </select>
           {/* Sign out button only shown when real Supabase session exists */}

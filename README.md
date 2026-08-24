@@ -12,6 +12,9 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Run History replay keeps task metadata (`task_id`, `trace_id`) and runtime adapter/model context
   - Coding patch apply status is reflected in both artifact detail and run history markers
   - Internet command runs (`/research`, `/web`) are persisted as structured chat events with evidence metadata
+- UX consistency updates now live:
+  - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
+  - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
 
 ## 8 → 9 upgrade phases (completed)
 

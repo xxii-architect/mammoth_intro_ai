@@ -45,6 +45,11 @@ Then refresh the UI.
 - Keep changes composable: small UI surfaces now, deeper backend logic later.
 - Avoid introducing fragile dependencies when the same goal can be done with existing endpoints.
 
+### UI state normalization updates
+- Theme options are intentionally reduced to **Dark** and **Aurora**.
+- Legacy saved theme values (`darker`, `midnight`) are normalized to **Dark** on load.
+- The top runtime status bar is collapsed by default and remembers expand/collapse preference in browser storage.
+
 ### New local operator controls
 - **Health page** now persists personal operator metrics through `/api/operator/health`.
 - **Log Sale** now supports personal vs business ledger tracking plus category splits.

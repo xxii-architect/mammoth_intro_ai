@@ -5,6 +5,7 @@ import { loadSelfAuditHistory, normalizeSelfAuditEntry, runSystemSelfAudit } fro
 import { useInterval } from '../hooks/useApi'
 import OnboardingGuide from '../components/OnboardingGuide'
 import OnboardingChecklist from '../components/OnboardingChecklist'
+import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
 
 function Sparkline({ points, color, gradId }) {
   return (
@@ -143,6 +144,9 @@ export default function HomePage({ setPage }) {
 
       <OnboardingGuide currentPage="home" setPage={setPage} />
       <OnboardingChecklist setPage={setPage} />
+      <div style={{ marginBottom: 24 }}>
+        <WorkspaceMemoryPanel />
+      </div>
 
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 24 }}>
