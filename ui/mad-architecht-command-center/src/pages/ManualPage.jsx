@@ -42,19 +42,19 @@ const firstRunChecklist = [
 
 const upgradePhases = [
   {
-    title: 'Phase 1: execution quality loop',
+    title: 'Phase 1: execution quality loop ✓',
     detail: 'Require plan -> act -> verify -> retry with explicit success checks so agents stop returning generic summaries.',
   },
   {
-    title: 'Phase 2: browser automation',
+    title: 'Phase 2: browser automation ✓',
     detail: 'Move beyond page snapshots into stateful navigation, form filling, and replayable browser actions.',
   },
   {
-    title: 'Phase 3: memory + evals',
+    title: 'Phase 3: memory + evals ✓',
     detail: 'Track task outcomes, regression cases, and quality benchmarks so improvements stay measurable.',
   },
   {
-    title: 'Phase 4: docs + UI alignment',
+    title: 'Phase 4: docs + UI alignment ✓',
     detail: 'Keep this Manual page, ATLAS_MANUAL.md, and the root README in sync whenever behavior changes.',
   },
 ]
@@ -217,7 +217,7 @@ export default function ManualPage({ setPage }) {
 
       <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '2px solid var(--violet)' }}>
         <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Gauge size={16} color="var(--violet)" /> 7 to 8 upgrade phases
+          <Gauge size={16} color="var(--violet)" /> 8 → 9 upgrade phases
         </h2>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 10 }}>
           {upgradePhases.map((item) => (

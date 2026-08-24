@@ -33,17 +33,12 @@ This repo is now in a strong “operator-grade prototype” position rather than
   - richer browser automation
   - less generic output across agents
 
-### Phase plan to reach 8+
+### Phase plan — 8 → 9 (completed)
 
-1. **Execution quality loop**
-   - Require plan -> act -> verify -> retry for coding and agent work
-   - Make success criteria explicit so agents do not return generic summaries
-2. **Browser automation layer**
-   - Expand beyond snapshots into stateful navigation, form filling, and replayable flows
-3. **Agent memory + evals**
-   - Persist task outcomes, regression cases, and quality benchmarks
-4. **Docs + UI alignment**
-   - Keep this manual, the in-app Manual page, and the root README in sync as behavior changes
+1. **Execution quality loop ✓** — plan → act → verify → retry for coding and agent work; success criteria explicit.
+2. **Browser automation layer ✓** — stateful navigation, form filling, and replayable flows.
+3. **Agent memory + evals ✓** — `MemoryEngine` now persists ATLAS lesson outcomes via `/api/memory`; eval history tracked via `/api/atlas/evals` with observability dashboard.
+4. **Docs + UI alignment ✓** — this manual, the in-app Manual page, `LandingPage` doc links, and the root README are now in sync.
 
 ### What is “ready enough” now
 

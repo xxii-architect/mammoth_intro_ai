@@ -102,9 +102,9 @@ const WORKFLOW_STEPS = [
 ]
 
 const DOC_LINKS = {
-  atlasFab: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/ui/compliance-legal-shell/docs/atlas_fab_product_guide.md',
-  sdk: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/ui/compliance-legal-shell/docs/mammoth_os_package_offering.md',
-  platform: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/ui/compliance-legal-shell/ATLAS_MANUAL.md',
+  atlasFab: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/main/docs/atlas_fab_product_guide.md',
+  sdk: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/main/docs/mammoth_os_package_offering.md',
+  platform: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/main/ATLAS_MANUAL.md',
 }
 
 const PRODUCT_OFFERS = [

@@ -47,6 +47,7 @@ from mammoth_os.learner_model import build_learner_context, build_lesson_plan, l
 from mammoth_os.runtime_contracts import build_observability_run, build_runtime_notice, new_trace_id
 from mammoth_os.rag_retrieval import get_retriever
 from mammoth_os.supabase_client import get_supabase
+from mammoth_os.memory_engine import MemoryEngine
 
 app = FastAPI(title="MammothOS API", version="1.0.0")
 
@@ -94,6 +95,8 @@ for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FIL
 if not AUTH_ADMIN_POLICY_FILE.exists():
     AUTH_ADMIN_POLICY_FILE.write_text(json.dumps({"admin_user_ids": [], "admin_emails": []}, indent=2), encoding="utf-8")
 ATLAS_STATE_DIR.mkdir(exist_ok=True)
+
+_MEMORY_ENGINE = MemoryEngine(config={"storage_path": str(MAMMOTH_DIR / "memory_store.json"), "max_entries": 5000})
 
 _AUTH_REQUIRED = str(os.environ.get("MAMMOTH_REQUIRE_AUTH", "")).strip().lower() in {"1", "true", "yes", "on"}
 _ADMIN_EMAIL_SOURCES = ",".join(
@@ -5464,6 +5467,23 @@ async def atlas_submit(body: Dict[str, Any]):
         _sync_resume_packet(state, state.get("lesson_id"))
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _save_atlas_state(state)
+        try:
+            _topic = str(state.get("topic") or "")
+            _lesson_title = str(current_lesson.get("title") or current_lesson.get("objective") or "lesson")
+            _outcome_label = "passed" if bool(result.get("passed")) else "attempted"
+            _MEMORY_ENGINE.store(
+                f"Lesson '{_lesson_title}' on topic '{_topic}': {_outcome_label}. Score: {result.get('score') or 0}.",
+                memory_type="atlas_outcome",
+                metadata={
+                    "lesson_id": str(state.get("lesson_id") or ""),
+                    "topic": _topic,
+                    "passed": bool(result.get("passed")),
+                    "score": result.get("score"),
+                    "user_id": learner_user_id,
+                },
+            )
+        except Exception:
+            pass
         _append_audit_event(
             kind="atlas_submit",
             message="ATLAS submission evaluated",
@@ -5682,7 +5702,47 @@ async def atlas_evals(body: Optional[Dict[str, Any]] = None):
     return {"status": "ok", "evaluation": evaluation, "history": history, "observability": _build_atlas_observability(state, eval_history=history)}
 
 
-@app.post("/api/atlas/regenerate")
+@app.get("/api/memory")
+async def get_memory_entries(limit: int = 50, memory_type: Optional[str] = None):
+    entries = _MEMORY_ENGINE._entries
+    if memory_type:
+        entries = [e for e in entries if e.get("memory_type") == memory_type]
+    recent = entries[-limit:] if len(entries) > limit else entries
+    recent = list(reversed(recent))
+    return {
+        "status": "ok",
+        "total": len(_MEMORY_ENGINE._entries),
+        "entries": recent,
+        "memory_types": list({e.get("memory_type", "semantic") for e in _MEMORY_ENGINE._entries}),
+    }
+
+
+@app.post("/api/memory/search")
+async def search_memory(body: Dict[str, Any]):
+    query = str(body.get("query") or "").strip()
+    top_k = int(body.get("top_k") or 10)
+    memory_type = body.get("memory_type")
+    if not query:
+        return {"status": "error", "error": "query is required"}
+    results = _MEMORY_ENGINE.retrieve(query, top_k=top_k, memory_type=memory_type)
+    return {"status": "ok", "query": query, "results": results, "count": len(results)}
+
+
+@app.post("/api/memory")
+async def store_memory_entry(body: Dict[str, Any]):
+    content = str(body.get("content") or "").strip()
+    if not content:
+        return {"status": "error", "error": "content is required"}
+    memory_type = str(body.get("memory_type") or "semantic")
+    metadata = body.get("metadata") or {}
+    try:
+        entry_id = _MEMORY_ENGINE.store(content, memory_type=memory_type, metadata=metadata)
+        return {"status": "ok", "id": entry_id}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+
 async def atlas_regenerate(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()
     reason = "manual_regeneration"
