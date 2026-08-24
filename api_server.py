@@ -3481,6 +3481,7 @@ async def get_autonomous_runs():
         profile_name = str(profile or "balanced").strip() or "balanced"
         return f"{label} • {status} • {profile_name}"
 
+
     plan_tasks = [
         task for task in _load_tasks()
         if isinstance(task, dict) and (
@@ -3595,16 +3596,133 @@ async def get_autonomous_runs():
     }
 
 
+def _execution_policy_for_run(body: Dict[str, Any], payload: Dict[str, Any], *, runtime_agent: str) -> Dict[str, Any]:
+    raw = body.get("execution_policy")
+    if not isinstance(raw, dict):
+        raw = payload.get("execution_policy") if isinstance(payload.get("execution_policy"), dict) else {}
+    retry_on_status = raw.get("retry_on_status")
+    retry_statuses = [str(item).strip().lower() for item in retry_on_status] if isinstance(retry_on_status, list) else ["error", "needs_context", "unknown_action"]
+    required_fields = raw.get("required_fields")
+    if isinstance(required_fields, list):
+        required = [str(item).strip() for item in required_fields if str(item).strip()]
+    elif runtime_agent == "browser":
+        required = ["status", "summary", "execution"]
+    elif runtime_agent == "task_queue":
+        required = ["status", "action"]
+    else:
+        required = ["status"]
+    try:
+        max_attempts = int(raw.get("max_attempts", 2) or 2)
+    except (TypeError, ValueError):
+        max_attempts = 2
+    max_attempts = max(1, min(3, max_attempts))
+    min_summary_length_raw = raw.get("min_summary_length", 16)
+    try:
+        min_summary_length = max(0, int(min_summary_length_raw or 16))
+    except (TypeError, ValueError):
+        min_summary_length = 16
+    return {
+        "contract_version": "v1",
+        "max_attempts": max_attempts,
+        "retry_on_status": retry_statuses,
+        "required_fields": required,
+        "require_structured_output": bool(raw.get("require_structured_output", True)),
+        "min_summary_length": min_summary_length,
+    }
+
+
+def _normalize_agent_output(runtime_agent: str, raw_result: Any) -> Dict[str, Any]:
+    if isinstance(raw_result, dict):
+        output = dict(raw_result)
+        structured = True
+    elif isinstance(raw_result, list):
+        output = {"items": raw_result}
+        structured = False
+    else:
+        output = {"message": str(raw_result or "")}
+        structured = False
+
+    status = str(output.get("status") or "ok").strip().lower() or "ok"
+    if status == "passed":
+        status = "ok"
+    summary = str(
+        output.get("summary")
+        or output.get("message")
+        or output.get("title")
+        or output.get("description")
+        or output.get("result")
+        or ""
+    ).strip()
+    return {
+        "runtime_agent": runtime_agent,
+        "status": status,
+        "structured": structured,
+        "output": output,
+        "summary": summary,
+    }
+
+
+def _verify_execution_contract(envelope: Dict[str, Any], policy: Dict[str, Any]) -> Dict[str, Any]:
+    output = envelope.get("output") if isinstance(envelope.get("output"), dict) else {}
+    status = str(envelope.get("status") or "ok").strip().lower()
+    generic_markers = ("let me know if you", "i'm here to help", "happy to help")
+    summary = str(envelope.get("summary") or "").strip().lower()
+    checks: List[Dict[str, Any]] = []
+    retry_statuses = set(policy.get("retry_on_status") or [])
+
+    checks.append(
+        {
+            "name": "status_not_retryable",
+            "passed": status not in retry_statuses,
+            "detail": f"status={status}",
+        }
+    )
+    checks.append(
+        {
+            "name": "structured_output",
+            "passed": not policy.get("require_structured_output") or bool(envelope.get("structured")),
+            "detail": "Output must be structured JSON/dict.",
+        }
+    )
+
+    required_fields = [str(field).strip() for field in (policy.get("required_fields") or []) if str(field).strip()]
+    missing_fields = [field for field in required_fields if field not in output]
+    checks.append(
+        {
+            "name": "required_fields_present",
+            "passed": not missing_fields,
+            "detail": "All required fields present." if not missing_fields else f"Missing fields: {', '.join(missing_fields)}",
+        }
+    )
+
+    min_summary_length = int(policy.get("min_summary_length") or 0)
+    checks.append(
+        {
+            "name": "non_generic_summary",
+            "passed": len(summary) >= min_summary_length and not any(marker in summary for marker in generic_markers),
+            "detail": "Summary is specific enough to avoid generic output.",
+        }
+    )
+
+    passed = all(bool(check.get("passed")) for check in checks)
+    return {
+        "passed": passed,
+        "checks": checks,
+        "failed_checks": [check for check in checks if not check.get("passed")],
+    }
+
+
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
     intent = str(body.get("intent", "")).strip()
     payload = body.get("payload", {})
+    payload_dict = dict(payload) if isinstance(payload, dict) else {}
     temperature = body.get("temperature", 0.7)
     requested_agent_id = str(body.get("agent_id", "")).strip()
     tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
-    prompt_text = str(payload.get("prompt", "") or "").strip()
-    approval_mode = bool(body.get("approval_mode") or payload.get("approval_mode") or payload.get("preview_only"))
-    coding_intent = _normalize_coding_intent(payload.get("coding_intent") if isinstance(payload, dict) else "") or _normalize_coding_intent(intent)
+    prompt_text = str(payload_dict.get("prompt", "") or "").strip()
+    approval_mode = bool(body.get("approval_mode") or payload_dict.get("approval_mode") or payload_dict.get("preview_only"))
+    coding_intent = _normalize_coding_intent(payload_dict.get("coding_intent")) or _normalize_coding_intent(intent)
     trace_id = str(body.get("trace_id") or new_trace_id("run"))
     runtime_status = _runtime_status_snapshot()
     preflight_checks: List[Dict[str, Any]] = []
@@ -3686,8 +3804,21 @@ async def run_agent(body: Dict[str, Any]):
 
     try:
         runtime_agent = _runtime_agent_name(intent, tracked_agent_id)
+        execution_policy = _execution_policy_for_run(body, payload_dict, runtime_agent=runtime_agent)
+        preflight_checks.append(
+            {
+                "name": "execution_contract",
+                "status": "pass",
+                "detail": f"max_attempts={execution_policy['max_attempts']} required_fields={','.join(execution_policy['required_fields'])}",
+            }
+        )
+        preflight = {
+            "contract_version": "v2",
+            "status": "warn" if any(item.get("status") == "warn" for item in preflight_checks) else "ok",
+            "checks": preflight_checks,
+        }
         _think("Routing decision", f"runtime_agent={runtime_agent!r}  agent_id={tracked_agent_id!r}")
-        coding_op, coding_payload = _parse_coding_operation(payload if isinstance(payload, dict) else {}, prompt_text)
+        coding_op, coding_payload = _parse_coding_operation(payload_dict, prompt_text)
         if runtime_agent == "coding" and coding_op:
             _think("Operation parsed", f"op={coding_op!r}  target={coding_payload.get('file_path','?')!r}")
             if approval_mode:
@@ -3919,21 +4050,68 @@ async def run_agent(body: Dict[str, Any]):
                     handled_special_result = True
 
             if runtime_agent != "custodial" and not handled_special_result:
-                _think("Dispatching to agent", f"runtime_agent={runtime_agent!r}")
-                raw_result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: registry_run_agent(runtime_agent, payload_for_agent)
-                )
+                _think("Execution loop plan", f"runtime_agent={runtime_agent!r} max_attempts={execution_policy['max_attempts']}")
+                attempts: List[Dict[str, Any]] = []
+                final_envelope: Dict[str, Any] = {}
+                verification: Dict[str, Any] = {"passed": False, "checks": [], "failed_checks": []}
+                raw_result: Any = None
+                last_failure_detail = ""
+                for attempt in range(1, int(execution_policy.get("max_attempts") or 1) + 1):
+                    attempt_payload = payload_for_agent
+                    if isinstance(payload_for_agent, dict):
+                        attempt_payload = dict(payload_for_agent)
+                        attempt_payload["execution_contract"] = {
+                            "attempt": attempt,
+                            "max_attempts": execution_policy["max_attempts"],
+                            "required_fields": execution_policy["required_fields"],
+                            "previous_failure": last_failure_detail,
+                        }
+                    _think("Dispatching to agent", f"attempt={attempt} runtime_agent={runtime_agent!r}")
+                    raw_result = await asyncio.get_event_loop().run_in_executor(
+                        None, lambda: registry_run_agent(runtime_agent, attempt_payload)
+                    )
+                    final_envelope = _normalize_agent_output(runtime_agent, raw_result)
+                    verification = _verify_execution_contract(final_envelope, execution_policy)
+                    attempts.append(
+                        {
+                            "attempt": attempt,
+                            "status": final_envelope.get("status"),
+                            "summary": final_envelope.get("summary", ""),
+                            "passed": verification.get("passed", False),
+                            "checks": verification.get("checks", []),
+                        }
+                    )
+                    _think(
+                        "Verify step",
+                        f"attempt={attempt} passed={verification.get('passed')} status={final_envelope.get('status')!r}",
+                        "success" if verification.get("passed") else "warning",
+                    )
+                    if verification.get("passed"):
+                        break
+                    if final_envelope.get("status") == "pending_approval":
+                        break
+                    failed_checks = verification.get("failed_checks") if isinstance(verification.get("failed_checks"), list) else []
+                    last_failure_detail = "; ".join(str(item.get("name") or "check_failed") for item in failed_checks if isinstance(item, dict))
+                    if attempt < int(execution_policy.get("max_attempts") or 1):
+                        _think("Retrying run", f"attempt={attempt + 1} reason={last_failure_detail or 'verification_failed'}", "warning")
+
                 _think("Agent returned", f"type={type(raw_result).__name__}  preview={str(raw_result)[:120]!r}", "success")
+                status = "ok" if verification.get("passed") or final_envelope.get("status") == "pending_approval" else "error"
                 result = {
-                    "status": "ok",
+                    "status": status,
                     "runtime_agent": runtime_agent,
-                    "output": raw_result,
+                    "output": final_envelope.get("output", raw_result),
+                    "execution_loop": {
+                        "plan": execution_policy,
+                        "attempts": attempts,
+                        "verification": verification,
+                    },
                 }
                 attach_reasoning = runtime_agent == "tutor" and (
-                    intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(raw_result))
+                    intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(final_envelope.get("output", raw_result)))
                 )
                 if attach_reasoning:
-                    if _is_failure_payload(raw_result):
+                    if _is_failure_payload(final_envelope.get("output", raw_result)):
                         _think("Tutor failure detected", "Preparing reasoning guidance for the learner", "warning")
                     else:
                         _think("Coaching extension", "Attaching Socratic reasoning guidance", "info")
@@ -3942,7 +4120,7 @@ async def run_agent(body: Dict[str, Any]):
                         "context": {
                             "intent": intent,
                             "prompt": prompt_text,
-                            "tutor_result": raw_result,
+                            "tutor_result": final_envelope.get("output", raw_result),
                             "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
                         },
                         "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
@@ -3968,7 +4146,12 @@ async def run_agent(body: Dict[str, Any]):
             manifest.metadata["last_intent"] = intent
             manifest.metadata["last_run_at"] = datetime.now(timezone.utc).isoformat()
 
-        task_status = "completed" if result.get("status") != "pending_approval" else "pending_approval"
+        if result.get("status") == "pending_approval":
+            task_status = "pending_approval"
+        elif result.get("status") == "error":
+            task_status = "failed"
+        else:
+            task_status = "completed"
         _upsert_task(
             task_id,
             task["title"],
@@ -3983,6 +4166,15 @@ async def run_agent(body: Dict[str, Any]):
                 agent_id=tracked_agent_id,
                 task_id=task_id,
                 kind="task_completed",
+                trace_id=trace_id,
+                details={"result": str(result)[:1000], "trace_id": trace_id},
+            )
+        elif task_status == "failed":
+            _append_activity(
+                f"Failed task for {intent or 'agent'}",
+                agent_id=tracked_agent_id,
+                task_id=task_id,
+                kind="task_failed",
                 trace_id=trace_id,
                 details={"result": str(result)[:1000], "trace_id": trace_id},
             )
