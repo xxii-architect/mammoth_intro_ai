@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || (secrets.DO_SSH_PRIVATE_KEY != '' && secrets.DO_HOST != '' && secrets.DO_USER != '' && secrets.DO_APP_PATH != '' && secrets.DO_DEPLOY_COMMAND != '') }}
     runs-on: ubuntu-latest
     environment: production
     steps:
