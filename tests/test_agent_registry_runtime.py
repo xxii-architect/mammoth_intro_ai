@@ -1,3 +1,5 @@
+import json
+
 from mammoth_os import agent_registry as agent_registry_mod
 from mammoth_os.agents.research_agent import ResearchAgent
 
@@ -29,7 +31,39 @@ def test_run_agent_normalizes_payloads(monkeypatch):
     assert field_ops_result["payload"]["environment"] == "forest"
 
 
-def test_research_agent_emits_grounded_evidence_fields():
+def test_research_agent_emits_grounded_evidence_fields(monkeypatch):
+    class _FakeResponse:
+        def __init__(self, payload):
+            self._payload = json.dumps(payload).encode("utf-8")
+
+        def read(self):
+            return self._payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def _fake_urlopen(req, timeout=0):
+        url = req.full_url
+        if "wikipedia.org" in url:
+            return _FakeResponse(
+                {
+                    "title": "Code review",
+                    "extract": "Code review is a systematic examination of source code.",
+                    "content_urls": {"desktop": {"page": "https://en.wikipedia.org/wiki/Code_review"}},
+                }
+            )
+        return _FakeResponse(
+            {
+                "AbstractText": "Verification before moving on reduces regressions and improves confidence.",
+                "AbstractURL": "https://duckduckgo.com/code-review",
+                "Heading": "Code review",
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
     result = ResearchAgent(router=None).run("Analyze whether the coding lesson should verify the patch before we move on.")
 
     assert result["focus"] == "curriculum"

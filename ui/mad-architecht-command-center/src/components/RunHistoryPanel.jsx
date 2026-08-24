@@ -113,6 +113,11 @@ export default function RunHistoryPanel({ entries, onReplay, onClear }) {
                   )}
                 </div>
               )}
+              {entry.research_artifact?.summary && (
+                <div style={{ fontSize: '0.68rem', color: 'var(--txt-sec)', lineHeight: 1.4, borderTop: '1px dashed rgba(255,255,255,0.06)', paddingTop: 5 }}>
+                  research: {entry.research_artifact.summary}
+                </div>
+              )}
             </div>
           ))}
         </div>

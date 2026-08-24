@@ -5,6 +5,8 @@ import RunHistoryPanel from '../components/RunHistoryPanel'
 import AutonomousRunPanel from '../components/AutonomousRunPanel'
 import OnboardingGuide from '../components/OnboardingGuide'
 import CodingArtifactPanel from '../components/CodingArtifactPanel'
+import ResearchArtifactPanel from '../components/ResearchArtifactPanel'
+import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
@@ -118,6 +120,41 @@ function normalizeCodingArtifact(runResult) {
     } catch {
       output = null
     }
+
+    function normalizeResearchArtifact(runResult) {
+      if (!runResult || typeof runResult !== 'object') return null
+      let output = runResult?.result?.output ?? runResult?.output ?? null
+      if (typeof output === 'string') {
+        try {
+          output = JSON.parse(output)
+        } catch {
+          output = null
+        }
+      }
+      if (!output || typeof output !== 'object' || Array.isArray(output)) return null
+      if (!Array.isArray(output.citations) && !Array.isArray(output.sources) && !Array.isArray(output.references)) return null
+
+      const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
+
+      return {
+        status: String(output.status || runResult.status || 'ok'),
+        agent: String(output.agent || runResult.agent || 'ResearchAgent'),
+        mode: String(output.mode || runResult.mode || 'research'),
+        prompt: String(output.prompt || runResult.prompt || ''),
+        focus: String(output.focus || ''),
+        summary: String(output.summary || ''),
+        findings: Array.isArray(output.findings) ? output.findings : [],
+        citations: Array.isArray(output.citations) ? output.citations : [],
+        references: Array.isArray(output.references) ? output.references : [],
+        sources: Array.isArray(output.sources) ? output.sources : [],
+        sourceCoverage: output.source_coverage && typeof output.source_coverage === 'object' ? output.source_coverage : null,
+        qualityFlags: normalizeList(output.quality_flags),
+        retrievalErrors: normalizeList(output.retrieval_errors),
+        workflowHints: output.workflow_hints && typeof output.workflow_hints === 'object' ? output.workflow_hints : null,
+        confidence: typeof output.confidence === 'number' ? output.confidence : null,
+        raw: output,
+      }
+    }
   }
   if (!output || typeof output !== 'object' || Array.isArray(output)) return null
 
@@ -177,6 +214,7 @@ export default function AgentPage({ setPage }) {
   const [planRun, setPlanRun] = useState(null)
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
   const [codingArtifact, setCodingArtifact] = useState(null)
+  const [researchArtifact, setResearchArtifact] = useState(null)
   const [applyingPatch, setApplyingPatch] = useState(false)
 
   const refreshAgents = async () => {
@@ -288,6 +326,7 @@ export default function AgentPage({ setPage }) {
     setAgentPinned(true)
     setApprovalMode(true)
     setCodingArtifact(null)
+    setResearchArtifact(null)
     setOutput(null)
     setPrompt(template)
   }
@@ -305,6 +344,7 @@ export default function AgentPage({ setPage }) {
     }
     setApprovalMode(true)
     setCodingArtifact(null)
+    setResearchArtifact(null)
     setOutput(null)
     setPrompt(entry.prompt)
   }
@@ -349,6 +389,7 @@ export default function AgentPage({ setPage }) {
     }
     setPrompt(entry.prompt || '')
     setCodingArtifact(entry.coding_artifact || null)
+    setResearchArtifact(entry.research_artifact || null)
   }
 
   const replayAutonomousRun = (run) => {
@@ -362,6 +403,7 @@ export default function AgentPage({ setPage }) {
 
   const clearRunHistory = () => {
     setCodingArtifact(null)
+    setResearchArtifact(null)
     persistRunHistory([])
   }
 
@@ -370,6 +412,7 @@ export default function AgentPage({ setPage }) {
     setRunning(true)
     setOutput(null)
     setCodingArtifact(null)
+    setResearchArtifact(null)
     await refreshAgents()
     try {
       const res = await api('/run', {
@@ -377,12 +420,15 @@ export default function AgentPage({ setPage }) {
         body: { intent, payload: { prompt, coding_intent: selectedAgent === 'coding_agent' ? codingIntent : undefined }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
       })
       const artifact = normalizeCodingArtifact(res)
+      const research = normalizeResearchArtifact(res)
       setCodingArtifact(artifact)
+      setResearchArtifact(research)
       if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
       addRunHistoryEntry(res, prompt, selectedAgent, intent, {
         execution_mode: 'single',
         coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
         coding_artifact: artifact,
+        research_artifact: research,
         replay: {
           execution_mode: 'single',
           prompt,
@@ -396,6 +442,7 @@ export default function AgentPage({ setPage }) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
       setCodingArtifact(null)
+      setResearchArtifact(null)
     } finally {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
@@ -407,6 +454,7 @@ export default function AgentPage({ setPage }) {
     setRunning(true)
     setOutput(null)
     setCodingArtifact(null)
+    setResearchArtifact(null)
     setPlanRun({
       status: 'ok',
       objective: prompt,
@@ -423,13 +471,16 @@ export default function AgentPage({ setPage }) {
         body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true, plan_profile: planProfile, coding_intent: codingIntent },
       })
       const artifact = normalizeCodingArtifact(res)
+      const research = normalizeResearchArtifact(res)
       setCodingArtifact(artifact)
+      setResearchArtifact(research)
       setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile, coding_intent: res.coding_intent || codingIntent })
       addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
         execution_mode: 'plan',
         plan_profile: res.plan_profile || planProfile,
         coding_intent: res.coding_intent || codingIntent,
         coding_artifact: artifact,
+        research_artifact: research,
         replay: {
           execution_mode: 'plan',
           objective: prompt,
@@ -460,6 +511,7 @@ export default function AgentPage({ setPage }) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Plan run failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
       setCodingArtifact(null)
+      setResearchArtifact(null)
     } finally {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
@@ -748,7 +800,9 @@ export default function AgentPage({ setPage }) {
           </div>
 
           <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 400, overflowY: 'auto' }}>
-            {codingArtifact ? (
+            {researchArtifact ? (
+              <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />
+            ) : codingArtifact ? (
               <CodingArtifactPanel
                 artifact={codingArtifact}
                 rawJson={output}
@@ -903,6 +957,10 @@ export default function AgentPage({ setPage }) {
               runs={autonomousRuns.runs}
               onReplayRun={replayAutonomousRun}
             />
+
+            <div style={{ marginTop: 16 }}>
+              <WorkspaceMemoryPanel />
+            </div>
 
             <div style={{ marginTop: 16 }}>
               <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Task Queue</p>
