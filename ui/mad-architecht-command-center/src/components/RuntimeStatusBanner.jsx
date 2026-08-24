@@ -32,8 +32,11 @@ export default function RuntimeStatusBanner({ title = 'Runtime status', compact 
   const state = runtime?.state || 'blocked'
   const tone = statusTone(state)
   const providers = Array.isArray(runtime?.providers) ? runtime.providers : []
+  const activeProvider = runtime?.active_provider || runtime?.used_provider || runtime?.effective_adapter || runtime?.active_adapter || 'auto'
   const issueText = runtime?.issue || runtime?.recommendation || 'Checking provider health…'
   const nextActionText = runtime?.next_action || runtime?.recommendation || 'Checking provider health…'
+  const fallbackChain = Array.isArray(runtime?.fallback_chain) ? runtime.fallback_chain.join(' -> ') : ''
+  const fallbackReason = runtime?.fallback_reason ? String(runtime.fallback_reason).replaceAll('_', ' ') : ''
 
   return (
     <div className="glass-card-solid" style={{ padding: compact ? 12 : 14, borderLeft: `2px solid ${tone}`, marginBottom: compact ? 12 : 16 }}>
@@ -57,9 +60,21 @@ export default function RuntimeStatusBanner({ title = 'Runtime status', compact 
             {state}
           </span>
           <span style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>
-            {runtime?.active_adapter || 'auto'} • {runtime?.active_model || 'unknown'}
+            {activeProvider} • {runtime?.active_model || 'unknown'}
           </span>
         </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8, fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+        <span>
+          Active provider: <span style={{ color: 'var(--txt-pri)', fontWeight: 600 }}>{activeProvider}</span>
+        </span>
+        {runtime?.fallback_used && (
+          <span>
+            Fallback active{fallbackReason ? ` • ${fallbackReason}` : ''}
+          </span>
+        )}
+        {fallbackChain && <span>Chain: {fallbackChain}</span>}
       </div>
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
@@ -77,11 +92,14 @@ export default function RuntimeStatusBanner({ title = 'Runtime status', compact 
                 border: '1px solid var(--border)',
                 background: 'rgba(255,255,255,0.03)',
                 fontSize: '0.7rem',
-                color: 'var(--txt-sec)',
+                color: provider.active ? 'var(--txt-pri)' : 'var(--txt-sec)',
+                boxShadow: provider.active ? 'inset 0 0 0 1px rgba(77,166,255,0.25)' : 'none',
               }}
             >
               <Activity size={12} color={providerTone} />
               <span>{provider.provider}</span>
+              {provider.active && <span style={{ color: 'var(--photon)', fontWeight: 700 }}>active</span>}
+              {provider.fallback_target && <span style={{ color: '#f59e0b', fontWeight: 700 }}>fallback</span>}
             </div>
           )
         })}

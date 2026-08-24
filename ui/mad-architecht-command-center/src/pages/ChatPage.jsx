@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
-import RuntimeStatusBanner from '../components/RuntimeStatusBanner'
 import ChatMessageBody from '../components/ChatMessageBody'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
@@ -727,8 +726,6 @@ export default function ChatPage({ setPage }) {
           {showRightRail ? 'Hide right rail' : 'Show right rail'}
         </button>
       </div>
-
-      <RuntimeStatusBanner title="MammothOS runtime" />
 
       <div style={{ display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gap: 18, flex: 1, minHeight: 0 }}>
         <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: isShortViewport ? '80vh' : '84vh', overflow: 'hidden' }}>

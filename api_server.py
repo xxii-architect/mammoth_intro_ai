@@ -114,6 +114,7 @@ _AUTH_OPTIONAL_PATHS = {
 _REQUEST_USER_ID: ContextVar[str] = ContextVar("mammoth_request_user_id", default="local")
 _REQUEST_USER_EMAIL: ContextVar[str] = ContextVar("mammoth_request_user_email", default="")
 _REQUEST_IS_ADMIN: ContextVar[bool] = ContextVar("mammoth_request_is_admin", default=False)
+_LATEST_RUNTIME_STATUS: Dict[str, Any] = {}
 
 ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
     {
@@ -1809,6 +1810,60 @@ def _runtime_metadata_from_client(client: Any, requested_adapter: str = "") -> D
     }
 
 
+def _remember_runtime_status(runtime_status: Dict[str, Any]) -> None:
+    global _LATEST_RUNTIME_STATUS
+    remembered: Dict[str, Any] = {}
+    for key in (
+        "state",
+        "degraded_mode",
+        "active_adapter",
+        "active_model",
+        "effective_adapter",
+        "used_provider",
+        "primary_provider",
+        "fallback_used",
+        "fallback_reason",
+        "fallback_error_type",
+        "recommendation",
+        "next_action",
+    ):
+        value = runtime_status.get(key)
+        if value not in (None, "", []):
+            remembered[key] = deepcopy(value)
+    remembered["checked_at"] = datetime.now(timezone.utc).isoformat()
+    _LATEST_RUNTIME_STATUS = remembered
+
+
+def _merge_latest_runtime_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    merged = deepcopy(snapshot)
+    latest = deepcopy(_LATEST_RUNTIME_STATUS)
+    for key, value in latest.items():
+        if value not in (None, "", []):
+            merged[key] = value
+
+    preferred_provider = str(
+        merged.get("used_provider")
+        or merged.get("effective_adapter")
+        or merged.get("active_adapter")
+        or "local"
+    ).strip().lower() or "local"
+    merged["active_provider"] = preferred_provider
+    merged["checked_at"] = str(
+        merged.get("checked_at") or datetime.now(timezone.utc).isoformat()
+    )
+
+    providers: List[Dict[str, Any]] = []
+    for provider in merged.get("providers", []):
+        item = dict(provider)
+        provider_name = str(item.get("provider") or "").strip().lower()
+        item["active"] = provider_name == preferred_provider
+        item["selected"] = provider_name == str(merged.get("active_adapter") or "").strip().lower()
+        item["fallback_target"] = bool(merged.get("fallback_used")) and item["active"] and not item["selected"]
+        providers.append(item)
+    merged["providers"] = providers
+    return merged
+
+
 def _runtime_status_snapshot() -> Dict[str, Any]:
     models = _models_snapshot()
     deepseek_key_present = bool(models.get("deepseek_key_present"))
@@ -2334,7 +2389,7 @@ async def get_models():
 
 @app.get("/api/runtime/status")
 async def get_runtime_status():
-    return _runtime_status_snapshot()
+    return _merge_latest_runtime_status(_runtime_status_snapshot())
 
 
 @app.get("/api/ui/active-project")
@@ -5742,6 +5797,7 @@ async def atlas_chat(body: Dict[str, Any]):
                 runtime_status["fallback_reason"] = client_meta.get("fallback_reason")
             if client_meta.get("fallback_error_type"):
                 runtime_status["fallback_error_type"] = client_meta.get("fallback_error_type")
+        _remember_runtime_status(runtime_status)
     except Exception as e:
         runtime_status = _runtime_status_snapshot()
         safe_error = _sanitize_runtime_error_message(e)
@@ -5756,6 +5812,7 @@ async def atlas_chat(body: Dict[str, Any]):
             active_adapter = "fallback-local"
         runtime_status["error_type"] = type(e).__name__
         runtime_status["safe_error"] = safe_error
+        _remember_runtime_status(runtime_status)
 
     history.append({
         "role": "assistant",
@@ -6219,6 +6276,7 @@ async def mammoth_chat(body: Dict[str, Any]):
                 runtime_status["fallback_reason"] = client_meta.get("fallback_reason")
             if client_meta.get("fallback_error_type"):
                 runtime_status["fallback_error_type"] = client_meta.get("fallback_error_type")
+        _remember_runtime_status(runtime_status)
         return {
             "agent_id": "assistant",
             "adapter": assistant_adapter,
@@ -6350,6 +6408,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         safe_error = _sanitize_runtime_error_message(exc)
         runtime_status["error_type"] = type(exc).__name__
         runtime_status["safe_error"] = safe_error
+        _remember_runtime_status(runtime_status)
         reply = (
             "I hit a MammothOS chat routing problem. "
             "The good news is the shell is still up; the bad news is the hamster wants better wiring. "

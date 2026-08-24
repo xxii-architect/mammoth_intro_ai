@@ -8,6 +8,7 @@ import {
 import { useAuth, useIsAdminHost } from './lib/authContext'
 import { signOut } from './lib/supabase'
 import { api } from './api/client'
+import RuntimeStatusBanner from './components/RuntimeStatusBanner'
 import LoginPage from './pages/LoginPage'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
@@ -985,6 +986,9 @@ export default function App() {
             {backendWarning}
           </div>
         )}
+        <div style={{ padding: '12px 16px 0' }}>
+          <RuntimeStatusBanner title="MammothOS runtime" compact />
+        </div>
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
           <Suspense fallback={<div style={{ padding: 28, color: 'var(--txt-sec)' }}>Loading page…</div>}>
             {gate ? <AccessPreviewPage gate={gate} entitlements={entitlements} setPage={setPage} /> : <PageComponent setPage={setPage} />}
