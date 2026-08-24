@@ -53,6 +53,10 @@ const atlasFabPatterns = [
     title: 'Prepare for exercise',
     prompt: 'Before I submit, give me a short checklist of what a strong response should include for this exercise.',
   },
+  {
+    title: 'Internet research command',
+    prompt: 'Use /research mammoth os provider fallback to get a concise internet brief, then save the response as a report.',
+  },
 ]
 
 const atlasTutorPatterns = [
@@ -117,8 +121,20 @@ const pagePlaybook = [
   {
     page: 'Agent Console',
     purpose: 'Operator-grade plan/execute and approval workflows.',
-    bestUse: 'Use preview-first for any write path and clearly scope intended files/outcomes.',
+    bestUse: 'Use preview-first for any write path, then review the Coding Artifact panel + Run History trace before apply.',
     avoid: 'Running broad, unconstrained prompts that can mutate too much.',
+  },
+  {
+    page: 'Artifacts',
+    purpose: 'Saved generated reports and reusable output library.',
+    bestUse: 'Save .md/.txt from the FAB and keep finalized research/coding outputs here for replayable context.',
+    avoid: 'Treating unsaved chat responses as permanent records.',
+  },
+  {
+    page: 'Task Inbox',
+    purpose: 'Queued task cards and lightweight workflow tracking.',
+    bestUse: 'Capture tasks from Mammoth Mind and move them through queued/in-progress/complete states.',
+    avoid: 'Losing implementation follow-through inside long chat threads.',
   },
   {
     page: 'Terminal',

@@ -37,9 +37,31 @@ export default function RunHistoryPanel({ entries, onReplay, onClear }) {
             <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
               {entry.status || 'unknown'} • {entry.created_at ? new Date(entry.created_at).toLocaleTimeString() : ''}
             </div>
+            {(entry.task_id || entry.trace_id || entry.runtime_adapter) && (
+              <div style={{ color: 'var(--txt-mut)', fontSize: '0.62rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace', lineHeight: 1.45 }}>
+                {entry.task_id ? `task: ${entry.task_id}` : 'task: n/a'}
+                {entry.trace_id ? ` • trace: ${entry.trace_id}` : ''}
+                {entry.runtime_adapter ? ` • ${entry.runtime_adapter}${entry.runtime_model ? `/${entry.runtime_model}` : ''}` : ''}
+              </div>
+            )}
             {entry.coding_intent && (
               <div style={{ color: 'var(--photon)', fontSize: '0.64rem', marginTop: 4 }}>
                 coding intent: {entry.coding_intent}
+              </div>
+            )}
+            {entry.coding_artifact?.summary && (
+              <div style={{ color: 'var(--txt-sec)', fontSize: '0.64rem', marginTop: 4, lineHeight: 1.5 }}>
+                artifact: {entry.coding_artifact.summary}
+              </div>
+            )}
+            {entry.coding_artifact?.diff && (
+              <div style={{ color: '#22c55e', fontSize: '0.64rem', marginTop: 4 }}>
+                patch-ready diff captured
+              </div>
+            )}
+            {entry.coding_artifact?.applied && (
+              <div style={{ color: '#22c55e', fontSize: '0.64rem', marginTop: 4 }}>
+                patch applied
               </div>
             )}
             {entry.replay && (

@@ -2,6 +2,17 @@
 
 This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Command Center UI.
 
+## Phase 3/4 productization highlights
+
+- UI story surfaces are now workflow-first:
+  - Artifact Library for saved generated reports
+  - Task Inbox for queued workflow cards
+  - Structured Coding Artifact panel in Agent Console (overview/code/tests/docs/diff)
+- Observability surfaces are now tighter:
+  - Run History replay keeps task metadata (`task_id`, `trace_id`) and runtime adapter/model context
+  - Coding patch apply status is reflected in both artifact detail and run history markers
+  - Internet command runs (`/research`, `/web`) are persisted as structured chat events with evidence metadata
+
 ## Product docs
 
 - `docs\atlas_fab_product_guide.md` - ATLAS FAB positioning, workflow diagram, and pricing skeleton

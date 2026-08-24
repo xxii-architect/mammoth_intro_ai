@@ -100,6 +100,25 @@ The UI should not rely on placeholder values for production trust surfaces. If a
 - Use **Rollback Snapshots** to restore approved edits.
 - Use **Run History** to replay recent prompts with their original
   agent + intent selection.
+- Run History now also captures `task_id`, `trace_id`, and runtime adapter/model
+  so operators can tie UI runs back to backend observability records.
+- When coding output is structured, the console renders a **Coding Artifact**
+  panel with Overview/Code/Tests/Docs/Diff tabs and one-click patch apply.
+
+### Artifact Library + Task Inbox
+- **Artifacts** page stores generated reports (from Mammoth Mind or ATLAS FAB)
+  as readable records with timestamp, source, and content summary.
+- **Task Inbox** page tracks queued workflow cards so execution does not get lost
+  in long chat sessions.
+- Latest assistant replies in FAB can be saved as `.md` or `.txt` reports, and
+  those saves are persisted into the local artifact library.
+
+### Internet command quick paths
+- In Mammoth Mind / ATLAS FAB chat:
+  - `/research <query>` for concise internet research highlights
+  - `/web <url>` for a direct URL summary
+- These commands are surfaced as `internet-tool` runs and are included in
+  chat history with evidence metadata.
 
 ### Coding shortcuts
 When `coding_agent` is selected, shortcut templates are available for:

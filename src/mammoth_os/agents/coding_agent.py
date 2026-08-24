@@ -68,6 +68,11 @@ class CodingAgent(BaseAgent):
         prompt_lower = prompt_text.lower()
 
         if explicit_intent in {"generate_code", "patch_existing"}:
+            context = dict(context or {})
+            if target and target.lower() != "unknown":
+                context.setdefault("target", target)
+            if files:
+                context.setdefault("files", files)
             result = self._run_async(self.generate_code(prompt_text, context=context))
             return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
 
@@ -354,7 +359,9 @@ class CodingAgent(BaseAgent):
         except Exception:
             llm_prompt = prompt
 
-        context = context or {}
+        context = dict(context or {})
+        target_path = str(context.get("target") or "").strip()
+        context_files = context.get("files") if isinstance(context.get("files"), list) else []
 
         task_plan = self._build_task_plan(prompt, context)
         try:
@@ -363,6 +370,25 @@ class CodingAgent(BaseAgent):
             code_text = parsed.get("code", "")
             tests_text = parsed.get("tests", "")
             docs_text = parsed.get("docs", "")
+            diff_text = ""
+            original_text = ""
+            if target_path:
+                try:
+                    if os.path.exists(target_path):
+                        original_text = await self._read_file(target_path)
+                    else:
+                        for item in context_files:
+                            if not isinstance(item, dict):
+                                continue
+                            candidate_path = str(item.get("path") or item.get("file") or item.get("target") or "").strip()
+                            if candidate_path and candidate_path == target_path:
+                                original_text = str(item.get("content") or item.get("text") or item.get("source") or "")
+                                if original_text:
+                                    break
+                    if original_text and code_text:
+                        diff_text = self._unified_diff(original_text, code_text)
+                except Exception:
+                    diff_text = ""
             if str(context.get("source", "")).strip().lower() == "atlas.code.generate":
                 self._write_ai_session(
                     prompt=prompt,
@@ -379,9 +405,12 @@ class CodingAgent(BaseAgent):
                 "code": code_text,
                 "tests": tests_text,
                 "docs": docs_text,
-                "diff": "",
+                "diff": diff_text,
                 "confidence": confidence,
-                "warnings": [] if code_text else ["LLM returned no code block"],
+                "warnings": (
+                    ([] if code_text else ["LLM returned no code block"])
+                    + ([f"Target file not found: {target_path}"] if target_path and not os.path.exists(target_path) else [])
+                ),
                 "task_plan": task_plan,
                 "quality_checks": task_plan.get("validation", []),
             }

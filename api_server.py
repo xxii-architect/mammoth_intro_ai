@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from contextvars import ContextVar
@@ -5593,6 +5594,43 @@ async def atlas_chat(body: Dict[str, Any]):
         "page": str(page_context.get("current_page") or ""),
     })
 
+    slash = _parse_mammoth_chat_command(message)
+    if slash and slash.get("kind") in {"web", "research"}:
+        command_result = _run_internet_command(slash)
+        internet_reply = str(command_result.get("reply") or "No response produced.")
+        history.append({
+            "role": "assistant",
+            "message": internet_reply,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "mode": mode,
+            "evidence_items": [command_result.get("evidence")],
+        })
+        state[history_key] = history[-60:]
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _append_fab_usage_event(
+            state,
+            mode=mode,
+            page_context=page_context,
+            guard_triggered=False,
+        )
+        _save_atlas_state(state)
+        return {
+            "status": "ok" if command_result.get("status") == "ok" else "error",
+            "reply": internet_reply,
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "chat_history": state[history_key],
+            "guard_triggered": False,
+            "mode": mode,
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None,
+            "trace_id": trace_id,
+        }
+    if slash and slash.get("kind") == "error":
+        return {"status": "error", "error": slash.get("error") or "Invalid command."}
+
     if guard_triggered:
         regenerated_exercise = None
         if regenerate_on_guard:
@@ -5753,6 +5791,147 @@ async def atlas_chat(body: Dict[str, Any]):
 
 
 
+def _clean_web_text(raw: str, *, max_chars: int = 2200) -> str:
+    text = str(raw or "")
+    text = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > max_chars:
+        return text[:max_chars].rstrip() + "..."
+    return text
+
+
+def _internet_fetch_url(url: str) -> Dict[str, Any]:
+    cleaned = str(url or "").strip()
+    parsed = urllib.parse.urlparse(cleaned)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return {"status": "error", "error": "URL must be absolute and start with http:// or https://"}
+    req = urllib.request.Request(
+        cleaned,
+        headers={"User-Agent": "MammothOS/1.0 (+https://command.truexxiisupply.com)"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            content_type = str(resp.headers.get("Content-Type") or "").lower()
+            payload = resp.read(50000)
+    except urllib.error.URLError as exc:
+        return {"status": "error", "error": _sanitize_runtime_error_message(exc, "Could not reach the requested URL.")}
+    except ValueError:
+        return {"status": "error", "error": "URL is invalid or unsupported."}
+
+    text = payload.decode("utf-8", errors="replace")
+    title_match = re.search(r"(?is)<title[^>]*>(.*?)</title>", text)
+    title = _clean_web_text(title_match.group(1), max_chars=140) if title_match else ""
+    summary = _clean_web_text(text)
+    return {
+        "status": "ok",
+        "url": cleaned,
+        "title": title or parsed.netloc,
+        "summary": summary or "No readable text was extracted from this page.",
+        "content_type": content_type,
+    }
+
+
+def _internet_research_query(query: str) -> Dict[str, Any]:
+    q = str(query or "").strip()
+    if not q:
+        return {"status": "error", "error": "Research query is required."}
+    endpoint = (
+        "https://api.duckduckgo.com/?"
+        + urllib.parse.urlencode({"q": q, "format": "json", "no_html": 1, "skip_disambig": 1})
+    )
+    req = urllib.request.Request(
+        endpoint,
+        headers={"User-Agent": "MammothOS/1.0 (+https://command.truexxiisupply.com)"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        return {"status": "error", "error": _sanitize_runtime_error_message(exc, "Could not reach internet research endpoint.")}
+    except json.JSONDecodeError:
+        return {"status": "error", "error": "Research endpoint returned an unreadable response."}
+
+    highlights: List[Dict[str, str]] = []
+    abstract = str(payload.get("AbstractText") or "").strip()
+    if abstract:
+        highlights.append({
+            "title": str(payload.get("Heading") or "Primary finding"),
+            "snippet": abstract,
+            "url": str(payload.get("AbstractURL") or ""),
+        })
+    related = payload.get("RelatedTopics") if isinstance(payload.get("RelatedTopics"), list) else []
+    for item in related:
+        if len(highlights) >= 5:
+            break
+        if isinstance(item, dict) and isinstance(item.get("Topics"), list):
+            nested = item.get("Topics") or []
+            for sub in nested:
+                if len(highlights) >= 5:
+                    break
+                if isinstance(sub, dict):
+                    snippet = str(sub.get("Text") or "").strip()
+                    if snippet:
+                        highlights.append({
+                            "title": str(sub.get("FirstURL") or "Related source"),
+                            "snippet": snippet,
+                            "url": str(sub.get("FirstURL") or ""),
+                        })
+            continue
+        if isinstance(item, dict):
+            snippet = str(item.get("Text") or "").strip()
+            if snippet:
+                highlights.append({
+                    "title": str(item.get("FirstURL") or "Related source"),
+                    "snippet": snippet,
+                    "url": str(item.get("FirstURL") or ""),
+                })
+
+    if not highlights:
+        return {
+            "status": "ok",
+            "query": q,
+            "highlights": [],
+            "summary": "No concise internet highlights were found for this query.",
+        }
+
+    summary_lines = [f"Internet research brief for: {q}"]
+    for idx, item in enumerate(highlights[:5], start=1):
+        url = f" ({item['url']})" if item.get("url") else ""
+        summary_lines.append(f"{idx}. {item['snippet']}{url}")
+    return {"status": "ok", "query": q, "highlights": highlights[:5], "summary": "\n".join(summary_lines)}
+
+
+def _run_internet_command(slash: Dict[str, Any]) -> Dict[str, Any]:
+    kind = str(slash.get("kind") or "").strip()
+    if kind == "web":
+        result = _internet_fetch_url(str(slash.get("url") or ""))
+        if result.get("status") != "ok":
+            return {
+                "status": "error",
+                "reply": f"Internet fetch failed: {result.get('error') or 'unknown error'}",
+                "evidence": {"source": "internet", "kind": "web", "url": str(slash.get("url") or ""), "status": "error"},
+            }
+        reply = (
+            f"Web summary for {result.get('url')}:\n"
+            f"Title: {result.get('title')}\n\n"
+            f"{result.get('summary')}"
+        )
+        return {"status": "ok", "reply": reply, "evidence": {"source": "internet", "kind": "web", **result}}
+
+    if kind == "research":
+        result = _internet_research_query(str(slash.get("query") or ""))
+        if result.get("status") != "ok":
+            return {
+                "status": "error",
+                "reply": f"Internet research failed: {result.get('error') or 'unknown error'}",
+                "evidence": {"source": "internet", "kind": "research", "query": str(slash.get("query") or ""), "status": "error"},
+            }
+        return {"status": "ok", "reply": str(result.get("summary") or ""), "evidence": {"source": "internet", "kind": "research", **result}}
+
+    return {"status": "error", "reply": "Unsupported internet command.", "evidence": {"source": "internet", "kind": kind, "status": "error"}}
+
+
 def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
     text = (message or "").strip()
     if not text or not text.startswith("/"):
@@ -5770,6 +5949,16 @@ def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
         agent_id = tokens[1].strip()
         prompt = " ".join(tokens[2:]).strip()
         return {"kind": "agent", "agent_id": agent_id, "message": prompt}
+    if command == "/web":
+        url = " ".join(tokens[1:]).strip()
+        if not url:
+            return {"kind": "error", "error": "Usage: /web <url>"}
+        return {"kind": "web", "url": url}
+    if command == "/research":
+        query = " ".join(tokens[1:]).strip()
+        if not query:
+            return {"kind": "error", "error": "Usage: /research <query>"}
+        return {"kind": "research", "query": query}
     return None
 
 
@@ -5887,6 +6076,65 @@ async def mammoth_chat(body: Dict[str, Any]):
             return {"status": "error", "error": "Usage: /agent <agent_id> <message>"}
         body = {**body, "agent_id": slash["agent_id"], "message": slash["message"]}
         return await mammoth_chat(body)
+    if slash and slash.get("kind") in {"web", "research"}:
+        command_result = _run_internet_command(slash)
+        reply = str(command_result.get("reply") or "No response produced.")
+        state = _load_atlas_state()
+        history = state.get("mammoth_chat_history") or []
+        if not isinstance(history, list):
+            history = []
+        history.append({
+            "role": "user",
+            "message": message,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "agent_id": "assistant",
+            "mode": "chat",
+            "page": "",
+        })
+        history.append({
+            "role": "assistant",
+            "message": reply,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "agent_id": "assistant",
+            "mode": "chat",
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "thought_steps": [{
+                "ts": _ts(),
+                "label": "Internet command completed",
+                "detail": f"kind={slash.get('kind')}",
+                "status": "success" if command_result.get("status") == "ok" else "warning",
+            }],
+            "evidence_items": [command_result.get("evidence")],
+            "orchestrated": False,
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None,
+        })
+        state["mammoth_chat_history"] = history[-80:]
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _save_atlas_state(state)
+        return {
+            "status": "ok" if command_result.get("status") == "ok" else "error",
+            "reply": reply,
+            "chat_history": state["mammoth_chat_history"],
+            "thought_steps": [{
+                "ts": _ts(),
+                "label": "Internet command completed",
+                "detail": f"kind={slash.get('kind')}",
+                "status": "success" if command_result.get("status") == "ok" else "warning",
+            }],
+            "agent_id": "assistant",
+            "adapter": "internet-tool",
+            "model": "internet-tool",
+            "mode": "chat",
+            "task_id": "",
+            "dispatched": False,
+            "evidence_items": [command_result.get("evidence")],
+            "orchestrated": False,
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None,
+            "trace_id": trace_id,
+        }
     if slash and slash.get("kind") == "error":
         return {"status": "error", "error": slash["error"]}
 

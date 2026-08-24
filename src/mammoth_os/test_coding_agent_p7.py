@@ -135,6 +135,39 @@ add(a, b) -> int — returns the sum of a and b.
     assert result["confidence"] > 0
 
 
+def test_generate_code_emits_diff_for_target_file(tmp_path):
+    """generate_code should return a unified diff when a real target file exists."""
+    from mammoth_os.agents.coding_agent import CodingAgent
+
+    target_file = tmp_path / "sample.py"
+    target_file.write_text(
+        "def add(a, b):\n"
+        "    return a + b\n",
+        encoding="utf-8",
+    )
+
+    llm_raw = """\
+```python
+def add(a, b):
+    return a - b
+```
+"""
+
+    mock_client = AsyncMock()
+    mock_client.generate = AsyncMock(return_value=llm_raw)
+
+    with patch("mammoth_os.agents.coding_agent.get_llm_client", return_value=mock_client), \
+         patch.object(CodingAgent, "_retrieve_context", new=AsyncMock(return_value=[])):
+        agent = CodingAgent()
+        result = asyncio.run(agent.generate_code(
+            "patch sample.py",
+            context={"target": str(target_file)},
+        ))
+
+    assert "-    return a + b" in result["diff"]
+    assert "+    return a - b" in result["diff"]
+
+
 def test_generate_code_returns_warnings_on_no_code():
     """If LLM returns no fenced blocks, warnings should be non-empty."""
     from mammoth_os.agents.coding_agent import CodingAgent

@@ -28,6 +28,16 @@ This repo is now in a strong “operator-grade prototype” position rather than
 - Core agent lanes are normalized around structured outputs
 - Native chat can route to agent work and keep operational context visible
 
+### Phase 3/4 operator workflow surfaces now live
+
+- Agent Console now renders structured coding artifacts (overview/code/tests/docs/diff) with apply/write feedback.
+- Run History replay now preserves backend-linked metadata (`task_id`, `trace_id`, runtime adapter/model).
+- FAB chat responses can be saved directly into Artifact Library records (`.md` or `.txt`).
+- Task Inbox provides a lightweight queue for follow-through on workflow cards.
+- Internet commands are available in chat:
+  - `/research <query>`
+  - `/web <url>`
+
 ### What still needs a final pass
 
 - Provide more graceful messaging when provider keys or credit pools are exhausted

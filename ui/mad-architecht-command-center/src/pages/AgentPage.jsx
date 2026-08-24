@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import RunHistoryPanel from '../components/RunHistoryPanel'
 import AutonomousRunPanel from '../components/AutonomousRunPanel'
 import OnboardingGuide from '../components/OnboardingGuide'
+import CodingArtifactPanel from '../components/CodingArtifactPanel'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
@@ -108,6 +109,43 @@ const PROMPT_PLAYBOOK = [
   },
 ]
 
+function normalizeCodingArtifact(runResult) {
+  if (!runResult || typeof runResult !== 'object') return null
+  let output = runResult?.result?.output ?? runResult?.output ?? null
+  if (typeof output === 'string') {
+    try {
+      output = JSON.parse(output)
+    } catch {
+      output = null
+    }
+  }
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return null
+
+  const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
+  const taskPlan = output.task_plan && typeof output.task_plan === 'object' ? output.task_plan : null
+
+  return {
+    status: String(output.status || runResult.status || 'ok'),
+    agent: String(output.agent || runResult.agent || 'CodingAgent'),
+    mode: String(output.mode || runResult.mode || 'coding'),
+    taskKind: String(output.task_kind || runResult.task_kind || runResult.intent || 'generate_code'),
+    target: String(output.target || runResult.target || ''),
+    prompt: String(output.prompt || runResult.prompt || ''),
+    summary: String(output.summary || ''),
+    code: String(output.code || ''),
+    tests: String(output.tests || ''),
+    docs: String(output.docs || ''),
+    diff: String(output.diff || ''),
+    confidence: typeof output.confidence === 'number' ? output.confidence : null,
+    warnings: normalizeList(output.warnings),
+    qualityChecks: normalizeList(output.quality_checks),
+    qualityFlags: normalizeList(output.quality_flags),
+    taskPlan,
+    evidence: output.evidence && typeof output.evidence === 'object' ? output.evidence : null,
+    raw: output,
+  }
+}
+
 export default function AgentPage({ setPage }) {
   const [agents, setAgents] = useState([])
   const [selectedAgent, setSelected] = useState('')
@@ -138,6 +176,8 @@ export default function AgentPage({ setPage }) {
   const [codingIntent, setCodingIntent] = useState('generate_code')
   const [planRun, setPlanRun] = useState(null)
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
+  const [codingArtifact, setCodingArtifact] = useState(null)
+  const [applyingPatch, setApplyingPatch] = useState(false)
 
   const refreshAgents = async () => {
     try {
@@ -247,6 +287,8 @@ export default function AgentPage({ setPage }) {
     setCodingIntent('generate_code')
     setAgentPinned(true)
     setApprovalMode(true)
+    setCodingArtifact(null)
+    setOutput(null)
     setPrompt(template)
   }
 
@@ -262,6 +304,8 @@ export default function AgentPage({ setPage }) {
       if (entry.codingIntent) setCodingIntent(entry.codingIntent)
     }
     setApprovalMode(true)
+    setCodingArtifact(null)
+    setOutput(null)
     setPrompt(entry.prompt)
   }
 
@@ -279,6 +323,9 @@ export default function AgentPage({ setPage }) {
       prompt: currentPrompt,
       status: res?.status || 'unknown',
       task_id: res?.task_id || null,
+      trace_id: res?.trace_id || null,
+      runtime_adapter: res?.adapter || null,
+      runtime_model: res?.model || null,
       ...extras,
     }
     setRunHistory(prev => {
@@ -301,6 +348,7 @@ export default function AgentPage({ setPage }) {
       if (entry.coding_intent) setCodingIntent(entry.coding_intent)
     }
     setPrompt(entry.prompt || '')
+    setCodingArtifact(entry.coding_artifact || null)
   }
 
   const replayAutonomousRun = (run) => {
@@ -312,22 +360,29 @@ export default function AgentPage({ setPage }) {
     setPrompt(run.objective || '')
   }
 
-  const clearRunHistory = () => persistRunHistory([])
+  const clearRunHistory = () => {
+    setCodingArtifact(null)
+    persistRunHistory([])
+  }
 
   const run = async () => {
     if (!prompt.trim() && !intent) return
     setRunning(true)
     setOutput(null)
+    setCodingArtifact(null)
     await refreshAgents()
     try {
       const res = await api('/run', {
         method: 'POST',
         body: { intent, payload: { prompt, coding_intent: selectedAgent === 'coding_agent' ? codingIntent : undefined }, temperature, agent_id: selectedAgent, approval_mode: approvalMode },
       })
+      const artifact = normalizeCodingArtifact(res)
+      setCodingArtifact(artifact)
       if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
       addRunHistoryEntry(res, prompt, selectedAgent, intent, {
         execution_mode: 'single',
         coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
+        coding_artifact: artifact,
         replay: {
           execution_mode: 'single',
           prompt,
@@ -340,6 +395,7 @@ export default function AgentPage({ setPage }) {
     } catch (e) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
+      setCodingArtifact(null)
     } finally {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
@@ -350,6 +406,7 @@ export default function AgentPage({ setPage }) {
     if (!prompt.trim()) return
     setRunning(true)
     setOutput(null)
+    setCodingArtifact(null)
     setPlanRun({
       status: 'ok',
       objective: prompt,
@@ -365,11 +422,14 @@ export default function AgentPage({ setPage }) {
         method: 'POST',
         body: { objective: prompt, temperature, approval_mode: approvalMode, stop_on_failure: true, plan_profile: planProfile, coding_intent: codingIntent },
       })
+      const artifact = normalizeCodingArtifact(res)
+      setCodingArtifact(artifact)
       setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile, coding_intent: res.coding_intent || codingIntent })
       addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
         execution_mode: 'plan',
         plan_profile: res.plan_profile || planProfile,
         coding_intent: res.coding_intent || codingIntent,
+        coding_artifact: artifact,
         replay: {
           execution_mode: 'plan',
           objective: prompt,
@@ -399,6 +459,7 @@ export default function AgentPage({ setPage }) {
       })
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Plan run failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
+      setCodingArtifact(null)
     } finally {
       setRunning(false)
       await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
@@ -464,6 +525,69 @@ export default function AgentPage({ setPage }) {
   const planProgressPercent = planRun?.progress?.total
     ? Math.round(((planRun.progress.completed || 0) / planRun.progress.total) * 100)
     : 0
+
+  const applyCodingArtifactPatch = async () => {
+    if (!codingArtifact?.target || !codingArtifact?.code || applyingPatch) return
+    setApplyingPatch(true)
+    try {
+      const result = await api('/atlas/apply', {
+        method: 'POST',
+        body: {
+          operation: 'apply_patch',
+          file_path: codingArtifact.target,
+          new_content: codingArtifact.code,
+          approval_mode: false,
+        },
+      })
+      const nextArtifact = {
+        ...codingArtifact,
+        applied: true,
+        applyResult: result,
+      }
+      setCodingArtifact(nextArtifact)
+      setRunHistory(prev => {
+        const next = [...prev]
+        for (let i = next.length - 1; i >= 0; i -= 1) {
+          if (next[i]?.coding_artifact?.target !== codingArtifact.target) continue
+          next[i] = {
+            ...next[i],
+            coding_artifact: {
+              ...next[i].coding_artifact,
+              applied: true,
+              applyResult: result,
+            },
+          }
+          break
+        }
+        localStorage.setItem('mammoth_run_history', JSON.stringify(next))
+        return next
+      })
+      setOutput(JSON.stringify(result, null, 2))
+      setThoughtSteps(prev => [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          label: 'Patch applied',
+          detail: `${codingArtifact.target} updated through /api/atlas/apply`,
+          status: 'success',
+        },
+      ])
+      await Promise.all([refreshTimeline(), refreshSnapshots(), refreshApprovals()])
+    } catch (e) {
+      setThoughtSteps(prev => [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          label: 'Patch apply failed',
+          detail: e.message,
+          status: 'error',
+        },
+      ])
+      setOutput(`Apply error: ${e.message}`)
+    } finally {
+      setApplyingPatch(false)
+    }
+  }
 
   return (
     <div className="page-enter" style={{ padding: 24 }}>
@@ -624,7 +748,14 @@ export default function AgentPage({ setPage }) {
           </div>
 
           <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 400, overflowY: 'auto' }}>
-            {output ? (
+            {codingArtifact ? (
+              <CodingArtifactPanel
+                artifact={codingArtifact}
+                rawJson={output}
+                onApplyPatch={applyCodingArtifactPatch}
+                applyingPatch={applyingPatch}
+              />
+            ) : output ? (
               <pre style={{ fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{output}</pre>
             ) : (
               <div style={{ color: 'var(--txt-sec)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -287,6 +287,7 @@ export default function ChatPage({ setPage }) {
       coding_intent: extras.coding_intent || '',
       replay: extras.replay || null,
       evidence_items: Array.isArray(entry.evidence_items) ? entry.evidence_items : [],
+      status: 'queued',
     }
     persistTaskCards((prev) => [card, ...prev].slice(0, 20))
   }

@@ -33,6 +33,8 @@ const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 const AccountPage = lazy(() => import('./pages/AccountPage'))
 const CommandLibraryPage = lazy(() => import('./pages/CommandLibraryPage'))
 const BetaFeedbackPage = lazy(() => import('./pages/BetaFeedbackPage'))
+const ArtifactLibraryPage = lazy(() => import('./pages/ArtifactLibraryPage'))
+const TaskInboxPage = lazy(() => import('./pages/TaskInboxPage'))
 
 const ACTIVE_TIME_STORAGE_KEY = 'mammoth.app.active_seconds'
 
@@ -88,6 +90,8 @@ const NAV = [
 
   { section: 'Tools' },
   { id: 'notes',    label: 'Notes',       Icon: FileText },
+  { id: 'artifacts', label: 'Artifacts',   Icon: FileText, accent: 'var(--cyan)' },
+  { id: 'taskinbox', label: 'Task Inbox', Icon: ClipboardList, accent: 'var(--photon)' },
   { id: 'modules',  label: 'Modules',     Icon: Package },
   { id: 'health',   label: 'Health',      Icon: HeartPulse },
   { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--cyan)' },
@@ -130,6 +134,8 @@ const PAGE_COMPONENTS = {
   projects:    ProjectsPage,
   commandlib:  CommandLibraryPage,
   betafeedback: BetaFeedbackPage,
+  artifacts:   ArtifactLibraryPage,
+  taskinbox:   TaskInboxPage,
   settings:    SettingsPage,
   landing:     LandingPage,
   pricing:     PricingPage,
@@ -423,14 +429,48 @@ function AccessPreviewPage({ gate, entitlements, setPage }) {
   )
 }
 
+function persistArtifactRecord(entry) {
+  if (!entry || typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem('mammoth_artifact_library_v1')
+    const existing = raw ? JSON.parse(raw) : []
+    const next = Array.isArray(existing) ? existing : []
+    const item = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      created_at: new Date().toISOString(),
+      title: entry.title || 'Saved artifact',
+      summary: entry.summary || 'Saved from MammothOS workspace.',
+      body: entry.body || '',
+      path: entry.path || '',
+      source: entry.source || 'workspace',
+      format: entry.format || 'txt',
+    }
+    localStorage.setItem('mammoth_artifact_library_v1', JSON.stringify([item, ...next].slice(0, 30)))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    console.warn(`[artifact-library] Failed to persist record: ${message}`)
+  }
+}
+
 function AtlasFAB({ currentPage, isMobile = false }) {
   const [open, setOpen] = useState(false)
   const [input, setInput] = useState('')
   const [history, setHistory] = useState([])
   const [busy, setBusy] = useState(false)
+  const [savingFormat, setSavingFormat] = useState('')
+  const [saveStatus, setSaveStatus] = useState('')
   const [mode, setMode] = useState('assistant')
   const [strictGuard, setStrictGuard] = useState(true)
   const bottomRef = useRef(null)
+  const isMammothMindSurface = currentPage === 'chat'
+  const fabLabel = isMammothMindSurface ? 'Mammoth Mind' : 'ATLAS Tutor'
+  const fabSubLabel = isMammothMindSurface ? 'Native multi-agent chat' : 'AI-powered coding mentor'
+  const lastAssistantIndex = (() => {
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      if (history[i]?.role === 'assistant') return i
+    }
+    return -1
+  })()
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -453,7 +493,7 @@ function AtlasFAB({ currentPage, isMobile = false }) {
     setBusy(true)
     setHistory(h => [...h, { role: 'user', message: msg }])
     try {
-      const data = await api('/atlas/chat', {
+      const data = await api(isMammothMindSurface ? '/mammoth/chat' : '/atlas/chat', {
         method: 'POST',
         body: {
           message: msg,
@@ -482,6 +522,43 @@ function AtlasFAB({ currentPage, isMobile = false }) {
     }
   }
 
+  const saveReport = async (message, format) => {
+    const ext = format === 'md' ? 'md' : 'txt'
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const filePath = `generated_reports/${isMammothMindSurface ? 'mammoth-mind' : 'atlas-fab'}-report-${stamp}.${ext}`
+    const body = ext === 'md'
+      ? `# ${fabLabel} Report\n\nGenerated: ${new Date().toLocaleString()}\n\nSource page: ${currentPage}\n\n---\n\n${message}\n`
+      : `${fabLabel} Report\nGenerated: ${new Date().toLocaleString()}\nSource page: ${currentPage}\n\n${message}\n`
+    setSavingFormat(ext)
+    setSaveStatus('')
+    try {
+      const result = await api('/atlas/apply', {
+        method: 'POST',
+        body: {
+          operation: 'create_file',
+          file_path: filePath,
+          content: body,
+          approval_mode: false,
+        },
+      })
+      persistArtifactRecord({
+        title: `${fabLabel} report`,
+        summary: `Saved ${ext.toUpperCase()} report from ${currentPage}.`,
+        body: message,
+        path: result?.result?.path || filePath,
+        source: isMammothMindSurface ? 'mammoth-mind' : 'atlas-fab',
+        format: ext,
+      })
+      setSaveStatus(`Saved ${ext.toUpperCase()} report to ${result?.result?.path || filePath}`)
+      window.setTimeout(() => setSaveStatus(''), 2600)
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : 'Could not save report'
+      setSaveStatus(`[!] ${errMsg}`)
+    } finally {
+      setSavingFormat('')
+    }
+  }
+
   return (
     <>
       <button
@@ -489,23 +566,27 @@ function AtlasFAB({ currentPage, isMobile = false }) {
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9000,
           width: 64, height: 64, borderRadius: '50%',
-          background: 'var(--violet)',
-          border: '2px solid rgba(180,124,255,0.5)',
-          boxShadow: '0 0 20px rgba(180,124,255,0.5)',
+          background: isMammothMindSurface ? 'linear-gradient(135deg, var(--photon), var(--cyan))' : 'var(--violet)',
+          border: `2px solid ${isMammothMindSurface ? 'rgba(77,166,255,0.45)' : 'rgba(180,124,255,0.5)'}`,
+          boxShadow: isMammothMindSurface ? '0 0 20px rgba(77,166,255,0.45)' : '0 0 20px rgba(180,124,255,0.5)',
           animation: 'pulse-violet 2.5s infinite',
           cursor: 'pointer',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: '#fff', fontSize: '1.3rem',
         }}
-        title="ATLAS Tutor"
+        title={fabLabel}
       >
-        <LogoMark
-          src={BRANDING.atlasLogo}
-          alt="ATLAS logo"
-          fallback="🐘"
-          size={42}
-          style={{ filter: 'drop-shadow(0 0 8px rgba(180,124,255,0.6))' }}
-        />
+        {isMammothMindSurface ? (
+          <MessageSquare size={28} style={{ filter: 'drop-shadow(0 0 8px rgba(255,255,255,0.35))' }} />
+        ) : (
+          <LogoMark
+            src={BRANDING.atlasLogo}
+            alt="ATLAS logo"
+            fallback="🐘"
+            size={42}
+            style={{ filter: 'drop-shadow(0 0 8px rgba(180,124,255,0.6))' }}
+          />
+        )}
       </button>
 
       {open && (
@@ -527,10 +608,14 @@ function AtlasFAB({ currentPage, isMobile = false }) {
         }}>
           <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(180,124,255,0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={24} />
+              {isMammothMindSurface ? (
+                <MessageSquare size={24} color="var(--photon)" />
+              ) : (
+                <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={24} />
+              )}
               <div>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: 'var(--violet)' }}>ATLAS Tutor</p>
-                <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>AI-powered coding mentor</p>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: isMammothMindSurface ? 'var(--photon)' : 'var(--violet)' }}>{fabLabel}</p>
+                <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{fabSubLabel}</p>
               </div>
             </div>
             <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4 }}>✕</button>
@@ -551,36 +636,93 @@ function AtlasFAB({ currentPage, isMobile = false }) {
               Guard
             </label>
           </div>
+          {saveStatus && (
+            <div style={{
+              padding: '8px 12px',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              color: saveStatus.startsWith('[!]') ? '#fbbf24' : '#86efac',
+              background: saveStatus.startsWith('[!]') ? 'rgba(245,158,11,0.08)' : 'rgba(34,197,94,0.08)',
+              fontSize: '0.7rem',
+              lineHeight: 1.45,
+            }}>
+              {saveStatus}
+            </div>
+          )}
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
             {history.length === 0 && (
               <div style={{ textAlign: 'center', marginTop: 40 }}>
                 <div style={{ marginBottom: 8 }}>
-                  <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={48} />
+                  {isMammothMindSurface ? (
+                    <MessageSquare size={44} color="var(--photon)" />
+                  ) : (
+                    <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={48} />
+                  )}
                 </div>
-                <p style={{ fontSize: '0.78rem', color: 'var(--txt-mut)', margin: 0 }}>Ask ATLAS anything about your current lesson or code.</p>
-              </div>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--txt-mut)', margin: 0 }}>
+                    {isMammothMindSurface
+                      ? 'Ask Mammoth Mind for quick help, planning, or coding follow-through. Use /research <query> or /web <url> for internet lookups.'
+                      : 'Ask ATLAS anything about your current lesson or code. Use /research <query> or /web <url> for internet lookups.'}
+                  </p>
+                </div>
             )}
-            {history.map((msg, i) => (
-              <div key={i} style={{
-                alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                maxWidth: '85%',
-                background: msg.role === 'user' ? 'rgba(180,124,255,0.18)' : 'rgba(255,255,255,0.06)',
-                border: msg.role === 'user' ? '1px solid rgba(180,124,255,0.3)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                padding: '8px 11px',
-                fontSize: '0.78rem',
-                color: 'var(--txt-pri)',
-                lineHeight: 1.5,
-                whiteSpace: 'pre-wrap',
-              }}>
-                {msg.message}
-              </div>
-            ))}
+            {history.map((msg, i) => {
+              const canSave = msg.role === 'assistant' && i === lastAssistantIndex && String(msg.message || '').trim()
+              return (
+                <div key={i} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
+                  <div style={{
+                    background: msg.role === 'user' ? 'rgba(180,124,255,0.18)' : 'rgba(255,255,255,0.06)',
+                    border: msg.role === 'user' ? '1px solid rgba(180,124,255,0.3)' : '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                    padding: '8px 11px',
+                    fontSize: '0.78rem',
+                    color: 'var(--txt-pri)',
+                    lineHeight: 1.5,
+                    whiteSpace: 'pre-wrap',
+                  }}>
+                    {msg.message}
+                  </div>
+                  {canSave && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      <button
+                        onClick={() => saveReport(msg.message, 'md')}
+                        disabled={Boolean(savingFormat)}
+                        style={{
+                          fontSize: '0.66rem',
+                          padding: '5px 8px',
+                          borderRadius: 999,
+                          border: '1px solid rgba(77,166,255,0.24)',
+                          background: 'rgba(77,166,255,0.08)',
+                          color: 'var(--photon)',
+                          cursor: savingFormat ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {savingFormat === 'md' ? 'Saving .md…' : 'Save .md'}
+                      </button>
+                      <button
+                        onClick={() => saveReport(msg.message, 'txt')}
+                        disabled={Boolean(savingFormat)}
+                        style={{
+                          fontSize: '0.66rem',
+                          padding: '5px 8px',
+                          borderRadius: 999,
+                          border: '1px solid rgba(180,124,255,0.24)',
+                          background: 'rgba(180,124,255,0.08)',
+                          color: 'var(--violet)',
+                          cursor: savingFormat ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {savingFormat === 'txt' ? 'Saving .txt…' : 'Save .txt'}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
             {busy && (
               <div style={{ alignSelf: 'flex-start', fontSize: '0.78rem', color: 'var(--txt-mut)', padding: '8px 11px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={16} />
-                thinking…
+                {isMammothMindSurface ? <MessageSquare size={16} color="var(--photon)" /> : <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={16} />}
+                {isMammothMindSurface ? 'thinking…' : 'thinking…'}
               </div>
             )}
             <div ref={bottomRef} />
@@ -591,7 +733,7 @@ function AtlasFAB({ currentPage, isMobile = false }) {
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && !e.shiftKey && send()}
-              placeholder="Ask ATLAS..."
+              placeholder={isMammothMindSurface ? 'Ask Mammoth Mind... (or /research, /web)' : 'Ask ATLAS... (or /research, /web)'}
               style={{
                 flex: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
                 borderRadius: 8, color: 'var(--txt-pri)', fontSize: '0.8rem',
@@ -854,4 +996,3 @@ export default function App() {
     </div>
   )
 }
-
