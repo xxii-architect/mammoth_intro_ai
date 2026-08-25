@@ -24,12 +24,21 @@ MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind re
 ### Quick start
 
 ```bash
-# Install Playwright Chromium (once)
-npx playwright install chromium
-
 # Start the browser bridge (headed mode for first auth)
 bash scripts/start-browser-mcp.sh        # Linux/macOS
 .\scripts\start-browser-mcp.ps1          # Windows
+```
+
+Linux fallback for non-interactive audits:
+
+```bash
+MCP_BROWSER_MODE=system-headless bash scripts/start-browser-mcp.sh
+```
+
+If needed, point at a specific browser:
+
+```bash
+MCP_BROWSER_EXECUTABLE_PATH=/usr/bin/chromium MCP_BROWSER_MODE=system-headless bash scripts/start-browser-mcp.sh
 ```
 
 ### MCP servers
