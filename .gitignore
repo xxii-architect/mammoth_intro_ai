@@ -54,3 +54,7 @@ test-approval.txt
 
 # Local Netlify folder
 .netlify
+
+# Deployment-local UI environment and generated report artifacts
+ui/mad-architecht-command-center/.env.production
+generated_reports/
