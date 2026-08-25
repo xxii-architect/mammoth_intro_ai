@@ -36,6 +36,20 @@ git pull --ff-only origin main
 echo ""
 echo "[2/6] Building frontend..."
 cd "${APP_ROOT}/ui/mad-architecht-command-center"
+
+# Guard: .env.production must exist before build or Supabase vars will be empty
+if [ ! -f ".env.production" ]; then
+  echo ""
+  echo "✗ ERROR: .env.production is missing from the UI directory."
+  echo "  This file is NOT tracked in git (intentionally) and must be created"
+  echo "  manually on the server. Run from local machine:"
+  echo ""
+  echo "    scp ui/mad-architecht-command-center/.env.production \\"
+  echo "        root@${DO_HOST:-165.227.80.86}:/opt/mammothos/mammoth_intro_ai/ui/mad-architecht-command-center/.env.production"
+  echo ""
+  exit 1
+fi
+
 npm install --prefer-offline --no-audit
 npm run build
 
