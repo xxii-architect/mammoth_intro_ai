@@ -1,0 +1,36 @@
+{
+  "name": "playwright",
+  "description": "Playwright MCP browser bridge for MammothOS. Provides headed Chromium automation with a persistent profile so auth sessions survive between runs.",
+  "command": "npx",
+  "args": [
+    "@playwright/mcp@latest",
+    "--user-data-dir",
+    "./tmp/mammothos-browser-profile",
+    "--browser",
+    "chromium",
+    "--viewport",
+    "1280,800"
+  ],
+  "env": {
+    "HEADLESS": "false"
+  },
+  "enabled": true,
+  "transport": "stdio",
+  "tools": [
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_click",
+    "browser_type",
+    "browser_wait",
+    "browser_fill",
+    "browser_extract",
+    "browser_screenshot",
+    "browser_evaluate"
+  ],
+  "notes": [
+    "First run: the browser will open headed so you can handle login/auth gates.",
+    "After sign-in the persistent profile stores cookies and storage state automatically.",
+    "Subsequent runs are headless-capable once auth is cached.",
+    "Profile path ./tmp/mammothos-browser-profile is gitignored."
+  ]
+}

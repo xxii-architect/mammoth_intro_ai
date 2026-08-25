@@ -16,6 +16,38 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
   - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
 
+
+## MCP Browser Bridge + Repo Access
+
+MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.
+
+### Quick start
+
+```bash
+# Install Playwright Chromium (once)
+npx playwright install chromium
+
+# Start the browser bridge (headed mode for first auth)
+bash scripts/start-browser-mcp.sh        # Linux/macOS
+.\scripts\start-browser-mcp.ps1          # Windows
+```
+
+### MCP servers
+
+| Server | Config | What it does |
+|---|---|---|
+| **Browser (Playwright)** | `mcp/playwright.json` | Headed Chromium automation — navigate, click, fill, screenshot, Lighthouse audit |
+| **Filesystem** | `mcp/filesystem.json` | Read/write repo files (secrets denied) |
+| **Git** | `mcp/git.json` | status, diff, log, branch; commit/push require approval |
+
+### Site audit intent
+
+In Agent Console, use intent `site_audit` to run a full browser + Lighthouse audit against any URL. Results include heading structure, nav/CTA extraction, performance score, SEO score, accessibility score, and top 10 fix opportunities.
+
+### MCP status in UI
+
+The **Modules page** shows a **MCP Tool Bridges** panel with live ready/needs_setup/disabled status for each bridge.
+
 ## 8 → 9 upgrade phases (completed)
 
 All four phases of the 8 → 9 pass are now done:

@@ -54,3 +54,7 @@ test-approval.txt
 
 # Local Netlify folder
 .netlify
+
+# MCP browser profile and temp browser data
+tmp/
+mcp/playwright-profile/

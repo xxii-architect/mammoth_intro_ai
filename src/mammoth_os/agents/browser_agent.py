@@ -495,6 +495,10 @@ class BrowserAgent(BaseAgent):
         action = str(request.get("action") or "snapshot").strip().lower()
         max_links = int(request.get("max_links") or 10)
 
+        if action in {"site_audit", "lighthouse_audit"}:
+            url = str(request.get("url") or request.get("prompt") or "").strip()
+            return self.run_site_audit(url)
+
         if action == "replay":
             replay_id = str(request.get("replay_id") or "").strip()
             if not replay_id:
@@ -579,6 +583,110 @@ class BrowserAgent(BaseAgent):
         self._save_state(state)
         return response
 
+
+    # ─────────────────────────────────────────────────────────────────────
+    # Playwright MCP bridge
+    # ─────────────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _mcp_config_path() -> Path:
+        return Path(__file__).resolve().parents[3] / "mcp" / "playwright.json"
+
+    def _mcp_available(self) -> bool:
+        cfg_path = self._mcp_config_path()
+        if not cfg_path.exists():
+            return False
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+            return bool(cfg.get("enabled", True))
+        except (OSError, json.JSONDecodeError):
+            return False
+
+    def _run_playwright_mcp(self, request: Dict[str, Any]) -> Dict[str, Any]:
+        import subprocess
+        import shutil
+        cfg_path = self._mcp_config_path()
+        try:
+            cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"status": "error", "message": "Playwright MCP config not readable."}
+        command = cfg.get("command", "npx")
+        args = cfg.get("args", [])
+        env_overrides = cfg.get("env", {})
+        if shutil.which(command) is None and command == "npx":
+            return {"status": "needs_setup", "message": "npx not found. Install Node.js to enable the Playwright MCP bridge.", "summary": "Playwright MCP unavailable — Node.js required."}
+        url = str(request.get("url") or "").strip()
+        if not url:
+            return {"status": "needs_context", "message": "Playwright MCP requires a URL."}
+        rpc_request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "browser_navigate", "arguments": {"url": url}}}
+        import os
+        proc_env = {**os.environ, **{str(k): str(v) for k, v in env_overrides.items()}}
+        try:
+            proc = subprocess.run([command] + args, input=json.dumps(rpc_request) + "\n", capture_output=True, text=True, timeout=30, env=proc_env)
+            if proc.returncode != 0:
+                return {"status": "error", "message": f"Playwright MCP exited {proc.returncode}.", "stderr": proc.stderr[:500]}
+            response_text = proc.stdout.strip()
+            if not response_text:
+                return {"status": "error", "message": "Playwright MCP returned empty response."}
+            rpc_response = json.loads(response_text.splitlines()[-1])
+            result_content = rpc_response.get("result", {})
+            text_parts = [str(item.get("text") or "") for item in (result_content.get("content") or []) if isinstance(item, dict) and item.get("type") == "text"]
+            combined = "\n".join(text_parts).strip()
+            return {"status": "ok", "mode": "playwright_mcp", "url": url, "content": combined, "summary": combined[:240] if combined else f"Navigated to {url}."}
+        except subprocess.TimeoutExpired:
+            return {"status": "error", "message": "Playwright MCP timed out (30s)."}
+        except Exception as exc:
+            return {"status": "error", "message": f"Playwright MCP error: {exc}"}
+
+    def _run_lighthouse(self, url: str) -> Dict[str, Any]:
+        import subprocess
+        import shutil
+        import tempfile
+        if not shutil.which("npx"):
+            return {"status": "needs_setup", "message": "npx not found.", "summary": "Lighthouse unavailable — Node.js required."}
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            out_path = Path(tmp_dir) / "lighthouse"
+            cmd = ["npx", "lighthouse", url, "--output=json", "--quiet", "--chrome-flags=--headless=new --no-sandbox --disable-gpu", f"--output-path={out_path}"]
+            try:
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+                json_file = out_path.with_suffix(".report.json")
+                if not json_file.exists():
+                    return {"status": "error", "message": "Lighthouse produced no output.", "stderr": result.stderr[:400]}
+                report = json.loads(json_file.read_text(encoding="utf-8"))
+                categories = {k: round((v.get("score") or 0) * 100) for k, v in (report.get("categories") or {}).items()}
+                audits = report.get("audits") or {}
+                opportunities = []
+                for audit_id, audit in audits.items():
+                    if audit.get("score") is not None and float(audit.get("score") or 1) < 0.9:
+                        savings = audit.get("details", {}).get("overallSavingsMs") or 0
+                        opportunities.append({"id": audit_id, "title": audit.get("title", audit_id), "score": round(float(audit.get("score") or 0), 2), "savings_ms": int(savings), "display_value": str(audit.get("displayValue") or "")})
+                opportunities.sort(key=lambda x: x["score"])
+                score_summary = " | ".join(f"{k}: {v}" for k, v in categories.items())
+                return {"status": "ok", "mode": "lighthouse", "url": url, "categories": categories, "top_opportunities": opportunities[:10], "summary": f"Lighthouse scores — {score_summary}"}
+            except subprocess.TimeoutExpired:
+                return {"status": "error", "message": "Lighthouse timed out (90s)."}
+            except Exception as exc:
+                return {"status": "error", "message": f"Lighthouse error: {exc}"}
+
+    def run_site_audit(self, url: str) -> Dict[str, Any]:
+        request = self._normalize_request({"action": "snapshot", "url": url})
+        state = self._load_state()
+        session_id = f"audit-{uuid.uuid4().hex[:8]}"
+        if self._mcp_available():
+            browser_result = self._run_playwright_mcp(request)
+        else:
+            response = self._run_actions(state=state, session_id=session_id, actions=[{"action": "snapshot", "url": url}], max_links=20)
+            self._save_state(state)
+            browser_result = response
+        lighthouse_result = self._run_lighthouse(url)
+        combined_summary = str(browser_result.get("summary") or "")
+        if lighthouse_result.get("status") == "ok":
+            combined_summary += " | " + str(lighthouse_result.get("summary") or "")
+        return {"status": "ok", "agent": self.name, "mode": "site_audit", "url": url, "summary": combined_summary.strip(" |"), "browser": browser_result, "lighthouse": lighthouse_result}
+
+    @staticmethod
+    def human_gate(reason: str, *, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        return {"status": "human_gate", "reason": reason, "context": context or {}, "summary": f"Waiting for human input: {reason}", "instructions": "Complete the required action in the browser window, then resume the workflow."}
     def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
         payload = dict(details or {})
         payload.setdefault("action", action_type)

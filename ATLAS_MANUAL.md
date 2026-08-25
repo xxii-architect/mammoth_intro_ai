@@ -65,6 +65,70 @@ This repo is now in a strong “operator-grade prototype” position rather than
 
 ---
 
+
+---
+
+## MCP Browser Bridge
+
+MammothOS now ships a **Playwright MCP browser bridge** that gives Mammoth Mind real browser automation capability — navigate pages, click, fill forms, screenshot, and run Lighthouse site audits. This is the same pattern as Microsoft Copilot Tasks.
+
+### What it does
+
+| Tool | What it does |
+|---|---|
+| `browser_navigate` | Open a URL, wait for full load |
+| `browser_snapshot` | Extract DOM snapshot, headings, links, text |
+| `browser_click` | Click a button or link by selector |
+| `browser_fill` | Fill form fields |
+| `browser_screenshot` | Capture a full-page screenshot |
+| `site_audit` | Browser snapshot + Lighthouse performance/SEO/accessibility audit |
+
+### Start the browser bridge (local machine)
+
+**Linux / macOS:**
+```bash
+bash scripts/start-browser-mcp.sh
+```
+
+**Windows:**
+```powershell
+.\scripts\start-browser-mcp.ps1
+```
+
+First run opens a **headed Chromium window** so you can complete any login/auth gates. After sign-in, the persistent profile at `./tmp/mammothos-browser-profile` stores cookies automatically — subsequent runs resume without re-auth.
+
+### Run a site audit via Mammoth Mind
+
+In the Agent Console, set intent to `site_audit` and send:
+```
+https://truexxiisupply.com
+```
+
+Or use the Mammoth Mind chat:
+```
+Run a site audit on truexxiisupply.com — headings, nav, CTAs, Lighthouse scores, and top 10 fixes.
+```
+
+### MCP config files
+
+All MCP server configs live in `mcp/`:
+
+| File | Purpose |
+|---|---|
+| `mcp/index.json` | Master registry of all MCP servers |
+| `mcp/playwright.json` | Playwright browser bridge config |
+| `mcp/filesystem.json` | Repo filesystem read/write access |
+| `mcp/git.json` | Git status, diff, log (commit/push require approval) |
+
+### Human gate
+
+When the browser hits an auth wall or needs your input, the agent returns `status: human_gate` with instructions. Complete the action in the browser window — the workflow resumes automatically.
+
+### MCP status in Command Center
+
+The **Modules page** now shows a **MCP Tool Bridges** panel at the top with live status for each server (ready / needs_setup / disabled). A `needs_setup` status means Node.js or the MCP package is not installed yet.
+
+---
 ## 1 — One-time setup
 
 ### 1a. `.env` file (set once, loads automatically)

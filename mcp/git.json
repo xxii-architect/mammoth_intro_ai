@@ -1,0 +1,33 @@
+{
+  "name": "git",
+  "description": "Git MCP server for MammothOS. Exposes safe git operations (status, diff, log, branch) to Mammoth Mind so it can understand the repo state. Commit and push require explicit operator approval.",
+  "command": "uvx",
+  "args": [
+    "mcp-server-git",
+    "--repository",
+    "."
+  ],
+  "env": {},
+  "enabled": true,
+  "transport": "stdio",
+  "tools": [
+    "git_status",
+    "git_diff_unstaged",
+    "git_diff_staged",
+    "git_log",
+    "git_show",
+    "git_branch"
+  ],
+  "approval_required_tools": [
+    "git_add",
+    "git_commit",
+    "git_push",
+    "git_checkout",
+    "git_reset"
+  ],
+  "notes": [
+    "Read-only tools (status, diff, log) run without approval.",
+    "Mutation tools (add, commit, push, checkout, reset) require human_gate approval before execution.",
+    "Install with: pip install uvx  or  pipx install mcp-server-git"
+  ]
+}

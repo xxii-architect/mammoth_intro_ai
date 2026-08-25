@@ -2674,6 +2674,8 @@ _INTENT_TO_AGENT_ID = {
     "research_plants": "research_agent",
     "compare_gear": "research_agent",
     "browse_web": "browser_agent",
+    "site_audit": "browser_agent",
+    "lighthouse_audit": "browser_agent",
     "task_queue": "task_queue_agent",
     "summarize": "research_agent",
     "lesson_curriculum": "curriculum_agent",
@@ -7962,6 +7964,66 @@ async def get_modules():
 
     return list(module_map.values())
 
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/mcp/*  — MCP server registry
+# ─────────────────────────────────────────────────────────────────────────────
+
+_MCP_INDEX_PATH = ROOT / "mcp" / "index.json"
+
+
+def _load_mcp_index() -> Dict[str, Any]:
+    if not _MCP_INDEX_PATH.exists():
+        return {"servers": []}
+    try:
+        data = json.loads(_MCP_INDEX_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {"servers": []}
+    except (OSError, json.JSONDecodeError):
+        return {"servers": []}
+
+
+def _load_mcp_server_config(config_rel: str) -> Dict[str, Any]:
+    path = ROOT / config_rel
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+@app.get("/api/mcp/servers")
+async def get_mcp_servers():
+    """Return the MCP server registry with config details and availability status."""
+    index = _load_mcp_index()
+    servers = []
+    for entry in index.get("servers") or []:
+        if not isinstance(entry, dict):
+            continue
+        cfg = _load_mcp_server_config(str(entry.get("config") or ""))
+        import shutil
+        command = cfg.get("command") or entry.get("command") or "npx"
+        available = shutil.which(command) is not None
+        servers.append({
+            "id": str(entry.get("id") or ""),
+            "label": str(entry.get("label") or cfg.get("name") or entry.get("id") or ""),
+            "description": str(entry.get("description") or cfg.get("description") or ""),
+            "category": str(entry.get("category") or "tool"),
+            "enabled": bool(entry.get("enabled", True)) and bool(cfg.get("enabled", True)),
+            "available": available,
+            "status": "ready" if available else "needs_setup",
+            "tools": cfg.get("tools") or [],
+            "command": command,
+            "transport": cfg.get("transport") or "stdio",
+            "notes": cfg.get("notes") or [],
+        })
+    return {
+        "status": "ok",
+        "contract_version": "v1",
+        "server_count": len(servers),
+        "servers": servers,
+    }
 
 async def _release_readiness_snapshot() -> Dict[str, Any]:
     modules = await get_modules()
