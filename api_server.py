@@ -6755,6 +6755,25 @@ async def get_mammoth_chat_history():
     return {"status": "ok", "chat_history": history[-80:]}
 
 
+@app.delete("/api/mammoth/chat/history")
+async def delete_mammoth_chat_history():
+    state = _load_atlas_state()
+    history = state.get("mammoth_chat_history") or []
+    if not isinstance(history, list):
+        history = []
+    deleted_messages = len(history)
+    state["mammoth_chat_history"] = []
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    _append_execution_event(
+        kind="mammoth_chat_history_cleared",
+        summary=f"Cleared MammothOS chat history ({deleted_messages} messages)",
+        detail={"deleted_messages": deleted_messages},
+        user_id="local",
+    )
+    return {"status": "ok", "deleted_messages": deleted_messages}
+
+
 @app.post("/api/mammoth/repo-context")
 async def mammoth_repo_context(body: Dict[str, Any]):
     blocked = _require_admin_api()
@@ -8878,6 +8897,31 @@ async def get_execution_log(request: Request, limit: int = 50):
         log = [e for e in log if e.get("user_id") in {uid, "system", "local"}]
     return {"status": "ok", "events": list(reversed(log[-limit:]))}
 
+def _build_repo_context_snapshot() -> Dict[str, Any]:
+    """
+    Build a lightweight default repo context snapshot for the runtime
+    context endpoint. Scans key files only — no query, no symbols.
+    Called by /api/runtime/context-snapshot (Phase 4).
+    """
+    key_files = [
+        "api_server.py",
+        "src/mammoth_os/cortex_router.py",
+        "src/mammoth_os/llm_client.py",
+        "src/mammoth_os/memory_engine.py",
+        "src/mammoth_os/runtime_contracts.py",
+    ]
+    # Only include files that actually exist
+    existing = [f for f in key_files if (ROOT / f).exists()]
+    repo_request = _normalize_repo_context_request({
+        "files": existing,
+        "query": "",
+        "include_git_status": True,
+        "max_results": 4,
+        "max_snippets": 3,
+    })
+    return _collect_repo_context_snapshot(repo_request)
+
+
 
 @app.get("/api/runtime/context-snapshot")
 async def get_runtime_context_snapshot(request: Request):
@@ -9343,4 +9387,3 @@ def _load_json_file(path) -> list:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
-
