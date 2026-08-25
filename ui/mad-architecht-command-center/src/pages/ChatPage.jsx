@@ -719,15 +719,13 @@ export default function ChatPage({ setPage }) {
         mode: 'chat',
         coding_intent: effectiveAgentId === 'coding_agent' ? codingIntent : undefined,
         page_context: buildLivePageContext(),
-        repo_context: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent'
-          ? {
-              query: message,
-              files: inferRepoTargets(message),
-              include_git_status: true,
-              max_results: 4,
-              max_snippets: 3,
-            }
-          : undefined,
+        repo_context: {
+          query: message,
+          files: inferRepoTargets(message),
+          include_git_status: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent',
+          max_results: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 4 : 2,
+          max_snippets: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 3 : 2,
+        },
       }
       await streamChat(body, effectiveAgentId, placeholderIndex)
     } catch (e) {
@@ -741,6 +739,14 @@ export default function ChatPage({ setPage }) {
   }
 
   const clearLocalView = async () => {
+    try {
+      await authorizedFetch('/mammoth/chat/history', { method: 'DELETE' })
+    } catch (e) {
+      console.warn('Failed to clear chat history on backend:', e)
+    }
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem('mammoth_chat_history')
+    }
     setHistory([])
     setThoughtSteps([])
     setMeta(null)
