@@ -14,14 +14,21 @@ Write-Host "  MammothOS will resume automatically once auth is complete."
 Write-Host ""
 
 # Install Chromium if needed
-try {
-    $null = npx playwright show-browsers 2>&1
-} catch {
+$browsers = npx --yes playwright show-browsers 2>$null
+if (($LASTEXITCODE -ne 0) -or -not ($browsers | Select-String -SimpleMatch "chromium")) {
     Write-Host "Installing Playwright Chromium..."
-    npx playwright install chromium
+    npx --yes playwright install chromium
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Playwright Chromium install failed. Run this script locally on your Windows machine (recommended) or install browser dependencies first."
+        exit 1
+    }
 }
 
-npx @playwright/mcp@latest `
-    --user-data-dir "$profileDir" `
-    --browser chromium `
-    --viewport "1280,800"
+$mcpArgs = @(
+    "@playwright/mcp@latest"
+    "--user-data-dir", $profileDir
+    "--browser", "chromium"
+    "--viewport", "1280,800"
+)
+
+& npx @mcpArgs
