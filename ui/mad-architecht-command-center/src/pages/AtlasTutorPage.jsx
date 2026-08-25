@@ -307,6 +307,16 @@ export default function AtlasTutorPage() {
               recommended_difficulty: learnerContext?.recommended_difficulty || null,
             },
           },
+          repo_context: {
+            query: '',
+            files: [
+              'api_server.py',
+              'src/mammoth_os/cortex_router.py',
+            ],
+            include_git_status: false,
+            max_results: 2,
+            max_snippets: 2,
+          },
         },
       })
       if (res.chat_history) {
