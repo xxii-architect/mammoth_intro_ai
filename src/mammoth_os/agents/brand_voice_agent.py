@@ -53,11 +53,13 @@ class BrandVoiceAgent:
 
         return {
             "agent": "brand_voice",
+            "status": "ok",
             "mode": mode,
             "tone": tone,
             "audience": audience,
             "input": content,
             "output": result,
+            "summary": result[:220] if isinstance(result, str) else str(result)[:220],
         }
 
     def _stakeholder_summary(self, content: str, audience: str, tone: str, constraints: list[str]) -> str:

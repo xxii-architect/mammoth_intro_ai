@@ -498,6 +498,7 @@ class CurriculumAgent(BaseAgent):
             "status": "ok",
             "agent": self.name,
             "prompt": prompt,
+            "summary": f"{curriculum.get('title', subject)} — {len(curriculum.get('modules', []))} modules, {curriculum.get('estimated_total_minutes', 0)} min estimated",
             "curriculum": curriculum,
         }
 

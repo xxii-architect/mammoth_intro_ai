@@ -75,6 +75,7 @@ class FieldOpsAgent:
             "constraints": constraints,
             "approval_contract": approval_contract,
             "mission": mission,
+            "summary": mission,
             "skill_focus": skill_focus,
             "checklist": checklist,
             "completion_criteria": completion_criteria,

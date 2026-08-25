@@ -228,12 +228,30 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
             return normalized
         if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops"}:
             normalized = dict(payload)
-            if agent_name == "tutor" and isinstance(normalized.get("prompt"), str) and not normalized.get("topic"):
-                normalized["topic"] = normalized["prompt"]
-            elif agent_name == "reasoning" and isinstance(normalized.get("prompt"), str) and not normalized.get("problem"):
-                normalized["problem"] = normalized["prompt"]
-            elif "topic" not in normalized and isinstance(normalized.get("prompt"), str):
-                normalized["topic"] = normalized["prompt"]
+            prompt_val = str(normalized.get("prompt") or "").strip()
+            if agent_name == "tutor" and prompt_val and not normalized.get("topic"):
+                normalized["topic"] = prompt_val
+            elif agent_name == "reasoning" and prompt_val and not normalized.get("problem"):
+                normalized["problem"] = prompt_val
+            elif agent_name == "reflection":
+                # Map plan-execute prompt fields into the reflection agent's expected schema.
+                if prompt_val and not normalized.get("topic"):
+                    normalized["topic"] = prompt_val
+                if not normalized.get("lesson_title") and prompt_val:
+                    normalized["lesson_title"] = prompt_val[:80]
+                # Pull difficulty/progress from nested context if available.
+                ctx = normalized.get("context") if isinstance(normalized.get("context"), dict) else {}
+                if not normalized.get("difficulty"):
+                    normalized.setdefault("difficulty", ctx.get("difficulty") or "medium")
+                if not normalized.get("progress_score"):
+                    try:
+                        normalized.setdefault("progress_score", float(ctx.get("progress_score") or 0.5))
+                    except (TypeError, ValueError):
+                        normalized.setdefault("progress_score", 0.5)
+                if not normalized.get("struggle_tags"):
+                    normalized.setdefault("struggle_tags", ctx.get("struggle_tags") or [])
+            elif "topic" not in normalized and prompt_val:
+                normalized["topic"] = prompt_val
             if agent_name == "coding" and not normalized.get("prompt"):
                 prompt_value = normalized.get("task") or normalized.get("description") or normalized.get("content")
                 if isinstance(prompt_value, str):

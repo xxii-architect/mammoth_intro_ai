@@ -133,6 +133,7 @@ class CommunityEngineAgent:
             "approval_contract": approval_contract,
             "approval_gate": approval_gate,
             "challenge": challenge,
+            "summary": challenge,
             "prompt": prompt,
             "reward": reward,
             "social_callout": social,

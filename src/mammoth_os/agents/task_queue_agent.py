@@ -137,13 +137,18 @@ class TaskQueueAgent(BaseAgent):
     def _status_summary(self) -> Dict[str, Any]:
         queued = sorted(self._heap, key=lambda item: (item[0], item[1]))
         next_task = queued[0][2] if queued else None
+        in_progress = len(self._in_progress)
+        completed = len(self._completed)
+        depth = len(queued)
         return {
             "status": "ok",
             "agent": self.name,
-            "queue_depth": len(queued),
-            "in_progress_count": len(self._in_progress),
+            "action": "status",
+            "summary": f"Queue depth: {depth}, {in_progress} in progress, {completed} completed",
+            "queue_depth": depth,
+            "in_progress_count": in_progress,
             "dead_letter_count": len(self._dead_letter),
-            "completed_count": len(self._completed),
+            "completed_count": completed,
             "next_task": dict(next_task) if isinstance(next_task, dict) else None,
         }
 
@@ -225,23 +230,26 @@ class TaskQueueAgent(BaseAgent):
                 "max_retries": request.get("max_retries", 3),
                 "details": request.get("details") or {},
             }
+            queued_id = asyncio_run(self.enqueue(payload))
             return {
                 "status": "ok",
                 "agent": self.name,
                 "action": "enqueue",
-                "task_id": asyncio_run(self.enqueue(payload)),
+                "summary": f"Task {queued_id} queued with priority {payload['priority']}",
+                "task_id": queued_id,
             }
         if action == "dequeue":
             task = asyncio_run(self.dequeue())
-            return {"status": "ok", "agent": self.name, "action": "dequeue", "task": task}
+            title = (task or {}).get("title") or (task or {}).get("task_id") or "task"
+            return {"status": "ok", "agent": self.name, "action": "dequeue", "summary": f"Dequeued: {title}", "task": task}
         if action == "complete":
             task_id = str(request.get("task_id") or request.get("id") or "").strip()
             asyncio_run(self.complete(task_id, request.get("result")))
-            return {"status": "ok", "agent": self.name, "action": "complete", "task_id": task_id}
+            return {"status": "ok", "agent": self.name, "action": "complete", "summary": f"Task {task_id} marked complete", "task_id": task_id}
         if action in {"fail", "dead_letter"}:
             task_id = str(request.get("task_id") or request.get("id") or "").strip()
             asyncio_run(self.fail(task_id, str(request.get("error") or request.get("message") or "task failed")))
-            return {"status": "ok", "agent": self.name, "action": "fail", "task_id": task_id}
+            return {"status": "ok", "agent": self.name, "action": "fail", "summary": f"Task {task_id} moved to dead letter", "task_id": task_id}
         return self._status_summary()
 
     async def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):

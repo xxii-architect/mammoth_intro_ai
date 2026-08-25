@@ -61,6 +61,7 @@ class ReflectionAgent:
         citations, references = self._build_citation_bundle(sources)
         source_coverage = self._build_source_coverage(sources)
 
+        reflection_summary = self._build_summary(topic, lesson_title, difficulty, progress_score, signals)
         return {
             "agent": "reflection",
             "status": "ok",
@@ -81,7 +82,8 @@ class ReflectionAgent:
             "source_coverage": source_coverage,
             "quality_flags": self._quality_flags(source_coverage),
             "confidence": self._estimate_confidence(difficulty, progress_score, signals),
-            "reflection_summary": self._build_summary(topic, lesson_title, difficulty, progress_score, signals),
+            "summary": reflection_summary,           # standard contract key
+            "reflection_summary": reflection_summary, # preserved for back-compat
         }
 
     def _build_citation_bundle(self, sources: List[Dict[str, str]]) -> tuple[List[Dict[str, str]], List[Dict[str, str]]]:

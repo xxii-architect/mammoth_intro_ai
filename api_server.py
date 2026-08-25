@@ -697,6 +697,22 @@ def _require_admin_api() -> Optional[JSONResponse]:
     return None
 
 
+async def _require_auth_user(request: Request) -> Optional[Dict[str, Any]]:
+    """
+    Soft per-request auth check.
+    - Auth disabled (dev/local): returns a local user so routes stay functional.
+    - Auth enabled: extracts the Bearer token, resolves the Supabase user, returns None
+      when the token is missing or invalid (caller should return 401).
+    """
+    if not _AUTH_REQUIRED:
+        user_id = str(_REQUEST_USER_ID.get() or "local").strip() or "local"
+        return {"id": user_id, "email": "", "is_admin": True}
+    token = _extract_bearer_token(request)
+    if not token:
+        return None
+    return _resolve_supabase_user(token)
+
+
 def _owner_mutation_denied(action: str) -> Dict[str, Any]:
     return {
         "status": "error",
@@ -3385,6 +3401,17 @@ async def _execute_plan_steps(
         result_obj = response.get("result") if isinstance(response, dict) else {}
         inner_status = str((result_obj or {}).get("status", ""))
 
+        # Extract contract verification detail so the UI can show why a step failed
+        exec_loop = (result_obj or {}).get("execution_loop") if isinstance(result_obj, dict) else {}
+        verification = (exec_loop or {}).get("verification") if isinstance(exec_loop, dict) else {}
+        failed_checks = verification.get("failed_checks") if isinstance(verification, dict) else []
+        failure_reason = ""
+        if isinstance(failed_checks, list) and failed_checks:
+            failure_reason = "; ".join(
+                str(c.get("name") or "") + ": " + str(c.get("detail") or "")
+                for c in failed_checks if isinstance(c, dict)
+            )
+
         if response.get("status") != "ok" or inner_status == "error":
             step_status = "failed"
         elif inner_status == "pending_approval":
@@ -3405,6 +3432,7 @@ async def _execute_plan_steps(
             "finished_at": finished_at,
             "duration_ms": duration_ms,
             "status": step_status,
+            "failure_reason": failure_reason,
             "response": response,
             "approval": (result_obj or {}).get("approval") if isinstance(result_obj, dict) else None,
             "preview": (result_obj or {}).get("preview") if isinstance(result_obj, dict) else None,
@@ -3785,14 +3813,25 @@ def _normalize_agent_output(runtime_agent: str, raw_result: Any) -> Dict[str, An
     status = str(output.get("status") or "ok").strip().lower() or "ok"
     if status == "passed":
         status = "ok"
-    summary = str(
+    # Try standard keys first, then agent-specific fallbacks so every agent produces
+    # a non-empty summary that passes the execution contract check.
+    _output_candidate = (
         output.get("summary")
         or output.get("message")
         or output.get("title")
         or output.get("description")
         or output.get("result")
-        or ""
-    ).strip()
+        # agent-specific keys ↓
+        or output.get("reflection_summary")   # reflection_agent
+        or output.get("plan_summary")         # planner / ATE
+        or output.get("answer")               # reasoning_agent answer field
+    )
+    if not _output_candidate:
+        # Last resort: grab the agent's primary text output even if it's long
+        _raw_output = output.get("output") or output.get("content") or output.get("text")
+        if isinstance(_raw_output, str) and _raw_output.strip():
+            _output_candidate = _raw_output[:240]
+    summary = str(_output_candidate or "").strip()
     return {
         "runtime_agent": runtime_agent,
         "status": status,
