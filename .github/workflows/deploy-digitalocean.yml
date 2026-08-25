@@ -19,6 +19,7 @@ jobs:
         env:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          DO_SSH_PRIVATE_KEY_B64: ${{ secrets.DO_SSH_PRIVATE_KEY_B64 }}
           DO_HOST: ${{ secrets.DO_HOST }}
           DO_USER: ${{ secrets.DO_USER }}
           DO_APP_PATH: ${{ secrets.DO_APP_PATH }}
@@ -26,7 +27,13 @@ jobs:
         run: |
           set -euo pipefail
           missing=0
-          for var in DO_SSH_PRIVATE_KEY DO_HOST DO_USER DO_APP_PATH DO_DEPLOY_COMMAND; do
+          if [ -z "${DO_SSH_PRIVATE_KEY:-}" ] && [ -z "${DO_SSH_PRIVATE_KEY_B64:-}" ]; then
+            missing=1
+            if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+              echo "::error::Missing required secret: DO_SSH_PRIVATE_KEY (or DO_SSH_PRIVATE_KEY_B64)"
+            fi
+          fi
+          for var in DO_HOST DO_USER DO_APP_PATH DO_DEPLOY_COMMAND; do
             if [ -z "${!var:-}" ]; then
               missing=1
               if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
@@ -48,10 +55,19 @@ jobs:
         if: steps.validate.outputs.skip != 'true'
         env:
           DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          DO_SSH_PRIVATE_KEY_B64: ${{ secrets.DO_SSH_PRIVATE_KEY_B64 }}
         run: |
           set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          if [ -n "${DO_SSH_PRIVATE_KEY_B64:-}" ]; then
+            echo "$DO_SSH_PRIVATE_KEY_B64" | base64 -d > ~/.ssh/deploy_key
+          else
+            printf '%s\n' "$DO_SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/deploy_key
+          fi
+          chmod 600 ~/.ssh/deploy_key
           eval "$(ssh-agent -s)"
-          echo "$DO_SSH_PRIVATE_KEY" | tr -d '\r' | ssh-add -
+          ssh-add ~/.ssh/deploy_key
 
       - name: Configure known_hosts
         if: steps.validate.outputs.skip != 'true'
@@ -82,7 +98,7 @@ jobs:
           set -euo pipefail
           PORT="${DO_PORT:-22}"
           BRANCH="${DO_BRANCH:-main}"
-          ssh -p "$PORT" "${DO_USER}@${DO_HOST}" "bash -s -- \"$DO_APP_PATH\" \"$BRANCH\" \"$DO_DEPLOY_COMMAND\"" <<'REMOTE'
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -p "$PORT" "${DO_USER}@${DO_HOST}" "bash -s -- \"$DO_APP_PATH\" \"$BRANCH\" \"$DO_DEPLOY_COMMAND\"" <<'REMOTE'
           set -euo pipefail
           APP_PATH="$1"
           BRANCH="$2"
