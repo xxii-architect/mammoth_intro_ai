@@ -65,58 +65,70 @@ This repo is now in a strong “operator-grade prototype” position rather than
 
 ---
 
-## Live server + deploy
-
-**Droplet:** `root@165.227.80.86`  
-**App path:** `/opt/mammothos/mammoth_intro_ai`  
-**Backend service:** `mammothos` (systemd)  
-**Backend command:** `python3 -m uvicorn api_server:app --host 127.0.0.1 --port 8000`
-
-### Auto-deploy (GitHub Actions)
-
-Every push to `main` triggers `.github/workflows/deploy-digitalocean.yml`:
-1. SSH into droplet using `DO_SSH_PRIVATE_KEY_B64` (base64-encoded key — use this, not the plain-text secret)
-2. `git pull` latest main
-3. `npm install && npm run build` for the UI
-4. `sudo cp -r dist/. /var/www/mammothos-ui/`
-5. `sudo systemctl restart mammothos`
-6. `sudo systemctl reload nginx`
-
-### Restart backend on droplet (never use manual uvicorn)
-
-```bash
-sudo systemctl restart mammothos   # restart
-sudo systemctl status mammothos    # health check
-sudo journalctl -u mammothos -n 50 # logs
-```
-
-### Manual deploy
-
-```bash
-ssh root@165.227.80.86
-bash /opt/mammothos/mammoth_intro_ai/scripts/deploy-droplet.sh
-```
 
 ---
 
-## Memory UX — ATLAS remembers across sessions
+## MCP Browser Bridge
 
-The app now visually surfaces that ATLAS remembers users across sessions.
+MammothOS now ships a **Playwright MCP browser bridge** that gives Mammoth Mind real browser automation capability — navigate pages, click, fill forms, screenshot, and run Lighthouse site audits. This is the same pattern as Microsoft Copilot Tasks.
 
-### Components
+### What it does
 
-- **`AtlasMemoryBadge`** — animated ping badge showing session count and top focus areas. Rendered in 3 places: Home header, Chat compact strip, Chat empty state.
-- **Session resumed pill** — green "Continuing from last session" pill fires for 4.5 s when existing chat history loads from `/api/chat/history`.
-- **`WorkspaceMemoryPanel`** — LIVE badge, violet-gradient memory node cards, color-coded learning stats.
+| Tool | What it does |
+|---|---|
+| `browser_navigate` | Open a URL, wait for full load |
+| `browser_snapshot` | Extract DOM snapshot, headings, links, text |
+| `browser_click` | Click a button or link by selector |
+| `browser_fill` | Fill form fields |
+| `browser_screenshot` | Capture a full-page screenshot |
+| `site_audit` | Browser snapshot + Lighthouse performance/SEO/accessibility audit |
 
-### Memory data flow
+### Start the browser bridge (local machine)
 
+**Linux / macOS:**
+```bash
+bash scripts/start-browser-mcp.sh
 ```
-/atlas/learner  →  focus_areas, learning_style, goals, difficulty_preference
-localStorage    →  session count (estimated from chat history keys)
-/api/chat/history → session-resumed pill trigger on mount
+
+**Windows:**
+```powershell
+.\scripts\start-browser-mcp.ps1
 ```
 
+First run opens a **headed Chromium window** so you can complete any login/auth gates. After sign-in, the persistent profile at `./tmp/mammothos-browser-profile` stores cookies automatically — subsequent runs resume without re-auth.
+
+### Run a site audit via Mammoth Mind
+
+In the Agent Console, set intent to `site_audit` and send:
+```
+https://truexxiisupply.com
+```
+
+Or use the Mammoth Mind chat:
+```
+Run a site audit on truexxiisupply.com — headings, nav, CTAs, Lighthouse scores, and top 10 fixes.
+```
+
+### MCP config files
+
+All MCP server configs live in `mcp/`:
+
+| File | Purpose |
+|---|---|
+| `mcp/index.json` | Master registry of all MCP servers |
+| `mcp/playwright.json` | Playwright browser bridge config |
+| `mcp/filesystem.json` | Repo filesystem read/write access |
+| `mcp/git.json` | Git status, diff, log (commit/push require approval) |
+
+### Human gate
+
+When the browser hits an auth wall or needs your input, the agent returns `status: human_gate` with instructions. Complete the action in the browser window — the workflow resumes automatically.
+
+### MCP status in Command Center
+
+The **Modules page** now shows a **MCP Tool Bridges** panel at the top with live status for each server (ready / needs_setup / disabled). A `needs_setup` status means Node.js or the MCP package is not installed yet.
+
+---
 ## 1 — One-time setup
 
 ### 1a. `.env` file (set once, loads automatically)

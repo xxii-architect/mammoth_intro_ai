@@ -1,0 +1,30 @@
+{
+  "version": "1",
+  "description": "MammothOS MCP server registry. Each entry maps to a config file in this directory. Set enabled=false to disable without removing the config.",
+  "servers": [
+    {
+      "id": "playwright",
+      "config": "mcp/playwright.json",
+      "enabled": true,
+      "category": "browser",
+      "label": "Browser (Playwright)",
+      "description": "Headed Chromium automation with persistent auth profile. Provides navigate, snapshot, click, fill, screenshot, and extract tools."
+    },
+    {
+      "id": "filesystem",
+      "config": "mcp/filesystem.json",
+      "enabled": true,
+      "category": "repo",
+      "label": "Filesystem (Repo)",
+      "description": "Read/write access to the MammothOS repo root. Allows Mammoth Mind to inspect and edit project files. Secrets are denied."
+    },
+    {
+      "id": "git",
+      "config": "mcp/git.json",
+      "enabled": true,
+      "category": "repo",
+      "label": "Git",
+      "description": "Git status, diff, log, and branch inspection. Commit/push require human approval gate."
+    }
+  ]
+}

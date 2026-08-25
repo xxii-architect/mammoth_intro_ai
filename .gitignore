@@ -58,3 +58,6 @@ test-approval.txt
 # Deployment-local UI environment and generated report artifacts
 ui/mad-architecht-command-center/.env.production
 generated_reports/
+# MCP browser profile and temp browser data
+tmp/
+mcp/playwright-profile/

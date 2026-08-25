@@ -16,21 +16,37 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
   - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
 
-## Memory UX — ATLAS remembers you
 
-ATLAS conversational memory is now visually surfaced across the app so users always know they are talking to a system that knows their history.
+## MCP Browser Bridge + Repo Access
 
-| Surface | What it shows |
-|---|---|
-| Home header | `AtlasMemoryBadge` — animated ping, session count, and top focus areas |
-| Chat (compact strip) | Badge above message input; "Continuing from last session" pill fires on session resume |
-| Chat (empty state) | Encouragement card showing remembered focus areas before first message |
-| Workspace panel | LIVE badge, violet-gradient memory node cards, color-coded stats |
+MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.
 
-Memory data sources:
-- `/atlas/learner` — backend ATLAS learner profile (focus areas, goals, difficulty)
-- `localStorage` — session count estimated from local chat history keys
-- Session resume: fires when `/api/chat/history` returns existing messages on mount
+### Quick start
+
+```bash
+# Install Playwright Chromium (once)
+npx playwright install chromium
+
+# Start the browser bridge (headed mode for first auth)
+bash scripts/start-browser-mcp.sh        # Linux/macOS
+.\scripts\start-browser-mcp.ps1          # Windows
+```
+
+### MCP servers
+
+| Server | Config | What it does |
+|---|---|---|
+| **Browser (Playwright)** | `mcp/playwright.json` | Headed Chromium automation — navigate, click, fill, screenshot, Lighthouse audit |
+| **Filesystem** | `mcp/filesystem.json` | Read/write repo files (secrets denied) |
+| **Git** | `mcp/git.json` | status, diff, log, branch; commit/push require approval |
+
+### Site audit intent
+
+In Agent Console, use intent `site_audit` to run a full browser + Lighthouse audit against any URL. Results include heading structure, nav/CTA extraction, performance score, SEO score, accessibility score, and top 10 fix opportunities.
+
+### MCP status in UI
+
+The **Modules page** shows a **MCP Tool Bridges** panel with live ready/needs_setup/disabled status for each bridge.
 
 ## 8 → 9 upgrade phases (completed)
 
