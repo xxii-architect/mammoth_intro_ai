@@ -6,6 +6,7 @@ import { useInterval } from '../hooks/useApi'
 import OnboardingGuide from '../components/OnboardingGuide'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
+import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 
 function Sparkline({ points, color, gradId }) {
   return (
@@ -138,9 +139,23 @@ export default function HomePage({ setPage }) {
   ]
   return (
     <div className="page-enter" style={{ padding: 24 }}>
-      <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20 }}>
-        Welcome back, Vernon
-      </h1>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div>
+          <h1 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 6, letterSpacing: '-0.01em' }}>
+            {(() => {
+              const h = new Date().getHours()
+              if (h < 12) return '\u2600\ufe0f Good morning, Vernon'
+              if (h < 17) return '\ud83c\udf24 Good afternoon, Vernon'
+              if (h < 21) return '\ud83c\udf19 Good evening, Vernon'
+              return '\ud83e\udda3 Late night build, Vernon?'
+            })()}
+          </h1>
+          <p style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', margin: 0, lineHeight: 1.6 }}>
+            MammothOS is running. Your agents are ready.
+          </p>
+        </div>
+        <AtlasMemoryBadge />
+      </div>
 
       <OnboardingGuide currentPage="home" setPage={setPage} />
       <OnboardingChecklist setPage={setPage} />
@@ -329,3 +344,4 @@ export default function HomePage({ setPage }) {
     </div>
   )
 }
+

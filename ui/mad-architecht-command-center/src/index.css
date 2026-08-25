@@ -330,3 +330,50 @@ h3 { font-size: 0.9rem; font-weight: 600; color: var(--txt-pri); }
 .sidebar-item.active { border-left-color: var(--photon); background: rgba(77,166,255,0.1); color: var(--photon); }
 /* Spin animation for loaders */
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Atlas Memory Badge ── */
+.atlas-memory-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(180,124,255,0.28);
+  background: rgba(180,124,255,0.07);
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+  user-select: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.atlas-memory-badge:hover {
+  border-color: rgba(180,124,255,0.45);
+  background: rgba(180,124,255,0.12);
+}
+.atlas-memory-badge--ping::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 999px;
+  border: 1px solid rgba(180,124,255,0.55);
+  animation: memory-ping 2s ease-out forwards;
+}
+@keyframes memory-ping {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.18); }
+}
+
+/* ── Session resumed pill ── */
+.session-resumed-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(34,197,94,0.3);
+  background: rgba(34,197,94,0.07);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #22c55e;
+  animation: fadeSlideUp 0.35s ease forwards;
+}

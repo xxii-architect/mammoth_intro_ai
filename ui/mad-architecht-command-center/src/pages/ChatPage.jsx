@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import ChatMessageBody from '../components/ChatMessageBody'
+import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
 
@@ -315,6 +316,7 @@ export default function ChatPage({ setPage }) {
   const [isShortViewport, setIsShortViewport] = useState(() => (typeof window !== 'undefined' ? window.innerHeight < 860 : false))
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false))
   const [rightRailOpen, setRightRailOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1540 : true))
+  const [sessionResumed, setSessionResumed] = useState(false)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
 
@@ -1019,3 +1021,6 @@ export default function ChatPage({ setPage }) {
     </div>
   )
 }
+
+
+
