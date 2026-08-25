@@ -65,7 +65,6 @@ else
 fi
 echo ""
 
-exec npx @playwright/mcp@latest \
+exec npx --yes @playwright/mcp@latest \
   --user-data-dir "$PROFILE_DIR" \
-  --viewport 1280,800 \
   "${HEADLESS_ARGS[@]}"

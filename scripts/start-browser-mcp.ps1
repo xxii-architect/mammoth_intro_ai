@@ -25,13 +25,12 @@ if (($LASTEXITCODE -ne 0) -or -not ($browsers | Select-String -SimpleMatch 'chro
 }
 
 $mcpArgs = @(
+    '--yes'
     '@playwright/mcp@latest'
     '--user-data-dir'
     $profileDir
     '--browser'
     'chromium'
-    '--viewport'
-    '1280,800'
 )
 
 & npx @mcpArgs
