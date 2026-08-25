@@ -13,15 +13,18 @@ Write-Host '  First run tip: if a login page appears, sign in and close the auth
 Write-Host '  MammothOS will resume automatically once auth is complete.'
 Write-Host ''
 
-# Install Chromium if needed
-$browsers = npx --yes playwright show-browsers 2>$null
-if (($LASTEXITCODE -ne 0) -or -not ($browsers | Select-String -SimpleMatch 'chromium')) {
-    Write-Host 'Installing Playwright Chromium...'
+# Install Chromium if not already present (filesystem check — fast, no network roundtrip)
+$msPlaywrightDir = Join-Path $env:LOCALAPPDATA 'ms-playwright'
+$chromiumInstalled = Test-Path (Join-Path $msPlaywrightDir 'chromium*\chrome-win64\chrome.exe')
+if (-not $chromiumInstalled) {
+    Write-Host 'Installing Playwright Chromium (first time only)...'
     npx --yes playwright install chromium
     if ($LASTEXITCODE -ne 0) {
-        Write-Error 'Playwright Chromium install failed. Run this script locally on your Windows machine (recommended) or install browser dependencies first.'
+        Write-Error 'Playwright Chromium install failed. Ensure Node.js is installed and try again.'
         exit 1
     }
+} else {
+    Write-Host 'Chromium already installed — skipping download.'
 }
 
 $mcpArgs = @(
