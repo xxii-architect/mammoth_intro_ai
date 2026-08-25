@@ -120,56 +120,44 @@ const PROMPT_PLAYBOOK = [
   },
 ]
 
+function normalizeResearchArtifact(runResult) {
+  if (!runResult || typeof runResult !== 'object') return null
+  let output = runResult?.result?.output ?? runResult?.output ?? null
+  if (typeof output === 'string') {
+    try { output = JSON.parse(output) } catch { output = null }
+  }
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return null
+  if (!Array.isArray(output.citations) && !Array.isArray(output.sources) && !Array.isArray(output.references)) return null
+  const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
+  return {
+    status: String(output.status || runResult.status || 'ok'),
+    agent: String(output.agent || runResult.agent || 'ResearchAgent'),
+    mode: String(output.mode || runResult.mode || 'research'),
+    prompt: String(output.prompt || runResult.prompt || ''),
+    focus: String(output.focus || ''),
+    summary: String(output.summary || ''),
+    findings: Array.isArray(output.findings) ? output.findings : [],
+    citations: Array.isArray(output.citations) ? output.citations : [],
+    references: Array.isArray(output.references) ? output.references : [],
+    sources: Array.isArray(output.sources) ? output.sources : [],
+    sourceCoverage: output.source_coverage && typeof output.source_coverage === 'object' ? output.source_coverage : null,
+    qualityFlags: normalizeList(output.quality_flags),
+    retrievalErrors: normalizeList(output.retrieval_errors),
+    workflowHints: output.workflow_hints && typeof output.workflow_hints === 'object' ? output.workflow_hints : null,
+    confidence: typeof output.confidence === 'number' ? output.confidence : null,
+    raw: output,
+  }
+}
+
 function normalizeCodingArtifact(runResult) {
   if (!runResult || typeof runResult !== 'object') return null
   let output = runResult?.result?.output ?? runResult?.output ?? null
   if (typeof output === 'string') {
-    try {
-      output = JSON.parse(output)
-    } catch {
-      output = null
-    }
-
-    function normalizeResearchArtifact(runResult) {
-      if (!runResult || typeof runResult !== 'object') return null
-      let output = runResult?.result?.output ?? runResult?.output ?? null
-      if (typeof output === 'string') {
-        try {
-          output = JSON.parse(output)
-        } catch {
-          output = null
-        }
-      }
-      if (!output || typeof output !== 'object' || Array.isArray(output)) return null
-      if (!Array.isArray(output.citations) && !Array.isArray(output.sources) && !Array.isArray(output.references)) return null
-
-      const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
-
-      return {
-        status: String(output.status || runResult.status || 'ok'),
-        agent: String(output.agent || runResult.agent || 'ResearchAgent'),
-        mode: String(output.mode || runResult.mode || 'research'),
-        prompt: String(output.prompt || runResult.prompt || ''),
-        focus: String(output.focus || ''),
-        summary: String(output.summary || ''),
-        findings: Array.isArray(output.findings) ? output.findings : [],
-        citations: Array.isArray(output.citations) ? output.citations : [],
-        references: Array.isArray(output.references) ? output.references : [],
-        sources: Array.isArray(output.sources) ? output.sources : [],
-        sourceCoverage: output.source_coverage && typeof output.source_coverage === 'object' ? output.source_coverage : null,
-        qualityFlags: normalizeList(output.quality_flags),
-        retrievalErrors: normalizeList(output.retrieval_errors),
-        workflowHints: output.workflow_hints && typeof output.workflow_hints === 'object' ? output.workflow_hints : null,
-        confidence: typeof output.confidence === 'number' ? output.confidence : null,
-        raw: output,
-      }
-    }
+    try { output = JSON.parse(output) } catch { output = null }
   }
   if (!output || typeof output !== 'object' || Array.isArray(output)) return null
-
   const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
   const taskPlan = output.task_plan && typeof output.task_plan === 'object' ? output.task_plan : null
-
   return {
     status: String(output.status || runResult.status || 'ok'),
     agent: String(output.agent || runResult.agent || 'CodingAgent'),
