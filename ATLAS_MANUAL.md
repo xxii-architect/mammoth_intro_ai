@@ -90,12 +90,17 @@ MammothOS now ships a **Playwright MCP browser bridge** that gives Mammoth Mind 
 bash scripts/start-browser-mcp.sh
 ```
 
+Linux fallback for non-interactive audits:
+```bash
+MCP_BROWSER_MODE=system-headless bash scripts/start-browser-mcp.sh
+```
+
 **Windows:**
 ```powershell
 .\scripts\start-browser-mcp.ps1
 ```
 
-First run opens a **headed Chromium window** so you can complete any login/auth gates. After sign-in, the persistent profile at `./tmp/mammothos-browser-profile` stores cookies automatically — subsequent runs resume without re-auth.
+First run opens a **headed Chromium window** so you can complete any login/auth gates. After sign-in, the persistent profile at `./tmp/mammothos-browser-profile` stores cookies automatically — subsequent runs resume without re-auth. The `system-headless` fallback is for Linux hosts that already have Chromium/Chrome installed and only need non-interactive audits.
 
 ### Run a site audit via Mammoth Mind
 

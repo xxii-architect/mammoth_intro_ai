@@ -3,13 +3,12 @@
   "description": "Playwright MCP browser bridge for MammothOS. Provides headed Chromium automation with a persistent profile so auth sessions survive between runs.",
   "command": "npx",
   "args": [
+    "--yes",
     "@playwright/mcp@latest",
     "--user-data-dir",
     "./tmp/mammothos-browser-profile",
     "--browser",
-    "chromium",
-    "--viewport",
-    "1280,800"
+    "chromium"
   ],
   "env": {
     "HEADLESS": "false"
