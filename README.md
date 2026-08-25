@@ -16,6 +16,22 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
   - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
 
+## Memory UX — ATLAS remembers you
+
+ATLAS conversational memory is now visually surfaced across the app so users always know they are talking to a system that knows their history.
+
+| Surface | What it shows |
+|---|---|
+| Home header | `AtlasMemoryBadge` — animated ping, session count, and top focus areas |
+| Chat (compact strip) | Badge above message input; "Continuing from last session" pill fires on session resume |
+| Chat (empty state) | Encouragement card showing remembered focus areas before first message |
+| Workspace panel | LIVE badge, violet-gradient memory node cards, color-coded stats |
+
+Memory data sources:
+- `/atlas/learner` — backend ATLAS learner profile (focus areas, goals, difficulty)
+- `localStorage` — session count estimated from local chat history keys
+- Session resume: fires when `/api/chat/history` returns existing messages on mount
+
 ## 8 → 9 upgrade phases (completed)
 
 All four phases of the 8 → 9 pass are now done:
@@ -35,20 +51,55 @@ All four phases of the 8 → 9 pass are now done:
 ## Deploy to DigitalOcean droplet (live site)
 
 This repo now includes `.github/workflows/deploy-digitalocean.yml` for push-to-`main` and manual deploys.
+Every push to `main` auto-deploys to the live server at `165.227.80.86`.
 
-Configure these repository secrets before first use:
+### GitHub repository secrets (set once under Settings → Environments → production)
 
-- `DO_SSH_PRIVATE_KEY` - private key that can SSH into your droplet
-- `DO_HOST` - droplet hostname or IP
-- `DO_USER` - SSH user on the droplet
-- `DO_APP_PATH` - absolute path to your app repo on the droplet
-- `DO_DEPLOY_COMMAND` - command to run after pull (example: `docker compose up -d --build`)
+Required:
+
+| Secret | Value |
+|---|---|
+| `DO_SSH_PRIVATE_KEY_B64` | **base64-encoded** deploy private key (preferred — avoids multiline secret corruption) |
+| `DO_HOST` | `165.227.80.86` |
+| `DO_USER` | `root` |
+| `DO_APP_PATH` | `/opt/mammothos/mammoth_intro_ai` |
+| `DO_DEPLOY_COMMAND` | `bash /opt/mammothos/mammoth_intro_ai/scripts/deploy-droplet.sh` |
 
 Optional:
 
-- `DO_PORT` - SSH port (default `22`)
-- `DO_BRANCH` - branch to deploy (default `main`)
-- `DO_KNOWN_HOSTS` - static known_hosts line(s); if omitted, workflow uses `ssh-keyscan`
+| Secret | Default |
+|---|---|
+| `DO_SSH_PRIVATE_KEY` | Fallback plain-text key (use B64 instead whenever possible) |
+| `DO_PORT` | `22` |
+| `DO_BRANCH` | `main` |
+| `DO_KNOWN_HOSTS` | Auto-scanned via `ssh-keyscan` if omitted |
+
+### Generating the base64 deploy key (one-time setup)
+
+```bash
+# On your local machine — encode the existing deploy key
+base64 -w 0 ~/.ssh/mammoth_deploy_ed25519
+# Paste the output as DO_SSH_PRIVATE_KEY_B64 in GitHub secrets
+```
+
+### Backend restart (on droplet)
+
+Always use systemd — **never** start uvicorn manually on the server:
+
+```bash
+sudo systemctl restart mammothos   # restart backend
+sudo systemctl status mammothos    # check health
+sudo journalctl -u mammothos -n 50 # tail logs
+```
+
+The service runs: `python3 -m uvicorn api_server:app --host 127.0.0.1 --port 8000`
+
+### Manual deploy (without GitHub Actions)
+
+```bash
+ssh root@165.227.80.86
+bash /opt/mammothos/mammoth_intro_ai/scripts/deploy-droplet.sh
+```
 
 ## Standalone ATLAS FAB SDK
 

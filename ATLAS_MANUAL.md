@@ -65,6 +65,58 @@ This repo is now in a strong “operator-grade prototype” position rather than
 
 ---
 
+## Live server + deploy
+
+**Droplet:** `root@165.227.80.86`  
+**App path:** `/opt/mammothos/mammoth_intro_ai`  
+**Backend service:** `mammothos` (systemd)  
+**Backend command:** `python3 -m uvicorn api_server:app --host 127.0.0.1 --port 8000`
+
+### Auto-deploy (GitHub Actions)
+
+Every push to `main` triggers `.github/workflows/deploy-digitalocean.yml`:
+1. SSH into droplet using `DO_SSH_PRIVATE_KEY_B64` (base64-encoded key — use this, not the plain-text secret)
+2. `git pull` latest main
+3. `npm install && npm run build` for the UI
+4. `sudo cp -r dist/. /var/www/mammothos-ui/`
+5. `sudo systemctl restart mammothos`
+6. `sudo systemctl reload nginx`
+
+### Restart backend on droplet (never use manual uvicorn)
+
+```bash
+sudo systemctl restart mammothos   # restart
+sudo systemctl status mammothos    # health check
+sudo journalctl -u mammothos -n 50 # logs
+```
+
+### Manual deploy
+
+```bash
+ssh root@165.227.80.86
+bash /opt/mammothos/mammoth_intro_ai/scripts/deploy-droplet.sh
+```
+
+---
+
+## Memory UX — ATLAS remembers across sessions
+
+The app now visually surfaces that ATLAS remembers users across sessions.
+
+### Components
+
+- **`AtlasMemoryBadge`** — animated ping badge showing session count and top focus areas. Rendered in 3 places: Home header, Chat compact strip, Chat empty state.
+- **Session resumed pill** — green "Continuing from last session" pill fires for 4.5 s when existing chat history loads from `/api/chat/history`.
+- **`WorkspaceMemoryPanel`** — LIVE badge, violet-gradient memory node cards, color-coded learning stats.
+
+### Memory data flow
+
+```
+/atlas/learner  →  focus_areas, learning_style, goals, difficulty_preference
+localStorage    →  session count (estimated from chat history keys)
+/api/chat/history → session-resumed pill trigger on mount
+```
+
 ## 1 — One-time setup
 
 ### 1a. `.env` file (set once, loads automatically)

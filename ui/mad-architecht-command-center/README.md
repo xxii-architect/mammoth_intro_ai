@@ -220,6 +220,8 @@ Optional beta tester visibility lane:
 
 ## Recommended startup
 
+**Local development:**
+
 Backend:
 ```powershell
 cd C:\Users\runni\mammoth_intro_ai.worktrees\agents-mammothos-atlas-agent-system
@@ -232,3 +234,13 @@ Frontend:
 cd C:\Users\runni\mammoth_intro_ai.worktrees\agents-mammothos-atlas-agent-system\ui\mad-architecht-command-center
 npm run dev
 ```
+
+**On the live droplet (165.227.80.86) — always use systemd:**
+
+```bash
+sudo systemctl restart mammothos   # restart backend
+sudo systemctl status mammothos    # check health
+sudo systemctl reload nginx        # reload frontend proxy
+```
+
+Never start uvicorn manually on the server — it will conflict with the systemd-managed process on port 8000.
