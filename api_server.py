@@ -6577,7 +6577,7 @@ def _normalize_page_context(raw_page_context: Any, raw_page_snapshot: Any = None
 
 
 def _safe_repo_relative_path(raw_path: Any) -> str:
-    candidate = str(raw_path or "").strip().replace("/", "\\")
+    candidate = str(raw_path or "").strip().replace("\\", "/")
     if not candidate:
         return ""
     path_obj = Path(candidate)

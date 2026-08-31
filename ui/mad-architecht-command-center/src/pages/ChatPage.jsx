@@ -766,8 +766,9 @@ export default function ChatPage({ setPage }) {
         coding_intent: effectiveAgentId === 'coding_agent' ? codingIntent : undefined,
         page_context: buildLivePageContext(),
         repo_context: {
+          root: "/opt/mammothos/mammoth_intro_ai",
           query: message,
-          files: inferRepoTargets(message),
+          files: [],
           include_git_status: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent',
           max_results: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 4 : 2,
           max_snippets: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 3 : 2,
