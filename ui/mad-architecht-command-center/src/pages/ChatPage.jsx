@@ -12,6 +12,7 @@ const AGENT_OPTIONS = [
   { id: 'coding_agent', label: 'Coding Agent', Icon: Wrench, accent: 'var(--cyan)', detail: 'Repo-focused coding help, patch strategy, and implementation tasks.' },
   { id: 'reasoning_agent', label: 'Reasoning Agent', Icon: Brain, accent: 'var(--violet)', detail: 'Break down decisions, tradeoffs, and next steps.' },
   { id: 'shell_agent', label: 'Shell Agent', Icon: Terminal, accent: '#22c55e', detail: 'Command-oriented ops thinking within the safe shell runtime.' },
+  { id: 'mammoth_guide', label: 'MammothOS Guide', Icon: MessageSquare, accent: 'var(--accent-guide)' },
 ]
 
 const QUICK_ACTIONS = [

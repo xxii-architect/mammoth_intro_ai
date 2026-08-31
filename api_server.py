@@ -7123,6 +7123,44 @@ async def mammoth_chat(body: Dict[str, Any]):
             "raw": lane_run,
         }
 
+        elif agent_id == "mammoth_guide":
+            repo_request = {
+                "root": "/opt/mammothos/mammoth_intro_ai",
+                "query": message,
+                "files": [],
+                "include_git_status": True,
+                "max_results": 6,
+                "max_snippets": 4,
+            }
+            repo_context = _collect_repo_context_snapshot(
+                _normalize_repo_context_request(repo_request)
+            )
+            thought_steps.append({
+                "ts": _ts(),
+                "label": "Guide lane",
+                "detail": "Collecting repo-context for MammothOS Guide",
+                "status": "info",
+            })
+            lane_result = {
+                "agent_id": "mammoth_guide",
+                "adapter": "guide-runtime",
+                "model": "mammoth_guide",
+                "reply": f"MammothOS Guide is analyzing the repository…\n\n{json.dumps(repo_context, default=str)[:2000]}",
+                "task_id": "",
+                "dispatched": True,
+                "thought_steps": thought_steps,
+                "evidence": {
+                    "agent_id": "mammoth_guide",
+                    "summary": "Repo-context snapshot collected.",
+                    "source": "guide-runtime",
+                },
+            }
+            reply = lane_result["reply"]
+            dispatched = True
+            active_adapter = "guide-runtime"
+            active_model = "mammoth_guide"
+            evidence_items.append(lane_result["evidence"])
+
     try:
         if orchestrate:
             selected_agents = [str(item).strip() for item in fanout_agents if str(item).strip()] if fanout_agents else []

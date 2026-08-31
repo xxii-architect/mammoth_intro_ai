@@ -163,6 +163,27 @@ def build_core_manifests() -> list[AgentManifest]:
             last_heartbeat=now(),
             metadata={"description": "System maintenance and cleanup."},
         ),
+        AgentManifest(
+            agent_id="mammoth_guide",
+            name="MammothGuideAgent",
+            version="1.0.0",
+            capabilities=[
+                "repo_context_read",
+                "architecture_explanation",
+                "sdk_overview",
+                "agent_registry_explanation",
+                "runtime_contract_explanation",
+                "command_structure_explanation",
+            ],
+            status=AgentStatus.ACTIVE,
+            level=4,
+            dependencies=[],
+            endpoint="local://mammoth_guide",
+            registered_at=now(),
+            last_heartbeat=now(),
+            metadata={"description": "Documentation and architecture guide for MammothOS."},
+        ),
+
     ]
 
 

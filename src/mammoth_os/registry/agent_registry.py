@@ -150,6 +150,9 @@ def load_agent(agent_name: str, router: Optional[CortexRouter] = None) -> Any:
 
     raise ValueError(f"Unknown agent '{agent_name}'")
 
+    if agent_name == "mammoth_guide":
+        from mammoth_os.agents.mammoth_guide_agent import MammothGuideAgent
+        return MammothGuideAgent(router)
 
 # PUBLIC CALL INTERFACE
 class AgentCallable(Protocol):
@@ -168,4 +171,6 @@ AGENTS: Dict[str, AgentCallable] = {
     "research": lambda prompt: load_agent("research", router).run(prompt),
     "coding": lambda prompt: load_agent("coding", router).run(prompt),
     "custodial": lambda prompt: load_agent("custodial", router).run(prompt),
+    "mammoth_guide": lambda prompt: run_agent("mammoth_guide", prompt, router),
+
 }
