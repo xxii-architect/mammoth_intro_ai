@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { BookOpen, Send, ChevronRight, MessageSquare } from 'lucide-react'
 import { api } from '../api/client'
+import MammothDiffViewer from '../components/MammothDiffViewer'
 import { useInterval } from '../hooks/useApi'
 
 export default function AtlasTutorPage() {
@@ -15,6 +16,7 @@ export default function AtlasTutorPage() {
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
   const [studyAid, setStudyAid]     = useState(null)
+  const [showAtlasDiff, setShowAtlasDiff] = useState(false)
   const [evalSummary, setEvalSummary] = useState(null)
   const [atlasPlanProfile, setAtlasPlanProfile] = useState('coding')
   const [onboardingDraft, setOnboardingDraft] = useState({
@@ -822,6 +824,7 @@ export default function AtlasTutorPage() {
             )}
 
             {result && (
+              <>
               <div className="glass-card-solid" style={{ padding: 14, flexShrink: 0, borderLeft: `3px solid ${result.passed ? '#22c55e' : '#ef4444'}` }}>
                 <p style={{ fontSize: '0.78rem', fontWeight: 600, color: result.passed ? '#22c55e' : '#ef4444', marginBottom: 6 }}>
                   {result.passed ? '✓ PASSED' : result.error ? '✗ ERROR' : '✗ FAILED'}
@@ -849,6 +852,28 @@ export default function AtlasTutorPage() {
                   </div>
                 )}
               </div>
+              {(() => {
+                const _suggestion = result.suggested_solution || result.adaptive_feedback?.example_correction || ''
+                const _lang = result.suggested_solution ? 'python' : 'markdown'
+                if (!_suggestion) return null
+                return (
+                  <>
+                    <button
+                      onClick={() => setShowAtlasDiff(v => !v)}
+                      style={{ marginTop: 10, padding: '6px 14px', borderRadius: 8, background: 'transparent', border: '1px solid rgba(255,255,255,0.12)', color: 'var(--txt-sec)', fontSize: '0.74rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      🦣 {showAtlasDiff ? 'Hide ATLAS diff' : 'Compare with ATLAS'}
+                    </button>
+                    {showAtlasDiff && (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--txt-mut)', marginBottom: 6 }}>🦣 What ATLAS would have written</div>
+                        <MammothDiffViewer before={code} after={_suggestion} mode="readonly" height={320} language={_lang} />
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+              </>
             )}
           </>
         ) : (

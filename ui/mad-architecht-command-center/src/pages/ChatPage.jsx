@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
+import { useAuth } from '../lib/authContext'
 import ChatMessageBody from '../components/ChatMessageBody'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 
@@ -102,8 +103,38 @@ function parseSlashCommand(input) {
 
 function inferRepoTargets(message) {
   const text = String(message || '')
-  const matches = text.match(/(?:[A-Za-z]:)?[\\/](?:[A-Za-z0-9_.-]+[\\/])*[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:py|ts|tsx|js|jsx|json|md|toml|yaml|yml)/g) || []
-  return [...new Set(matches.map((item) => item.replace(/\//g, '\\').trim()).filter(Boolean))].slice(0, 6)
+
+  // Highlighted text in the UI
+  const selection =
+    typeof window !== 'undefined' && window.getSelection
+      ? String(window.getSelection() || '').trim()
+      : ''
+
+  // File paths inside the message (src/pages/..., components/..., etc.)
+  const fileMatches = text.match(/(?:src|app|components|pages)[\\/][A-Za-z0-9_.\\/-]+/g) || []
+
+  // Windows-style absolute paths (C:\folder\file.js)
+  const windowsMatches = text.match(/(?:[A-Za-z]:)?[\\/](?:[A-Za-z0-9_.-]+[\\/])+(?:[A-Za-z0-9_.-]+)/g) || []
+
+  // Code blocks
+  const codeBlock = text.includes('```') ? text : null
+
+  const all = [
+    ...(fileMatches || []),
+    ...(windowsMatches || []),
+    selection || null,
+    codeBlock || null
+  ].filter(Boolean)
+
+  // Normalize slashes and dedupe
+  const normalized = [...new Set(all.map((item) => item.replace(/\\/g, '/').trim()))]
+
+  return normalized.length > 0 ? normalized : null
+}
+
+function inferWebTargets(message) {
+  const urls = String(message || '').match(/https?:\/\/[^\s]+/g)
+  return urls || null
 }
 
 function buildLivePageContext() {
@@ -130,6 +161,10 @@ function updateLastAssistant(list, updater) {
   if (idx < 0) return list
   const next = [...list]
   next[idx] = updater(next[idx])
+function inferWebTargets(message) {
+  const urls = String(message || '').match(/https?:\/\/[^\s]+/g)
+  return urls || null
+}
   return next
 }
 
@@ -319,12 +354,14 @@ export default function ChatPage({ setPage }) {
   const [sessionResumed, setSessionResumed] = useState(false)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
+  const { user } = useAuth()
 
   const refreshOps = async () => {
     try {
       const [approvalList, runData] = await Promise.all([
-        api('/approvals'),
-        api('/autonomous/runs'),
+        api(`/approvals?user_id=${user.id}`),
+        api(`/autonomous/runs?user_id=${user.id}`),
+
       ])
       const nextApprovals = Array.isArray(approvalList) ? approvalList : []
       const nextRuns = {
@@ -349,7 +386,7 @@ export default function ChatPage({ setPage }) {
     if (Array.isArray(stored) && stored.length > 0) {
       setHistory(stored)
     }
-    api('/mammoth/chat/history')
+    api('/mammoth/chat/history?user_id=${user.id}')
       .then((data) => {
         const chatHistory = Array.isArray(data?.chat_history) ? data.chat_history : []
         const nextHistory = chatHistory.length > 0 ? chatHistory : stored || []
@@ -474,12 +511,21 @@ export default function ChatPage({ setPage }) {
   }
 
   const streamChat = async (body, effectiveAgentId, placeholderIndex) => {
+    const patchedBody = {
+        ...body,
+        user_id: user?.id,
+        slash: body.slash || null,
+        repo: inferRepoTargets(body.message),
+        web: inferWebTargets(body.message),
+    };
+
     const response = await authorizedFetch('/mammoth/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(patchedBody),
       signal: streamControllerRef.current?.signal,
-    })
+    });
+
     if (!response.ok || !response.body) {
       throw new Error(`Streaming request failed (${response.status})`)
     }
@@ -740,7 +786,12 @@ export default function ChatPage({ setPage }) {
 
   const clearLocalView = async () => {
     try {
-      await authorizedFetch('/mammoth/chat/history', { method: 'DELETE' })
+      await authorizedFetch('/mammoth/chat/history', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id })
+      })
+
     } catch (e) {
       console.warn('Failed to clear chat history on backend:', e)
     }

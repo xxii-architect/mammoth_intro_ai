@@ -6476,7 +6476,6 @@ def _run_internet_command(slash: Dict[str, Any]) -> Dict[str, Any]:
 
     return {"status": "error", "reply": "Unsupported internet command.", "evidence": {"source": "internet", "kind": kind, "status": "error"}}
 
-
 def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
     text = (message or "").strip()
     if not text or not text.startswith("/"):
@@ -6725,10 +6724,15 @@ def _queue_gitops_approval(operation: str, payload: Dict[str, Any], *, trace_id:
 
 
 @app.post("/api/mammoth/chat/stream")
-async def mammoth_chat_stream(body: Dict[str, Any]):
+async def mammoth_chat_stream(request: Request):
+
+    body = await request.json()
+    print("DEBUG RAW BODY:", body)
+
+    user_id = str(body.get("user_id") or "local")
+    print(">>> STREAM user_id =", user_id)
+
     result = await mammoth_chat(body)
-    if not isinstance(result, dict):
-        return result
 
     async def event_stream():
         meta_payload = {k: result.get(k) for k in ("agent_id", "adapter", "model", "mode", "task_id", "trace_id", "dispatched", "runtime_status", "runtime_notice")}
@@ -6747,30 +6751,40 @@ async def mammoth_chat_stream(body: Dict[str, Any]):
 
 
 @app.get("/api/mammoth/chat/history")
-async def get_mammoth_chat_history():
+async def get_mammoth_chat_history(user_id: str = "local"):
     state = _load_atlas_state()
     history = state.get("mammoth_chat_history") or []
     if not isinstance(history, list):
         history = []
+    history = [item for item in history if item.get("user_id") == user_id]
     return {"status": "ok", "chat_history": history[-80:]}
 
 
 @app.delete("/api/mammoth/chat/history")
-async def delete_mammoth_chat_history():
+async def delete_mammoth_chat_history(user_id: str = "local"):
+
     state = _load_atlas_state()
     history = state.get("mammoth_chat_history") or []
     if not isinstance(history, list):
         history = []
+
     deleted_messages = len(history)
-    state["mammoth_chat_history"] = []
+
+    state["mammoth_chat_history"] = [
+        item for item in history
+        if item.get("user_id") != user_id
+    ]
+
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
+
     _append_execution_event(
         kind="mammoth_chat_history_cleared",
         summary=f"Cleared MammothOS chat history ({deleted_messages} messages)",
         detail={"deleted_messages": deleted_messages},
-        user_id="local",
+        user_id=user_id,
     )
+
     return {"status": "ok", "deleted_messages": deleted_messages}
 
 
@@ -6852,9 +6866,12 @@ async def mammoth_chat(body: Dict[str, Any]):
         command_result = _run_internet_command(slash)
         reply = str(command_result.get("reply") or "No response produced.")
         state = _load_atlas_state()
+        user_id = str(body.get("user_id") or "local")
         history = state.get("mammoth_chat_history") or []
         if not isinstance(history, list):
             history = []
+        history = [item for item in history if item.get("user_id") == user_id]
+
         history.append({
             "role": "user",
             "message": message,
@@ -6862,6 +6879,7 @@ async def mammoth_chat(body: Dict[str, Any]):
             "agent_id": "assistant",
             "mode": "chat",
             "page": "",
+	    "user_id": user_id,
         })
         history.append({
             "role": "assistant",
@@ -6881,7 +6899,9 @@ async def mammoth_chat(body: Dict[str, Any]):
             "orchestrated": False,
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
+	    "user_id": user_id,
         })
+
         state["mammoth_chat_history"] = history[-80:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _save_atlas_state(state)
@@ -6894,6 +6914,7 @@ async def mammoth_chat(body: Dict[str, Any]):
                 "label": "Internet command completed",
                 "detail": f"kind={slash.get('kind')}",
                 "status": "success" if command_result.get("status") == "ok" else "warning",
+
             }],
             "agent_id": "assistant",
             "adapter": "internet-tool",
@@ -6941,10 +6962,12 @@ async def mammoth_chat(body: Dict[str, Any]):
     adapter = str(body.get("adapter", "")).strip()
     model = str(body.get("model", "")).strip()
     temperature = float(body.get("temperature", 0.3))
+    user_id = str(body.get("user_id") or "local")
     history = state.get("mammoth_chat_history") or []
     if not isinstance(history, list):
         history = []
     runtime_status = _runtime_status_snapshot()
+    web_context = body.get("web")
 
     user_entry = {
         "role": "user",
@@ -6953,6 +6976,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         "agent_id": agent_id,
         "mode": mode,
         "page": str(page_context.get("current_page") or ""),
+        "user_id": user_id,
     }
     history.append(user_entry)
 
@@ -6988,6 +7012,7 @@ async def mammoth_chat(body: Dict[str, Any]):
             "When useful, structure your response into: quick read, what I'm seeing, next move.\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1400]}\n\n"
             f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
+            f"Observed web context: {json.dumps(web_context, default=str)}"
             f"Recent conversation:\n{convo_text}\n\n"
             f"User message: {message}"
         )
@@ -7175,9 +7200,10 @@ async def mammoth_chat(body: Dict[str, Any]):
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
+	"user_id": user_id,
     }
     history.append(assistant_entry)
-    state["mammoth_chat_history"] = history[-80:]
+    state["mammoth_chat_history"] = [item for item in history if item.get("user_id") == user_id][-80:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
     _append_execution_event(
