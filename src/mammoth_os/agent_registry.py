@@ -350,6 +350,21 @@ def _auto_register_agents() -> None:
         # Use a synchronous direct insert to avoid asyncio.run() at import time
         agent_registry._agents[agent_id] = manifest
         registered.append(agent_id)
+        if agent_id == "mammoth_guide_agent":
+            alias_manifest = AgentManifest(
+                agent_id="mammoth_guide",
+                name="MammothGuideAgent",
+                version=manifest.version,
+                capabilities=list(manifest.capabilities),
+                status=manifest.status,
+                level=manifest.level,
+                dependencies=list(manifest.dependencies),
+                endpoint=manifest.endpoint,
+                registered_at=manifest.registered_at,
+                last_heartbeat=manifest.last_heartbeat,
+            )
+            agent_registry._agents["mammoth_guide"] = alias_manifest
+            registered.append("mammoth_guide")
 
     if registered:
         logger.info("Auto-registered %d agents: %s", len(registered), registered)

@@ -108,7 +108,7 @@ class MammothGuideAgent:
             if not isinstance(item, dict):
                 continue
             path = item.get("path", "")
-            content = item.get("content", "") or item.get("snippet", "")
+            content = item.get("content", "") or item.get("snippet", "") or item.get("excerpt", "")
             if path and content:
                 steps.append({
                     "title": f"Live snippet — {path}",
@@ -125,7 +125,7 @@ class MammothGuideAgent:
             if not isinstance(item, dict):
                 continue
             path = item.get("path", "")
-            text = item.get("text", "") or item.get("line_text", "")
+            text = item.get("text", "") or item.get("line_text", "") or item.get("preview", "")
             if path and text:
                 steps.append({
                     "title": f"Search hit — {path}",

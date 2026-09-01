@@ -3971,6 +3971,8 @@ async def run_agent(body: Dict[str, Any]):
     if _agent_registry_ok and tracked_agent_id:
         try:
             manifest = await agent_registry.get_agent(tracked_agent_id)
+            if manifest is None and not tracked_agent_id.endswith("_agent"):
+                manifest = await agent_registry.get_agent(f"{tracked_agent_id}_agent")
             if manifest:
                 manifest.status = AgentStatus.ACTIVE
                 manifest.last_heartbeat = datetime.now(timezone.utc)
@@ -6211,6 +6213,8 @@ async def atlas_chat(body: Dict[str, Any]):
         }
         guide_result = registry_run_agent("mammoth_guide", guide_payload)
         guide_reply = _render_chat_result(guide_result)
+        guide_steps = guide_result.get("guide_steps") if isinstance(guide_result, dict) else None
+        guide_branch = str(guide_result.get("branch") or repo_context.get("branch") or "main") if isinstance(guide_result, dict) else str(repo_context.get("branch") or "main")
         history.append(
             {
                 "role": "assistant",
@@ -6219,6 +6223,8 @@ async def atlas_chat(body: Dict[str, Any]):
                 "adapter": "mammoth-guide",
                 "model": "mammoth-guide",
                 "mode": mode,
+                "guide_steps": guide_steps if isinstance(guide_steps, list) else [],
+                "guide_branch": guide_branch,
                 "evidence_items": [
                     {
                         "source": "mammoth-guide",
@@ -6248,6 +6254,8 @@ async def atlas_chat(body: Dict[str, Any]):
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
             "trace_id": trace_id,
+            "guide_steps": guide_steps if isinstance(guide_steps, list) else [],
+            "guide_branch": guide_branch,
         }
 
     if guard_triggered:
