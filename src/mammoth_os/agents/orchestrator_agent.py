@@ -67,14 +67,29 @@ class OrchestratorAgent(BaseAgent):# type: ignore
                         diagnostics.append(f"Failed to register fallback manifest '{agent_name}': {exc}")
             valid, diagnostics = await planner.validate_plan(plan)
 
+        curriculum_grounded = any(
+            isinstance(task.get("input"), dict) and "lesson" in task.get("input", {})
+            for task in plan.get("tasks", [])
+        )
+
         result = {
             "plan": plan,
             "valid": valid,
             "diagnostics": diagnostics,
             "actions_taken": actions_taken,
+            "curriculum_grounded": curriculum_grounded,
         }
         await self.emit_event("ORCHESTRATE_RESULT", result)
         return result
+
+    @staticmethod
+    def _quality_flags_for_result(result: dict) -> list[str]:
+        quality_flags: list[str] = ["validated_plan"] if result.get("valid") else ["needs_agent_repair"]
+        if result.get("diagnostics"):
+            quality_flags.append("has_diagnostics")
+        if result.get("curriculum_grounded"):
+            quality_flags.append("curriculum_grounded")
+        return quality_flags
 
     def _build_summary(self, result: dict) -> str:
         plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
@@ -98,9 +113,7 @@ class OrchestratorAgent(BaseAgent):# type: ignore
             }
         result = await self.orchestrate(goal, normalized.get("user_id"), normalized.get("constraints"))
         diagnostics = result.get("diagnostics", []) if isinstance(result.get("diagnostics"), list) else []
-        quality_flags = ["validated_plan"] if result.get("valid") else ["needs_agent_repair"]
-        if diagnostics:
-            quality_flags.append("has_diagnostics")
+        quality_flags = self._quality_flags_for_result(result)
         return {
             "status": "ok" if result.get("valid") else "warning",
             "agent": self.name,

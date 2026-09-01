@@ -18,6 +18,18 @@ class PlannerAgent(BaseAgent):# type: ignore
     async def emit_event(self, event_type: str, payload) -> None:
         self.log("INFO", f"Emitting {event_type}")
 
+    @staticmethod
+    def _normalize_curriculum(constraints: dict | None) -> dict | None:
+        if not isinstance(constraints, dict):
+            return None
+        curriculum = constraints.get("curriculum")
+        if isinstance(curriculum, dict):
+            if isinstance(curriculum.get("curriculum"), dict):
+                return curriculum.get("curriculum")
+            if isinstance(curriculum.get("modules"), list):
+                return curriculum
+        return None
+
     async def create_plan(self, goal: str, constraints: dict = None) -> dict:# type: ignore
         """
         Generate an execution plan for a given goal.
@@ -34,29 +46,36 @@ class PlannerAgent(BaseAgent):# type: ignore
             }
         """
         import uuid
-        # Ensure constraints is a dict to mutate
         if constraints is None:
             constraints = {}
+        constraints = dict(constraints)
 
-        # Best-effort: if no curriculum provided, try to generate one using CurriculumAgent
-        if "curriculum" not in constraints:
+        curriculum = self._normalize_curriculum(constraints)
+        if curriculum is None and "curriculum" not in constraints:
             try:
                 from mammoth_os.agent_registry import load_agent
                 curriculum_agent = load_agent("curriculum", None)
-                # CurriculumAgent.run is synchronous and returns a dict
                 cur_res = curriculum_agent.run(goal)
                 if isinstance(cur_res, dict) and cur_res.get("status") == "ok":
                     constraints["curriculum"] = cur_res.get("curriculum")
             except Exception:
-                # Fail silently — planner can still produce fallback plan
                 pass
 
-        tasks = await self._decompose_to_tasks(goal, constraints)
+        curriculum = self._normalize_curriculum(constraints)
+        tasks = await self._decompose_to_tasks(goal, {**constraints, "curriculum": curriculum} if curriculum else constraints)
+        estimated_minutes = 0
+        for task in tasks:
+            value = task.get("estimated_minutes")
+            if isinstance(value, (int, float)):
+                estimated_minutes += int(value)
+        if estimated_minutes <= 0:
+            estimated_minutes = max(len(tasks) * 10, 30)
+
         return {
             "plan_id": str(uuid.uuid4()),
             "goal": goal,
             "tasks": tasks,
-            "estimated_duration_sec": len(tasks) * 10,
+            "estimated_duration_sec": estimated_minutes * 60,
         }
 
     async def _decompose_to_tasks(self, goal: str, constraints: dict) -> list[dict]:
@@ -68,38 +87,38 @@ class PlannerAgent(BaseAgent):# type: ignore
         """
         import uuid
 
-        curriculum = None
-        if constraints and isinstance(constraints, dict):
-            curriculum = constraints.get("curriculum")
-
-        # Support both raw curriculum dict and wrapper {"status":..., "curriculum": {...}}
-        if isinstance(curriculum, dict) and "curriculum" in curriculum and isinstance(curriculum.get("curriculum"), dict):
-            curriculum = curriculum.get("curriculum")
+        curriculum = self._normalize_curriculum(constraints)
 
         tasks: list[dict] = []
         if curriculum and isinstance(curriculum, dict):
             prev_task_id = None
             for module in curriculum.get("modules", []):
                 module_id = module.get("module_id")
+                module_title = module.get("title") or "Module"
                 for lesson in module.get("lessons", []):
                     task_id = lesson.get("lesson_id") or str(uuid.uuid4())
+                    estimated_minutes = lesson.get("estimated_minutes")
+                    if not isinstance(estimated_minutes, (int, float)) or estimated_minutes <= 0:
+                        estimated_minutes = 20
                     task = {
                         "task_id": task_id,
-                        "agent": "tutor",  # suggested consumer agent
-                        "input": {"module_id": module_id, "lesson": lesson},
+                        "agent": "tutor",
+                        "input": {"module_id": module_id, "module_title": module_title, "lesson": lesson},
                         "depends_on": [prev_task_id] if prev_task_id else [],
+                        "estimated_minutes": int(estimated_minutes),
                     }
                     tasks.append(task)
                     prev_task_id = task_id
-            return tasks
+            if tasks:
+                return tasks
 
-        # Fallback: single high-level task
         return [
             {
                 "task_id": str(uuid.uuid4()),
                 "agent": "curriculum",
                 "input": {"goal": goal},
                 "depends_on": [],
+                "estimated_minutes": 20,
             }
         ]
 

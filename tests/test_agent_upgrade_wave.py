@@ -49,6 +49,56 @@ def test_orchestrator_run_returns_structured_summary(monkeypatch):
     assert result["quality_flags"] == ["validated_plan"]
 
 
+def test_planner_curriculum_tasks_are_duration_aware_and_grounded():
+    planner = planner_agent_mod.PlannerAgent(router=None)
+    curriculum = {
+        "curriculum_id": "curr-123",
+        "subject": "Python basics",
+        "modules": [
+            {
+                "module_id": "m1",
+                "title": "Foundations",
+                "lessons": [
+                    {"lesson_id": "l1", "title": "Variables", "estimated_minutes": 20},
+                    {"lesson_id": "l2", "title": "Loops", "estimated_minutes": 25},
+                ],
+            }
+        ],
+    }
+    tasks = asyncio.run(planner._decompose_to_tasks("Learn Python basics", {"curriculum": curriculum}))
+    assert len(tasks) == 2
+    assert tasks[0]["depends_on"] == []
+    assert tasks[1]["depends_on"] == ["l1"]
+    assert tasks[0]["estimated_minutes"] == 20
+    assert tasks[1]["estimated_minutes"] == 25
+
+    plan = asyncio.run(planner.create_plan("Learn Python basics", {"curriculum": curriculum}))
+    assert plan["estimated_duration_sec"] == 2700
+
+
+def test_orchestrator_marks_curriculum_grounded_plan():
+    async def fake_create_plan(self, goal, constraints=None):
+        return {
+            "plan_id": "plan-2",
+            "goal": goal,
+            "tasks": [{"task_id": "lesson-1", "agent": "tutor", "input": {"lesson": {"title": "Intro"}}, "depends_on": []}],
+            "estimated_duration_sec": 1200,
+        }
+
+    async def fake_validate_plan(self, plan):
+        return True, []
+
+    monkeypatch = __import__("pytest").MonkeyPatch()
+    monkeypatch.setattr(planner_agent_mod.PlannerAgent, "create_plan", fake_create_plan)
+    monkeypatch.setattr(planner_agent_mod.PlannerAgent, "validate_plan", fake_validate_plan)
+    try:
+        result = asyncio.run(OrchestratorAgent().run({"goal": "Ship a guided lesson flow", "constraints": {"curriculum": {"modules": []}}}))
+        assert result["curriculum_grounded"] is True
+        assert "curriculum_grounded" in result["quality_flags"]
+    finally:
+        monkeypatch.undo()
+
+
 def test_lowest_rated_agents_now_score_strong_or_better():
     for agent_id in (
         "plant_the_seed_agent",
