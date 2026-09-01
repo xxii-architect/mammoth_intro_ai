@@ -193,7 +193,7 @@ class PlantTheSeedAgent(BaseAgent):
         return None
 
     def _is_standin(self, value: str) -> bool:
-        return value.strip().lower() in {"unknown", "tbd", "n/a", "none"}
+        return value.strip().lower() in {"unknown", "tbd", "n/a", "none", "placeholder", "example", "test", "sample"}
 
     def _coerce_progress(self, value: Any) -> float:
         try:
