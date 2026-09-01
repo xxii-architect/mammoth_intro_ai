@@ -1395,13 +1395,14 @@ def _resolve_target_path(file_path: str) -> Path:
     return target
 
 
-def _run_git_command(args: List[str], *, timeout: int = 45) -> Dict[str, Any]:
+def _run_git_command(args: List[str], *, timeout: int = 45, cwd: str = "") -> Dict[str, Any]:
     command = ["git", *args]
+    effective_cwd = cwd.strip() if cwd.strip() else str(ROOT)
     try:
         result = subprocess.run(
             command,
             capture_output=True,
-            cwd=str(ROOT),
+            cwd=effective_cwd,
             env=_make_env(),
             timeout=timeout,
             text=True,
@@ -6687,11 +6688,14 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     branch = str(raw_repo_context.get("branch") or "main").strip() or "main"
     if not re.fullmatch(r"[A-Za-z0-9._/\-]+", branch):
         branch = "main"
+    raw_root = str(raw_repo_context.get("root") or "").strip()
+    repo_root = raw_root if raw_root and len(raw_root) < 400 else str(ROOT)
     return {
         "query": query[:240],
         "files": files,
         "symbols": symbols,
         "branch": branch,
+        "root": repo_root,
         "include_git_status": bool(raw_repo_context.get("include_git_status", True)),
         "max_results": max(1, min(12, int(raw_repo_context.get("max_results") or 4))),
         "max_snippets": max(1, min(8, int(raw_repo_context.get("max_snippets") or 3))),
@@ -6725,8 +6729,9 @@ def _read_repo_file_excerpt_from_ref(
     *,
     max_lines: int = 120,
     max_chars: int = 3600,
+    cwd: str = "",
 ) -> Dict[str, Any]:
-    result = _run_git_command(["show", f"{git_ref}:{relative_path}"])
+    result = _run_git_command(["show", f"{git_ref}:{relative_path}"], cwd=cwd)
     if result.get("status") != "ok":
         return {
             "path": relative_path,
@@ -6753,18 +6758,21 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
     if not repo_request:
         return {}
 
+    repo_cwd = str(repo_request.get("root") or ROOT).strip() or str(ROOT)
+
     snapshot: Dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "query": str(repo_request.get("query") or ""),
         "symbols": list(repo_request.get("symbols") or []),
         "files": list(repo_request.get("files") or []),
         "branch": str(repo_request.get("branch") or "main"),
+        "root": repo_cwd,
         "snippets": [],
         "search_hits": [],
     }
 
     if repo_request.get("include_git_status"):
-        git_status = _run_git_command(["status", "--short", "--branch"])
+        git_status = _run_git_command(["status", "--short", "--branch"], cwd=repo_cwd)
         snapshot["git_status"] = {
             "status": git_status.get("status"),
             "stdout": str(git_status.get("stdout") or "")[:2400],
@@ -6773,12 +6781,12 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
 
     git_ref = str(repo_request.get("branch") or "main")
     for relative_path in (repo_request.get("files") or [])[: int(repo_request.get("max_snippets") or 3)]:
-        snapshot["snippets"].append(_read_repo_file_excerpt_from_ref(relative_path, git_ref))
+        snapshot["snippets"].append(_read_repo_file_excerpt_from_ref(relative_path, git_ref, cwd=repo_cwd))
 
     query = str(repo_request.get("query") or "").strip().lower()
     if query:
         max_hits = int(repo_request.get("max_results") or 4)
-        grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", query, git_ref], timeout=60)
+        grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", query, git_ref], timeout=60, cwd=repo_cwd)
         if grep_result.get("status") == "ok":
             for line in str(grep_result.get("stdout") or "").splitlines():
                 if len(snapshot["search_hits"]) >= max_hits:
@@ -6797,7 +6805,8 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
                 )
         else:
             skipped_dirs = {".git", "node_modules", "dist", "__pycache__", ".venv", "venv", ".mammoth"}
-            for path in ROOT.rglob("*"):
+            walk_root = Path(repo_cwd)
+            for path in walk_root.rglob("*"):
                 if len(snapshot["search_hits"]) >= max_hits:
                     break
                 if not path.is_file():
@@ -6807,20 +6816,23 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
                 if path.suffix.lower() not in {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml", ".yaml", ".yml"}:
                     continue
                 try:
-                    text = path.read_text(encoding="utf-8")
+                    file_text = path.read_text(encoding="utf-8")
                 except Exception:
                     continue
-                lowered = text.lower()
+                lowered = file_text.lower()
                 index = lowered.find(query)
                 if index < 0:
                     continue
                 start = max(0, index - 120)
-                end = min(len(text), index + 220)
-                rel = str(path.relative_to(ROOT)).replace("/", "\\")
+                end = min(len(file_text), index + 220)
+                try:
+                    rel = str(path.relative_to(walk_root)).replace("/", "\\")
+                except ValueError:
+                    rel = str(path).replace("/", "\\")
                 snapshot["search_hits"].append(
                     {
                         "path": rel,
-                        "preview": text[start:end].replace("\n", " ").strip()[:280],
+                        "preview": file_text[start:end].replace("\n", " ").strip()[:280],
                         "ref": "working-tree",
                     }
                 )

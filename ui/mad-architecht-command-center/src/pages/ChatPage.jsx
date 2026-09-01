@@ -871,10 +871,18 @@ export default function ChatPage({ setPage }) {
           root: activeRepoRoot,
           query: message,
           branch: 'main',
-          files: [],
+          files: effectiveAgentId === 'mammoth_guide'
+            ? [
+                'src/mammoth_os/sdk.py',
+                'src/mammoth_os/agents/mammoth_guide_agent.py',
+                'src/mammoth_os/agent_registry.py',
+                'src/mammoth_os/__init__.py',
+                'api_server.py',
+              ]
+            : [],
           include_git_status: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent',
           max_results: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 4 : 2,
-          max_snippets: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 3 : 2,
+          max_snippets: effectiveAgentId === 'mammoth_guide' ? 4 : (effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 3 : 2),
         },
       }
       await streamChat(body, effectiveAgentId, placeholderIndex)
@@ -926,12 +934,6 @@ export default function ChatPage({ setPage }) {
           </p>
         </div>
         <button
-          onClick={clearLocalView}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
-        >
-          <Trash2 size={14} /> Clear view
-        </button>
-        <button
           onClick={() => setRightRailOpen((prev) => !prev)}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
         >
@@ -947,7 +949,23 @@ export default function ChatPage({ setPage }) {
               <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Current lane</div>
               <div style={{ fontSize: '0.92rem', color: selectedAgent.accent, fontWeight: 700 }}>{selectedAgent.label}</div>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <button
+                onClick={clearLocalView}
+                title="New Chat — clear history and start fresh"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--photon-rgb,99,102,241),0.35)', background: 'rgba(99,102,241,0.10)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
+              >
+                <Plus size={13} /> New Chat
+              </button>
+              {history.length > 0 && (
+                <button
+                  onClick={clearLocalView}
+                  title="Delete Chat — permanently clear all messages"
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)', color: '#f87171', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
+                >
+                  <Trash2 size={13} /> Delete Chat
+                </button>
+              )}
               <select
                 value={agentId}
                 onChange={(e) => setAgentId(e.target.value)}
