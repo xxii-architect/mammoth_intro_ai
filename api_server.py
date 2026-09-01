@@ -48,6 +48,10 @@ from mammoth_os.runtime_contracts import build_observability_run, build_runtime_
 from mammoth_os.rag_retrieval import get_retriever
 from mammoth_os.supabase_client import get_supabase
 from mammoth_os.memory_engine import MemoryEngine
+from mammoth_os.rag_context_store import get_rag_context_store
+from mammoth_os.audit_engine import AuditEngine
+
+_audit = AuditEngine()
 
 app = FastAPI(title="MammothOS API", version="1.0.0")
 
@@ -9336,6 +9340,111 @@ async def export_account_data(request: Request):
         content=export,
         headers={"Content-Disposition": "attachment; filename=mammoth-data-export.json"},
     )
+
+
+
+
+# ---------------------------------------------------------------------------
+# RAG Context Store endpoints (Sweep 2)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/rag/context/{user_id}")
+async def get_user_rag_context(user_id: str, request: Request):
+    """Retrieve reusable AI-derived context for a user (no PII)."""
+    store = get_rag_context_store()
+    entries = store.retrieve(user_id, limit=50)
+    return {"user_id": user_id, "entries": entries, "count": len(entries)}
+
+
+@app.delete("/api/rag/context/{user_id}")
+async def delete_user_rag_context(user_id: str, request: Request):
+    """GDPR wipe — delete all AI-derived context for a user."""
+    store = get_rag_context_store()
+    store.delete_user_data(user_id)
+    return {"status": "wiped", "user_id": user_id}
+
+
+@app.post("/api/rag/context/{user_id}")
+async def store_user_rag_context(user_id: str, payload: dict, request: Request):
+    """Store an AI-derived context entry for a user."""
+    store = get_rag_context_store()
+    context_type = payload.get("context_type", "general")
+    content = payload.get("content", {})
+    tags = payload.get("tags", [])
+    ttl_hours = int(payload.get("ttl_hours", 72))
+    entry_id = store.store(
+        user_id=user_id,
+        topic=context_type,
+        content_type="api_context",
+        content=content,
+        source_agent="api",
+        tags=tags,
+        ttl_hours=ttl_hours,
+    )
+    return {"status": "stored", "entry_id": entry_id, "user_id": user_id}
+
+
+# ---------------------------------------------------------------------------
+# ATLAS Lesson Ingestion endpoint (Sweep 3)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/atlas/lesson/ingest")
+async def ingest_atlas_lesson(payload: dict, request: Request):
+    """Ingest a lesson plan and ground it in RAG context."""
+    user_id = payload.get("user_id", "anonymous")
+    lesson = payload.get("lesson", {})
+    source_file = payload.get("source_file", "")
+
+    if not lesson:
+        return {"status": "error", "message": "No lesson provided"}
+
+    store = get_rag_context_store()
+    store.store(
+        user_id=user_id,
+        topic="lesson_ingested",
+        content_type="lesson_metadata",
+        content={
+            "title": lesson.get("title", ""),
+            "topics": lesson.get("topics", []),
+            "difficulty": lesson.get("difficulty", "intermediate"),
+            "source_file": source_file,
+        },
+        source_agent="atlas",
+        tags=["lesson", "atlas"] + lesson.get("topics", []),
+        ttl_hours=168,
+    )
+
+    return {
+        "status": "ingested",
+        "lesson_title": lesson.get("title", ""),
+        "user_id": user_id,
+        "grounded": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Audit Engine endpoints (Sweep 4)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/audit/log")
+async def get_audit_log(limit: int = 50, severity: str = None):
+    """Get recent audit log entries, optionally filtered by severity."""
+    entries = _audit.query(limit=limit, min_severity=severity if severity else "DEBUG")
+    return {"entries": entries, "count": len(entries)}
+
+
+@app.post("/api/audit/diagnose")
+async def run_audit_diagnostics(payload: dict = {}):
+    """Run system diagnostics and return findings."""
+    findings = _audit.diagnose()
+    return {"findings": findings, "count": findings.get("entries", 0)}
+
+
+@app.delete("/api/audit/user/{user_id}")
+async def clear_user_audit_data(user_id: str):
+    """Privacy wipe — remove all audit entries for a user."""
+    _audit.clear_user_data(user_id)
+    return {"status": "cleared", "user_id": user_id}
 
 
 def _load_json_file(path) -> list:

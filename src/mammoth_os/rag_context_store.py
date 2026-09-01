@@ -163,6 +163,63 @@ class RAGContextStore:
             "total_entries": total,
         }
 
+    # ------------------------------------------------------------------
+    # Privacy-safe RAG summariser
+    # ------------------------------------------------------------------
+    _PII_PATTERNS = [
+        r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",  # email
+        r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]\d{3}[-.\s]\d{4}\b",  # phone
+        r"\b(?:https?://\S+)",                                         # URLs
+    ]
+
+    def _strip_pii(self, text: str) -> str:
+        """Remove obvious PII tokens from a text string."""
+        import re
+        for pat in self._PII_PATTERNS:
+            text = re.sub(pat, "[REDACTED]", text, flags=re.IGNORECASE)
+        return text
+
+    def summarize_for_rag(self, user_id: str, raw_session_data: Dict[str, Any]) -> str:
+        """
+        Extract AI-derived signals from raw session data and store them.
+
+        Strips PII (names, emails, phone numbers, URLs) before storing.
+        Returns the new entry_id.
+        """
+        # Pull out safe, AI-derived signals only
+        topics: List[str] = []
+        for t in raw_session_data.get("topics", []):
+            topics.append(self._strip_pii(str(t)))
+
+        struggle_indicators: List[str] = []
+        for s in raw_session_data.get("struggle_indicators", []):
+            struggle_indicators.append(self._strip_pii(str(s)))
+
+        mastery_signals: List[str] = []
+        for m in raw_session_data.get("mastery_signals", []):
+            mastery_signals.append(self._strip_pii(str(m)))
+
+        difficulty = raw_session_data.get("difficulty", "intermediate")
+        agent_name = self._strip_pii(str(raw_session_data.get("agent", "system")))
+
+        content = {
+            "topics": topics,
+            "struggle_indicators": struggle_indicators,
+            "mastery_signals": mastery_signals,
+            "difficulty": difficulty,
+        }
+        tags = ["rag_summary"] + topics[:5]
+
+        return self.store(
+            user_id=user_id,
+            topic="session_summary",
+            content_type="rag_signal",
+            content=content,
+            source_agent=agent_name,
+            tags=tags,
+            ttl_hours=72,
+        )
+
 
 # Process-level singleton
 _rag_context_store: Optional[RAGContextStore] = None

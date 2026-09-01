@@ -519,3 +519,57 @@ class CurriculumAgent(BaseAgent):
             "target": target,
             "details": details,
         }
+
+    def ground_lesson_in_rag(self, lesson_data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+        """
+        Enrich a lesson with personalised difficulty adjustments and topic highlights
+        drawn from the user's prior RAG context.
+
+        Returns the lesson_data dict with an added ``rag_enrichment`` key.
+        """
+        try:
+            from mammoth_os.rag_context_store import get_rag_context_store
+            store = get_rag_context_store()
+            prior = store.retrieve(user_id, limit=20)
+        except Exception:
+            prior = []
+
+        if not prior:
+            return {**lesson_data, "rag_enrichment": {"adjusted": False, "reason": "no_prior_context"}}
+
+        # Collect signals from prior entries
+        struggle_topics: List[str] = []
+        mastered_topics: List[str] = []
+        seen_difficulties: List[str] = []
+        for entry in prior:
+            content = entry.get("content", {})
+            if isinstance(content, dict):
+                struggle_topics.extend(content.get("struggle_indicators", []))
+                mastered_topics.extend(content.get("mastery_signals", []))
+                if content.get("difficulty"):
+                    seen_difficulties.append(str(content["difficulty"]))
+
+        # Suggest difficulty adjustment
+        lesson_difficulty = lesson_data.get("difficulty", "intermediate")
+        suggested_difficulty = lesson_difficulty
+        if struggle_topics:
+            difficulty_map = {"beginner": "beginner", "intermediate": "beginner", "advanced": "intermediate"}
+            suggested_difficulty = difficulty_map.get(lesson_difficulty, lesson_difficulty)
+        elif mastered_topics:
+            difficulty_map = {"beginner": "intermediate", "intermediate": "advanced", "advanced": "advanced"}
+            suggested_difficulty = difficulty_map.get(lesson_difficulty, lesson_difficulty)
+
+        # Highlight topics the user has struggled with
+        lesson_topics = lesson_data.get("topics", [])
+        highlighted = [t for t in lesson_topics if any(s.lower() in t.lower() for s in struggle_topics)]
+
+        enrichment: Dict[str, Any] = {
+            "adjusted": True,
+            "suggested_difficulty": suggested_difficulty,
+            "prior_struggle_topics": struggle_topics[:5],
+            "prior_mastery_topics": mastered_topics[:5],
+            "highlighted_topics": highlighted,
+            "prior_context_entries": len(prior),
+        }
+        return {**lesson_data, "difficulty": suggested_difficulty, "rag_enrichment": enrichment}
+
