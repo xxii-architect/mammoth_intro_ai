@@ -10,6 +10,7 @@ import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
 import PlanExecuteResultPanel from '../components/PlanExecuteResultPanel'
 import AgentResultPanel from '../components/AgentResultPanel'
 import MammothEmpty from '../components/MammothEmpty'
+import AgentCommandLibrary from '../components/AgentCommandLibrary'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
@@ -208,6 +209,7 @@ export default function AgentPage({ setPage }) {
   })
   const [smokeRunning, setSmokeRunning] = useState(false)
   const [smokeResults, setSmokeResults] = useState([])
+  const [showCommandLibrary, setShowCommandLibrary] = useState(false)
   const [executionMode, setExecutionMode] = useState('single')
   const [planProfile, setPlanProfile] = useState('atlas')
   const [codingIntent, setCodingIntent] = useState('generate_code')
@@ -659,6 +661,9 @@ export default function AgentPage({ setPage }) {
     <div className="page-enter" style={{ padding: 24 }}>
       <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Bot size={20} color="var(--violet)" /> Agent Console
+        <button onClick={() => setShowCommandLibrary(true)} className="text-xs bg-[#1a1a2e] border border-[#3d3d5c] text-[#aaaacc] hover:text-white hover:border-[#6655cc] px-3 py-1.5 rounded-lg transition-colors" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          📖 Commands
+        </button>
       </h1>
 
       <OnboardingGuide variant="banner" currentPage="agent" setPage={setPage} />
@@ -1069,6 +1074,7 @@ export default function AgentPage({ setPage }) {
           </div>
         </div>
       </div>
-    </div>
+        {showCommandLibrary && <AgentCommandLibrary onClose={() => setShowCommandLibrary(false)} />}
+      </div>
   )
 }

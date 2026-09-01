@@ -10,6 +10,7 @@ import { signOut } from './lib/supabase'
 import { api } from './api/client'
 import RuntimeStatusBanner from './components/RuntimeStatusBanner'
 import NotificationsDropdown from './components/NotificationsDropdown'
+import MammothWelcome from './components/MammothWelcome'
 import LoginPage from './pages/LoginPage'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
@@ -782,6 +783,7 @@ export default function App() {
   const [adminAccess, setAdminAccess] = useState(null)
   const [entitlements, setEntitlements] = useState(null)
   const [backendWarning, setBackendWarning] = useState('')
+  const [welcomeDone, setWelcomeDone] = useState(false)
   const { session, user, loading, isGuest } = useAuth()
   const isAdminHost = useIsAdminHost()
   const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
@@ -893,6 +895,7 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100dvh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
+      <MammothWelcome onDismiss={() => setWelcomeDone(true)} />
 
       {/* Mobile sidebar overlay backdrop */}
       {isMobile && sidebarOpen && (
