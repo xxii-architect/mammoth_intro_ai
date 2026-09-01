@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Editor } from '@monaco-editor/react'
-import { BookOpen, Send, ChevronRight, MessageSquare } from 'lucide-react'
+import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X } from 'lucide-react'
 import { api } from '../api/client'
 import MammothDiffViewer from '../components/MammothDiffViewer'
 import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
@@ -96,6 +96,7 @@ export default function AtlasTutorPage() {
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   const [showLeftPanel, setShowLeftPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
   const [atlasLibraryOpen, setAtlasLibraryOpen] = useState(false)
+  const [attachedMaterials, setAttachedMaterials] = useState([])
   const [showRightPanel, setShowRightPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
   const chatBottomRef = useRef(null)
   const onboardingSeededRef = useRef(false)
@@ -367,6 +368,7 @@ export default function AtlasTutorPage() {
           message: msg,
           agent_id: chatMode === 'assistant' && msg.toLowerCase().startsWith('/guide ') ? 'mammoth_guide' : undefined,
           model: chatModel || undefined,
+          attached_material_ids: attachedMaterials.map((item) => item.file_id).filter(Boolean),
           mode: chatMode,
           strict_guard: chatMode !== 'assistant',
           regenerate_on_guard: false,
@@ -438,6 +440,7 @@ export default function AtlasTutorPage() {
   const observability  = atlasState?.observability || null
   const planHistory    = Array.isArray(atlasState?.plan_history) ? atlasState.plan_history : []
   const evalHistory    = Array.isArray(atlasState?.eval_history) ? atlasState.eval_history : []
+  const attachedMaterialIds = attachedMaterials.map((item) => item.file_id).filter(Boolean)
   const totalLessons = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
   const starterFiles = exercise?.starter_files && typeof exercise.starter_files === 'object' ? exercise.starter_files : {}
   const primaryStarterFile = Object.keys(starterFiles)[0] || ''
@@ -1052,17 +1055,37 @@ export default function AtlasTutorPage() {
           </div>
 
           <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexShrink: 0 }}>
+          <div style={{ flex: 1, display: 'grid', gap: 8 }}>
+            {attachedMaterials.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {attachedMaterials.map((file) => (
+                  <span key={file.file_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 999, border: '1px solid rgba(180,124,255,0.3)', background: 'rgba(180,124,255,0.12)', color: 'var(--txt-sec)', fontSize: '0.66rem', padding: '3px 8px' }}>
+                    <Paperclip size={10} />
+                    <span>{file.name || file.file_id}</span>
+                    <button
+                      type="button"
+                      onClick={() => setAttachedMaterials((prev) => prev.filter((entry) => entry.file_id !== file.file_id))}
+                      style={{ border: 'none', background: 'none', color: 'var(--txt-mut)', cursor: 'pointer', display: 'inline-flex', padding: 0 }}
+                      title="Remove material from this chat session"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <input
               value={chatInput}
               onChange={e => setChatInput(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat() } }}
               placeholder={chatMode === 'assistant' ? 'Talk with ATLAS Assistant…' : 'Ask ATLAS Tutor…'}
-              style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', fontFamily: 'Inter,sans-serif' }}
+              style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', fontFamily: 'Inter,sans-serif' }}
             />
-            <button onClick={sendChat} disabled={chatBusy}
-              style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: chatBusy ? 'rgba(180,124,255,0.3)' : 'var(--violet)', color: '#fff', fontWeight: 700, cursor: chatBusy ? 'not-allowed' : 'pointer', fontSize: '0.8rem' }}>
-              {chatBusy ? '…' : '↑'}
-            </button>
+          </div>
+          <button onClick={sendChat} disabled={chatBusy}
+            style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: chatBusy ? 'rgba(180,124,255,0.3)' : 'var(--violet)', color: '#fff', fontWeight: 700, cursor: chatBusy ? 'not-allowed' : 'pointer', fontSize: '0.8rem', alignSelf: 'end' }}>
+            {chatBusy ? '…' : '↑'}
+          </button>
           </div>
         </div>
       </div>
@@ -1083,7 +1106,24 @@ export default function AtlasTutorPage() {
         </button>
         {atlasLibraryOpen && (
           <div style={{ marginTop: 8 }}>
-            <AtlasMaterialsLibrary />
+            <AtlasMaterialsLibrary
+              attached={attachedMaterialIds}
+              onToggleAttach={(file, shouldAttach) => {
+                const fid = file?.file_id
+                if (!fid) return
+                setAttachedMaterials((prev) => {
+                  if (shouldAttach === false) {
+                    return prev.filter((entry) => entry.file_id !== fid)
+                  }
+                  const nextFile = {
+                    file_id: fid,
+                    name: file?.name || fid,
+                    tag: file?.tag || 'other',
+                  }
+                  return [nextFile, ...prev.filter((entry) => entry.file_id !== fid)]
+                })
+              }}
+            />
           </div>
         )}
       </div>

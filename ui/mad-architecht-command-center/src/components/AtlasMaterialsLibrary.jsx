@@ -31,7 +31,7 @@ function TagBadge({ tag }) {
  * AtlasMaterialsLibrary — upload and manage school/lesson materials.
  * Props:
  *   attached: [file_id]            — file IDs attached to current session
- *   onToggleAttach(file_id): toggle a file in the active session
+ *   onToggleAttach(file, attach): toggle a file in the active session
  */
 export default function AtlasMaterialsLibrary({ attached = [], onToggleAttach }) {
   const [files, setFiles] = useState([])
@@ -46,7 +46,8 @@ export default function AtlasMaterialsLibrary({ attached = [], onToggleAttach })
     try {
       const data = await api('/atlas/files')
       setFiles(Array.isArray(data?.files) ? data.files : [])
-    } catch {
+    } catch (e) {
+      setError(e?.message || 'Failed to load materials')
       setFiles([])
     } finally {
       setLoading(false)
@@ -86,8 +87,10 @@ export default function AtlasMaterialsLibrary({ attached = [], onToggleAttach })
     try {
       await authorizedFetch(`/atlas/files/${fileId}`, { method: 'DELETE' })
       setFiles(prev => prev.filter(f => f.file_id !== fileId))
-      onToggleAttach && onToggleAttach(fileId, false)
-    } catch { /* no-op */ }
+      onToggleAttach && onToggleAttach({ file_id: fileId }, false)
+    } catch (e) {
+      setError(e?.message || 'Delete failed')
+    }
   }
 
   const handleRetag = async (fileId, newTag) => {
@@ -98,7 +101,9 @@ export default function AtlasMaterialsLibrary({ attached = [], onToggleAttach })
         body: JSON.stringify({ tag: newTag }),
       })
       setFiles(prev => prev.map(f => f.file_id === fileId ? { ...f, tag: newTag } : f))
-    } catch { /* no-op */ }
+    } catch (e) {
+      setError(e?.message || 'Tag update failed')
+    }
     setTagMenuFor(null)
   }
 
@@ -171,7 +176,7 @@ export default function AtlasMaterialsLibrary({ attached = [], onToggleAttach })
               {/* Attach checkbox */}
               <button
                 type="button"
-                onClick={() => onToggleAttach && onToggleAttach(file.file_id)}
+                onClick={() => onToggleAttach && onToggleAttach(file, !isAttached)}
                 title={isAttached ? 'Remove from session' : 'Add to this lesson session'}
                 style={{
                   width: 22, height: 22, borderRadius: 6, flexShrink: 0,

@@ -9,6 +9,8 @@ import ChatThreadSidebar from '../components/ChatThreadSidebar'
 import FileAttachmentPanel from '../components/FileAttachmentPanel'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
+const DEFAULT_SERVER_REPO = '/opt/mammothos/mammoth_intro_ai'
+const DEFAULT_LOCAL_REPO = 'C:\\Users\\runni\\mammoth_intro_ai.worktrees\\agents-mammothos-atlas-agent-system'
 
 // ─── Repo picker helpers ────────────────────────────────────────────────────
 
@@ -36,13 +38,40 @@ function saveActiveRepo(userId, repoId) {
   else localStorage.removeItem(`mammoth_active_repo:${userId}`)
 }
 
+function isGitHubRepoRef(value = '') {
+  return /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(value || '').trim())
+}
+
+function isAbsoluteRepoPath(value = '') {
+  const candidate = String(value || '').trim()
+  return /^(?:[A-Za-z]:\\|\/|\\\\)/.test(candidate)
+}
+
+function normalizeRepoInput(value = '') {
+  const trimmed = String(value || '').trim().replace(/[\\/]+$/, '')
+  if (!trimmed) return ''
+  if (trimmed.startsWith('\\Users\\')) {
+    return `C:${trimmed}`
+  }
+  return trimmed
+}
+
+function defaultRepoPresets() {
+  const isLocalHost = typeof window !== 'undefined'
+    && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+  const ordered = isLocalHost
+    ? [DEFAULT_LOCAL_REPO, DEFAULT_SERVER_REPO]
+    : [DEFAULT_SERVER_REPO, DEFAULT_LOCAL_REPO]
+  return ordered.map((value, idx) => ({ id: `preset-${idx + 1}`, value, label: value, added_at: new Date().toISOString(), preset: true }))
+}
+
 // Convert a GitHub-format string (owner/repo) or path to a root string for repo_context
 function repoToRoot(repo) {
   if (!repo) return null
   const entry = typeof repo === 'string' ? repo : repo.value
   if (!entry) return null
-  // GitHub format: owner/repo → we pass it as-is and let backend use git remote context
-  // Local path: /opt/... or C:\... → use directly
+  // GitHub format: owner/repo is accepted for labeling in UI.
+  // Local path: /opt/... or C:\... is used directly for backend repo context reads.
   return entry.trim()
 }
 
@@ -459,9 +488,17 @@ export default function ChatPage({ setPage }) {
   // Load repos from per-user localStorage
   useEffect(() => {
     const stored = loadRepos(scopeUserId)
-    setRepos(stored)
+    const initialRepos = stored.length > 0 ? stored : defaultRepoPresets()
+    setRepos(initialRepos)
+    if (stored.length === 0) {
+      saveRepos(scopeUserId, initialRepos)
+    }
     const active = loadActiveRepo(scopeUserId)
-    setActiveRepoId(active || (stored[0]?.id || null))
+    const activeId = active || (initialRepos[0]?.id || null)
+    setActiveRepoId(activeId)
+    if (!active && activeId) {
+      saveActiveRepo(scopeUserId, activeId)
+    }
   }, [scopeUserId])
 
   useEffect(() => {
@@ -513,11 +550,15 @@ export default function ChatPage({ setPage }) {
 
   // Active repo for context
   const activeRepo = repos.find((r) => r.id === activeRepoId) || repos[0] || null
-  const activeRepoRoot = activeRepo ? repoToRoot(activeRepo) : '/opt/mammothos/mammoth_intro_ai'
+  const activeRepoRoot = activeRepo ? repoToRoot(activeRepo) : DEFAULT_SERVER_REPO
 
   const addRepo = () => {
-    const val = repoInput.trim()
+    const val = normalizeRepoInput(repoInput)
     if (!val) return
+    if (!isAbsoluteRepoPath(val) && !isGitHubRepoRef(val)) {
+      setError('Repo context must be an absolute path (C:\\... or /opt/...) or owner/repo.')
+      return
+    }
     const id = `repo-${Date.now()}`
     const newRepo = { id, value: val, label: val, added_at: new Date().toISOString() }
     const next = [newRepo, ...repos].slice(0, 20)
@@ -1228,6 +1269,11 @@ export default function ChatPage({ setPage }) {
                 {activeRepo?.label || activeRepo?.value || 'default (server)'}
               </span>
             </div>
+            {activeRepo?.value && isGitHubRepoRef(activeRepo.value) && (
+              <p style={{ margin: '6px 0 0', fontSize: '0.68rem', color: 'var(--txt-mut)', lineHeight: 1.45 }}>
+                GitHub repo refs are accepted for labeling, but backend context reads still run against the server repo root.
+              </p>
+            )}
 
             {repoPickerOpen && (
               <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
@@ -1237,7 +1283,7 @@ export default function ChatPage({ setPage }) {
                     value={repoInput}
                     onChange={(e) => setRepoInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') addRepo() }}
-                    placeholder="owner/repo or /local/path"
+                    placeholder="owner/repo, C:\\path, or /opt/path"
                     style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'var(--txt-pri)', fontSize: '0.76rem', padding: '7px 10px', outline: 'none', fontFamily: 'JetBrains Mono,monospace' }}
                   />
                   <button
@@ -1250,8 +1296,24 @@ export default function ChatPage({ setPage }) {
                   </button>
                 </div>
                 <p style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', margin: 0, lineHeight: 1.5 }}>
-                  GitHub: <code style={{ color: 'var(--photon)' }}>owner/repo</code> · Local: <code style={{ color: 'var(--photon)' }}>/opt/path</code>
+                  GitHub: <code style={{ color: 'var(--photon)' }}>owner/repo</code> · Local: <code style={{ color: 'var(--photon)' }}>C:\\repo or /opt/repo</code>
                 </p>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => { setRepoInput(DEFAULT_LOCAL_REPO); setError('') }}
+                    style={{ border: '1px solid var(--border)', borderRadius: 999, padding: '4px 8px', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.68rem', cursor: 'pointer' }}
+                  >
+                    Use local preset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setRepoInput(DEFAULT_SERVER_REPO); setError('') }}
+                    style={{ border: '1px solid var(--border)', borderRadius: 999, padding: '4px 8px', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.68rem', cursor: 'pointer' }}
+                  >
+                    Use server preset
+                  </button>
+                </div>
 
                 {/* Repo list */}
                 {repos.length > 0 && (

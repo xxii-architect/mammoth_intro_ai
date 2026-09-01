@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from contextvars import ContextVar
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dotenv import dotenv_values, load_dotenv
@@ -2113,6 +2113,16 @@ _PLAN_LIMITS_BY_TIER: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _usage_warning_message(level: str, percent_used: float) -> str:
+    if level == "blocked":
+        return f"Usage is at {percent_used:.1f}% and hard-cap enforcement is active. New high-cost requests may be blocked."
+    if level == "critical":
+        return f"Usage is at {percent_used:.1f}%. You are close to the plan limit and should reduce load or upgrade."
+    if level == "elevated":
+        return f"Usage is at {percent_used:.1f}%, above the warning threshold."
+    return f"Usage is at {percent_used:.1f}% and currently within a healthy range."
+
+
 def _usage_window_bounds(now: datetime) -> Dict[str, str]:
     period_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
     if now.month == 12:
@@ -2178,6 +2188,27 @@ def _current_usage_snapshot_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
     else:
         warning_level = "normal"
 
+    elapsed_days = max(1.0, float(now.day))
+    percent_per_day = round(percent_used / elapsed_days, 3)
+    days_to_limit: Optional[float] = None
+    projected_limit_at: Optional[str] = None
+    if percent_used > 0 and percent_per_day > 0:
+        days_to_limit = max(0.0, round((100.0 - percent_used) / percent_per_day, 1))
+        projected_dt = now + timedelta(days=days_to_limit)
+        projected_limit_at = projected_dt.isoformat()
+
+    remaining_requests = max(0, request_limit - request_units)
+    remaining_tokens = max(0, token_limit - tokens)
+    recommended_action = (
+        "Continue normal usage."
+        if warning_level == "normal"
+        else "Trim request volume, reduce prompt size, or move to a higher tier."
+        if warning_level == "elevated"
+        else "Prioritize only essential runs and upgrade capacity as soon as possible."
+        if warning_level == "critical"
+        else "Usage cap reached. Reduce demand or upgrade before continuing heavy usage."
+    )
+
     return {
         "status": "ok",
         "plan": tier,
@@ -2192,7 +2223,19 @@ def _current_usage_snapshot_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
         },
         "percent_used": percent_used,
         "warning_level": warning_level,
+        "warning_message": _usage_warning_message(warning_level, percent_used),
         "warning_threshold": warning_threshold,
+        "near_limit": warning_level in {"elevated", "critical", "blocked"},
+        "remaining": {
+            "requests": remaining_requests,
+            "tokens": remaining_tokens,
+        },
+        "forecast": {
+            "percent_per_day": percent_per_day,
+            "days_to_limit": days_to_limit,
+            "projected_limit_at": projected_limit_at,
+        },
+        "recommended_action": recommended_action,
         "hard_cap": bool(limits["hard_cap"]),
         "metering_mode": "workspace_state_preview",
         "note": "Preview metering derived from tenant-scoped local state until hosted billing tables are wired.",
@@ -2272,6 +2315,10 @@ async def get_status():
     buildlog = _read_json(BUILDLOG_FILE)
 
     models = _models_snapshot()
+    git_branch_result = _run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=str(ROOT))
+    git_commit_result = _run_git_command(["rev-parse", "--short", "HEAD"], cwd=str(ROOT))
+    git_branch = str(git_branch_result.get("stdout") or "").strip() if git_branch_result.get("status") == "ok" else "unknown"
+    git_commit = str(git_commit_result.get("stdout") or "").strip() if git_commit_result.get("status") == "ok" else "unknown"
 
     return {
         "status": "ok",
@@ -2284,6 +2331,32 @@ async def get_status():
         "active_models": max(1, len(models.get("local_models_installed", []))),
         "active_adapter": models.get("active_adapter"),
         "active_model": models.get("active_model"),
+        "git_branch": git_branch or "unknown",
+        "git_commit": git_commit or "unknown",
+        "repo_root": str(ROOT),
+    }
+
+
+@app.get("/api/runtime/deploy-snapshot")
+async def runtime_deploy_snapshot():
+    state = _load_atlas_state()
+    usage = _current_usage_snapshot_from_state(state)
+    runtime = _runtime_status_snapshot()
+    git_branch_result = _run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], cwd=str(ROOT))
+    git_commit_result = _run_git_command(["rev-parse", "--short", "HEAD"], cwd=str(ROOT))
+    git_branch = str(git_branch_result.get("stdout") or "").strip() if git_branch_result.get("status") == "ok" else "unknown"
+    git_commit = str(git_commit_result.get("stdout") or "").strip() if git_commit_result.get("status") == "ok" else "unknown"
+    return {
+        "status": "ok",
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "repo_root": str(ROOT),
+        "git_branch": git_branch or "unknown",
+        "git_commit": git_commit or "unknown",
+        "runtime_state": runtime.get("state"),
+        "active_adapter": runtime.get("active_adapter"),
+        "active_model": runtime.get("active_model"),
+        "usage_warning_level": usage.get("warning_level"),
+        "usage_percent": usage.get("percent_used"),
     }
 
 
@@ -5280,6 +5353,24 @@ def _append_fab_usage_event(
         "has_lesson_context": bool(page_context.get("lesson")),
     })
     state["fab_usage_events"] = events[-200:]
+    usage_snapshot = _current_usage_snapshot_from_state(state)
+    warning_level = str(usage_snapshot.get("warning_level") or "normal")
+    previous_level = str(state.get("last_usage_warning_level") or "normal")
+    state["last_usage_warning_level"] = warning_level
+    if warning_level in {"elevated", "critical", "blocked"} and warning_level != previous_level:
+        user_id = _current_request_user_id()
+        message = str(usage_snapshot.get("warning_message") or "Usage warning threshold reached.")
+        requests = usage_snapshot.get("usage", {}).get("requests")
+        request_limit = usage_snapshot.get("usage", {}).get("request_limit")
+        plan = usage_snapshot.get("plan")
+        _create_notification(
+            title=f"Usage warning: {warning_level}",
+            body=f"{message} ({requests}/{request_limit} requests on {plan})",
+            kind="billing",
+            user_id=user_id,
+            action_url="/pricing",
+            actor="system",
+        )
 
 
 def _run_atlas_evals(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -6118,6 +6209,27 @@ async def atlas_reset(body: Optional[Dict[str, Any]] = None):
     return _apply_atlas_session_reset()
 
 
+def _collect_attached_atlas_material_context(user_id: str, material_ids: List[Any]) -> Dict[str, Any]:
+    selected_ids = [str(item).strip() for item in material_ids if str(item).strip()][:6]
+    if not selected_ids:
+        return {"count": 0, "materials": []}
+    index = _load_atlas_files_index(user_id)
+    selected: List[Dict[str, Any]] = []
+    for file_id in selected_ids:
+        entry = next((f for f in index if f.get("file_id") == file_id), None)
+        if not isinstance(entry, dict):
+            continue
+        selected.append(
+            {
+                "file_id": file_id,
+                "name": str(entry.get("name") or "material"),
+                "tag": str(entry.get("tag") or "other"),
+                "excerpt": str(entry.get("text_preview") or "")[:2800],
+            }
+        )
+    return {"count": len(selected), "materials": selected}
+
+
 @app.post("/api/atlas/chat")
 async def atlas_chat(body: Dict[str, Any]):
     message = str(body.get("message", "")).strip()
@@ -6136,6 +6248,11 @@ async def atlas_chat(body: Dict[str, Any]):
     page_context = _normalize_page_context(body.get("page_context"), body.get("page_snapshot"))
     repo_context_request = _normalize_repo_context_request(body.get("repo_context"))
     repo_context = _collect_repo_context_snapshot(repo_context_request) if repo_context_request else {}
+    attached_material_ids = body.get("attached_material_ids") if isinstance(body.get("attached_material_ids"), list) else []
+    attached_material_context = _collect_attached_atlas_material_context(
+        user_id=_current_request_user_id(),
+        material_ids=attached_material_ids,
+    )
     current_lesson = state.get("current_lesson") or {}
     current_exercise = state.get("current_exercise") or {}
     last_submission = state.get("last_submission") or {}
@@ -6211,6 +6328,7 @@ async def atlas_chat(body: Dict[str, Any]):
                 "current_lesson": current_lesson,
                 "current_exercise": current_exercise,
                 "learner_context": learner_context,
+                "attached_materials": attached_material_context.get("materials", []),
             },
         }
         guide_result = registry_run_agent("mammoth_guide", guide_payload)
@@ -6227,6 +6345,7 @@ async def atlas_chat(body: Dict[str, Any]):
                 "mode": mode,
                 "guide_steps": guide_steps if isinstance(guide_steps, list) else [],
                 "guide_branch": guide_branch,
+                "attached_materials": attached_material_context.get("materials", []),
                 "evidence_items": [
                     {
                         "source": "mammoth-guide",
@@ -6258,6 +6377,7 @@ async def atlas_chat(body: Dict[str, Any]):
             "trace_id": trace_id,
             "guide_steps": guide_steps if isinstance(guide_steps, list) else [],
             "guide_branch": guide_branch,
+            "attached_materials_used": attached_material_context.get("materials", []),
         }
 
     if guard_triggered:
@@ -6308,6 +6428,7 @@ async def atlas_chat(body: Dict[str, Any]):
             "Be conversational, practical, and concise. Never provide harmful content.\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
             f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
+            f"Attached lesson materials: {json.dumps(attached_material_context, default=str)[:2600]}\n\n"
             f"User message: {message}\n\n"
             "If the user asks for lesson-specific coaching, you can optionally use this context:\n"
             f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
@@ -6329,6 +6450,7 @@ async def atlas_chat(body: Dict[str, Any]):
             f"Resume packet: {json.dumps(resume_packet, default=str)[:1800]}\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
             f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
+            f"Attached lesson materials: {json.dumps(attached_material_context, default=str)[:2600]}\n\n"
             f"Student message: {message}\n\n"
             "Policy: do not provide direct final answers for active exercises. Use hints and checks.\n"
             "If mode is 'build', include a short implementation plan plus one safe next action.\n"
@@ -6397,6 +6519,7 @@ async def atlas_chat(body: Dict[str, Any]):
         "adapter": active_adapter,
         "model": active_model,
         "mode": mode,
+        "attached_materials": attached_material_context.get("materials", []),
     })
     state[history_key] = history[-60:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -6419,6 +6542,7 @@ async def atlas_chat(body: Dict[str, Any]):
         "runtime_status": runtime_status,
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id="atlas_chat", context=mode, provider=active_adapter),
         "trace_id": trace_id,
+        "attached_materials_used": attached_material_context.get("materials", []),
     }
 
 
@@ -6681,6 +6805,37 @@ def _safe_repo_relative_path(raw_path: Any) -> str:
     return str(Path(*path_obj.parts))
 
 
+def _resolve_repo_context_root(raw_root: Any) -> Dict[str, str]:
+    requested = str(raw_root or "").strip()
+    if not requested:
+        return {"root": str(ROOT), "requested_root": "", "root_warning": ""}
+
+    if len(requested) >= 400:
+        return {
+            "root": str(ROOT),
+            "requested_root": requested[:400],
+            "root_warning": "Requested repo root was too long and was reset to the backend default repository.",
+        }
+
+    repo_ref_pattern = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
+    if re.fullmatch(repo_ref_pattern, requested):
+        return {
+            "root": str(ROOT),
+            "requested_root": requested,
+            "root_warning": "GitHub owner/repo reference received. Using backend default local repository root for context reads.",
+        }
+
+    candidate = Path(requested)
+    if candidate.exists() and candidate.is_dir():
+        return {"root": str(candidate), "requested_root": requested, "root_warning": ""}
+
+    return {
+        "root": str(ROOT),
+        "requested_root": requested,
+        "root_warning": "Requested repo root was not found on the backend host. Using backend default repository root.",
+    }
+
+
 def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     if not isinstance(raw_repo_context, dict):
         return {}
@@ -6698,14 +6853,15 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     branch = str(raw_repo_context.get("branch") or "main").strip() or "main"
     if not re.fullmatch(r"[A-Za-z0-9._/\-]+", branch):
         branch = "main"
-    raw_root = str(raw_repo_context.get("root") or "").strip()
-    repo_root = raw_root if raw_root and len(raw_root) < 400 else str(ROOT)
+    root_resolution = _resolve_repo_context_root(raw_repo_context.get("root"))
     return {
         "query": query[:240],
         "files": files,
         "symbols": symbols,
         "branch": branch,
-        "root": repo_root,
+        "root": root_resolution["root"],
+        "requested_root": root_resolution["requested_root"],
+        "root_warning": root_resolution["root_warning"],
         "include_git_status": bool(raw_repo_context.get("include_git_status", True)),
         "max_results": max(1, min(12, int(raw_repo_context.get("max_results") or 4))),
         "max_snippets": max(1, min(8, int(raw_repo_context.get("max_snippets") or 3))),
@@ -6777,9 +6933,12 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
         "files": list(repo_request.get("files") or []),
         "branch": str(repo_request.get("branch") or "main"),
         "root": repo_cwd,
+        "requested_root": str(repo_request.get("requested_root") or ""),
         "snippets": [],
         "search_hits": [],
     }
+    if repo_request.get("root_warning"):
+        snapshot["root_warning"] = str(repo_request.get("root_warning"))
 
     if repo_request.get("include_git_status"):
         git_status = _run_git_command(["status", "--short", "--branch"], cwd=repo_cwd)

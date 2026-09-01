@@ -389,6 +389,9 @@ export default function AccountPage({ setPage }) {
   const completionRate = lessons.length ? Math.round((completedLessons / lessons.length) * 100) : 0
   const percentUsed = Number(billingUsage?.percent_used || 0)
   const usageWarning = String(billingUsage?.warning_level || 'normal')
+  const usageMessage = String(billingUsage?.warning_message || '')
+  const usageForecast = billingUsage?.forecast || {}
+  const usageRemaining = billingUsage?.remaining || {}
   const tierLabel = getTierLabel(entitlements)
   const attempts = Number(learnerContext.attempts || learnerModel.attempts || 0)
   const recommendedDifficulty = String(learnerContext.recommended_difficulty || atlasStatus?.learner_profile?.recommended_difficulty || 'beginner')
@@ -580,6 +583,29 @@ export default function AccountPage({ setPage }) {
           {error || notice}
         </div>
       )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
+        <div className="glass-card-solid" style={{ padding: '10px 12px' }}>
+          <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Profile status</div>
+          <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: profileMeta?.profile_complete ? '#22c55e' : 'var(--amber)' }}>
+            {profileMeta?.profile_complete ? 'Complete' : 'Needs setup'}
+          </div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: '10px 12px' }}>
+          <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Current plan</div>
+          <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: 'var(--photon)' }}>{tierLabel}</div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: '10px 12px' }}>
+          <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Usage risk</div>
+          <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: usageTone }}>{usageWarning}</div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: '10px 12px' }}>
+          <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Active account</div>
+          <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)', fontFamily: 'JetBrains Mono,monospace' }}>
+            {profileMeta?.active_account_id || entitlements?.active_account_id || 'default'}
+          </div>
+        </div>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
         <div className="glass-card-solid" style={{ padding: 18, gridColumn: '1 / -1', borderLeft: '3px solid var(--photon)' }}>
@@ -1036,12 +1062,28 @@ export default function AccountPage({ setPage }) {
           <div style={{ height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: 10 }}>
             <div style={{ height: '100%', width: `${clampPercent(percentUsed)}%`, background: usageTone }} />
           </div>
-          <p style={{ margin: 0, fontSize: '0.72rem', color: usageTone }}>
-            {usageWarning === 'normal' && 'Usage is in a healthy range.'}
-            {usageWarning === 'elevated' && 'Usage is getting close to your warning threshold.'}
-            {usageWarning === 'critical' && 'Warning: usage is close to your plan limit.'}
-            {usageWarning === 'blocked' && 'Limit reached. Upgrade or reduce usage to continue.'}
+          <p style={{ margin: 0, fontSize: '0.72rem', color: usageTone, lineHeight: 1.55 }}>
+            {usageMessage || (
+              <>
+                {usageWarning === 'normal' && 'Usage is in a healthy range.'}
+                {usageWarning === 'elevated' && 'Usage is getting close to your warning threshold.'}
+                {usageWarning === 'critical' && 'Warning: usage is close to your plan limit.'}
+                {usageWarning === 'blocked' && 'Limit reached. Upgrade or reduce usage to continue.'}
+              </>
+            )}
           </p>
+          <div style={{ marginTop: 10, display: 'grid', gap: 4, fontSize: '0.69rem', color: 'var(--txt-mut)' }}>
+            <div>Remaining this period: {usageRemaining.requests ?? 0} requests · {usageRemaining.tokens ?? 0} tokens</div>
+            {usageForecast?.days_to_limit !== null && usageForecast?.days_to_limit !== undefined && (
+              <div>Projected time to limit: {usageForecast.days_to_limit} day(s) at current pace</div>
+            )}
+            {usageForecast?.projected_limit_at && (
+              <div>Projected limit date: {new Date(usageForecast.projected_limit_at).toLocaleString()}</div>
+            )}
+            {billingUsage?.recommended_action && (
+              <div style={{ color: usageTone }}>Recommended action: {billingUsage.recommended_action}</div>
+            )}
+          </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
             <button

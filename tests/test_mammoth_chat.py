@@ -341,3 +341,17 @@ def test_normalize_repo_context_defaults_to_main_branch():
 def test_normalize_repo_context_rejects_invalid_branch():
     normalized = api_server._normalize_repo_context_request({"query": "sdk", "branch": "main; rm -rf"})
     assert normalized["branch"] == "main"
+
+
+def test_normalize_repo_context_owner_repo_reference_uses_default_root():
+    normalized = api_server._normalize_repo_context_request({"query": "sdk", "root": "xxii-architect/mammoth_intro_ai"})
+    assert normalized["requested_root"] == "xxii-architect/mammoth_intro_ai"
+    assert normalized["root"] == str(api_server.ROOT)
+    assert "GitHub owner/repo reference" in normalized["root_warning"]
+
+
+def test_normalize_repo_context_missing_root_falls_back_to_default():
+    normalized = api_server._normalize_repo_context_request({"query": "sdk", "root": "C:/missing/repo/path"})
+    assert normalized["requested_root"] == "C:/missing/repo/path"
+    assert normalized["root"] == str(api_server.ROOT)
+    assert "not found on the backend host" in normalized["root_warning"]
