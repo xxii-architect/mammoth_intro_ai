@@ -297,6 +297,7 @@ export default function AtlasTutorPage() {
         method: 'POST',
         body: {
           message: msg,
+          agent_id: chatMode === 'assistant' && msg.toLowerCase().startsWith('/guide ') ? 'mammoth_guide' : undefined,
           model: chatModel || undefined,
           mode: chatMode,
           strict_guard: chatMode !== 'assistant',
@@ -310,11 +311,14 @@ export default function AtlasTutorPage() {
             },
           },
           repo_context: {
-            query: '',
+            query: msg,
             files: [
               'api_server.py',
               'src/mammoth_os/cortex_router.py',
+              'src/mammoth_os/sdk.py',
+              'src/mammoth_os/atlas_session.py',
             ],
+            branch: 'main',
             include_git_status: false,
             max_results: 2,
             max_snippets: 2,

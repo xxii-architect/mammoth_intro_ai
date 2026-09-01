@@ -674,7 +674,7 @@ def _normalize_user_storage_key(user_id: str) -> str:
 
 def _atlas_state_file_for_request() -> Path:
     user_id = str(_REQUEST_USER_ID.get() or "").strip()
-    if not _AUTH_REQUIRED or not user_id or user_id == "local":
+    if not user_id or user_id == "local":
         return ATLAS_FILE
     user_key = _normalize_user_storage_key(user_id)
     return ATLAS_STATE_DIR / f"atlas_state_{user_key}.json"
@@ -743,6 +743,11 @@ def _extract_bearer_token(request: Request) -> str:
     return token
 
 
+def _current_request_user_id(default: str = "local") -> str:
+    user_id = str(_REQUEST_USER_ID.get() or "").strip()
+    return user_id or default
+
+
 def _resolve_supabase_user(token: str) -> Optional[Dict[str, Any]]:
     if not token:
         return None
@@ -777,29 +782,18 @@ def _set_request_auth_context(request: Request, user: Dict[str, Any]):
 
 @app.middleware("http")
 async def auth_guard_middleware(request: Request, call_next):
-    if not _AUTH_REQUIRED or not request.url.path.startswith("/api/"):
+    if not request.url.path.startswith("/api/"):
         return await call_next(request)
 
     optional_path = request.method.upper() == "OPTIONS" or _is_auth_optional_path(request.url.path)
     token = _extract_bearer_token(request)
     user = _resolve_supabase_user(token) if token else None
-    if user is None:
-        if optional_path:
-            request.state.auth_user_id = ""
-            request.state.auth_email = ""
-            request.state.auth_is_admin = False
-            token_user = _REQUEST_USER_ID.set("")
-            token_email = _REQUEST_USER_EMAIL.set("")
-            token_admin = _REQUEST_IS_ADMIN.set(False)
-            try:
-                return await call_next(request)
-            finally:
-                _REQUEST_USER_ID.reset(token_user)
-                _REQUEST_USER_EMAIL.reset(token_email)
-                _REQUEST_IS_ADMIN.reset(token_admin)
+
+    if user is None and _AUTH_REQUIRED and not optional_path:
         return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
 
-    token_user, token_email, token_admin = _set_request_auth_context(request, user)
+    effective_user = user or {"id": "local", "email": "", "is_admin": not _AUTH_REQUIRED}
+    token_user, token_email, token_admin = _set_request_auth_context(request, effective_user)
     try:
         return await call_next(request)
     finally:
@@ -2705,6 +2699,7 @@ _INTENT_TO_AGENT_ID = {
     "analyze_codebase": "coding_agent",
     "run_tests": "coding_agent",
     "write_docs": "coding_agent",
+    "guide_platform": "mammoth_guide",
 }
 
 _AGENT_ID_TO_RUNTIME = {
@@ -2722,6 +2717,7 @@ _AGENT_ID_TO_RUNTIME = {
     "browser_agent": "browser",
     "task_queue_agent": "task_queue",
     "custodial_agent": "custodial",
+    "mammoth_guide": "mammoth_guide",
 }
 
 _ATLAS_WORKFLOW_AGENT_IDS = {
@@ -4082,7 +4078,7 @@ async def run_agent(body: Dict[str, Any]):
         elif runtime_agent and (runtime_agent == "custodial" or (_agent_registry_ok and runtime_agent in AGENTS)):
             handled_special_result = False
             payload_for_agent: Any = prompt_text or json.dumps(payload)
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue", "mammoth_guide"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
                 if not isinstance(payload_for_agent, dict):
@@ -4107,6 +4103,8 @@ async def run_agent(body: Dict[str, Any]):
                             payload_for_agent["url"] = prompt_text
                     elif runtime_agent == "task_queue":
                         payload_for_agent.setdefault("prompt", prompt_text)
+                    elif runtime_agent == "mammoth_guide":
+                        payload_for_agent.setdefault("message", prompt_text)
                     else:
                         if not payload_for_agent.get("topic") and not payload_for_agent.get("prompt") and not payload_for_agent.get("problem"):
                             payload_for_agent["topic"] = prompt_text
@@ -5910,38 +5908,64 @@ async def atlas_evals(body: Optional[Dict[str, Any]] = None):
 
 
 @app.get("/api/memory")
-async def get_memory_entries(limit: int = 50, memory_type: Optional[str] = None):
+async def get_memory_entries(request: Request, limit: int = 50, memory_type: Optional[str] = None):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = str(user.get("id") or "local")
+    account_id = _active_account_id(_load_atlas_state())
     entries = _MEMORY_ENGINE._entries
+    entries = [
+        e
+        for e in entries
+        if str((e.get("metadata") or {}).get("user_id") or "") == uid
+        and _normalize_account_id((e.get("metadata") or {}).get("account_id") or "default") == account_id
+    ]
     if memory_type:
         entries = [e for e in entries if e.get("memory_type") == memory_type]
     recent = entries[-limit:] if len(entries) > limit else entries
     recent = list(reversed(recent))
     return {
         "status": "ok",
-        "total": len(_MEMORY_ENGINE._entries),
+        "total": len(entries),
         "entries": recent,
-        "memory_types": list({e.get("memory_type", "semantic") for e in _MEMORY_ENGINE._entries}),
+        "memory_types": list({e.get("memory_type", "semantic") for e in entries}),
     }
 
 
 @app.post("/api/memory/search")
-async def search_memory(body: Dict[str, Any]):
+async def search_memory(request: Request, body: Dict[str, Any]):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = str(user.get("id") or "local")
+    account_id = _active_account_id(_load_atlas_state())
     query = str(body.get("query") or "").strip()
     top_k = int(body.get("top_k") or 10)
     memory_type = body.get("memory_type")
     if not query:
         return {"status": "error", "error": "query is required"}
-    results = _MEMORY_ENGINE.retrieve(query, top_k=top_k, memory_type=memory_type)
+    results = [
+        r for r in _MEMORY_ENGINE.retrieve(query, top_k=top_k * 5, memory_type=memory_type)
+        if str((r.get("metadata") or {}).get("user_id") or "") == uid
+        and _normalize_account_id((r.get("metadata") or {}).get("account_id") or "default") == account_id
+    ][:top_k]
     return {"status": "ok", "query": query, "results": results, "count": len(results)}
 
 
 @app.post("/api/memory")
-async def store_memory_entry(body: Dict[str, Any]):
+async def store_memory_entry(request: Request, body: Dict[str, Any]):
+    user = await _require_auth_user(request)
+    if user is None:
+        return JSONResponse({"status": "unauthorized"}, status_code=401)
+    uid = str(user.get("id") or "local")
+    account_id = _active_account_id(_load_atlas_state())
     content = str(body.get("content") or "").strip()
     if not content:
         return {"status": "error", "error": "content is required"}
     memory_type = str(body.get("memory_type") or "semantic")
-    metadata = body.get("metadata") or {}
+    metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+    metadata = {**metadata, "user_id": uid, "account_id": account_id}
     try:
         entry_id = _MEMORY_ENGINE.store(content, memory_type=memory_type, metadata=metadata)
         return {"status": "ok", "id": entry_id}
@@ -6171,6 +6195,59 @@ async def atlas_chat(body: Dict[str, Any]):
         }
     if slash and slash.get("kind") == "error":
         return {"status": "error", "error": slash.get("error") or "Invalid command."}
+    requested_agent_id = str(body.get("agent_id") or "").strip().lower()
+    if mode == "assistant" and (requested_agent_id == "mammoth_guide" or (slash and slash.get("kind") == "guide")):
+        guide_message = str(slash.get("message") if slash and slash.get("kind") == "guide" else message).strip()
+        guide_payload = {
+            "message": guide_message,
+            "repo_context": repo_context,
+            "page_context": page_context,
+            "lesson_context": {
+                "current_lesson": current_lesson,
+                "current_exercise": current_exercise,
+                "learner_context": learner_context,
+            },
+        }
+        guide_result = registry_run_agent("mammoth_guide", guide_payload)
+        guide_reply = _render_chat_result(guide_result)
+        history.append(
+            {
+                "role": "assistant",
+                "message": guide_reply,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "adapter": "mammoth-guide",
+                "model": "mammoth-guide",
+                "mode": mode,
+                "evidence_items": [
+                    {
+                        "source": "mammoth-guide",
+                        "repo_context_used": bool(repo_context),
+                        "branch": str(repo_context.get("branch") or "main"),
+                    }
+                ],
+            }
+        )
+        state[history_key] = history[-60:]
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        _append_fab_usage_event(
+            state,
+            mode=mode,
+            page_context=page_context,
+            guard_triggered=False,
+        )
+        _save_atlas_state(state)
+        return {
+            "status": "ok",
+            "reply": guide_reply,
+            "adapter": "mammoth-guide",
+            "model": "mammoth-guide",
+            "chat_history": state[history_key],
+            "guard_triggered": False,
+            "mode": mode,
+            "runtime_status": _runtime_status_snapshot(),
+            "runtime_notice": None,
+            "trace_id": trace_id,
+        }
 
     if guard_triggered:
         regenerated_exercise = None
@@ -6503,6 +6580,11 @@ def _parse_mammoth_chat_command(message: str) -> Optional[Dict[str, Any]]:
         if not query:
             return {"kind": "error", "error": "Usage: /research <query>"}
         return {"kind": "research", "query": query}
+    if command == "/guide":
+        prompt = " ".join(tokens[1:]).strip()
+        if not prompt:
+            return {"kind": "error", "error": "Usage: /guide <question>"}
+        return {"kind": "guide", "message": prompt}
     if command == "/commit":
         commit_message = " ".join(tokens[1:]).strip()
         if not commit_message:
@@ -6602,10 +6684,14 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     symbols_raw = raw_repo_context.get("symbols") if isinstance(raw_repo_context.get("symbols"), list) else []
     symbols = [str(item).strip() for item in symbols_raw if str(item).strip()][:12]
     query = str(raw_repo_context.get("query") or "").strip()
+    branch = str(raw_repo_context.get("branch") or "main").strip() or "main"
+    if not re.fullmatch(r"[A-Za-z0-9._/\-]+", branch):
+        branch = "main"
     return {
         "query": query[:240],
         "files": files,
         "symbols": symbols,
+        "branch": branch,
         "include_git_status": bool(raw_repo_context.get("include_git_status", True)),
         "max_results": max(1, min(12, int(raw_repo_context.get("max_results") or 4))),
         "max_snippets": max(1, min(8, int(raw_repo_context.get("max_snippets") or 3))),
@@ -6633,6 +6719,36 @@ def _read_repo_file_excerpt(relative_path: str, *, max_lines: int = 120, max_cha
     }
 
 
+def _read_repo_file_excerpt_from_ref(
+    relative_path: str,
+    git_ref: str,
+    *,
+    max_lines: int = 120,
+    max_chars: int = 3600,
+) -> Dict[str, Any]:
+    result = _run_git_command(["show", f"{git_ref}:{relative_path}"])
+    if result.get("status") != "ok":
+        return {
+            "path": relative_path,
+            "status": "error",
+            "ref": git_ref,
+            "error": str(result.get("stderr") or "unable to read git ref content"),
+        }
+    raw = str(result.get("stdout") or "")
+    lines = raw.splitlines()
+    selected = lines[:max_lines]
+    content = "\n".join(f"{idx + 1}. {line}" for idx, line in enumerate(selected))
+    if len(content) > max_chars:
+        content = content[:max_chars].rstrip() + "\n..."
+    return {
+        "path": relative_path,
+        "status": "ok",
+        "line_count": len(lines),
+        "excerpt": content,
+        "ref": git_ref,
+    }
+
+
 def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, Any]:
     if not repo_request:
         return {}
@@ -6642,6 +6758,7 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
         "query": str(repo_request.get("query") or ""),
         "symbols": list(repo_request.get("symbols") or []),
         "files": list(repo_request.get("files") or []),
+        "branch": str(repo_request.get("branch") or "main"),
         "snippets": [],
         "search_hits": [],
     }
@@ -6654,39 +6771,59 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
             "stderr": str(git_status.get("stderr") or "")[:600],
         }
 
+    git_ref = str(repo_request.get("branch") or "main")
     for relative_path in (repo_request.get("files") or [])[: int(repo_request.get("max_snippets") or 3)]:
-        snapshot["snippets"].append(_read_repo_file_excerpt(relative_path))
+        snapshot["snippets"].append(_read_repo_file_excerpt_from_ref(relative_path, git_ref))
 
     query = str(repo_request.get("query") or "").strip().lower()
     if query:
         max_hits = int(repo_request.get("max_results") or 4)
-        skipped_dirs = {".git", "node_modules", "dist", "__pycache__", ".venv", "venv", ".mammoth"}
-        for path in ROOT.rglob("*"):
-            if len(snapshot["search_hits"]) >= max_hits:
-                break
-            if not path.is_file():
-                continue
-            if any(part in skipped_dirs for part in path.parts):
-                continue
-            if path.suffix.lower() not in {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml", ".yaml", ".yml"}:
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except Exception:
-                continue
-            lowered = text.lower()
-            index = lowered.find(query)
-            if index < 0:
-                continue
-            start = max(0, index - 120)
-            end = min(len(text), index + 220)
-            rel = str(path.relative_to(ROOT)).replace("/", "\\")
-            snapshot["search_hits"].append(
-                {
-                    "path": rel,
-                    "preview": text[start:end].replace("\n", " ").strip()[:280],
-                }
-            )
+        grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", query, git_ref], timeout=60)
+        if grep_result.get("status") == "ok":
+            for line in str(grep_result.get("stdout") or "").splitlines():
+                if len(snapshot["search_hits"]) >= max_hits:
+                    break
+                parts = line.split(":", 3)
+                if len(parts) < 4:
+                    continue
+                _, hit_path, hit_line, hit_preview = parts
+                snapshot["search_hits"].append(
+                    {
+                        "path": str(hit_path).replace("/", "\\"),
+                        "line": int(hit_line) if str(hit_line).isdigit() else 0,
+                        "preview": str(hit_preview).strip()[:280],
+                        "ref": git_ref,
+                    }
+                )
+        else:
+            skipped_dirs = {".git", "node_modules", "dist", "__pycache__", ".venv", "venv", ".mammoth"}
+            for path in ROOT.rglob("*"):
+                if len(snapshot["search_hits"]) >= max_hits:
+                    break
+                if not path.is_file():
+                    continue
+                if any(part in skipped_dirs for part in path.parts):
+                    continue
+                if path.suffix.lower() not in {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".json", ".toml", ".yaml", ".yml"}:
+                    continue
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except Exception:
+                    continue
+                lowered = text.lower()
+                index = lowered.find(query)
+                if index < 0:
+                    continue
+                start = max(0, index - 120)
+                end = min(len(text), index + 220)
+                rel = str(path.relative_to(ROOT)).replace("/", "\\")
+                snapshot["search_hits"].append(
+                    {
+                        "path": rel,
+                        "preview": text[start:end].replace("\n", " ").strip()[:280],
+                        "ref": "working-tree",
+                    }
+                )
 
     return snapshot
 
@@ -6724,13 +6861,12 @@ def _queue_gitops_approval(operation: str, payload: Dict[str, Any], *, trace_id:
 
 
 @app.post("/api/mammoth/chat/stream")
-async def mammoth_chat_stream(request: Request):
-
-    body = await request.json()
-    print("DEBUG RAW BODY:", body)
-
-    user_id = str(body.get("user_id") or "local")
-    print(">>> STREAM user_id =", user_id)
+async def mammoth_chat_stream(request: Any):
+    body: Dict[str, Any]
+    if isinstance(request, dict):
+        body = request
+    else:
+        body = await request.json()
 
     result = await mammoth_chat(body)
 
@@ -6751,28 +6887,45 @@ async def mammoth_chat_stream(request: Request):
 
 
 @app.get("/api/mammoth/chat/history")
-async def get_mammoth_chat_history(user_id: str = "local"):
+async def get_mammoth_chat_history():
     state = _load_atlas_state()
+    user_id = _current_request_user_id()
+    account_id = _active_account_id(state)
     history = state.get("mammoth_chat_history") or []
     if not isinstance(history, list):
         history = []
-    history = [item for item in history if item.get("user_id") == user_id]
+    history = [
+        item
+        for item in history
+        if str(item.get("user_id") or "") == user_id
+        and _normalize_account_id(item.get("account_id") or "default") == account_id
+    ]
     return {"status": "ok", "chat_history": history[-80:]}
 
 
 @app.delete("/api/mammoth/chat/history")
-async def delete_mammoth_chat_history(user_id: str = "local"):
+async def delete_mammoth_chat_history():
 
     state = _load_atlas_state()
+    user_id = _current_request_user_id()
+    account_id = _active_account_id(state)
     history = state.get("mammoth_chat_history") or []
     if not isinstance(history, list):
         history = []
-
-    deleted_messages = len(history)
+    scoped_history = [
+        item
+        for item in history
+        if str(item.get("user_id") or "") == user_id
+        and _normalize_account_id(item.get("account_id") or "default") == account_id
+    ]
+    deleted_messages = len(scoped_history)
 
     state["mammoth_chat_history"] = [
         item for item in history
-        if item.get("user_id") != user_id
+        if (
+            str(item.get("user_id") or "") != user_id
+            or _normalize_account_id(item.get("account_id") or "default") != account_id
+        )
     ]
 
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -6800,17 +6953,11 @@ async def mammoth_repo_context(body: Dict[str, Any]):
 
 @app.post("/api/mammoth/gitops/propose")
 async def mammoth_gitops_propose(body: Dict[str, Any]):
-    blocked = _require_admin_api()
-    if blocked is not None:
-        return blocked
-    operation = str(body.get("operation") or "").strip().lower()
-    payload = body.get("payload") if isinstance(body.get("payload"), dict) else {}
-    if operation not in {"git_status", "git_commit", "git_push", "git_deploy"}:
-        return {"status": "error", "error": "Unsupported gitops operation."}
-    if not _mutation_allowed():
-        return _owner_mutation_denied(operation)
-    queued = _queue_gitops_approval(operation, payload, trace_id=str(body.get("trace_id") or ""))
-    return {"status": "ok", **queued}
+    return {
+        "status": "error",
+        "error": "Git mutation commands are disabled in Mammoth Mind chat. Use Copilot CLI or repository workflow for commits/push/deploy.",
+        "code": "mammoth_chat_read_only",
+    }
 
 
 
@@ -6862,15 +7009,24 @@ async def mammoth_chat(body: Dict[str, Any]):
             return {"status": "error", "error": "Usage: /agent <agent_id> <message>"}
         body = {**body, "agent_id": slash["agent_id"], "message": slash["message"]}
         return await mammoth_chat(body)
+    if slash and slash.get("kind") == "guide":
+        body = {**body, "agent_id": "mammoth_guide", "message": str(slash.get("message") or "").strip()}
+        return await mammoth_chat(body)
     if slash and slash.get("kind") in {"web", "research"}:
         command_result = _run_internet_command(slash)
         reply = str(command_result.get("reply") or "No response produced.")
         state = _load_atlas_state()
-        user_id = str(body.get("user_id") or "local")
-        history = state.get("mammoth_chat_history") or []
-        if not isinstance(history, list):
-            history = []
-        history = [item for item in history if item.get("user_id") == user_id]
+        user_id = _current_request_user_id()
+        account_id = _active_account_id(state)
+        all_history = state.get("mammoth_chat_history") or []
+        if not isinstance(all_history, list):
+            all_history = []
+        history = [
+            item
+            for item in all_history
+            if str(item.get("user_id") or "") == user_id
+            and _normalize_account_id(item.get("account_id") or "default") == account_id
+        ]
 
         history.append({
             "role": "user",
@@ -6879,7 +7035,8 @@ async def mammoth_chat(body: Dict[str, Any]):
             "agent_id": "assistant",
             "mode": "chat",
             "page": "",
-	    "user_id": user_id,
+            "user_id": user_id,
+            "account_id": account_id,
         })
         history.append({
             "role": "assistant",
@@ -6899,16 +7056,26 @@ async def mammoth_chat(body: Dict[str, Any]):
             "orchestrated": False,
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
-	    "user_id": user_id,
+            "user_id": user_id,
+            "account_id": account_id,
         })
 
-        state["mammoth_chat_history"] = history[-80:]
+        other_history = [
+            item
+            for item in all_history
+            if (
+                str(item.get("user_id") or "") != user_id
+                or _normalize_account_id(item.get("account_id") or "default") != account_id
+            )
+        ]
+        scoped_history = history[-80:]
+        state["mammoth_chat_history"] = (other_history + scoped_history)[-400:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _save_atlas_state(state)
         return {
             "status": "ok" if command_result.get("status") == "ok" else "error",
             "reply": reply,
-            "chat_history": state["mammoth_chat_history"],
+            "chat_history": scoped_history,
             "thought_steps": [{
                 "ts": _ts(),
                 "label": "Internet command completed",
@@ -6929,25 +7096,15 @@ async def mammoth_chat(body: Dict[str, Any]):
             "trace_id": trace_id,
         }
     if slash and slash.get("kind") == "gitops":
-        if not _mutation_allowed():
-            return _owner_mutation_denied(str(slash.get("operation") or "gitops"))
-        queued = _queue_gitops_approval(
-            str(slash.get("operation") or ""),
-            slash.get("payload") if isinstance(slash.get("payload"), dict) else {},
-            trace_id=trace_id,
-        )
-        approval = queued.get("approval") if isinstance(queued.get("approval"), dict) else {}
         return {
-            "status": "ok",
-            "reply": f"Queued {slash.get('operation')} for approval.",
-            "agent_id": "coding_agent",
-            "adapter": "approval-gate",
-            "model": "approval-gate",
+            "status": "error",
+            "reply": "Git mutation commands are disabled in Mammoth Mind chat. Use Copilot CLI or repository workflow for commits/push/deploy.",
+            "agent_id": "assistant",
+            "adapter": "policy-guard",
+            "model": "policy-guard",
             "mode": "chat",
-            "task_id": str(queued.get("task_id") or ""),
-            "dispatched": True,
-            "approval": approval,
-            "preview": queued.get("preview"),
+            "task_id": "",
+            "dispatched": False,
             "trace_id": trace_id,
         }
     if slash and slash.get("kind") == "error":
@@ -6962,10 +7119,17 @@ async def mammoth_chat(body: Dict[str, Any]):
     adapter = str(body.get("adapter", "")).strip()
     model = str(body.get("model", "")).strip()
     temperature = float(body.get("temperature", 0.3))
-    user_id = str(body.get("user_id") or "local")
-    history = state.get("mammoth_chat_history") or []
-    if not isinstance(history, list):
-        history = []
+    user_id = _current_request_user_id()
+    account_id = _active_account_id(state)
+    all_history = state.get("mammoth_chat_history") or []
+    if not isinstance(all_history, list):
+        all_history = []
+    history = [
+        item
+        for item in all_history
+        if str(item.get("user_id") or "") == user_id
+        and _normalize_account_id(item.get("account_id") or "default") == account_id
+    ]
     runtime_status = _runtime_status_snapshot()
     web_context = body.get("web")
 
@@ -6977,6 +7141,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         "mode": mode,
         "page": str(page_context.get("current_page") or ""),
         "user_id": user_id,
+        "account_id": account_id,
     }
     history.append(user_entry)
 
@@ -6991,6 +7156,8 @@ async def mammoth_chat(body: Dict[str, Any]):
     task_id = ""
     dispatched = False
     evidence_items: List[Dict[str, Any]] = []
+    guide_steps_result = None
+    guide_branch_result = None
     fanout_agents = body.get("fanout_agents") if isinstance(body.get("fanout_agents"), list) else []
     orchestrate = bool(body.get("orchestrate") or body.get("multi_agent") or body.get("fanout")) or len(fanout_agents) > 1 or agent_id in {"herd", "orchestrator", "multi_agent"}
 
@@ -7070,6 +7237,8 @@ async def mammoth_chat(body: Dict[str, Any]):
                 lane_intent = "lesson_coaching"
             elif lane_agent == "shell_agent":
                 lane_intent = "shell"
+            elif lane_agent == "mammoth_guide":
+                lane_intent = "guide_platform"
             else:
                 lane_intent = "summarize"
         lane_payload = {
@@ -7111,9 +7280,16 @@ async def mammoth_chat(body: Dict[str, Any]):
             for key in ("files", "source_files", "references", "evidence", "diff"):
                 if lane_result.get(key):
                     evidence[key] = lane_result.get(key)
-        return {
+        # Preserve structured guide steps if the guide agent returned them
+        lane_guide_steps = None
+        if isinstance(lane_result, dict) and lane_result.get("guide_steps"):
+            lane_guide_steps = lane_result["guide_steps"]
+        elif isinstance(lane_run.get("result"), dict) and lane_run["result"].get("guide_steps"):
+            lane_guide_steps = lane_run["result"]["guide_steps"]
+
+        lane_return: Dict[str, Any] = {
             "agent_id": lane_agent,
-            "adapter": "agent-runtime",
+            "adapter": lane_result.get("adapter") if isinstance(lane_result, dict) else "agent-runtime",
             "model": str(lane_run.get("agent_id") or lane_agent),
             "reply": lane_reply,
             "task_id": lane_run.get("task_id") or "",
@@ -7122,6 +7298,10 @@ async def mammoth_chat(body: Dict[str, Any]):
             "evidence": evidence,
             "raw": lane_run,
         }
+        if lane_guide_steps:
+            lane_return["guide_steps"] = lane_guide_steps
+            lane_return["guide_branch"] = lane_result.get("branch") if isinstance(lane_result, dict) else "main"
+        return lane_return
 
     try:
         if orchestrate:
@@ -7169,6 +7349,13 @@ async def mammoth_chat(body: Dict[str, Any]):
                 evidence_items.append(lane_result["evidence"])
             if lane_result.get("agent_id") != "assistant":
                 thought_steps.append({"ts": _ts(), "label": "Packaged response", "detail": f"task_id={task_id or 'n/a'}", "status": "success"})
+            # Capture structured guide steps from guide agent
+            if lane_result.get("guide_steps"):
+                guide_steps_result = lane_result["guide_steps"]
+                guide_branch_result = lane_result.get("guide_branch") or "main"
+            else:
+                guide_steps_result = None
+                guide_branch_result = None
     except Exception as exc:
         runtime_status = _runtime_status_snapshot()
         safe_error = _sanitize_runtime_error_message(exc)
@@ -7200,22 +7387,35 @@ async def mammoth_chat(body: Dict[str, Any]):
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
-	"user_id": user_id,
+        "user_id": user_id,
+        "account_id": account_id,
     }
+    if guide_steps_result:
+        assistant_entry["guide_steps"] = guide_steps_result
+        assistant_entry["guide_branch"] = guide_branch_result or "main"
     history.append(assistant_entry)
-    state["mammoth_chat_history"] = [item for item in history if item.get("user_id") == user_id][-80:]
+    other_history = [
+        item
+        for item in all_history
+        if (
+            str(item.get("user_id") or "") != user_id
+            or _normalize_account_id(item.get("account_id") or "default") != account_id
+        )
+    ]
+    state["mammoth_chat_history"] = (other_history + history)[-400:]
+    scoped_history = history[-80:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
     _append_execution_event(
         kind="mammoth_chat",
         summary=f"Chat [{mode}] via {active_adapter or 'unknown'}: {message[:80]}{'…' if len(message)>80 else ''}",
         detail={"agent_id": agent_id, "mode": mode, "adapter": active_adapter, "task_id": task_id},
-        user_id=str(body.get("user_id") or "local") if isinstance(body, dict) else "local",
+        user_id=user_id,
     )
-    return {
+    final_response: Dict[str, Any] = {
         "status": "ok",
         "reply": reply,
-        "chat_history": state["mammoth_chat_history"],
+        "chat_history": scoped_history,
         "thought_steps": thought_steps[-12:],
         "agent_id": agent_id,
         "adapter": active_adapter,
@@ -7229,6 +7429,10 @@ async def mammoth_chat(body: Dict[str, Any]):
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
         "trace_id": trace_id,
     }
+    if guide_steps_result:
+        final_response["guide_steps"] = guide_steps_result
+        final_response["guide_branch"] = guide_branch_result or "main"
+    return final_response
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -7240,6 +7444,9 @@ async def get_notes():
     blocked = _require_admin_api()
     if blocked is not None:
         return blocked
+    scope_user_id = _current_request_user_id()
+    state = _load_atlas_state()
+    scope_account_id = _active_account_id(state)
     notes = _read_json(NOTES_FILE, default=[])
     if not isinstance(notes, list):
         return []
@@ -7247,7 +7454,7 @@ async def get_notes():
     normalized: List[Dict[str, Any]] = []
     for raw in reversed(notes):
         note = _normalize_note_record(raw)
-        if note:
+        if note and note.get("user_id") == scope_user_id and note.get("account_id") == scope_account_id:
             normalized.append(note)
     return normalized
 
@@ -7257,6 +7464,9 @@ async def upsert_note(body: Dict[str, Any]):
     blocked = _require_admin_api()
     if blocked is not None:
         return blocked
+    scope_user_id = _current_request_user_id()
+    state = _load_atlas_state()
+    scope_account_id = _active_account_id(state)
     notes = _read_json(NOTES_FILE, default=[])
     if not isinstance(notes, list):
         notes = []
@@ -7265,8 +7475,21 @@ async def upsert_note(body: Dict[str, Any]):
     if note_id:
         for i, n in enumerate(notes):
             if n.get("id") == note_id:
+                if str(n.get("user_id") or "") != scope_user_id or _normalize_account_id(n.get("account_id") or "default") != scope_account_id:
+                    continue
                 created_at = str(n.get("created_at") or n.get("updated_at") or now)
-                normalized = _normalize_note_record({**n, **body, "id": note_id, "created_at": created_at, "updated_at": now}, now=now)
+                normalized = _normalize_note_record(
+                    {
+                        **n,
+                        **body,
+                        "id": note_id,
+                        "created_at": created_at,
+                        "updated_at": now,
+                        "user_id": scope_user_id,
+                        "account_id": scope_account_id,
+                    },
+                    now=now,
+                )
                 if normalized is None:
                     return {"status": "error", "error": "note payload is invalid"}
                 notes[i] = normalized
@@ -7286,6 +7509,8 @@ async def upsert_note(body: Dict[str, Any]):
         "priority": body.get("priority"),
         "subsystem": body.get("subsystem"),
         "metadata": body.get("metadata"),
+        "user_id": scope_user_id,
+        "account_id": scope_account_id,
     }, now=now)
     if new_note is None:
         return {"status": "error", "error": "note payload is invalid"}
@@ -7299,8 +7524,16 @@ async def delete_note(note_id: str):
     blocked = _require_admin_api()
     if blocked is not None:
         return blocked
+    scope_user_id = _current_request_user_id()
+    state = _load_atlas_state()
+    scope_account_id = _active_account_id(state)
     notes = _read_json(NOTES_FILE)
-    notes = [n for n in notes if n.get("id") != note_id]
+    notes = [
+        n for n in notes
+        if str(n.get("id") or "") != note_id
+        or str(n.get("user_id") or "") != scope_user_id
+        or _normalize_account_id(n.get("account_id") or "default") != scope_account_id
+    ]
     _write_json(NOTES_FILE, notes)
     return {"status": "ok"}
 
@@ -7506,6 +7739,8 @@ def _normalize_note_record(raw: Any, *, now: Optional[str] = None) -> Optional[D
     priority = str(raw.get("priority") or "normal").strip() or "normal"
     subsystem = str(raw.get("subsystem") or "general").strip() or "general"
     metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    user_id = str(raw.get("user_id") or _current_request_user_id()).strip() or "local"
+    account_id = _normalize_account_id(raw.get("account_id") or "default")
 
     return {
         "id": note_id,
@@ -7520,6 +7755,8 @@ def _normalize_note_record(raw: Any, *, now: Optional[str] = None) -> Optional[D
         "priority": priority,
         "subsystem": subsystem,
         "metadata": metadata,
+        "user_id": user_id,
+        "account_id": account_id,
     }
 
 
@@ -7955,6 +8192,7 @@ def _agent_quality_snapshot(agent_id: str) -> Dict[str, Any]:
 
 _STATIC_MODULES = [
     {"id": "coding_agent",      "name": "CodingAgent",      "version": "v1.2.0", "status": "active",   "description": "Code generation, refactor, review"},
+    {"id": "mammoth_guide", "name": "MammothGuideAgent", "version": "v1.0.0", "status": "active", "description": "Repo-aware onboarding and SDK/ATLAS usage guidance"},
     {"id": "repo_context_engine", "name": "RepoContextEngine", "version": "v1.0.0", "status": "active", "description": "Repository-aware context snapshots for Mammoth Mind and FAB"},
     {"id": "page_context_bridge", "name": "PageContextBridge", "version": "v1.0.0", "status": "active", "description": "Live page context normalization and prompt wiring"},
     {"id": "gitops_guard", "name": "GitOpsGuard", "version": "v1.0.0", "status": "ready", "description": "Approval-gated commit/push/deploy intent routing"},
@@ -9375,8 +9613,8 @@ async def export_account_data(request: Request):
     uid = user.get("id", "local")
 
     state = _load_atlas_state()
-    notes = [n for n in _load_json_file(NOTES_FILE) if n.get("user_id") == uid or True]
-    activities = [a for a in _load_json_file(AGENT_ACTIVITY_FILE) if a.get("user_id") == uid or True]
+    notes = [n for n in _load_json_file(NOTES_FILE) if str(n.get("user_id") or "") == uid]
+    activities = [a for a in _load_json_file(AGENT_ACTIVITY_FILE) if str(a.get("user_id") or "") == uid]
     notifs = [n for n in _load_notifications() if n.get("user_id") == uid or n.get("user_id") is None]
 
     export = {

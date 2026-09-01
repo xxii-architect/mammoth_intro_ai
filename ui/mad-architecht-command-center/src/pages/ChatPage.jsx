@@ -1,11 +1,50 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check } from 'lucide-react'
+import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, GitBranch, FolderGit2 } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
 import ChatMessageBody from '../components/ChatMessageBody'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
+import GuideStepPanel from '../components/GuideStepPanel'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
+
+// ─── Repo picker helpers ────────────────────────────────────────────────────
+
+function loadRepos(userId) {
+  try {
+    const raw = localStorage.getItem(`mammoth_repos:${userId}`)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+}
+
+function saveRepos(userId, repos) {
+  localStorage.setItem(`mammoth_repos:${userId}`, JSON.stringify(repos.slice(0, 20)))
+}
+
+function loadActiveRepo(userId) {
+  try {
+    return localStorage.getItem(`mammoth_active_repo:${userId}`) || null
+  } catch { return null }
+}
+
+function saveActiveRepo(userId, repoId) {
+  if (repoId) localStorage.setItem(`mammoth_active_repo:${userId}`, repoId)
+  else localStorage.removeItem(`mammoth_active_repo:${userId}`)
+}
+
+// Convert a GitHub-format string (owner/repo) or path to a root string for repo_context
+function repoToRoot(repo) {
+  if (!repo) return null
+  const entry = typeof repo === 'string' ? repo : repo.value
+  if (!entry) return null
+  // GitHub format: owner/repo → we pass it as-is and let backend use git remote context
+  // Local path: /opt/... or C:\... → use directly
+  return entry.trim()
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 
 const AGENT_OPTIONS = [
   { id: 'assistant', label: 'Mammoth Assistant', Icon: MessageSquare, accent: 'var(--photon)', detail: 'Normal AI chat for planning, debugging, and product thinking.' },
@@ -45,9 +84,8 @@ const QUICK_ACTIONS = [
 
 const SLASH_ACTIONS = [
   '/agent coding_agent Patch the current feature safely',
+  '/guide Walk me through the MammothOS SDK entry points',
   '/plan Build the next MammothOS upgrade slice',
-  '/commit feat: summarize these staged upgrades',
-  '/push origin main',
   '/approvals',
   '/runs',
 ]
@@ -162,10 +200,6 @@ function updateLastAssistant(list, updater) {
   if (idx < 0) return list
   const next = [...list]
   next[idx] = updater(next[idx])
-function inferWebTargets(message) {
-  const urls = String(message || '').match(/https?:\/\/[^\s]+/g)
-  return urls || null
-}
   return next
 }
 
@@ -245,7 +279,7 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
   }
 
   return (
-    <div style={{ alignSelf: isUser ? 'flex-end' : 'flex-start', maxWidth: '94%' }}>
+    <div style={{ alignSelf: isUser ? 'flex-end' : 'flex-start', maxWidth: '98%' }}>
       {/* Sender label */}
       <div style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.12em', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>{agentLabel}</span>
@@ -259,10 +293,10 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         background: isUser ? 'rgba(77,166,255,0.15)' : 'rgba(255,255,255,0.04)',
         border: `1px solid ${isUser ? 'rgba(77,166,255,0.3)' : isStreamingBubble ? 'rgba(77,166,255,0.2)' : 'rgba(255,255,255,0.08)'}`,
         borderRadius: isUser ? '14px 14px 4px 14px' : '4px 14px 14px 14px',
-        padding: '13px 15px',
+        padding: '16px 18px',
         color: 'var(--txt-pri)',
-        fontSize: '0.9rem',
-        lineHeight: 1.72,
+        fontSize: '0.94rem',
+        lineHeight: 1.8,
         boxShadow: isStreamingBubble ? '0 0 0 1px rgba(77,166,255,0.06) inset' : 'none',
         position: 'relative',
       }}>
@@ -284,6 +318,11 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         <div style={{ marginTop: 4, fontSize: '0.66rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>
           {(entry.adapter || 'runtime')} • {(entry.model || 'unknown')}{entry.task_id ? ` • ${entry.task_id}` : ''}
         </div>
+      )}
+
+      {/* Guide step panel for mammoth_guide responses */}
+      {!isUser && Array.isArray(entry.guide_steps) && entry.guide_steps.length > 0 && (
+        <GuideStepPanel steps={entry.guide_steps} branch={entry.guide_branch} query={prevMessage?.message} />
       )}
 
       {/* Evidence cards */}
@@ -344,24 +383,30 @@ export default function ChatPage({ setPage }) {
   const [error, setError] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState(-1)
-  const [quickActionsOpen, setQuickActionsOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 768 : true))
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false)
   const [taskCards, setTaskCards] = useState(() => loadTaskCards())
   const [approvals, setApprovals] = useState([])
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
   const [isNarrowLayout, setIsNarrowLayout] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 1540 : false))
   const [isShortViewport, setIsShortViewport] = useState(() => (typeof window !== 'undefined' ? window.innerHeight < 860 : false))
   const [isMobile, setIsMobile] = useState(() => (typeof window !== 'undefined' ? window.innerWidth < 768 : false))
-  const [rightRailOpen, setRightRailOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1540 : true))
+  const [rightRailOpen, setRightRailOpen] = useState(false)
   const [sessionResumed, setSessionResumed] = useState(false)
+  // Repo picker state
+  const [repos, setRepos] = useState([])
+  const [activeRepoId, setActiveRepoId] = useState(null)
+  const [repoInput, setRepoInput] = useState('')
+  const [repoPickerOpen, setRepoPickerOpen] = useState(false)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
   const { user } = useAuth()
+  const scopeUserId = user?.id || 'local'
 
   const refreshOps = async () => {
     try {
       const [approvalList, runData] = await Promise.all([
-        api(`/approvals?user_id=${user.id}`),
-        api(`/autonomous/runs?user_id=${user.id}`),
+        api(`/approvals?user_id=${encodeURIComponent(scopeUserId)}`),
+        api(`/autonomous/runs?user_id=${encodeURIComponent(scopeUserId)}`),
 
       ])
       const nextApprovals = Array.isArray(approvalList) ? approvalList : []
@@ -380,14 +425,14 @@ export default function ChatPage({ setPage }) {
   useEffect(() => {
     let stored = null
     try {
-      stored = typeof window !== 'undefined' ? JSON.parse(window.localStorage.getItem('mammoth_chat_history') || 'null') : null
+      stored = typeof window !== 'undefined' ? JSON.parse(window.localStorage.getItem(`mammoth_chat_history:${scopeUserId}`) || 'null') : null
     } catch {
       stored = null
     }
     if (Array.isArray(stored) && stored.length > 0) {
       setHistory(stored)
     }
-    api('/mammoth/chat/history?user_id=${user.id}')
+    api('/mammoth/chat/history')
       .then((data) => {
         const chatHistory = Array.isArray(data?.chat_history) ? data.chat_history : []
         const nextHistory = chatHistory.length > 0 ? chatHistory : stored || []
@@ -403,16 +448,24 @@ export default function ChatPage({ setPage }) {
         }
       })
     refreshOps()
-  }, [])
+  }, [scopeUserId])
+
+  // Load repos from per-user localStorage
+  useEffect(() => {
+    const stored = loadRepos(scopeUserId)
+    setRepos(stored)
+    const active = loadActiveRepo(scopeUserId)
+    setActiveRepoId(active || (stored[0]?.id || null))
+  }, [scopeUserId])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (history.length > 0) {
-      window.localStorage.setItem('mammoth_chat_history', JSON.stringify(history.slice(-50)))
+      window.localStorage.setItem(`mammoth_chat_history:${scopeUserId}`, JSON.stringify(history.slice(-50)))
     } else {
-      window.localStorage.removeItem('mammoth_chat_history')
+      window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
     }
-  }, [history])
+  }, [history, scopeUserId])
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -451,6 +504,39 @@ export default function ChatPage({ setPage }) {
   const showRightRail = rightRailOpen
   const showInlineRightRail = showRightRail && !isNarrowLayout
   const showDrawerRightRail = showRightRail && isNarrowLayout
+
+  // Active repo for context
+  const activeRepo = repos.find((r) => r.id === activeRepoId) || repos[0] || null
+  const activeRepoRoot = activeRepo ? repoToRoot(activeRepo) : '/opt/mammothos/mammoth_intro_ai'
+
+  const addRepo = () => {
+    const val = repoInput.trim()
+    if (!val) return
+    const id = `repo-${Date.now()}`
+    const newRepo = { id, value: val, label: val, added_at: new Date().toISOString() }
+    const next = [newRepo, ...repos].slice(0, 20)
+    setRepos(next)
+    saveRepos(scopeUserId, next)
+    setActiveRepoId(id)
+    saveActiveRepo(scopeUserId, id)
+    setRepoInput('')
+  }
+
+  const removeRepo = (id) => {
+    const next = repos.filter((r) => r.id !== id)
+    setRepos(next)
+    saveRepos(scopeUserId, next)
+    if (activeRepoId === id) {
+      const nextActive = next[0]?.id || null
+      setActiveRepoId(nextActive)
+      saveActiveRepo(scopeUserId, nextActive)
+    }
+  }
+
+  const switchRepo = (id) => {
+    setActiveRepoId(id)
+    saveActiveRepo(scopeUserId, id)
+  }
 
   const pushThought = (step) => {
     setThoughtSteps((prev) => [...prev, step])
@@ -587,6 +673,21 @@ export default function ChatPage({ setPage }) {
         }
         if (payload.chat_history) {
           setHistory(Array.isArray(payload.chat_history) ? payload.chat_history : [])
+        } else if (Array.isArray(payload.guide_steps) && payload.guide_steps.length) {
+          // Inject guide_steps into the placeholder bubble if history not replaced
+          setHistory((prev) => {
+            const next = [...prev]
+            if (placeholderIndex >= 0 && next[placeholderIndex]) {
+              next[placeholderIndex] = {
+                ...next[placeholderIndex],
+                guide_steps: payload.guide_steps,
+                guide_branch: payload.guide_branch || 'main',
+                adapter: payload.adapter || next[placeholderIndex].adapter,
+                stream: false,
+              }
+            }
+            return next
+          })
         }
         setMeta({
           agentId: payload.agent_id || effectiveAgentId,
@@ -767,8 +868,9 @@ export default function ChatPage({ setPage }) {
         coding_intent: effectiveAgentId === 'coding_agent' ? codingIntent : undefined,
         page_context: buildLivePageContext(),
         repo_context: {
-          root: "/opt/mammothos/mammoth_intro_ai",
+          root: activeRepoRoot,
           query: message,
+          branch: 'main',
           files: [],
           include_git_status: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent',
           max_results: effectiveAgentId === 'coding_agent' || effectiveAgentId === 'reasoning_agent' ? 4 : 2,
@@ -790,15 +892,14 @@ export default function ChatPage({ setPage }) {
     try {
       await authorizedFetch('/mammoth/chat/history', {
         method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.id })
+        headers: { 'Content-Type': 'application/json' }
       })
 
     } catch (e) {
       console.warn('Failed to clear chat history on backend:', e)
     }
     if (typeof window !== 'undefined') {
-      window.localStorage.removeItem('mammoth_chat_history')
+      window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
     }
     setHistory([])
     setThoughtSteps([])
@@ -840,7 +941,7 @@ export default function ChatPage({ setPage }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gap: 18, flex: 1, minHeight: 0 }}>
-        <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: isShortViewport ? '80vh' : '84vh', overflow: 'hidden' }}>
+        <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: isShortViewport ? '84vh' : '90vh', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Current lane</div>
@@ -914,7 +1015,7 @@ export default function ChatPage({ setPage }) {
             )}
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
             {history.length === 0 && (
               <div style={{ margin: '24px auto', maxWidth: 680, textAlign: 'center' }}>
                 <Sparkles size={28} color="var(--photon)" style={{ marginBottom: 10 }} />
@@ -958,7 +1059,7 @@ export default function ChatPage({ setPage }) {
                 }}
                 rows={isMobile ? 2 : 4}
                 placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
-                style={{ flex: 1, resize: 'vertical', minHeight: 88, maxHeight: 160, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.9rem', padding: '13px 15px', outline: 'none', lineHeight: 1.55 }}
+                  style={{ flex: 1, resize: 'vertical', minHeight: 100, maxHeight: 240, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '14px 16px', outline: 'none', lineHeight: 1.6 }}
               />
               <button
                 onClick={() => send()}
@@ -991,6 +1092,86 @@ export default function ChatPage({ setPage }) {
               Collapse rail
             </button>
           </div>
+
+          {/* ─── Repo Context Picker ─────────────────────────────────────── */}
+          <div className="glass-card-solid" style={{ padding: isShortViewport ? 14 : 16, borderLeft: '3px solid var(--cyan)' }}>
+            <button
+              type="button"
+              onClick={() => setRepoPickerOpen((p) => !p)}
+              style={{ width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-pri)' }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <FolderGit2 size={14} color="var(--cyan)" />
+                  <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, margin: 0 }}>Repo Context</p>
+                </div>
+                {repoPickerOpen ? <ChevronDown size={13} color="var(--txt-mut)" /> : <ChevronRight size={13} color="var(--txt-mut)" />}
+              </div>
+            </button>
+            {/* Active repo badge */}
+            <div style={{ marginTop: 8, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>
+              Active: <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>
+                {activeRepo?.label || activeRepo?.value || 'default (server)'}
+              </span>
+            </div>
+
+            {repoPickerOpen && (
+              <div style={{ marginTop: 12, display: 'grid', gap: 10 }}>
+                {/* Add repo */}
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    value={repoInput}
+                    onChange={(e) => setRepoInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') addRepo() }}
+                    placeholder="owner/repo or /local/path"
+                    style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: 'var(--txt-pri)', fontSize: '0.76rem', padding: '7px 10px', outline: 'none', fontFamily: 'JetBrains Mono,monospace' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={addRepo}
+                    disabled={!repoInput.trim()}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '7px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.3)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.74rem', cursor: repoInput.trim() ? 'pointer' : 'not-allowed', opacity: repoInput.trim() ? 1 : 0.5 }}
+                  >
+                    <Plus size={13} /> Add
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', margin: 0, lineHeight: 1.5 }}>
+                  GitHub: <code style={{ color: 'var(--photon)' }}>owner/repo</code> · Local: <code style={{ color: 'var(--photon)' }}>/opt/path</code>
+                </p>
+
+                {/* Repo list */}
+                {repos.length > 0 && (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    {repos.map((repo) => (
+                      <div
+                        key={repo.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px', borderRadius: 9, border: `1px solid ${activeRepoId === repo.id ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`, background: activeRepoId === repo.id ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.025)', cursor: 'pointer' }}
+                        onClick={() => switchRepo(repo.id)}
+                      >
+                        <GitBranch size={12} color={activeRepoId === repo.id ? 'var(--cyan)' : 'var(--txt-mut)'} />
+                        <span style={{ flex: 1, fontSize: '0.74rem', fontFamily: 'JetBrains Mono,monospace', color: activeRepoId === repo.id ? 'var(--photon)' : 'var(--txt-sec)', overflowWrap: 'anywhere', wordBreak: 'break-all' }}>{repo.label || repo.value}</span>
+                        {activeRepoId === repo.id && <Check size={12} color="var(--cyan)" />}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeRepo(repo.id) }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 2, display: 'flex' }}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {repos.length === 0 && (
+                  <p style={{ fontSize: '0.74rem', color: 'var(--txt-mut)', margin: 0, lineHeight: 1.5 }}>
+                    No repos added yet. Add one above to give context to any agent.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+          {/* ─────────────────────────────────────────────────────────────── */}
           <div className="glass-card-solid" style={{ padding: isShortViewport ? 14 : 16 }}>
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, marginBottom: 10 }}>
               Routing Snapshot
@@ -1080,6 +1261,3 @@ export default function ChatPage({ setPage }) {
     </div>
   )
 }
-
-
-

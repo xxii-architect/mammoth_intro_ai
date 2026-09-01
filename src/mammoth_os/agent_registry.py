@@ -206,6 +206,10 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.custodial_agent import CustodialAgent
         return CustodialAgent(router)
 
+    if agent_name == "mammoth_guide":
+        from mammoth_os.agents.mammoth_guide_agent import MammothGuideAgent
+        return MammothGuideAgent(router)
+
     raise ValueError(f"Unknown agent '{agent_name}'")
 
 
@@ -226,7 +230,7 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                     else:
                         normalized.setdefault("prompt", prompt_value)
             return normalized
-        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops"}:
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "mammoth_guide"}:
             normalized = dict(payload)
             prompt_val = str(normalized.get("prompt") or "").strip()
             if agent_name == "tutor" and prompt_val and not normalized.get("topic"):
@@ -256,6 +260,11 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                 prompt_value = normalized.get("task") or normalized.get("description") or normalized.get("content")
                 if isinstance(prompt_value, str):
                     normalized["prompt"] = prompt_value
+            if agent_name == "mammoth_guide":
+                if not normalized.get("message") and prompt_val:
+                    normalized["message"] = prompt_val
+                if "repo_context" not in normalized:
+                    normalized["repo_context"] = {}
             return normalized
         if agent_name in {"curriculum", "research", "custodial"}:
             if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
@@ -295,6 +304,7 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "reasoning":       lambda prompt: run_agent("reasoning", prompt, router),        # type: ignore
     "coding":          lambda prompt: run_agent("coding", prompt, router),           # type: ignore
     "custodial":       lambda prompt: run_agent("custodial", prompt, router),        # type: ignore
+    "mammoth_guide":   lambda prompt: run_agent("mammoth_guide", prompt, router),    # type: ignore
 }
 
 
