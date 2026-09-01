@@ -7,6 +7,17 @@ class PlannerAgent(BaseAgent):# type: ignore
     assigned to a specific agent. Plans are validated before execution.
     """
 
+    name = "PlannerAgent"
+
+    def __init__(self, router=None):
+        super().__init__(router)
+
+    def log(self, level: str, message: str) -> None:
+        print(f"[PlannerAgent:{level}] {message}")
+
+    async def emit_event(self, event_type: str, payload) -> None:
+        self.log("INFO", f"Emitting {event_type}")
+
     async def create_plan(self, goal: str, constraints: dict = None) -> dict:# type: ignore
         """
         Generate an execution plan for a given goal.
@@ -169,6 +180,27 @@ class PlannerAgent(BaseAgent):# type: ignore
 
         is_valid = len(diagnostics) == 0 and not cycle_found
         return is_valid, diagnostics
+
+    async def run(self, payload) -> dict:
+        if isinstance(payload, dict):
+            goal = str(payload.get("goal") or payload.get("prompt") or "").strip()
+            constraints = payload.get("constraints") or {}
+        else:
+            goal = str(payload or "").strip()
+            constraints = {}
+        if not goal:
+            return {"status": "needs_context", "agent": "PlannerAgent", "summary": "Provide a goal to plan."}
+        plan = await self.create_plan(goal, constraints)
+        is_valid, diagnostics = await self.validate_plan(plan)
+        return {
+            "status": "ok",
+            "agent": "PlannerAgent",
+            "plan": plan,
+            "valid": is_valid,
+            "diagnostics": diagnostics,
+            "summary": f"Plan created with {len(plan.get('tasks', []))} task(s). Valid={is_valid}.",
+            "quality_flags": ["structured_plan", "dag_validated"],
+        }
 
     async def process(self, event: "MammothEvent") -> None:# type: ignore
         if event.event_type == "PLAN_REQUEST":

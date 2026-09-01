@@ -162,6 +162,14 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.community_engine_agent import CommunityEngineAgent
         return CommunityEngineAgent()
 
+    if agent_name in {"classifier", "classifier_agent"}:
+        from mammoth_os.agents.classifier_agent import ClassifierAgent
+        return ClassifierAgent(router)
+
+    if agent_name in {"orchestrator", "orchestrator_agent"}:
+        from mammoth_os.agents.orchestrator_agent import OrchestratorAgent
+        return OrchestratorAgent(router)
+
     if agent_name in {"browser", "browser_agent"}:
         from mammoth_os.agents.browser_agent import BrowserAgent
         return BrowserAgent(router)
@@ -169,6 +177,66 @@ def load_agent(agent_name: str, router=None):
     if agent_name in {"task_queue", "task_queue_agent"}:
         from mammoth_os.agents.task_queue_agent import TaskQueueAgent
         return TaskQueueAgent(router)
+
+    if agent_name in {"cache", "cache_agent"}:
+        from mammoth_os.agents.cache_agent import CacheAgent
+        return CacheAgent(router)
+
+    if agent_name in {"planner", "planner_agent"}:
+        from mammoth_os.agents.planner_agent import PlannerAgent
+        return PlannerAgent(router)
+
+    if agent_name in {"auth", "auth_agent"}:
+        from mammoth_os.agents.auth_agent import AuthAgent
+        return AuthAgent(router)
+
+    if agent_name in {"build", "build_agent"}:
+        from mammoth_os.agents.build_agent import BuildAgent
+        return BuildAgent(router)
+
+    if agent_name in {"executor", "executor_agent"}:
+        from mammoth_os.agents.executor_agent import ExecutorAgent
+        return ExecutorAgent(router)
+
+    if agent_name in {"filesystem", "filesystem_agent"}:
+        from mammoth_os.agents.filesystem_agent import FileSystemAgent
+        return FileSystemAgent(router)
+
+    if agent_name in {"deploy", "deploy_agent"}:
+        from mammoth_os.agents.deploy_agent import DeployAgent
+        return DeployAgent(router)
+
+    if agent_name in {"database", "database_agent"}:
+        from mammoth_os.agents.database_agent import DatabaseAgent
+        return DatabaseAgent(router)
+
+    if agent_name in {"vector_store", "vector_store_agent"}:
+        from mammoth_os.agents.vector_store_agent import VectorStoreAgent
+        return VectorStoreAgent(router)
+
+    if agent_name in {"scheduler", "scheduler_agent"}:
+        from mammoth_os.agents.scheduler_agent import SchedulerAgent
+        return SchedulerAgent(router)
+
+    if agent_name in {"snapshot", "snapshot_agent"}:
+        from mammoth_os.agents.snapshot_agent import SnapshotAgent
+        return SnapshotAgent(router)
+
+    if agent_name in {"config_manager", "config_manager_agent"}:
+        from mammoth_os.agents.config_manager_agent import ConfigManagerAgent
+        return ConfigManagerAgent(router)
+
+    if agent_name in {"search", "search_agent"}:
+        from mammoth_os.agents.search_agent import SearchAgent
+        return SearchAgent(router)
+
+    if agent_name in {"self_heal", "self_heal_agent"}:
+        from mammoth_os.agents.self_heal_agent import SelfHealAgent
+        return SelfHealAgent(router)
+
+    if agent_name in {"evolution", "evolution_agent"}:
+        from mammoth_os.agents.evolution_agent import EvolutionAgent
+        return EvolutionAgent(router)
 
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
@@ -226,13 +294,23 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                     else:
                         normalized.setdefault("prompt", prompt_value)
             return normalized
-        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops"}:
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "classifier", "classifier_agent", "orchestrator", "orchestrator_agent", "cache", "cache_agent", "search", "search_agent", "self_heal", "self_heal_agent", "evolution", "evolution_agent"}:
             normalized = dict(payload)
             prompt_val = str(normalized.get("prompt") or "").strip()
             if agent_name == "tutor" and prompt_val and not normalized.get("topic"):
                 normalized["topic"] = prompt_val
             elif agent_name == "reasoning" and prompt_val and not normalized.get("problem"):
                 normalized["problem"] = prompt_val
+            elif agent_name in {"cache", "cache_agent"} and prompt_val and not normalized.get("key"):
+                normalized["key"] = prompt_val
+            elif agent_name in {"search", "search_agent"} and prompt_val and not normalized.get("query"):
+                normalized["query"] = prompt_val
+            elif agent_name in {"self_heal", "self_heal_agent", "evolution", "evolution_agent"} and prompt_val and not normalized.get("action"):
+                normalized["action"] = prompt_val
+            elif agent_name in {"classifier", "classifier_agent"} and prompt_val and not normalized.get("text"):
+                normalized["text"] = prompt_val
+            elif agent_name in {"orchestrator", "orchestrator_agent"} and prompt_val and not normalized.get("goal"):
+                normalized["goal"] = prompt_val
             elif agent_name == "reflection":
                 # Map plan-execute prompt fields into the reflection agent's expected schema.
                 if prompt_val and not normalized.get("topic"):
@@ -287,6 +365,12 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "brand_voice":     lambda prompt: run_agent("brand_voice", prompt),              # type: ignore
     "visual_engine":   lambda prompt: run_agent("visual_engine", prompt),            # type: ignore
     "community_engine":lambda prompt: run_agent("community_engine", prompt),         # type: ignore
+    "classifier":      lambda prompt: run_agent("classifier", prompt, router),       # type: ignore
+    "orchestrator":    lambda prompt: run_agent("orchestrator", prompt, router),     # type: ignore
+    "cache":           lambda prompt: run_agent("cache", prompt, router),            # type: ignore
+    "search":          lambda prompt: run_agent("search", prompt, router),           # type: ignore
+    "self_heal":       lambda prompt: run_agent("self_heal", prompt, router),        # type: ignore
+    "evolution":       lambda prompt: run_agent("evolution", prompt, router),        # type: ignore
     "browser":         lambda prompt: run_agent("browser", prompt),                  # type: ignore
     "task_queue":      lambda prompt: run_agent("task_queue", prompt),               # type: ignore
     "research":        lambda prompt: run_agent("research", prompt),                 # type: ignore

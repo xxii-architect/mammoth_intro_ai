@@ -136,6 +136,74 @@ def load_agent(agent_name: str, router: Optional[CortexRouter] = None) -> Any:
         from mammoth_os.agents.community_engine_agent import CommunityEngineAgent
         return CommunityEngineAgent()
 
+    if agent_name in {"classifier", "classifier_agent"}:
+        from mammoth_os.agents.classifier_agent import ClassifierAgent
+        return ClassifierAgent(router)
+
+    if agent_name in {"orchestrator", "orchestrator_agent"}:
+        from mammoth_os.agents.orchestrator_agent import OrchestratorAgent
+        return OrchestratorAgent(router)
+
+    if agent_name in {"cache", "cache_agent"}:
+        from mammoth_os.agents.cache_agent import CacheAgent
+        return CacheAgent(router)
+
+    if agent_name in {"planner", "planner_agent"}:
+        from mammoth_os.agents.planner_agent import PlannerAgent
+        return PlannerAgent(router)
+
+    if agent_name in {"auth", "auth_agent"}:
+        from mammoth_os.agents.auth_agent import AuthAgent
+        return AuthAgent(router)
+
+    if agent_name in {"build", "build_agent"}:
+        from mammoth_os.agents.build_agent import BuildAgent
+        return BuildAgent(router)
+
+    if agent_name in {"executor", "executor_agent"}:
+        from mammoth_os.agents.executor_agent import ExecutorAgent
+        return ExecutorAgent(router)
+
+    if agent_name in {"filesystem", "filesystem_agent"}:
+        from mammoth_os.agents.filesystem_agent import FileSystemAgent
+        return FileSystemAgent(router)
+
+    if agent_name in {"deploy", "deploy_agent"}:
+        from mammoth_os.agents.deploy_agent import DeployAgent
+        return DeployAgent(router)
+
+    if agent_name in {"database", "database_agent"}:
+        from mammoth_os.agents.database_agent import DatabaseAgent
+        return DatabaseAgent(router)
+
+    if agent_name in {"vector_store", "vector_store_agent"}:
+        from mammoth_os.agents.vector_store_agent import VectorStoreAgent
+        return VectorStoreAgent(router)
+
+    if agent_name in {"scheduler", "scheduler_agent"}:
+        from mammoth_os.agents.scheduler_agent import SchedulerAgent
+        return SchedulerAgent(router)
+
+    if agent_name in {"snapshot", "snapshot_agent"}:
+        from mammoth_os.agents.snapshot_agent import SnapshotAgent
+        return SnapshotAgent(router)
+
+    if agent_name in {"config_manager", "config_manager_agent"}:
+        from mammoth_os.agents.config_manager_agent import ConfigManagerAgent
+        return ConfigManagerAgent(router)
+
+    if agent_name in {"search", "search_agent"}:
+        from mammoth_os.agents.search_agent import SearchAgent
+        return SearchAgent(router)
+
+    if agent_name in {"self_heal", "self_heal_agent"}:
+        from mammoth_os.agents.self_heal_agent import SelfHealAgent
+        return SelfHealAgent(router)
+
+    if agent_name in {"evolution", "evolution_agent"}:
+        from mammoth_os.agents.evolution_agent import EvolutionAgent
+        return EvolutionAgent(router)
+
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
         return ResearchAgent(router)
@@ -165,6 +233,12 @@ AGENTS: Dict[str, AgentCallable] = {
     "brand_voice": lambda prompt: load_agent("brand_voice").run(prompt),
     "visual_engine": lambda prompt: load_agent("visual_engine").run(prompt),# type: ignore
     "community_engine": lambda prompt: load_agent("community_engine").run(prompt),
+    "classifier": lambda prompt: load_agent("classifier", router).run(prompt),
+    "orchestrator": lambda prompt: load_agent("orchestrator", router).run(prompt),
+    "cache": lambda prompt: load_agent("cache", router).run(prompt),
+    "search": lambda prompt: load_agent("search", router).run(prompt),
+    "self_heal": lambda prompt: load_agent("self_heal", router).run(prompt),
+    "evolution": lambda prompt: load_agent("evolution", router).run(prompt),
     "research": lambda prompt: load_agent("research", router).run(prompt),
     "coding": lambda prompt: load_agent("coding", router).run(prompt),
     "custodial": lambda prompt: load_agent("custodial", router).run(prompt),
