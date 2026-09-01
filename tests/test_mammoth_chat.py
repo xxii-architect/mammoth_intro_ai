@@ -110,6 +110,56 @@ def test_mammoth_chat_dispatches_to_agent_runtime(monkeypatch):
     assert any(step['label'] == 'Routing decision' for step in response['thought_steps'])
 
 
+def test_mammoth_chat_guide_preserves_steps_from_nested_agent_output(monkeypatch):
+    state = {}
+
+    async def fake_run_agent(body):
+        return {
+            'status': 'ok',
+            'result': {
+                'status': 'error',
+                'output': {
+                    'message': '**MammothOS Guide** mock',
+                    'guide_steps': [
+                        {'title': 'Step 1', 'detail': 'Mock detail', 'kind': 'info'},
+                        {'title': 'Step 2', 'detail': 'Mock detail 2', 'kind': 'tip'},
+                    ],
+                    'branch': 'main',
+                    'adapter': 'mammoth-guide',
+                },
+            },
+            'agent_id': body.get('agent_id'),
+            'task_id': 'task-guide-1',
+            'thought_steps': [
+                {'label': 'Routing decision', 'detail': 'runtime_agent=mammoth_guide', 'status': 'info'},
+                {'label': 'Run complete', 'detail': 'task_status=failed', 'status': 'warning'},
+            ],
+        }
+
+    monkeypatch.setattr(api_server, '_load_atlas_state', lambda: state)
+    monkeypatch.setattr(api_server, '_save_atlas_state', lambda payload: None)
+    monkeypatch.setattr(api_server, 'run_agent', fake_run_agent)
+
+    response = asyncio.run(
+        api_server.mammoth_chat(
+            {
+                'message': 'Guide me through MammothOS',
+                'agent_id': 'mammoth_guide',
+                'mode': 'chat',
+                'repo_context': {'root': '/repo', 'branch': 'main'},
+            }
+        )
+    )
+
+    assert response['status'] == 'ok'
+    assert response['reply'] == '**MammothOS Guide** mock'
+    assert isinstance(response.get('guide_steps'), list)
+    assert len(response['guide_steps']) == 2
+    assert response.get('guide_branch') == 'main'
+    assert isinstance(response['chat_history'][-1].get('guide_steps'), list)
+    assert response['chat_history'][-1]['guide_steps'][0]['title'] == 'Step 1'
+
+
 def test_mammoth_chat_stream_emits_sse_events(monkeypatch):
     state = {}
 

@@ -3776,6 +3776,8 @@ def _execution_policy_for_run(body: Dict[str, Any], payload: Dict[str, Any], *, 
         required = ["status", "summary", "execution"]
     elif runtime_agent == "task_queue":
         required = ["status", "action"]
+    elif runtime_agent == "mammoth_guide":
+        required = ["message", "guide_steps"]
     else:
         required = ["status"]
     try:
@@ -7659,6 +7661,9 @@ async def mammoth_chat(body: Dict[str, Any]):
                 "orchestrated": True,
             },
         }
+        if lane_agent == "mammoth_guide":
+            lane_payload["message"] = message
+            lane_payload["repo_context"] = repo_context
         thought_steps.append({"ts": _ts(), "label": "Routing through the herd", "detail": f"intent={lane_intent} agent={lane_agent}", "status": "info"})
         lane_run = await run_agent({
             "agent_id": lane_agent,
@@ -7668,6 +7673,7 @@ async def mammoth_chat(body: Dict[str, Any]):
             "approval_mode": bool(body.get("approval_mode", False)),
         })
         lane_result = lane_run.get("result")
+        lane_output = lane_result.get("output") if isinstance(lane_result, dict) and isinstance(lane_result.get("output"), dict) else None
         lane_reply = _render_chat_result(lane_result)
         lane_thoughts = list(lane_run.get("thought_steps") or [])
         lane_thoughts.append({"ts": _ts(), "label": "Lane complete", "detail": f"task_id={lane_run.get('task_id') or 'n/a'}", "status": "success"})
@@ -7683,16 +7689,29 @@ async def mammoth_chat(body: Dict[str, Any]):
             for key in ("files", "source_files", "references", "evidence", "diff"):
                 if lane_result.get(key):
                     evidence[key] = lane_result.get(key)
+        if isinstance(lane_output, dict):
+            for key in ("files", "source_files", "references", "evidence", "diff"):
+                if lane_output.get(key) and key not in evidence:
+                    evidence[key] = lane_output.get(key)
         # Preserve structured guide steps if the guide agent returned them
         lane_guide_steps = None
-        if isinstance(lane_result, dict) and lane_result.get("guide_steps"):
+        lane_guide_branch = "main"
+        if isinstance(lane_result, dict) and isinstance(lane_result.get("guide_steps"), list) and lane_result.get("guide_steps"):
             lane_guide_steps = lane_result["guide_steps"]
-        elif isinstance(lane_run.get("result"), dict) and lane_run["result"].get("guide_steps"):
+            lane_guide_branch = str(lane_result.get("guide_branch") or lane_result.get("branch") or "main")
+        elif isinstance(lane_output, dict) and isinstance(lane_output.get("guide_steps"), list) and lane_output.get("guide_steps"):
+            lane_guide_steps = lane_output["guide_steps"]
+            lane_guide_branch = str(lane_output.get("guide_branch") or lane_output.get("branch") or "main")
+        elif isinstance(lane_run.get("result"), dict) and isinstance(lane_run["result"].get("guide_steps"), list) and lane_run["result"].get("guide_steps"):
             lane_guide_steps = lane_run["result"]["guide_steps"]
+            lane_guide_branch = str(lane_run["result"].get("guide_branch") or lane_run["result"].get("branch") or "main")
 
         lane_return: Dict[str, Any] = {
             "agent_id": lane_agent,
-            "adapter": lane_result.get("adapter") if isinstance(lane_result, dict) else "agent-runtime",
+            "adapter": (
+                lane_result.get("adapter") if isinstance(lane_result, dict) and lane_result.get("adapter")
+                else (lane_output.get("adapter") if isinstance(lane_output, dict) and lane_output.get("adapter") else "agent-runtime")
+            ),
             "model": str(lane_run.get("agent_id") or lane_agent),
             "reply": lane_reply,
             "task_id": lane_run.get("task_id") or "",
@@ -7703,7 +7722,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         }
         if lane_guide_steps:
             lane_return["guide_steps"] = lane_guide_steps
-            lane_return["guide_branch"] = lane_result.get("branch") if isinstance(lane_result, dict) else "main"
+            lane_return["guide_branch"] = lane_guide_branch
         return lane_return
 
     try:
