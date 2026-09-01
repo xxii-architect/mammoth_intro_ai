@@ -1,4 +1,5 @@
 import React from 'react'
+import MammothEmpty from './MammothEmpty'
 
 function formatLane(run) {
   const lane = run?.current_lane || {}
@@ -54,7 +55,7 @@ export default function AutonomousRunPanel({ summary, runs, onReplayRun }) {
           </div>
         </div>
       ) : (
-        <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem', padding: '8px 0' }}>No autonomous run data yet.</div>
+        <MammothEmpty context="autonomous" compact />
       )}
 
       {!!list.length && (

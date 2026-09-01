@@ -7,6 +7,9 @@ import OnboardingGuide from '../components/OnboardingGuide'
 import CodingArtifactPanel from '../components/CodingArtifactPanel'
 import ResearchArtifactPanel from '../components/ResearchArtifactPanel'
 import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
+import PlanExecuteResultPanel from '../components/PlanExecuteResultPanel'
+import AgentResultPanel from '../components/AgentResultPanel'
+import MammothEmpty from '../components/MammothEmpty'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
@@ -213,6 +216,8 @@ export default function AgentPage({ setPage }) {
   const [codingArtifact, setCodingArtifact] = useState(null)
   const [researchArtifact, setResearchArtifact] = useState(null)
   const [applyingPatch, setApplyingPatch] = useState(false)
+  const [lastRunResult, setLastRunResult] = useState(null)
+  const [lastRunMode, setLastRunMode] = useState('single')
 
   const refreshAgents = async () => {
     try {
@@ -410,6 +415,8 @@ export default function AgentPage({ setPage }) {
     setOutput(null)
     setCodingArtifact(null)
     setResearchArtifact(null)
+    setLastRunResult(null)
+    setLastRunMode('single')
     await refreshAgents()
     try {
       const res = await api('/run', {
@@ -434,9 +441,13 @@ export default function AgentPage({ setPage }) {
           coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
         },
       })
+      setLastRunResult(res)
+      setLastRunMode('single')
       setOutput(JSON.stringify(res, null, 2))
     } catch (e) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
+      setLastRunResult(null)
+      setLastRunMode('single')
       setOutput(`Error: ${e.message}`)
       setCodingArtifact(null)
       setResearchArtifact(null)
@@ -452,6 +463,8 @@ export default function AgentPage({ setPage }) {
     setOutput(null)
     setCodingArtifact(null)
     setResearchArtifact(null)
+    setLastRunResult(null)
+    setLastRunMode('plan')
     setPlanRun({
       status: 'ok',
       objective: prompt,
@@ -486,6 +499,8 @@ export default function AgentPage({ setPage }) {
           approval_mode: approvalMode,
         },
       })
+      setLastRunResult(res)
+      setLastRunMode('plan')
       setOutput(JSON.stringify(res, null, 2))
       const summarizedThoughts = (res.plan_steps || []).map((step, idx) => ({
         ts: step.finished_at || new Date().toISOString(),
@@ -505,6 +520,8 @@ export default function AgentPage({ setPage }) {
         plan_steps: [],
         error: e.message,
       })
+      setLastRunResult(null)
+      setLastRunMode('plan')
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Plan run failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
       setCodingArtifact(null)
@@ -796,7 +813,7 @@ export default function AgentPage({ setPage }) {
             </div>
           </div>
 
-          <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 400, overflowY: 'auto' }}>
+          <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 480, overflowY: 'auto' }}>
             {researchArtifact ? (
               <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />
             ) : codingArtifact ? (
@@ -806,12 +823,14 @@ export default function AgentPage({ setPage }) {
                 onApplyPatch={applyCodingArtifactPatch}
                 applyingPatch={applyingPatch}
               />
+            ) : lastRunMode === 'plan' && (lastRunResult || planRun) ? (
+              <PlanExecuteResultPanel planRun={lastRunResult || planRun} rawJson={output} />
+            ) : lastRunResult ? (
+              <AgentResultPanel result={lastRunResult} rawJson={output} agentId={selectedAgent} />
             ) : output ? (
               <pre style={{ fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{output}</pre>
             ) : (
-              <div style={{ color: 'var(--txt-sec)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Info size={16} /> Output will appear here when you run the agent.
-              </div>
+              <MammothEmpty context="output" />
             )}
           </div>
         </div>
@@ -910,7 +929,7 @@ export default function AgentPage({ setPage }) {
                     {item.preview}
                   </div>
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No smoke test run yet.</div>}
+              )) : <MammothEmpty context="smoke_test" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -918,35 +937,69 @@ export default function AgentPage({ setPage }) {
               {planRun ? (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{planRun.objective?.slice(0, 44) || 'Plan objective'}</span>
-                    <span style={{ fontSize: '0.66rem', textTransform: 'uppercase', color: planRun.plan_status === 'completed' ? '#22c55e' : planRun.plan_status === 'pending_approval' ? '#f59e0b' : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>
+                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {planRun.objective?.slice(0, 44) || 'Plan objective'}
+                    </span>
+                    <span style={{
+                      fontSize: '0.64rem', textTransform: 'uppercase', flexShrink: 0,
+                      color: planRun.plan_status === 'completed' ? '#22c55e'
+                        : planRun.plan_status === 'pending_approval' ? '#f59e0b'
+                        : planRun.plan_status === 'running' ? 'var(--photon)'
+                        : '#f87171',
+                      fontFamily: 'JetBrains Mono,monospace',
+                    }}>
                       {planRun.plan_status || 'unknown'}
                     </span>
                   </div>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 8 }}>
-                    {(planRun.progress?.executed || 0)}/{(planRun.progress?.total || 0)} steps • completed {(planRun.progress?.completed || 0)} • pending {(planRun.progress?.pending_approval || 0)} • failed {(planRun.progress?.failed || 0)}
-                  </div>
+                  {/* Progress bar */}
                   <div style={{ marginBottom: 8 }}>
-                    <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${planProgressPercent}%`, background: planRun.plan_status === 'completed' ? '#22c55e' : planRun.plan_status === 'pending_approval' ? '#f59e0b' : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171', borderRadius: 999, transition: 'width 0.2s ease' }} />
+                    <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: 4 }}>
+                      <div style={{
+                        height: '100%', width: `${planProgressPercent}%`,
+                        background: planRun.plan_status === 'completed' ? '#22c55e'
+                          : planRun.plan_status === 'pending_approval' ? '#f59e0b'
+                          : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171',
+                        borderRadius: 999, transition: 'width 0.2s ease',
+                      }} />
                     </div>
-                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
-                      progress {planProgressPercent}% • profile {planRun.plan_profile || 'balanced'}
+                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.63rem', fontFamily: 'JetBrains Mono,monospace' }}>
+                      {planProgressPercent}% · {planRun.progress?.completed || 0}/{planRun.progress?.total || 0} steps · {planRun.plan_profile || 'balanced'}
                     </div>
                   </div>
-                  {(planRun.plan_steps || []).map((step, idx) => (
-                    <div key={`${step.id || idx}-${idx}`} style={{ padding: '7px 0', borderTop: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                        <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem' }}>{idx + 1}. {step.title}</span>
-                        <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: step.status === 'completed' ? '#22c55e' : step.status === 'pending_approval' ? '#f59e0b' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>{step.status}</span>
+                  {/* Compact step list */}
+                  {(planRun.plan_steps || []).map((step, idx) => {
+                    const sc = step.status === 'completed' ? { color: '#22c55e', icon: '✓' }
+                      : step.status === 'pending_approval' ? { color: '#f59e0b', icon: '…' }
+                      : step.status === 'failed' ? { color: '#f87171', icon: '✗' }
+                      : { color: 'var(--photon)', icon: '→' }
+                    return (
+                      <div key={`${step.id || idx}`} style={{
+                        padding: '6px 8px', borderRadius: 6, marginBottom: 4,
+                        background: 'rgba(255,255,255,0.025)',
+                        border: `1px solid ${sc.color}22`,
+                        borderLeft: `2px solid ${sc.color}`,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ color: sc.color, fontSize: '0.7rem', flexShrink: 0 }}>{sc.icon}</span>
+                          <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {step.title || step.agent_id}
+                          </span>
+                        </div>
+                        <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 2, paddingLeft: 14 }}>
+                          {(step.agent_id || '').replace(/_agent$/, '')}
+                          {step.duration_ms > 0 && ` · ${(step.duration_ms / 1000).toFixed(1)}s`}
+                        </div>
                       </div>
-                      <div style={{ color: 'var(--txt-sec)', fontSize: '0.67rem', marginTop: 3 }}>
-                        {step.agent_id} • {step.intent} • {step.duration_ms || 0}ms
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
+                  {(planRun.plan_steps || []).length === 0 && planRun.plan_status === 'running' && (
+                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', padding: '4px 0' }}>Agents working…</div>
+                  )}
+                  {(planRun.plan_steps || []).length === 0 && planRun.plan_status !== 'running' && (
+                    <MammothEmpty context="plan_steps" compact />
+                  )}
                 </div>
-              ) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>Switch Mode to Plan + Execute and run an objective to orchestrate multiple agents.</div>}
+              ) : <MammothEmpty context="plan_idle" compact />}
             </div>
 
             <AutonomousRunPanel
@@ -969,7 +1022,7 @@ export default function AgentPage({ setPage }) {
                   </div>
                   {task.description ? <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{task.description}</div> : null}
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No tasks yet.</div>}
+              )) : <MammothEmpty context="tasks" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -985,7 +1038,7 @@ export default function AgentPage({ setPage }) {
                  </div>
                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
                </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No pending approvals.</div>}
+              )) : <MammothEmpty context="approvals" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -1001,7 +1054,7 @@ export default function AgentPage({ setPage }) {
                     {snapshot.existed_before ? 'Previous file captured' : 'New file snapshot'} • {new Date(snapshot.created_at).toLocaleTimeString()}
                   </div>
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No snapshots yet.</div>}
+              )) : <MammothEmpty context="snapshots" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -1011,7 +1064,7 @@ export default function AgentPage({ setPage }) {
                   <div style={{ color: 'var(--txt-pri)', fontSize: '0.74rem', lineHeight: 1.5 }}>{entry.message}</div>
                   <div style={{ color: 'var(--txt-sec)', fontSize: '0.66rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>{entry.agent_id || 'system'} • {new Date(entry.created_at).toLocaleTimeString()}</div>
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No activity yet.</div>}
+              )) : <MammothEmpty context="activity" compact />}
             </div>
           </div>
         </div>
