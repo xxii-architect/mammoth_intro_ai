@@ -105,10 +105,12 @@ ATLAS_STATE_DIR.mkdir(exist_ok=True)
 _MEMORY_ENGINE = MemoryEngine(config={"storage_path": str(MAMMOTH_DIR / "memory_store.json"), "max_entries": 5000})
 
 _AUTH_REQUIRED = str(os.environ.get("MAMMOTH_REQUIRE_AUTH", "")).strip().lower() in {"1", "true", "yes", "on"}
+_OWNER_EMAIL = str(os.environ.get("MAMMOTH_OWNER_EMAIL", "")).strip().lower()
 _ADMIN_EMAIL_SOURCES = ",".join(
     item for item in [
         str(os.environ.get("MAMMOTH_ADMIN_EMAILS", "")),
         str(os.environ.get("MAMMOTH_ADMIN_EMAILS_LIST", "")),
+        _OWNER_EMAIL,
     ] if item
 )
 _ADMIN_EMAILS = {item.strip().lower() for item in _ADMIN_EMAIL_SOURCES.split(",") if item.strip()}
@@ -1787,12 +1789,17 @@ def _current_admin_config() -> Dict[str, set[str]]:
     emails = set(_ADMIN_EMAILS)
     user_ids = set(_ADMIN_USER_IDS)
 
+    # MAMMOTH_OWNER_EMAIL is always admin — owner of the deployment
+    if _OWNER_EMAIL:
+        emails.add(_OWNER_EMAIL)
+
     for env_file in (ROOT / ".env", ROOT / ".env.admin"):
         if not env_file.exists():
             continue
         env_values = dotenv_values(env_file)
         emails.update(_split_csv_values(env_values.get("MAMMOTH_ADMIN_EMAILS", ""), lowercase=True))
         emails.update(_split_csv_values(env_values.get("MAMMOTH_ADMIN_EMAILS_LIST", ""), lowercase=True))
+        emails.update(_split_csv_values(env_values.get("MAMMOTH_OWNER_EMAIL", ""), lowercase=True))
         user_ids.update(_split_csv_values(env_values.get("MAMMOTH_ADMIN_USER_IDS", "")))
 
     policy = _load_auth_admin_policy()
@@ -9139,21 +9146,89 @@ ALLOW_LIST = {
     "ls",
     "dir",
     "pwd",
+    "uname -a",
+    "uname -r",
+    "whoami",
+    "hostname",
+    "date",
+    "uptime",
+    "id",
+    "env",
+    "printenv",
+    "python --version",
+    "python3 --version",
+    "pip --version",
+    "pip list",
+    "pip freeze",
+    "df -h",
+    "df -H",
+    "free -m",
+    "free -h",
+    "ps aux",
+    "ps -ef",
+    "top -b -n 1",
+    "htop",
+    "systemctl status mammothos",
+    "systemctl list-units --type=service",
+    "journalctl -u mammothos -n 50 --no-pager",
+    "journalctl -u mammothos -n 100 --no-pager",
 }
 
 ALLOW_PREFIXES = (
     "npm ",
     "uvicorn ",
     "cat ",
+    "ls",
     "ls ",
+    "dir",
     "dir ",
     "git ",
+    "python -m cli.main",
+    "python -m pytest",
+    "python3 -m pytest",
+    "py -m cli.main",
+    "pytest",
+    "python --version",
+    "python3 --version",
+    "python3 -m ",
+    "python ",
+    "pip list",
+    "pip freeze",
+    "pip show ",
+    "pip install ",
+    "systemctl status ",
+    "systemctl restart ",
+    "systemctl stop ",
+    "systemctl start ",
+    "journalctl -u ",
+    "journalctl --unit",
+    "tail ",
+    "head ",
+    "grep ",
+    "find ",
+    "echo ",
+    "env",
+    "printenv",
+    "which ",
+    "uname",
+    "df ",
+    "free ",
+    "ps ",
+    "top ",
+    "whoami",
+    "hostname",
+    "date",
+    "uptime",
+    "id",
+    "curl -s ",
+    "curl --silent ",
+    "wget -q ",
 )
 
 
 TERMINAL_BLOCKED_SEQUENCES = ("&&", "||", ";", "|", ">", "<", "`")
-CLI_ROOTS = ("python -m cli.main", "py -m cli.main")
-CLI_TOP_LEVEL_COMMANDS = {"version", "engine-list", "agent-list", "health", "status", "diagnostics", "check", "schema-describe"}
+CLI_ROOTS = ("python -m cli.main", "python3 -m cli.main", "py -m cli.main")
+CLI_TOP_LEVEL_COMMANDS = {"version", "engine-list", "agent-list", "health", "status", "diagnostics", "check", "schema-describe", "list", "run", "inspect"}
 ATLAS_COMMANDS = {"status", "lesson", "submit", "next", "reset", "ui", "code"}
 ATLAS_UI_COMMANDS = {"scaffold", "component", "style", "backend", "graph", "palette"}
 ATLAS_CODE_COMMANDS = {"generate", "refactor", "explain", "debug", "scan", "patch"}
@@ -9232,36 +9307,60 @@ def _normalize_terminal_command(cmd: str) -> tuple:
     normalized = cmd.strip()
     run_cwd = ROOT
 
-    # Unix aliases -> PowerShell
-    if normalized == "pwd":
-        normalized = "Get-Location | Select-Object -ExpandProperty Path"
-    elif normalized == "ls":
-        normalized = "Get-ChildItem | Format-Table Name,Length,LastWriteTime"
-    elif normalized.startswith("cat "):
-        normalized = "Get-Content " + normalized[4:]
+    if os.name == "nt":
+        # Windows: translate Unix-isms to PowerShell equivalents
+        if normalized == "pwd":
+            normalized = "Get-Location | Select-Object -ExpandProperty Path"
+        elif normalized in ("ls", "ls -la", "ls -l"):
+            normalized = "Get-ChildItem | Format-Table Name,Length,LastWriteTime"
+        elif normalized.startswith("cat "):
+            normalized = "Get-Content " + normalized[4:]
+    # Linux/Mac: pwd/ls/cat work natively — no translation needed
 
-    # npm -> UI dir
+    # npm commands run from the UI directory
     if normalized.startswith("npm "):
         run_cwd = UI_DIR if UI_DIR.exists() else ROOT
 
-    # Use venv python
-    if normalized.startswith("python -m cli.main") and VENV_PYTHON.exists():
-        normalized = f'& "{VENV_PYTHON}"' + normalized[len("python"):]
-    elif normalized.startswith("py -m cli.main") and VENV_PYTHON.exists():
-        normalized = f'& "{VENV_PYTHON}"' + normalized[len("py"):]
+    # Resolve venv python (python / python3 / py prefixes)
+    if VENV_PYTHON.exists():
+        for py_prefix in ("python3 -m cli.main", "python -m cli.main", "py -m cli.main"):
+            if normalized.startswith(py_prefix):
+                remainder = normalized[len(py_prefix):]
+                if os.name == "nt":
+                    normalized = f'& "{VENV_PYTHON}" -m cli.main{remainder}'
+                else:
+                    normalized = f'"{VENV_PYTHON}" -m cli.main{remainder}'
+                break
+        else:
+            for py_prefix in ("python3 -m ", "python -m ", "py -m "):
+                if normalized.startswith(py_prefix):
+                    remainder = normalized[len(py_prefix):]
+                    if os.name == "nt":
+                        normalized = f'& "{VENV_PYTHON}" -m {remainder}'
+                    else:
+                        normalized = f'"{VENV_PYTHON}" -m {remainder}'
+                    break
 
-    # Use venv uvicorn
-    if normalized.startswith("uvicorn ") and VENV_UVICORN.exists():
-        normalized = f'& "{VENV_UVICORN}"' + normalized[len("uvicorn"):]
+    # Resolve venv uvicorn
+    if VENV_UVICORN.exists() and normalized.startswith("uvicorn "):
+        remainder = normalized[len("uvicorn"):]
+        if os.name == "nt":
+            normalized = f'& "{VENV_UVICORN}"{remainder}'
+        else:
+            normalized = f'"{VENV_UVICORN}"{remainder}'
 
     return normalized, run_cwd
 
 
 def _run_command_sync(resolved: str, run_cwd: Path, env: dict, timeout: int) -> Dict[str, Any]:
-    """Run command synchronously via subprocess.run (Windows ProactorEventLoop-safe)."""
+    """Run command synchronously via subprocess.run (cross-platform)."""
     try:
+        if os.name == "nt":
+            shell_cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", resolved]
+        else:
+            shell_cmd = ["bash", "-c", resolved]
         result = subprocess.run(
-            ["powershell", "-NoProfile", "-NonInteractive", "-Command", resolved],
+            shell_cmd,
             capture_output=True,
             cwd=str(run_cwd),
             env=env,
@@ -9294,10 +9393,20 @@ def _run_command_sync(resolved: str, run_cwd: Path, env: dict, timeout: int) -> 
 
 def _terminal_timeout_for(cmd: str) -> int:
     stripped = cmd.strip()
-    if stripped.startswith("python -m cli.main atlas code ") or stripped.startswith("py -m cli.main atlas code "):
+    if any(stripped.startswith(p) for p in (
+        "python -m cli.main atlas code ", "py -m cli.main atlas code ",
+        "python3 -m cli.main atlas code ",
+    )):
         return 180
-    if stripped.startswith("python -m cli.main atlas ui ") or stripped.startswith("py -m cli.main atlas ui "):
+    if any(stripped.startswith(p) for p in (
+        "python -m cli.main atlas ui ", "py -m cli.main atlas ui ",
+        "python3 -m cli.main atlas ui ",
+    )):
         return 120
+    if stripped.startswith("npm run build"):
+        return 300
+    if stripped.startswith(("pip install ", "npm install")):
+        return 180
     return 60
 
 
