@@ -7,3 +7,4 @@ rich
 supabase
 uvicorn
 pytest
+python-multipart

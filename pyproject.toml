@@ -35,7 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
-server = ["fastapi", "uvicorn"]
+server = ["fastapi", "python-multipart", "uvicorn"]
 
 [project.urls]
 Homepage = "https://github.com/xxii-architect/mammoth_intro_ai"

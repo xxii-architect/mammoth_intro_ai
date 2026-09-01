@@ -7157,7 +7157,6 @@ def _extract_text_preview(content_bytes: bytes, filename: str, max_chars: int = 
 
 
 from fastapi import UploadFile, File, Form
-import aiofiles
 
 
 @app.post("/api/mammoth/files/upload")
