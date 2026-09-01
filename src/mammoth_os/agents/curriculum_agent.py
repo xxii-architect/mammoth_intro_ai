@@ -13,6 +13,7 @@ import asyncio
 import concurrent.futures
 from mammoth_os.rag_retrieval import get_retriever
 from mammoth_os.llm_client import get_llm_client
+from .curriculum_validation_v2 import validate_curriculum
 
 
 class CurriculumAgent(BaseAgent):
@@ -473,6 +474,41 @@ class CurriculumAgent(BaseAgent):
         return curriculum
 
 
+    def _apply_validation_gate(self, curriculum: Dict[str, Any], subject: str) -> Dict[str, Any]:
+        if not isinstance(curriculum, dict):
+            return curriculum
+
+        modules = curriculum.get("modules")
+        if isinstance(modules, list):
+            for module in modules:
+                if not isinstance(module, dict):
+                    continue
+                lessons = module.get("lessons")
+                if not isinstance(lessons, list):
+                    continue
+                for idx, lesson in enumerate(lessons):
+                    if not isinstance(lesson, dict):
+                        continue
+                    content = str(lesson.get("content") or "").strip()
+                    estimated_minutes = lesson.get("estimated_minutes")
+                    if not isinstance(estimated_minutes, (int, float)) or int(estimated_minutes) <= 0:
+                        lesson["estimated_minutes"] = max(15, min(120, (len(content) // 60) + 10))
+                    for marker in ["todo", "tbd", "placeholder", "{{", "[example]", "insert example"]:
+                        if marker in str(content).lower():
+                            fallback = self._build_structured_lesson_fallback(lesson, subject=subject, module_title=str(module.get("title") or "Module"))
+                            fallback["source"] = str(lesson.get("source") or "template").strip() or "template"
+                            lessons[idx] = fallback
+                            break
+
+        is_valid, result = validate_curriculum(curriculum)
+        curriculum["validation"] = result
+        curriculum["validation_valid"] = is_valid
+        if not is_valid and "generation_warnings" not in curriculum:
+            limited_errors = result.get("errors", [])[:5]
+            if limited_errors:
+                curriculum["generation_warnings"] = limited_errors
+        return curriculum
+
     def run(self, prompt: str) -> Dict[str, Any]:
         """
         Main entry point for CurriculumAgent.
@@ -493,13 +529,20 @@ class CurriculumAgent(BaseAgent):
         # Inject RAG-retrieved lesson chunks for tutor context
         curriculum = self._inject_chunks_into_lessons(curriculum)
         curriculum = self._enrich_curriculum_lessons(curriculum, subject)
+        curriculum = self._apply_validation_gate(curriculum, subject)
+
+        summary = f"{curriculum.get('title', subject)} — {len(curriculum.get('modules', []))} modules, {curriculum.get('estimated_total_minutes', 0)} min estimated"
+        if not curriculum.get("validation_valid", True):
+            summary += " (validation warnings)"
 
         return {
             "status": "ok",
             "agent": self.name,
             "prompt": prompt,
-            "summary": f"{curriculum.get('title', subject)} — {len(curriculum.get('modules', []))} modules, {curriculum.get('estimated_total_minutes', 0)} min estimated",
+            "summary": summary,
             "curriculum": curriculum,
+            "validation": curriculum.get("validation"),
+            "quality_flags": ["curriculum_grounded", "validation_gate_active"] if curriculum.get("validation") else ["curriculum_grounded"],
         }
 
     def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):

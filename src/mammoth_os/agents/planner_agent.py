@@ -19,6 +19,28 @@ class PlannerAgent(BaseAgent):# type: ignore
         self.log("INFO", f"Emitting {event_type}")
 
     @staticmethod
+    def _coerce_duration_minutes(value, *, fallback: int = 20) -> int:
+        if isinstance(value, bool):
+            return fallback
+        if isinstance(value, (int, float)):
+            value = int(value)
+            return value if value > 0 else fallback
+        if isinstance(value, str):
+            try:
+                parsed = int(float(value))
+                return parsed if parsed > 0 else fallback
+            except ValueError:
+                return fallback
+        return fallback
+
+    def _duration_from_lesson(self, lesson: dict, *, fallback: int = 20) -> int:
+        minutes = self._coerce_duration_minutes(lesson.get("estimated_minutes"), fallback=fallback)
+        content = str(lesson.get("content") or "").strip()
+        if content:
+            minutes = max(minutes, min(180, max(10, (len(content) // 70) + 10)))
+        return int(minutes)
+
+    @staticmethod
     def _normalize_curriculum(constraints: dict | None) -> dict | None:
         if not isinstance(constraints, dict):
             return None
@@ -65,9 +87,9 @@ class PlannerAgent(BaseAgent):# type: ignore
         tasks = await self._decompose_to_tasks(goal, {**constraints, "curriculum": curriculum} if curriculum else constraints)
         estimated_minutes = 0
         for task in tasks:
-            value = task.get("estimated_minutes")
-            if isinstance(value, (int, float)):
-                estimated_minutes += int(value)
+            value = self._coerce_duration_minutes(task.get("estimated_minutes"), fallback=max(15, len(goal.split()) // 10 + 10))
+            task["estimated_minutes"] = value
+            estimated_minutes += value
         if estimated_minutes <= 0:
             estimated_minutes = max(len(tasks) * 10, 30)
 
@@ -76,6 +98,7 @@ class PlannerAgent(BaseAgent):# type: ignore
             "goal": goal,
             "tasks": tasks,
             "estimated_duration_sec": estimated_minutes * 60,
+            "quality_flags": ["structured_plan", "dag_validated", "duration_normalized"] if tasks else ["structured_plan", "duration_normalized"],
         }
 
     async def _decompose_to_tasks(self, goal: str, constraints: dict) -> list[dict]:
@@ -97,9 +120,7 @@ class PlannerAgent(BaseAgent):# type: ignore
                 module_title = module.get("title") or "Module"
                 for lesson in module.get("lessons", []):
                     task_id = lesson.get("lesson_id") or str(uuid.uuid4())
-                    estimated_minutes = lesson.get("estimated_minutes")
-                    if not isinstance(estimated_minutes, (int, float)) or estimated_minutes <= 0:
-                        estimated_minutes = 20
+                    estimated_minutes = self._duration_from_lesson(lesson, fallback=20)
                     task = {
                         "task_id": task_id,
                         "agent": "tutor",
@@ -112,13 +133,14 @@ class PlannerAgent(BaseAgent):# type: ignore
             if tasks:
                 return tasks
 
+        fallback_minutes = max(15, min(90, len(goal.split()) // 4 + 15))
         return [
             {
                 "task_id": str(uuid.uuid4()),
                 "agent": "curriculum",
                 "input": {"goal": goal},
                 "depends_on": [],
-                "estimated_minutes": 20,
+                "estimated_minutes": fallback_minutes,
             }
         ]
 

@@ -623,6 +623,15 @@ class CodingAgent(BaseAgent):
             self.log("ERROR", f"refactor failed: {exc}")
             return {"original": "", "refactored": "", "diff": "", "confidence": 0.0, "error": str(exc)}
 
+    @staticmethod
+    def _has_placeholder_test_output(stdout: str, stderr: str) -> bool:
+        combined = f"{stdout or ''}\n{stderr or ''}".lower()
+        markers = [
+            "todo", "tbd", "placeholder", "example here", "insert example", "[example]", "{{", "}}",
+            "not implemented", "fixme", "coming soon", "stub", "replace this", "to be determined"
+        ]
+        return bool(combined.strip()) and any(marker in combined for marker in markers)
+
     async def run_tests(self, project_path: str, test_pattern: str = "test_*.py") -> dict:
         """Run tests for a project path inside the sandbox runner.
 
@@ -774,7 +783,7 @@ sys.exit(failed)
                 result['stderr'] += f"\nfallback_error: {exc}"
 
         # Normalize result
-        return {
+        normalized = {
             "passed": bool(result.get("passed")),
             "stdout": result.get("stdout", ""),
             "stderr": result.get("stderr", ""),
@@ -782,6 +791,14 @@ sys.exit(failed)
             "method": result.get("method"),
             "duration_ms": result.get("duration_ms"),
         }
+        combined_output = f"{normalized['stdout']}\n{normalized['stderr']}"
+        if not combined_output.strip():
+            normalized["passed"] = False
+            normalized["stderr"] = (normalized["stderr"] + " No test output was produced; the run is inconclusive.").strip()
+        elif self._has_placeholder_test_output(normalized["stdout"], normalized["stderr"]):
+            normalized["passed"] = False
+            normalized["stderr"] = (normalized["stderr"] + " Placeholder or fabricated test output detected.").strip()
+        return normalized
 
     async def write_docs(self, target: str, doc_style: str = "google", source: str = "") -> dict:
         """Create a lightweight documentation block without depending on a separate engine."""
