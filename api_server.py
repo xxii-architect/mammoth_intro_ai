@@ -6884,6 +6884,19 @@ def _queue_gitops_approval(operation: str, payload: Dict[str, Any], *, trace_id:
 async def mammoth_chat_stream(body: Dict[str, Any]):
     result = await mammoth_chat(body)
 
+    # Persist to thread file if thread_id provided
+    _thread_id = str(body.get("thread_id") or "").strip()
+    if _thread_id and isinstance(result.get("chat_history"), list) and result["chat_history"]:
+        try:
+            _uid = _current_request_user_id()
+            _msgs = result["chat_history"]
+            _save_thread_messages(_uid, _thread_id, _msgs[-120:])
+            _first_user = next((m.get("message", "") for m in _msgs if m.get("role") == "user"), "")
+            _auto_title = (_first_user.strip()[:60] + "…") if len(_first_user.strip()) > 60 else _first_user.strip()
+            _upsert_thread_index_entry(_uid, _thread_id, title=_auto_title or "Conversation", agent_id=str(body.get("agent_id") or "assistant"), message_count=len(_msgs))
+        except Exception:
+            pass
+
     async def event_stream():
         meta_payload = {k: result.get(k) for k in ("agent_id", "adapter", "model", "mode", "task_id", "trace_id", "dispatched", "runtime_status", "runtime_notice")}
         yield f"event: meta\ndata: {json.dumps(meta_payload, default=str)}\n\n"
@@ -6955,6 +6968,370 @@ async def delete_mammoth_chat_history():
     return {"status": "ok", "deleted_messages": deleted_messages}
 
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Chat Thread Storage paths
+# ─────────────────────────────────────────────────────────────────────────────
+CHAT_THREADS_DIR = MAMMOTH_DIR / "chat_threads"
+CHAT_THREADS_DIR.mkdir(exist_ok=True)
+USER_UPLOADS_DIR = MAMMOTH_DIR / "uploads"
+USER_UPLOADS_DIR.mkdir(exist_ok=True)
+ATLAS_FILES_DIR = MAMMOTH_DIR / "atlas_files"
+ATLAS_FILES_DIR.mkdir(exist_ok=True)
+
+
+def _thread_dir(user_id: str) -> Path:
+    safe = re.sub(r"[^a-z0-9_-]", "-", str(user_id or "local").strip().lower()).strip("-") or "local"
+    d = CHAT_THREADS_DIR / safe
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _thread_index_path(user_id: str) -> Path:
+    return _thread_dir(user_id) / "_index.json"
+
+
+def _thread_msg_path(user_id: str, thread_id: str) -> Path:
+    safe_tid = re.sub(r"[^a-z0-9_-]", "-", str(thread_id or "").strip().lower()).strip("-") or "unknown"
+    return _thread_dir(user_id) / f"{safe_tid}.json"
+
+
+def _load_thread_index(user_id: str) -> List[Dict[str, Any]]:
+    p = _thread_index_path(user_id)
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_thread_index(user_id: str, index: List[Dict[str, Any]]) -> None:
+    _thread_index_path(user_id).write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
+
+
+def _load_thread_messages(user_id: str, thread_id: str) -> List[Dict[str, Any]]:
+    p = _thread_msg_path(user_id, thread_id)
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_thread_messages(user_id: str, thread_id: str, messages: List[Dict[str, Any]]) -> None:
+    _thread_msg_path(user_id, thread_id).write_text(json.dumps(messages, indent=2, default=str), encoding="utf-8")
+
+
+def _upsert_thread_index_entry(user_id: str, thread_id: str, *, title: str = "", agent_id: str = "assistant", message_count: int = 0) -> None:
+    index = _load_thread_index(user_id)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    entry = next((t for t in index if t.get("id") == thread_id), None)
+    if entry:
+        entry["updated_at"] = now_iso
+        entry["message_count"] = message_count
+        if title:
+            entry["title"] = title
+    else:
+        index.append({
+            "id": thread_id,
+            "title": title or "New conversation",
+            "agent_id": agent_id,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "message_count": message_count,
+        })
+    index.sort(key=lambda t: str(t.get("updated_at") or ""), reverse=True)
+    _save_thread_index(user_id, index[:200])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/mammoth/chat/threads  — thread CRUD
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/mammoth/chat/threads")
+async def list_chat_threads():
+    user_id = _current_request_user_id()
+    index = _load_thread_index(user_id)
+    return {"status": "ok", "threads": index}
+
+
+@app.post("/api/mammoth/chat/threads")
+async def create_chat_thread(body: Dict[str, Any] = {}):
+    user_id = _current_request_user_id()
+    thread_id = f"thread-{uuid.uuid4().hex[:12]}"
+    title = str(body.get("title") or "New conversation").strip()[:120]
+    agent_id = str(body.get("agent_id") or "assistant").strip()
+    _upsert_thread_index_entry(user_id, thread_id, title=title, agent_id=agent_id, message_count=0)
+    return {"status": "ok", "thread_id": thread_id, "title": title}
+
+
+@app.get("/api/mammoth/chat/threads/{thread_id}/history")
+async def get_thread_history(thread_id: str):
+    user_id = _current_request_user_id()
+    messages = _load_thread_messages(user_id, thread_id)
+    return {"status": "ok", "thread_id": thread_id, "chat_history": messages}
+
+
+@app.delete("/api/mammoth/chat/threads/{thread_id}")
+async def delete_chat_thread(thread_id: str):
+    user_id = _current_request_user_id()
+    index = _load_thread_index(user_id)
+    index = [t for t in index if t.get("id") != thread_id]
+    _save_thread_index(user_id, index)
+    msg_path = _thread_msg_path(user_id, thread_id)
+    if msg_path.exists():
+        msg_path.unlink()
+    return {"status": "ok", "deleted": thread_id}
+
+
+@app.patch("/api/mammoth/chat/threads/{thread_id}")
+async def rename_chat_thread(thread_id: str, body: Dict[str, Any] = {}):
+    user_id = _current_request_user_id()
+    index = _load_thread_index(user_id)
+    entry = next((t for t in index if t.get("id") == thread_id), None)
+    if not entry:
+        return JSONResponse({"status": "error", "error": "Thread not found"}, status_code=404)
+    new_title = str(body.get("title") or "").strip()[:120]
+    if new_title:
+        entry["title"] = new_title
+    entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_thread_index(user_id, index)
+    return {"status": "ok", "thread_id": thread_id, "title": new_title}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/mammoth/files — file uploads for chat context
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _user_uploads_dir(user_id: str) -> Path:
+    safe = re.sub(r"[^a-z0-9_-]", "-", str(user_id or "local").strip().lower()).strip("-") or "local"
+    d = USER_UPLOADS_DIR / safe
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _uploads_index_path(user_id: str) -> Path:
+    return _user_uploads_dir(user_id) / "_index.json"
+
+
+def _load_uploads_index(user_id: str) -> List[Dict[str, Any]]:
+    p = _uploads_index_path(user_id)
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_uploads_index(user_id: str, index: List[Dict[str, Any]]) -> None:
+    _uploads_index_path(user_id).write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
+
+
+_ALLOWED_UPLOAD_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".txt", ".json", ".toml", ".yaml", ".yml", ".csv", ".html", ".css", ".sh", ".sql", ".pdf"}
+_MAX_UPLOAD_BYTES = 4 * 1024 * 1024  # 4MB
+
+
+def _extract_text_preview(content_bytes: bytes, filename: str, max_chars: int = 8000) -> str:
+    ext = Path(filename).suffix.lower()
+    if ext == ".pdf":
+        try:
+            import io
+            import struct
+            # Very basic PDF text extraction — just pull printable ASCII runs
+            raw = content_bytes.decode("latin-1", errors="replace")
+            import re as _re
+            runs = _re.findall(r"[A-Za-z0-9 .,;:!?@/\\()-]{20,}", raw)
+            return "\n".join(runs)[:max_chars]
+        except Exception:
+            return "[PDF content — text extraction failed]"
+    try:
+        return content_bytes.decode("utf-8", errors="replace")[:max_chars]
+    except Exception:
+        return "[Binary content]"
+
+
+from fastapi import UploadFile, File, Form
+import aiofiles
+
+
+@app.post("/api/mammoth/files/upload")
+async def upload_chat_file(file: UploadFile = File(...)):
+    user_id = _current_request_user_id()
+    filename = str(file.filename or "upload.txt").strip()
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
+        return JSONResponse({"status": "error", "error": f"File type {ext!r} not allowed. Allowed: {sorted(_ALLOWED_UPLOAD_EXTENSIONS)}"}, status_code=400)
+    content_bytes = await file.read()
+    if len(content_bytes) > _MAX_UPLOAD_BYTES:
+        return JSONResponse({"status": "error", "error": "File too large. Max 4MB."}, status_code=400)
+    file_id = f"file-{uuid.uuid4().hex[:12]}"
+    user_dir = _user_uploads_dir(user_id)
+    file_path = user_dir / f"{file_id}{ext}"
+    file_path.write_bytes(content_bytes)
+    text_preview = _extract_text_preview(content_bytes, filename)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "file_id": file_id,
+        "name": filename,
+        "ext": ext,
+        "size": len(content_bytes),
+        "text_preview": text_preview[:8000],
+        "created_at": now_iso,
+        "path": str(file_path),
+        "scope": "chat",
+    }
+    index = _load_uploads_index(user_id)
+    index.insert(0, entry)
+    _save_uploads_index(user_id, index[:100])
+    return {
+        "status": "ok",
+        "file_id": file_id,
+        "name": filename,
+        "size": len(content_bytes),
+        "text_preview": text_preview[:1200],
+    }
+
+
+@app.get("/api/mammoth/files")
+async def list_chat_files():
+    user_id = _current_request_user_id()
+    index = _load_uploads_index(user_id)
+    return {"status": "ok", "files": [{k: v for k, v in f.items() if k != "text_preview"} for f in index]}
+
+
+@app.delete("/api/mammoth/files/{file_id}")
+async def delete_chat_file(file_id: str):
+    user_id = _current_request_user_id()
+    index = _load_uploads_index(user_id)
+    entry = next((f for f in index if f.get("file_id") == file_id), None)
+    if entry:
+        try:
+            Path(entry["path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+    index = [f for f in index if f.get("file_id") != file_id]
+    _save_uploads_index(user_id, index)
+    return {"status": "ok", "deleted": file_id}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/atlas/files — ATLAS lesson material uploads
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _atlas_files_dir(user_id: str) -> Path:
+    safe = re.sub(r"[^a-z0-9_-]", "-", str(user_id or "local").strip().lower()).strip("-") or "local"
+    d = ATLAS_FILES_DIR / safe
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _atlas_files_index_path(user_id: str) -> Path:
+    return _atlas_files_dir(user_id) / "_index.json"
+
+
+def _load_atlas_files_index(user_id: str) -> List[Dict[str, Any]]:
+    p = _atlas_files_index_path(user_id)
+    if not p.exists():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _save_atlas_files_index(user_id: str, index: List[Dict[str, Any]]) -> None:
+    _atlas_files_index_path(user_id).write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
+
+
+_ATLAS_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".csv", ".py", ".js", ".ts", ".json", ".html"}
+_ATLAS_TAGS = {"textbook", "homework", "notes", "worksheet", "practice", "other"}
+
+
+@app.post("/api/atlas/files/upload")
+async def upload_atlas_file(file: UploadFile = File(...), tag: str = Form(default="other")):
+    user_id = _current_request_user_id()
+    filename = str(file.filename or "material.txt").strip()
+    ext = Path(filename).suffix.lower()
+    if ext not in _ATLAS_ALLOWED_EXTENSIONS:
+        return JSONResponse({"status": "error", "error": f"File type {ext!r} not allowed."}, status_code=400)
+    content_bytes = await file.read()
+    if len(content_bytes) > _MAX_UPLOAD_BYTES:
+        return JSONResponse({"status": "error", "error": "File too large. Max 4MB."}, status_code=400)
+    tag = tag.strip().lower() if tag.strip().lower() in _ATLAS_TAGS else "other"
+    file_id = f"atlas-{uuid.uuid4().hex[:12]}"
+    user_dir = _atlas_files_dir(user_id)
+    file_path = user_dir / f"{file_id}{ext}"
+    file_path.write_bytes(content_bytes)
+    text_preview = _extract_text_preview(content_bytes, filename)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    entry = {
+        "file_id": file_id,
+        "name": filename,
+        "ext": ext,
+        "size": len(content_bytes),
+        "tag": tag,
+        "text_preview": text_preview[:12000],
+        "created_at": now_iso,
+        "path": str(file_path),
+    }
+    index = _load_atlas_files_index(user_id)
+    index.insert(0, entry)
+    _save_atlas_files_index(user_id, index[:200])
+    return {"status": "ok", "file_id": file_id, "name": filename, "tag": tag, "size": len(content_bytes), "text_preview": text_preview[:1200]}
+
+
+@app.get("/api/atlas/files")
+async def list_atlas_files():
+    user_id = _current_request_user_id()
+    index = _load_atlas_files_index(user_id)
+    return {"status": "ok", "files": [{k: v for k, v in f.items() if k != "text_preview"} for f in index]}
+
+
+@app.get("/api/atlas/files/{file_id}/content")
+async def get_atlas_file_content(file_id: str):
+    user_id = _current_request_user_id()
+    index = _load_atlas_files_index(user_id)
+    entry = next((f for f in index if f.get("file_id") == file_id), None)
+    if not entry:
+        return JSONResponse({"status": "error", "error": "File not found"}, status_code=404)
+    return {"status": "ok", "file_id": file_id, "name": entry["name"], "text": entry.get("text_preview", "")[:12000]}
+
+
+@app.patch("/api/atlas/files/{file_id}")
+async def update_atlas_file_tag(file_id: str, body: Dict[str, Any] = {}):
+    user_id = _current_request_user_id()
+    index = _load_atlas_files_index(user_id)
+    entry = next((f for f in index if f.get("file_id") == file_id), None)
+    if not entry:
+        return JSONResponse({"status": "error", "error": "File not found"}, status_code=404)
+    new_tag = str(body.get("tag") or "other").strip().lower()
+    entry["tag"] = new_tag if new_tag in _ATLAS_TAGS else "other"
+    _save_atlas_files_index(user_id, index)
+    return {"status": "ok", "file_id": file_id, "tag": entry["tag"]}
+
+
+@app.delete("/api/atlas/files/{file_id}")
+async def delete_atlas_file(file_id: str):
+    user_id = _current_request_user_id()
+    index = _load_atlas_files_index(user_id)
+    entry = next((f for f in index if f.get("file_id") == file_id), None)
+    if entry:
+        try:
+            Path(entry["path"]).unlink(missing_ok=True)
+        except Exception:
+            pass
+    index = [f for f in index if f.get("file_id") != file_id]
+    _save_atlas_files_index(user_id, index)
+    return {"status": "ok", "deleted": file_id}
+
+
 @app.post("/api/mammoth/repo-context")
 async def mammoth_repo_context(body: Dict[str, Any]):
     blocked = _require_admin_api()
@@ -6982,6 +7359,19 @@ async def mammoth_chat(body: Dict[str, Any]):
     message = str(body.get("message", "")).strip()
     if not message:
         return {"status": "error", "error": "message is required"}
+
+    # Inject attached file contents as additional context
+    attached_file_ids = body.get("attached_file_ids") or []
+    if attached_file_ids and isinstance(attached_file_ids, list):
+        _uid_for_files = _current_request_user_id()
+        _file_index = _load_uploads_index(_uid_for_files)
+        _file_texts = []
+        for _fid in attached_file_ids[:4]:
+            _entry = next((f for f in _file_index if f.get("file_id") == _fid), None)
+            if _entry and _entry.get("text_preview"):
+                _file_texts.append(f"--- Attached file: {_entry['name']} ---\n{_entry['text_preview'][:4000]}")
+        if _file_texts:
+            message = message + "\n\n[ATTACHED FILES]\n" + "\n\n".join(_file_texts)
 
     trace_id = str(body.get("trace_id") or new_trace_id("chat"))
     slash = _parse_mammoth_chat_command(message)

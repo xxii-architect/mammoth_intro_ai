@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { BookOpen, Send, ChevronRight, MessageSquare } from 'lucide-react'
 import { api } from '../api/client'
 import MammothDiffViewer from '../components/MammothDiffViewer'
+import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
 import { useInterval } from '../hooks/useApi'
 
 export default function AtlasTutorPage() {
@@ -28,6 +29,7 @@ export default function AtlasTutorPage() {
   })
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   const [showLeftPanel, setShowLeftPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
+  const [atlasLibraryOpen, setAtlasLibraryOpen] = useState(false)
   const [showRightPanel, setShowRightPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
   const chatBottomRef = useRef(null)
   const onboardingSeededRef = useRef(false)
@@ -959,6 +961,24 @@ export default function AtlasTutorPage() {
       </div>
       )}
       {/* End three-column row */}
+      </div>
+
+      {/* ATLAS Learning Materials Library — collapsible panel */}
+      <div style={{ marginTop: 14 }}>
+        <button
+          type="button"
+          onClick={() => setAtlasLibraryOpen(p => !p)}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.78rem', width: '100%' }}
+        >
+          <BookOpen size={14} color="var(--violet)" />
+          <span style={{ fontWeight: 600 }}>Learning Materials</span>
+          <ChevronRight size={12} style={{ marginLeft: 'auto', transform: atlasLibraryOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
+        </button>
+        {atlasLibraryOpen && (
+          <div style={{ marginTop: 8 }}>
+            <AtlasMaterialsLibrary />
+          </div>
+        )}
       </div>
     </div>
   )

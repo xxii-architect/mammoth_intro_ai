@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, GitBranch, FolderGit2 } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, GitBranch, FolderGit2, PanelLeft, Paperclip } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
 import ChatMessageBody from '../components/ChatMessageBody'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 import GuideStepPanel from '../components/GuideStepPanel'
+import ChatThreadSidebar from '../components/ChatThreadSidebar'
+import FileAttachmentPanel from '../components/FileAttachmentPanel'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
 
@@ -397,6 +399,10 @@ export default function ChatPage({ setPage }) {
   const [activeRepoId, setActiveRepoId] = useState(null)
   const [repoInput, setRepoInput] = useState('')
   const [repoPickerOpen, setRepoPickerOpen] = useState(false)
+  const [activeThreadId, setActiveThreadId] = useState(null)
+  const [threadSidebarOpen, setThreadSidebarOpen] = useState(false)
+  const [attachedFiles, setAttachedFiles] = useState([])
+  const threadSidebarRef = useRef(null)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
   const { user } = useAuth()
@@ -825,6 +831,7 @@ export default function ChatPage({ setPage }) {
     setStreaming(true)
     setError('')
     if (!override) setInput('')
+    setAttachedFiles([])
 
     const userEntry = {
       role: 'user',
@@ -865,6 +872,8 @@ export default function ChatPage({ setPage }) {
         message,
         agent_id: effectiveAgentId,
         mode: 'chat',
+        thread_id: activeThreadId || undefined,
+        attached_file_ids: attachedFiles.map(f => f.file_id),
         coding_intent: effectiveAgentId === 'coding_agent' ? codingIntent : undefined,
         page_context: buildLivePageContext(),
         repo_context: {
@@ -896,6 +905,48 @@ export default function ChatPage({ setPage }) {
     }
   }
 
+  const createThread = async (title = '') => {
+    try {
+      const data = await authorizedFetch('/mammoth/chat/threads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title || 'New conversation', agent_id: agentId }),
+      })
+      const json = await data.json()
+      if (json?.thread_id) {
+        setActiveThreadId(json.thread_id)
+        setHistory([])
+        setThoughtSteps([])
+        setMeta(null)
+        setError('')
+        setExpandedThoughtIndex(-1)
+        setAttachedFiles([])
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
+        }
+        // Refresh sidebar
+        threadSidebarRef.current?.reload?.()
+      }
+    } catch { /* no-op */ }
+  }
+
+  const selectThread = async (threadId) => {
+    if (!threadId) return
+    setActiveThreadId(threadId)
+    setHistory([])
+    setError('')
+    setThoughtSteps([])
+    setMeta(null)
+    setAttachedFiles([])
+    try {
+      const data = await api(`/mammoth/chat/threads/${threadId}/history`)
+      const msgs = Array.isArray(data?.chat_history) ? data.chat_history : []
+      setHistory(msgs)
+      const lastAssistant = [...msgs].reverse().find(e => e.role === 'assistant')
+      if (lastAssistant?.thought_steps) setThoughtSteps(lastAssistant.thought_steps)
+    } catch { /* no-op */ }
+  }
+
   const clearLocalView = async () => {
     try {
       await authorizedFetch('/mammoth/chat/history', {
@@ -914,6 +965,9 @@ export default function ChatPage({ setPage }) {
     setMeta(null)
     setError('')
     setExpandedThoughtIndex(-1)
+    setAttachedFiles([])
+    // Create a new thread for the fresh start
+    await createThread()
   }
 
   const dispatchQuickAction = (action) => {
@@ -924,14 +978,24 @@ export default function ChatPage({ setPage }) {
 
   return (
     <div className="page-enter" style={{ padding: 24, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+      {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ fontSize: '1.15rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
-            <Bot size={20} color="var(--photon)" /> MammothOS Chat
-          </h1>
-          <p style={{ margin: '6px 0 0', fontSize: '0.82rem', color: 'var(--txt-sec)', maxWidth: 760 }}>
-            A separate native chat surface for MammothOS thinking, planning, and agent-assisted work — distinct from lesson tutoring.
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            title="Toggle chat history sidebar"
+            onClick={() => setThreadSidebarOpen(p => !p)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', borderRadius: 8, border: `1px solid ${threadSidebarOpen ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`, background: threadSidebarOpen ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.04)', color: threadSidebarOpen ? 'var(--photon)' : 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
+          >
+            <PanelLeft size={14} />
+          </button>
+          <div>
+            <h1 style={{ fontSize: '1.15rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
+              <Bot size={20} color="var(--photon)" /> MammothOS Chat
+            </h1>
+            <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--txt-sec)', maxWidth: 700 }}>
+              Native chat for MammothOS planning, debugging, and agent-assisted work.
+            </p>
+          </div>
         </div>
         <button
           onClick={() => setRightRailOpen((prev) => !prev)}
@@ -942,7 +1006,22 @@ export default function ChatPage({ setPage }) {
         </button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gap: 18, flex: 1, minHeight: 0 }}>
+      {/* Main layout: [thread sidebar] [chat] [right rail] */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 14 }}>
+        {/* Thread history sidebar */}
+        {threadSidebarOpen && (
+          <div style={{ width: 220, flexShrink: 0, borderRadius: 14, overflow: 'hidden', border: '1px solid var(--border)' }}>
+            <ChatThreadSidebar
+              ref={threadSidebarRef}
+              activeThreadId={activeThreadId}
+              onSelectThread={selectThread}
+              onNewThread={createThread}
+              scopeUserId={scopeUserId}
+            />
+          </div>
+        )}
+
+      <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gap: 18 }}>
         <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: isShortViewport ? '84vh' : '90vh', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div>
@@ -1065,6 +1144,16 @@ export default function ChatPage({ setPage }) {
 
           <div style={{ padding: 16, borderTop: '1px solid var(--border)' }}>
             {error && <div style={{ marginBottom: 10, color: '#f87171', fontSize: '0.78rem' }}>{error}</div>}
+            {/* File attachments */}
+            {attachedFiles.length > 0 && (
+              <div style={{ marginBottom: 10 }}>
+                <FileAttachmentPanel
+                  attached={attachedFiles}
+                  onAttach={(f) => setAttachedFiles(prev => [...prev.filter(x => x.file_id !== f.file_id), f])}
+                  onRemove={(id) => setAttachedFiles(prev => prev.filter(f => f.file_id !== id))}
+                />
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
               <textarea
                 value={input}
@@ -1079,13 +1168,20 @@ export default function ChatPage({ setPage }) {
                 placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
                   style={{ flex: 1, resize: 'vertical', minHeight: 100, maxHeight: 240, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '14px 16px', outline: 'none', lineHeight: 1.6 }}
               />
-              <button
-                onClick={() => send()}
-                disabled={busy}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 132, padding: '12px 14px', borderRadius: 12, border: 'none', background: busy ? 'rgba(77,166,255,0.35)' : 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}
-              >
-                <Send size={15} /> {busy ? 'Thinking…' : 'Send'}
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <FileAttachmentPanel
+                  attached={attachedFiles}
+                  onAttach={(f) => setAttachedFiles(prev => [...prev.filter(x => x.file_id !== f.file_id), f])}
+                  onRemove={(id) => setAttachedFiles(prev => prev.filter(f => f.file_id !== id))}
+                />
+                <button
+                  onClick={() => send()}
+                  disabled={busy}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 132, padding: '12px 14px', borderRadius: 12, border: 'none', background: busy ? 'rgba(77,166,255,0.35)' : 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}
+                >
+                  <Send size={15} /> {busy ? 'Thinking…' : 'Send'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1275,6 +1371,7 @@ export default function ChatPage({ setPage }) {
           </div>
         </div>
         )}
+      </div>
       </div>
     </div>
   )
