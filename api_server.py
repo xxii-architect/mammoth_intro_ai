@@ -6861,13 +6861,7 @@ def _queue_gitops_approval(operation: str, payload: Dict[str, Any], *, trace_id:
 
 
 @app.post("/api/mammoth/chat/stream")
-async def mammoth_chat_stream(request: Any):
-    body: Dict[str, Any]
-    if isinstance(request, dict):
-        body = request
-    else:
-        body = await request.json()
-
+async def mammoth_chat_stream(body: Dict[str, Any]):
     result = await mammoth_chat(body)
 
     async def event_stream():
