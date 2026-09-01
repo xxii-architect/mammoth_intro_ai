@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import ChatMessageBody from '../components/ChatMessageBody'
+import AgentResultPanel from '../components/AgentResultPanel'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
@@ -116,6 +117,24 @@ function buildLivePageContext() {
     selected_text: selection ? selection.slice(0, 400) : '',
     updated_at: new Date().toISOString(),
   }
+
+  function parseStructuredAgentMessage(message) {
+    if (typeof message !== 'string') return null
+    const trimmed = message.trim()
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed || typeof parsed !== 'object') return null
+      const hasReadableAgentShape =
+        typeof parsed.status === 'string' ||
+        typeof parsed.summary === 'string' ||
+        Array.isArray(parsed.quality_flags) ||
+        typeof parsed.agent === 'string'
+      return hasReadableAgentShape ? parsed : null
+    } catch {
+      return null
+    }
+  }
 }
 
 function findLastAssistantIndex(list) {
@@ -190,6 +209,7 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
   const [copied, setCopied] = useState(false)
   const isUser = entry.role === 'user'
   const isStreamingBubble = !isUser && entry.stream
+  const structuredResult = !isUser ? parseStructuredAgentMessage(entry.message) : null
 
   const agentLabel = isUser
     ? 'You'
@@ -233,7 +253,9 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         {isUser
           ? <div style={{ whiteSpace: 'pre-wrap' }}>{entry.message}</div>
           : entry.message
-            ? <ChatMessageBody text={entry.message} />
+            ? (structuredResult
+              ? <AgentResultPanel result={structuredResult} rawJson={entry.message} agentId={entry.agent_id} />
+              : <ChatMessageBody text={entry.message} />)
             : (isStreamingBubble
               ? <span style={{ color: 'var(--txt-mut)' }}>MammothOS is composing…</span>
               : null)
@@ -1021,6 +1043,5 @@ export default function ChatPage({ setPage }) {
     </div>
   )
 }
-
 
 
