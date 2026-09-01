@@ -1,9 +1,75 @@
 import { useState, useEffect, useRef } from 'react'
+import { Editor } from '@monaco-editor/react'
 import { BookOpen, Send, ChevronRight, MessageSquare } from 'lucide-react'
 import { api } from '../api/client'
 import MammothDiffViewer from '../components/MammothDiffViewer'
 import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
+import GuideStepPanel from '../components/GuideStepPanel'
 import { useInterval } from '../hooks/useApi'
+
+
+const ATLAS_MONACO_THEME = {
+  base: 'vs-dark', inherit: true, rules: [],
+  colors: {
+    'editor.background': '#0d0d12',
+    'editor.lineHighlightBackground': '#1a1a2e',
+    'minimap.background': '#0d0d12',
+  },
+}
+
+function inferLanguageFromPath(path = '') {
+  const ext = String(path || '').split('.').pop()?.toLowerCase() || ''
+  return {
+    py: 'python',
+    js: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    tsx: 'typescript',
+    json: 'json',
+    md: 'markdown',
+    txt: 'plaintext',
+    sql: 'sql',
+    sh: 'shell',
+    yaml: 'yaml',
+    yml: 'yaml',
+    html: 'html',
+    css: 'css',
+  }[ext] || 'plaintext'
+}
+
+function inferAtlasLanguage(exercise, code = '') {
+  const starterFiles = exercise?.starter_files && typeof exercise.starter_files === 'object' ? exercise.starter_files : {}
+  const firstFile = Object.keys(starterFiles)[0] || ''
+  if (firstFile) return inferLanguageFromPath(firstFile)
+  const sample = String(code || exercise?.expected_test || '').toLowerCase()
+  if (sample.includes('def ') || sample.includes('assert ') || sample.includes('print(')) return 'python'
+  if (sample.includes('function ') || sample.includes('const ')) return 'javascript'
+  if (sample.includes('# ') || sample.includes('## ')) return 'markdown'
+  return 'python'
+}
+
+function MonacoReadOnlyBlock({ value, language = 'plaintext', height = 220 }) {
+  if (!String(value || '').trim()) return null
+  return (
+    <div style={{ marginTop: 8, borderRadius: 10, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.08)' }}>
+      <Editor
+        height={height}
+        language={language}
+        value={String(value || '')}
+        theme="atlas-dark"
+        options={{
+          readOnly: true,
+          minimap: { enabled: false },
+          scrollBeyondLastLine: false,
+          fontSize: 13,
+          lineNumbers: 'on',
+          wordWrap: 'on',
+        }}
+        beforeMount={monaco => monaco.editor.defineTheme('atlas-dark', ATLAS_MONACO_THEME)}
+      />
+    </div>
+  )
+}
 
 export default function AtlasTutorPage() {
   const [atlasState, setAtlasState] = useState(null)
@@ -373,6 +439,9 @@ export default function AtlasTutorPage() {
   const planHistory    = Array.isArray(atlasState?.plan_history) ? atlasState.plan_history : []
   const evalHistory    = Array.isArray(atlasState?.eval_history) ? atlasState.eval_history : []
   const totalLessons = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
+  const starterFiles = exercise?.starter_files && typeof exercise.starter_files === 'object' ? exercise.starter_files : {}
+  const primaryStarterFile = Object.keys(starterFiles)[0] || ''
+  const exerciseLanguage = inferAtlasLanguage(exercise, code)
 
   useEffect(() => {
     const context = {
@@ -621,16 +690,19 @@ export default function AtlasTutorPage() {
               {exercise.expected_test && (
                 <details>
                   <summary style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', cursor: 'pointer' }}>View test scaffold</summary>
-                  <pre style={{ fontSize: '0.73rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', padding: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 8, marginTop: 8, overflowX: 'auto', whiteSpace: 'pre-wrap' }}>
-                    {exercise.expected_test}
-                  </pre>
+                  <MonacoReadOnlyBlock value={exercise.expected_test} language={exerciseLanguage} height={220} />
                 </details>
               )}
             </div>
 
             <div className="glass-card-solid" style={{ padding: 14, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 280 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Your Solution</p>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>Your Solution</p>
+                  <div style={{ marginTop: 4, fontSize: '0.68rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>
+                    {primaryStarterFile || `${exerciseLanguage} workspace`}
+                  </div>
+                </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={submitCode} disabled={loading}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--photon)', color: '#050608', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
@@ -646,9 +718,24 @@ export default function AtlasTutorPage() {
                   </button>
                 </div>
               </div>
-              <textarea value={code} onChange={e => setCode(e.target.value)}
-                placeholder="Write your Python solution here…"
-                style={{ flex: 1, minHeight: 200, background: 'rgba(5,6,8,0.8)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: '#4ade80', resize: 'vertical', outline: 'none', boxSizing: 'border-box', width: '100%' }} />
+              <div style={{ flex: 1, minHeight: 240, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
+                <Editor
+                  height="100%"
+                  language={exerciseLanguage}
+                  value={code}
+                  theme="atlas-dark"
+                  options={{
+                    minimap: { enabled: false },
+                    scrollBeyondLastLine: false,
+                    fontSize: 13,
+                    lineNumbers: 'on',
+                    wordWrap: 'on',
+                    padding: { top: 10, bottom: 10 },
+                  }}
+                  beforeMount={monaco => monaco.editor.defineTheme('atlas-dark', ATLAS_MONACO_THEME)}
+                  onChange={value => setCode(value || '')}
+                />
+              </div>
             </div>
 
             <div className="glass-card-solid" style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -895,28 +982,39 @@ export default function AtlasTutorPage() {
       {(!isMobile || showRightPanel) && (
       <div style={{ width: isMobile ? '100%' : 280, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
         <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <MessageSquare size={14} color="var(--violet)" />
-              <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--violet)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>
-                {chatMode === 'assistant' ? 'ATLAS Assistant' : 'ATLAS Tutor'}
-              </p>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <MessageSquare size={14} color="var(--violet)" />
+                <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--violet)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>
+                  {chatMode === 'assistant' ? 'ATLAS Assistant' : chatMode === 'build' ? 'ATLAS Build' : 'ATLAS Tutor'}
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <select value={chatMode} onChange={e => setChatMode(e.target.value)}
+                  className="filter-select"
+                  style={{ fontSize: '0.68rem', padding: '3px 6px' }}>
+                  <option value="assistant">Assistant</option>
+                  <option value="tutor">Tutor</option>
+                  <option value="build">Build</option>
+                </select>
+                <select value={chatModel} onChange={e => setChatModel(e.target.value)}
+                  className="filter-select"
+                  style={{ fontSize: '0.7rem', padding: '3px 6px' }}>
+                  {(models?.models || []).map(m => (
+                    <option key={m.id} value={m.id}>{m.id}{m.installed === false ? ' ✗' : ''}</option>
+                  ))}
+                  {!models?.models?.length && <option value="">default</option>}
+                </select>
+              </div>
             </div>
-            <select value={chatMode} onChange={e => setChatMode(e.target.value)}
-              className="filter-select"
-              style={{ fontSize: '0.68rem', padding: '3px 6px' }}>
-              <option value="assistant">Assistant</option>
-              <option value="tutor">Tutor</option>
-              <option value="build">Build</option>
-            </select>
-            <select value={chatModel} onChange={e => setChatModel(e.target.value)}
-              className="filter-select"
-              style={{ fontSize: '0.7rem', padding: '3px 6px' }}>
-              {(models?.models || []).map(m => (
-                <option key={m.id} value={m.id}>{m.id}{m.installed === false ? ' ✗' : ''}</option>
-              ))}
-              {!models?.models?.length && <option value="">default</option>}
-            </select>
+            <div style={{ marginTop: 8, fontSize: '0.68rem', color: 'var(--txt-mut)', lineHeight: 1.5 }}>
+              {chatMode === 'assistant'
+                ? 'Assistant is the open lane for /guide, architecture help, and general planning.'
+                : chatMode === 'build'
+                  ? 'Build is best for implementation ideas and worked examples while lesson guardrails stay on.'
+                  : 'Tutor is the coaching lane for hints, explanations, and step-by-step lesson help.'}
+            </div>
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -926,14 +1024,23 @@ export default function AtlasTutorPage() {
                   ? 'Talk to ATLAS naturally about ideas, plans, architecture, and coding.'
                   : 'Ask ATLAS for hints, debugging help, or lesson explanations.'}
               </div>
-            ) : chatHistory.slice(-40).map((msg, i) => (
-              <div key={i}>
-                <p style={{ fontSize: '0.68rem', color: msg.role === 'user' ? 'var(--photon)' : 'var(--cyan)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                  {msg.role === 'user' ? 'You' : 'ATLAS'}
-                </p>
-                <p style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{msg.message}</p>
-              </div>
-            ))}
+            ) : chatHistory.slice(-40).map((msg, i) => {
+              const previousMessage = i > 0 ? chatHistory.slice(-40)[i - 1] : null
+              const hasGuideSteps = Array.isArray(msg.guide_steps) && msg.guide_steps.length > 0
+              return (
+                <div key={i}>
+                  <p style={{ fontSize: '0.68rem', color: msg.role === 'user' ? 'var(--photon)' : 'var(--cyan)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                    {msg.role === 'user' ? 'You' : 'ATLAS'}
+                  </p>
+                  <div style={{ padding: '8px 10px', borderRadius: 10, background: msg.role === 'user' ? 'rgba(77,166,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{msg.message}</p>
+                    {hasGuideSteps && (
+                      <GuideStepPanel steps={msg.guide_steps} branch={msg.guide_branch} query={previousMessage?.message} />
+                    )}
+                  </div>
+                </div>
+              )
+            })}
             {chatBusy && (
               <div style={{ display: 'flex', gap: 4, padding: '4px 0' }}>
                 {[0, 1, 2].map(i => (
