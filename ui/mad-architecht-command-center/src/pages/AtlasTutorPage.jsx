@@ -114,9 +114,23 @@ export default function AtlasTutorPage() {
   const [attachedMaterials, setAttachedMaterials] = useState([])
   const [showRightPanel, setShowRightPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
   const [billingUsage, setBillingUsage] = useState(null)
-  const [showAdvancedTools, setShowAdvancedTools] = useState(false)
+  const [showAdvancedTools, setShowAdvancedTools] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.tutor.showAdvancedTools')
+      return stored === null ? false : stored === 'true'
+    } catch {
+      return false
+    }
+  })
   const chatBottomRef = useRef(null)
   const onboardingSeededRef = useRef(false)
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.tutor.showAdvancedTools')
+      if (stored !== null) setShowAdvancedTools(stored === 'true')
+    } catch (_) {}
+  }, [])
 
   useEffect(() => {
     const onResize = () => {
@@ -130,6 +144,12 @@ export default function AtlasTutorPage() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.tutor.showAdvancedTools', String(showAdvancedTools))
+    } catch (_) {}
+  }, [showAdvancedTools])
 
   const loadState = async () => {
     try {

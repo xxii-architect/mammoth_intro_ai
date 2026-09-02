@@ -153,17 +153,26 @@ export default function LessonsPage({ setPage }) {
   const [categoryFilter, setCategoryFilter] = useState(null)
   const [atlasLibrary, setAtlasLibrary] = useState(null)
   const [billingUsage, setBillingUsage] = useState(null)
-  const [showAdvancedTools, setShowAdvancedTools] = useState(false)
+  const [showAdvancedTools, setShowAdvancedTools] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.lesson.showAdvancedTools')
+      return stored === null ? false : stored === 'true'
+    } catch {
+      return false
+    }
+  })
   useEffect(() => {
     try {
       const storedTopic = window.localStorage.getItem('atlas.lesson.topic')
       const storedModuleSearch = window.localStorage.getItem('atlas.lesson.moduleSearch')
       const storedLessonType = window.localStorage.getItem('atlas.lesson.lessonTypeFilter')
       const storedLastModule = window.localStorage.getItem('atlas.lesson.lastModuleId')
+      const storedAdvancedTools = window.localStorage.getItem('atlas.lesson.showAdvancedTools')
       if (storedTopic) setTopic(storedTopic)
       if (storedModuleSearch) setModuleSearch(storedModuleSearch)
       if (storedLessonType && LESSON_TYPE_FILTERS.includes(storedLessonType)) setLessonTypeFilter(storedLessonType)
       if (storedLastModule) setLastSelectedModuleId(storedLastModule)
+      if (storedAdvancedTools !== null) setShowAdvancedTools(storedAdvancedTools === 'true')
     } catch (_) {}
   }, [])
   useEffect(() => {
@@ -181,6 +190,11 @@ export default function LessonsPage({ setPage }) {
       window.localStorage.setItem('atlas.lesson.lessonTypeFilter', lessonTypeFilter)
     } catch (_) {}
   }, [lessonTypeFilter])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.lesson.showAdvancedTools', String(showAdvancedTools))
+    } catch (_) {}
+  }, [showAdvancedTools])
   useEffect(() => {
     if (!activeTrack?.id) return
     setLastSelectedModuleId(activeTrack.id)
