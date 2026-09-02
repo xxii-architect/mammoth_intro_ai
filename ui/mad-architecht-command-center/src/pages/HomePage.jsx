@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Copy, ShieldCheck, Sparkles } from 'lucide-react'
+import { AlertTriangle, Copy, ShieldCheck, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
 import { loadSelfAuditHistory, normalizeSelfAuditEntry, runSystemSelfAudit } from '../api/diagnostics'
 import { useInterval } from '../hooks/useApi'
@@ -52,24 +52,29 @@ export default function HomePage({ setPage }) {
   const [entitlements, setEntitlements] = useState(null)
   const [deploySnapshot, setDeploySnapshot] = useState(null)
   const [runtimeStatus, setRuntimeStatus] = useState(null)
+  const [billingUsage, setBillingUsage] = useState(null)
   const [selfAudit, setSelfAudit] = useState(null)
   const [auditBusy, setAuditBusy] = useState(false)
   const [copied, setCopied] = useState(null)
 
   const fetchAll = async () => {
     try {
-      const [s, h, b, sl, deploy, rt] = await Promise.all([
+      const [s, h, b, sl, deploy, rt, billing] = await Promise.all([
         api('/status'),
         api('/health'),
         api('/buildlog'),
         api('/logsale'),
         api('/runtime/deploy-snapshot'),
+        api('/runtime/status'),
+        api('/billing/usage/current'),
       ])
       setStatus(s)
       setHealth(h)
       setBuildlog(b)
       setSales(sl)
       setDeploySnapshot(deploy)
+      setRuntimeStatus(rt)
+      setBillingUsage(billing)
       const entitlementState = await api('/entitlements')
       setEntitlements(entitlementState)
     } catch (_) {}
@@ -161,6 +166,17 @@ export default function HomePage({ setPage }) {
     { dot: '#22c55e', msg: 'MammothOS Command Center started', time: 'now' },
   ]
   const displayName = String(user?.user_metadata?.display_name || user?.email?.split('@')?.[0] || 'Operator').trim() || 'Operator'
+  const billingWarningLevel = String(billingUsage?.warning_level || 'normal')
+  const showBillingWarning = ['elevated', 'critical', 'blocked'].includes(billingWarningLevel)
+  const billingWarningColor = billingWarningLevel === 'blocked'
+    ? '#ef4444'
+    : billingWarningLevel === 'critical'
+      ? '#f97316'
+      : '#f59e0b'
+  const billingWarningText = String(billingUsage?.warning_message || '').trim() || 'Usage is trending high for your current plan.'
+  const billingPercent = Number.isFinite(Number(billingUsage?.usage?.percent_used))
+    ? Math.round(Number(billingUsage?.usage?.percent_used))
+    : 0
   const backendBase = (() => {
     try {
       return window.localStorage.getItem('mammoth_api_base_url') || window.location.origin
@@ -219,6 +235,25 @@ export default function HomePage({ setPage }) {
           </div>
         </div>
       </div>
+
+      {showBillingWarning && (
+        <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 18, border: `1px solid ${billingWarningColor}55`, background: `${billingWarningColor}14` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={15} color={billingWarningColor} />
+              <span style={{ fontSize: '0.78rem', color: billingWarningColor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Usage warning
+              </span>
+            </div>
+            <span style={{ fontSize: '0.74rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
+              {billingPercent}% used • {billingUsage?.usage?.requests || 0}/{billingUsage?.usage?.request_limit || 0} requests
+            </span>
+          </div>
+          <p style={{ margin: '6px 0 0', fontSize: '0.78rem', color: 'var(--txt-pri)', lineHeight: 1.45 }}>
+            {billingWarningText}
+          </p>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginBottom: 20 }}>
         {missionCards.map((card) => (
@@ -475,5 +510,4 @@ export default function HomePage({ setPage }) {
     </div>
   )
 }
-
 

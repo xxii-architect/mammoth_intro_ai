@@ -450,6 +450,45 @@ def _derive_adaptive_coaching(
     }
 
 
+def _build_learning_outcome_summary(recent_outcomes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    outcomes = [item for item in recent_outcomes if isinstance(item, dict)]
+    attempts = len(outcomes)
+    passes = sum(1 for item in outcomes if bool(item.get("passed")))
+    failures = attempts - passes
+    pass_rate = round((passes / attempts) * 100) if attempts else 0
+    latest = outcomes[-1] if outcomes else {}
+    latest_delta = float(latest.get("mastery_delta") or 0.0) if isinstance(latest, dict) else 0.0
+    if latest_delta > 0.02 and passes >= failures:
+        trend = "improving"
+    elif latest_delta < -0.02 or failures > passes:
+        trend = "needs_support"
+    else:
+        trend = "steady"
+    if attempts == 0:
+        progress_score = 0.0
+        learning_signal = "starting"
+    else:
+        trend_weight = 1.0 if trend == "improving" else 0.6 if trend == "steady" else 0.25
+        progress_score = round(min(1.0, max(0.0, ((pass_rate / 100.0) * 0.7) + (trend_weight * 0.3))), 2)
+        if progress_score >= 0.8:
+            learning_signal = "on_track"
+        elif progress_score >= 0.55:
+            learning_signal = "mixed"
+        else:
+            learning_signal = "needs_support"
+    return {
+        "recent_attempts": attempts,
+        "recent_passes": passes,
+        "recent_failures": failures,
+        "pass_rate": pass_rate,
+        "trend": trend,
+        "progress_score": progress_score,
+        "learning_signal": learning_signal,
+        "latest_concept": str(latest.get("concept") or "").strip() if isinstance(latest, dict) else "",
+        "latest_passed": bool(latest.get("passed")) if isinstance(latest, dict) else False,
+    }
+
+
 def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     model = _ensure_model_shape(state, (state or {}).get("user_id") or "default_user")
     mastery = model.get("mastery") or {}
@@ -490,6 +529,7 @@ def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, A
         repeated_error_count=repeated_error_count,
     )
     latest_delta = recent_outcomes[-1] if recent_outcomes else None
+    outcome_summary = _build_learning_outcome_summary(recent_outcomes)
 
     return {
         "user_id": model.get("user_id") or "default_user",
@@ -504,6 +544,9 @@ def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "adaptive_coaching": adaptive_coaching,
         "latest_mastery_delta": latest_delta.get("mastery_delta") if isinstance(latest_delta, dict) else None,
         "latest_confidence_delta": latest_delta.get("confidence_delta") if isinstance(latest_delta, dict) else None,
+        "outcome_summary": outcome_summary,
+        "learning_signal": outcome_summary.get("learning_signal", "starting"),
+        "progress_score": outcome_summary.get("progress_score", 0.0),
         "onboarding": onboarding,
         "memory_graph_summary": graph_summary,
         "error_patterns": error_patterns,
