@@ -1,5 +1,7 @@
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
+
 GUIDE_SYSTEM_PROMPT = """
 You are the MammothOS Guide — a documentation and architecture expert.
 Your job is to explain MammothOS clearly, accurately, and helpfully.
@@ -43,9 +45,9 @@ def _score_relevance(message: str, keys: List[str]) -> List[str]:
     msg_lower = message.lower()
     return [k for k in keys if k in msg_lower or k.replace("_", " ") in msg_lower]
 
-class MammothGuideAgent:
+class MammothGuideAgent(BaseAgent):
     def __init__(self, router=None):
-        self.router = router
+        super().__init__(router)
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         repo_context = payload.get("repo_context", {})

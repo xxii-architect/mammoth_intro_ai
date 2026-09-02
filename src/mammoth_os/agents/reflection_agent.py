@@ -6,13 +6,15 @@ Generates structured learning reflections, mindset prompts, and personal growth 
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
 
-class ReflectionAgent:
+class ReflectionAgent(BaseAgent):
     """
     Produces reflective prompts and insights to reinforce learning.
     """
 
-    def __init__(self, user_id: str | None = None):
+    def __init__(self, user_id: str | None = None, router=None):
+        super().__init__(router)
         self.user_id = user_id
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
