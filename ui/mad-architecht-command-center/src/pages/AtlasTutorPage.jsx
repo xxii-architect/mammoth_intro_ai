@@ -502,6 +502,27 @@ export default function AtlasTutorPage() {
     return { mastery, recommendedDifficulty, focusAreas }
   }, [result, learnerContext])
 
+  const confidenceSummary = useMemo(() => {
+    const rawConfidence = Number(result?.confidence ?? result?.confidence_score ?? result?.score ?? learnerContext?.confidence ?? learnerContext?.mastery ?? lastSubmission?.score ?? 0)
+    const confidence = Number.isFinite(rawConfidence)
+      ? Math.max(0, Math.min(100, rawConfidence > 1 ? rawConfidence : rawConfidence * 100))
+      : 0
+    const focusAreas = Array.isArray(result?.focus_areas)
+      ? result.focus_areas
+      : Array.isArray(learnerContext?.weakest_concepts)
+        ? learnerContext.weakest_concepts.slice(0, 3).map((item) => item.concept || item.name || item.label).filter(Boolean)
+        : []
+    const nextStep = result?.next_step || result?.recommendation || result?.suggested_next_step || learnerContext?.recommended_difficulty
+      ? `Continue with ${learnerContext?.recommended_difficulty || result?.recommended_difficulty || 'steady'} pacing.`
+      : 'Keep the current learning loop going.'
+    return {
+      confidence: Math.round(confidence),
+      focusAreas,
+      nextStep,
+      status: confidence >= 80 ? 'High confidence' : confidence >= 55 ? 'Moderate confidence' : 'Needs reinforcement',
+    }
+  }, [result, learnerContext, lastSubmission])
+
   useEffect(() => {
     const context = {
       lesson_id: currentLessonId || null,
@@ -783,6 +804,42 @@ export default function AtlasTutorPage() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
         {exercise ? (
           <>
+            <div className="glass-card-solid" style={{ padding: 16, flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div>
+                  <div className="eyebrow">Learning signal</div>
+                  <div style={{ marginTop: 4, fontSize: '0.9rem', color: 'var(--txt-pri)', fontWeight: 700 }}>Confidence and next step</div>
+                </div>
+                <div style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(34,197,94,0.24)', background: 'rgba(34,197,94,0.08)', color: '#86efac', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {confidenceSummary.status}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10 }}>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Confidence</div>
+                  <div style={{ marginTop: 6, fontSize: '1.35rem', fontWeight: 800, color: 'var(--cyan)' }}>{confidenceSummary.confidence}%</div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Difficulty</div>
+                  <div style={{ marginTop: 6, fontSize: '1rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{outcomeSummary.recommendedDifficulty}</div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', gridColumn: 'span 1' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Next step</div>
+                  <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{confidenceSummary.nextStep}</div>
+                </div>
+              </div>
+              {confidenceSummary.focusAreas?.length ? (
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(77,166,255,0.06)', border: '1px solid rgba(77,166,255,0.22)' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Focus areas</div>
+                  <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {confidenceSummary.focusAreas.map((area, index) => (
+                      <span key={`${area}-${index}`} style={{ padding: '5px 8px', borderRadius: 999, border: '1px solid rgba(77,166,255,0.18)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)', fontSize: '0.7rem' }}>{area}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
               <div className="eyebrow">Exercise</div>
               <h2 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: 8 }}>{exercise.title || 'Untitled Exercise'}</h2>
