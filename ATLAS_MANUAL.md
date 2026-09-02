@@ -56,6 +56,12 @@ This repo has completed the reliability + eval + tutor-outcome + SDK hardening s
 - Complete final visual polish on the least-used UI screens.
 - Replace preview-safe usage metering with hosted billing-provider-backed metering.
 
+### CI enforcement update
+
+- `.github/workflows/release-guardrails.yml` now runs the release/eval/tutor/SDK guardrail suite on PRs to `main`, pushes to `main`, and manual dispatch.
+- `.github/workflows/deploy-digitalocean.yml` now requires the same guardrail suite to pass before deployment.
+- For full protection, require `Release Guardrails / guardrails` in branch protection for `main`.
+
 ---
 
 
