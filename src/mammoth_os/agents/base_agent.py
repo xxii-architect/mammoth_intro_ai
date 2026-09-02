@@ -12,7 +12,7 @@ class BaseAgent:
 
     name: str = "BaseAgent"
 
-    def __init__(self, router: Any):
+    def __init__(self, router: Any = None):
         self.router = router
 
     # ---------------------------------------------------------

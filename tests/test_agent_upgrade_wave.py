@@ -120,6 +120,16 @@ def test_seed_and_community_agents_use_base_agent_runtime():
     assert isinstance(CommunityEngineAgent(), BaseAgent)
 
 
+def test_coding_curriculum_brand_and_base_agent_quality_is_top_tier():
+    for agent_id in ("coding_agent", "curriculum_agent", "brand_voice_agent", "base_agent"):
+        snapshot = api_server._agent_quality_snapshot(agent_id)
+        assert snapshot["quality_score"] >= 90, f"{agent_id} scored {snapshot['quality_score']}: {snapshot['quality_findings']}"
+        assert snapshot["quality_tier"] == "top-tier"
+        findings_text = " ".join(snapshot.get("quality_findings") or []).lower()
+        assert "does not inherit baseagent" not in findings_text
+        assert "placeholder-oriented logic markers" not in findings_text
+
+
 def test_registry_loads_classifier_and_orchestrator():
     assert isinstance(agent_registry_mod.load_agent("classifier"), ClassifierAgent)
     assert isinstance(agent_registry_mod.load_agent("orchestrator"), OrchestratorAgent)
