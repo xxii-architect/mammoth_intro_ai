@@ -50,7 +50,6 @@ class WorkflowExecutor:
                 "errors": [],
             }
         
-        # Build dependency graph and validate
         task_map = {t.get("task_id"): t for t in tasks if t.get("task_id")}
         dep_errors = self._validate_dependencies(task_map)
         if dep_errors:
@@ -64,23 +63,20 @@ class WorkflowExecutor:
                 "errors": dep_errors,
             }
         
-        # Execute tasks in dependency order
         completed: Dict[str, Dict[str, Any]] = {}
         execution_order: List[Dict[str, Any]] = []
         results: List[Dict[str, Any]] = []
         errors: List[str] = []
+        recovery_plan: List[str] = []
         
         for task in tasks:
             task_id = task.get("task_id")
             deps = task.get("depends_on", [])
-            
-            # Wait for dependencies
             for dep_id in deps:
                 if dep_id not in completed:
                     errors.append(f"Task {task_id} depends on unresolved {dep_id}")
+                    recovery_plan.append(f"Resolve dependency {dep_id} before running {task_id}.")
                     continue
-            
-            # Execute task
             try:
                 task_result = await self._execute_task(task)
                 execution_order.append({
@@ -90,15 +86,30 @@ class WorkflowExecutor:
                 })
                 results.append(task_result)
                 completed[task_id] = task_result
+                if task_result.get("status") == "timeout":
+                    recovery_plan.append(f"Retry {task_id} with a shorter tool set or a larger timeout.")
+                elif task_result.get("status") == "error":
+                    recovery_plan.append(f"Inspect {task_id} failure and re-run with a narrower payload or safer fallback.")
             except Exception as exc:
                 err_msg = f"Task {task_id} failed: {exc}"
                 errors.append(err_msg)
+                recovery_plan.append(f"Re-check the tool contract for {task_id} and re-run with the minimal required input.")
                 execution_order.append({
                     "task_id": task_id,
                     "status": "failed",
                     "error": str(exc),
                 })
         
+        tool_intelligence = {
+            "dependency_health": "healthy" if not dep_errors else "broken",
+            "recommended_next_action": (
+                "Execute the recovery plan by fixing dependency order before re-running the failing task."
+                if errors else
+                "Continue the workflow; all tasks are resolved and ready to finish."
+            ),
+            "recovery_plan": recovery_plan[:6],
+            "execution_summary": f"{len(completed)} tasks completed with {len(errors)} blockers",
+        }
         return {
             "status": "ok" if not errors else "warning",
             "workflow_id": workflow_id,
@@ -107,8 +118,9 @@ class WorkflowExecutor:
             "execution_order": execution_order,
             "results": results,
             "errors": errors,
+            "tool_intelligence": tool_intelligence,
         }
-    
+
     async def _execute_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """Execute a single task with timeout and retry logic."""
         task_id = task.get("task_id")
@@ -117,10 +129,10 @@ class WorkflowExecutor:
         task_input = task.get("input", {})
         timeout_sec = task.get("timeout_sec", self.timeout_sec)
         retries = task.get("retries", self.max_retries)
+        recommended_next = "Keep the tool payload minimal and verify the target before retrying."
         
         for attempt in range(1, retries + 2):
             try:
-                # Try to delegate to router if available
                 if self.router and hasattr(self.router, "handle_task"):
                     async def _execute():
                         return await self.router.handle_task(
@@ -130,7 +142,6 @@ class WorkflowExecutor:
                             details=task_input,
                         )
                 else:
-                    # Fallback: direct agent invocation
                     from mammoth_os.agent_registry import load_agent
                     agent = load_agent(agent_name)
                     async def _execute():
@@ -146,9 +157,11 @@ class WorkflowExecutor:
                     "action": action,
                     "result": result,
                     "attempt": attempt,
+                    "tool_guidance": recommended_next,
                 }
             except asyncio.TimeoutError:
                 if attempt <= retries:
+                    recommended_next = "Retry with a larger timeout or fewer concurrent operations."
                     continue
                 return {
                     "task_id": task_id,
@@ -157,9 +170,11 @@ class WorkflowExecutor:
                     "action": action,
                     "error": f"Task timed out after {timeout_sec}s",
                     "attempts": attempt,
+                    "tool_guidance": "Retry with a larger timeout or a narrower set of inputs.",
                 }
             except Exception as exc:
                 if attempt <= retries:
+                    recommended_next = "Reduce the payload to only the required fields and retry once the failure mode is clear."
                     continue
                 return {
                     "task_id": task_id,
@@ -168,14 +183,16 @@ class WorkflowExecutor:
                     "action": action,
                     "error": str(exc),
                     "attempts": attempt,
+                    "tool_guidance": "Re-check the tool contract and re-run with the minimum required data for a safe fallback.",
                 }
         
         return {
             "task_id": task_id,
             "status": "error",
             "message": f"Task failed after {retries + 1} attempts",
+            "tool_guidance": recommended_next,
         }
-    
+
     @staticmethod
     def _validate_dependencies(task_map: Dict[str, Dict[str, Any]]) -> List[str]:
         """Validate that all dependencies exist and no cycles present."""

@@ -329,6 +329,7 @@ export default function ChatPage({ setPage }) {
   const [meta, setMeta] = useState(null)
   const [error, setError] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [streamStatus, setStreamStatus] = useState('idle')
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState(-1)
   const [quickActionsOpen, setQuickActionsOpen] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 768 : true))
   const [taskCards, setTaskCards] = useState(() => loadTaskCards())
@@ -697,6 +698,7 @@ export default function ChatPage({ setPage }) {
     const effectiveAgentId = overrideAgentId || agentId
     setBusy(true)
     setStreaming(true)
+    setStreamStatus(effectiveAgentId === 'coding_agent' ? 'patching' : effectiveAgentId === 'reasoning_agent' ? 'reasoning' : 'thinking')
     setError('')
     if (!override) setInput('')
 
@@ -757,6 +759,7 @@ export default function ChatPage({ setPage }) {
     } finally {
       setBusy(false)
       setStreaming(false)
+      setStreamStatus('idle')
       streamControllerRef.current = null
       await refreshOps()
     }
@@ -899,9 +902,10 @@ export default function ChatPage({ setPage }) {
                 onOpenHandoff={() => setPage?.('agent')}
               />
             ))}
-            {busy && !streaming && (
-              <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.8rem', color: 'var(--txt-mut)' }}>
-                MammothOS is checking the herd…
+            {busy && (
+              <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.18)', fontSize: '0.8rem', color: 'var(--txt-sec)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 12px rgba(77,166,255,0.6)' }} />
+                {streaming ? `MammothOS is ${streamStatus}…` : 'MammothOS is checking the herd…'}
               </div>
             )}
             <div ref={bottomRef} />

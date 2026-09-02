@@ -119,6 +119,23 @@ export default function HomePage({ setPage }) {
   ]
 
   const services = health?.services || []
+  const missionCards = [
+    {
+      label: 'Current objective',
+      value: services.some(s => s.status !== 'green') ? 'Restore stability' : 'Keep the loop tight',
+      detail: services.some(s => s.status !== 'green') ? 'Fix the degraded runtime before broadening the next task.' : 'Stay on the healthy path and convert momentum into execution.',
+    },
+    {
+      label: 'Best learning move',
+      value: 'Finish one ATLAS loop',
+      detail: 'Choose one skill track and close a concrete win before exploring wider modules.',
+    },
+    {
+      label: 'Operator rhythm',
+      value: `${Math.max(services.filter(s => s.status === 'green').length, 0)}/${Math.max(services.length, 1)} services green`,
+      detail: 'Healthy runtime plus focused learning is the highest-leverage pattern right now.',
+    },
+  ]
 
   // combine recent activity from buildlog + sales
   const activity = [
@@ -155,6 +172,48 @@ export default function HomePage({ setPage }) {
           </p>
         </div>
         <AtlasMemoryBadge />
+      </div>
+
+      <div className="glass-card-solid" style={{ padding: 18, marginBottom: 20, position: 'relative', overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at top left, rgba(77,166,255,0.2), transparent 45%), radial-gradient(circle at bottom right, rgba(168,85,247,0.18), transparent 38%)' }} />
+        <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+          <div style={{ maxWidth: 640 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, color: 'var(--photon)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
+              <Sparkles size={12} /> Mammoth Stride
+            </div>
+            <h2 style={{ margin: '0 0 8px', fontSize: '1.25rem', lineHeight: 1.2, letterSpacing: '-0.02em' }}>Build momentum across the operator loop.</h2>
+            <p style={{ margin: 0, color: 'var(--txt-sec)', lineHeight: 1.6, fontSize: '0.84rem' }}>
+              Your best next move is to keep the system healthy, deepen the learning loop, and turn the latest ATLAS insights into a concrete action.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, minWidth: 320, flex: 1 }}>
+            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(77,166,255,0.22)', background: 'rgba(77,166,255,0.07)' }}>
+              <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Focus</div>
+              <div style={{ marginTop: 6, fontSize: '0.92rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Operator health</div>
+              <div style={{ marginTop: 4, color: 'var(--txt-sec)', fontSize: '0.74rem' }}>{services.length ? `${services.filter(s => s.status === 'green').length}/${services.length} services green` : 'Checking runtime…'}</div>
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(0,245,212,0.22)', background: 'rgba(0,245,212,0.06)' }}>
+              <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Best next action</div>
+              <div style={{ marginTop: 6, fontSize: '0.92rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Open lessons</div>
+              <div style={{ marginTop: 4, color: 'var(--txt-sec)', fontSize: '0.74rem' }}>Keep the learning loop moving with a focused ATLAS module.</div>
+            </div>
+            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(168,85,247,0.22)', background: 'rgba(168,85,247,0.07)' }}>
+              <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Momentum</div>
+              <div style={{ marginTop: 6, fontSize: '0.92rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{entitlements?.effective_tier || entitlements?.tier || 'explorer'}</div>
+              <div style={{ marginTop: 4, color: 'var(--txt-sec)', fontSize: '0.74rem' }}>Tier is healthy and ready for the next upgrade slice.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginBottom: 20 }}>
+        {missionCards.map((card) => (
+          <div key={card.label} className="glass-card-solid" style={{ padding: 16 }}>
+            <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>{card.label}</div>
+            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--txt-pri)', marginBottom: 6 }}>{card.value}</div>
+            <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem', lineHeight: 1.5 }}>{card.detail}</div>
+          </div>
+        ))}
       </div>
 
       <OnboardingGuide currentPage="home" setPage={setPage} />
