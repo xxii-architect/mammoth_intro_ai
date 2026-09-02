@@ -1,0 +1,28 @@
+{
+  "name": "mammoth_intro_ai",
+  "version": "1.0.0",
+  "description": "This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Command Center UI.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xxii-architect/mammoth_intro_ai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/xxii-architect/mammoth_intro_ai/issues"
+  },
+  "homepage": "https://github.com/xxii-architect/mammoth_intro_ai#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

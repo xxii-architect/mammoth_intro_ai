@@ -7,6 +7,7 @@ import OnboardingGuide from '../components/OnboardingGuide'
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
+import { useAuth } from '../lib/authContext'
 
 function Sparkline({ points, color, gradId }) {
   return (
@@ -43,27 +44,31 @@ const bootSequence = [
 ]
 
 export default function HomePage({ setPage }) {
+  const { user } = useAuth()
   const [status, setStatus] = useState(null)
   const [health, setHealth] = useState(null)
   const [buildlog, setBuildlog] = useState([])
   const [sales, setSales] = useState([])
   const [entitlements, setEntitlements] = useState(null)
+  const [deploySnapshot, setDeploySnapshot] = useState(null)
   const [selfAudit, setSelfAudit] = useState(null)
   const [auditBusy, setAuditBusy] = useState(false)
   const [copied, setCopied] = useState(null)
 
   const fetchAll = async () => {
     try {
-      const [s, h, b, sl] = await Promise.all([
+      const [s, h, b, sl, deploy] = await Promise.all([
         api('/status'),
         api('/health'),
         api('/buildlog'),
         api('/logsale'),
+        api('/runtime/deploy-snapshot'),
       ])
       setStatus(s)
       setHealth(h)
       setBuildlog(b)
       setSales(sl)
+      setDeploySnapshot(deploy)
       const entitlementState = await api('/entitlements')
       setEntitlements(entitlementState)
     } catch (_) {}
@@ -154,6 +159,14 @@ export default function HomePage({ setPage }) {
   const fallbackActivity = [
     { dot: '#22c55e', msg: 'MammothOS Command Center started', time: 'now' },
   ]
+  const displayName = String(user?.user_metadata?.display_name || user?.email?.split('@')?.[0] || 'Operator').trim() || 'Operator'
+  const backendBase = (() => {
+    try {
+      return window.localStorage.getItem('mammoth_api_base_url') || window.location.origin
+    } catch {
+      return window.location.origin
+    }
+  })()
   return (
     <div className="page-enter" style={{ padding: 24 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
@@ -161,10 +174,10 @@ export default function HomePage({ setPage }) {
           <h1 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: 6, letterSpacing: '-0.01em' }}>
             {(() => {
               const h = new Date().getHours()
-              if (h < 12) return '\u2600\ufe0f Good morning, Vernon'
-              if (h < 17) return '\ud83c\udf24 Good afternoon, Vernon'
-              if (h < 21) return '\ud83c\udf19 Good evening, Vernon'
-              return '\ud83e\udda3 Late night build, Vernon?'
+              if (h < 12) return `\u2600\ufe0f Good morning, ${displayName}`
+              if (h < 17) return `\ud83c\udf24 Good afternoon, ${displayName}`
+              if (h < 21) return `\ud83c\udf19 Good evening, ${displayName}`
+              return `\ud83e\udda3 Late night build, ${displayName}?`
             })()}
           </h1>
           <p style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', margin: 0, lineHeight: 1.6 }}>
@@ -220,6 +233,26 @@ export default function HomePage({ setPage }) {
       <OnboardingChecklist setPage={setPage} />
       <div style={{ marginBottom: 24 }}>
         <WorkspaceMemoryPanel />
+      </div>
+
+      <div className="glass-card-solid" style={{ padding: 16, marginBottom: 24, borderLeft: '3px solid var(--violet)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+          <p style={{ margin: 0, fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700 }}>
+            Live deploy verification
+          </p>
+          <button
+            onClick={fetchAll}
+            style={{ border: '1px solid var(--border)', borderRadius: 8, background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', padding: '6px 10px', cursor: 'pointer' }}
+          >
+            Refresh snapshot
+          </button>
+        </div>
+        <div style={{ display: 'grid', gap: 6, color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
+          <div>Backend origin: <strong style={{ color: 'var(--photon)', fontFamily: 'JetBrains Mono,monospace' }}>{backendBase}</strong></div>
+          <div>Repo root: <span style={{ fontFamily: 'JetBrains Mono,monospace' }}>{deploySnapshot?.repo_root || status?.repo_root || 'unknown'}</span></div>
+          <div>Branch / commit: <span style={{ fontFamily: 'JetBrains Mono,monospace', color: 'var(--photon)' }}>{deploySnapshot?.git_branch || status?.git_branch || 'unknown'} @ {deploySnapshot?.git_commit || status?.git_commit || 'unknown'}</span></div>
+          <div>Runtime: <strong style={{ color: deploySnapshot?.runtime_state === 'ready' ? '#22c55e' : '#f59e0b' }}>{deploySnapshot?.runtime_state || 'unknown'}</strong></div>
+        </div>
       </div>
 
       {/* Stat cards */}
@@ -403,4 +436,3 @@ export default function HomePage({ setPage }) {
     </div>
   )
 }
-

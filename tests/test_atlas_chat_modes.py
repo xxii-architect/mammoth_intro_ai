@@ -76,3 +76,75 @@ def test_atlas_chat_tutor_mode_keeps_guard_behavior(monkeypatch):
     assert response["guard_triggered"] is True
     assert state.get("chat_history")
 
+
+def test_atlas_chat_guide_command_routes_to_mammoth_guide(monkeypatch):
+    state = {
+        "current_exercise": {},
+        "current_lesson": {"title": "Lesson 1"},
+        "lesson_plan": {},
+        "resume_packet": {},
+    }
+
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    monkeypatch.setattr(api_server, "_sync_resume_packet", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_hydrate_learner_state", lambda *args, **kwargs: {})
+    monkeypatch.setattr(api_server, "registry_run_agent", lambda name, payload: {"message": f"guide::{payload.get('message')}", "repo_context_used": True})
+
+    response = asyncio.run(
+        api_server.atlas_chat(
+            {
+                "message": "/guide show sdk entry points",
+                "mode": "assistant",
+                "repo_context": {"query": "sdk", "files": ["src/mammoth_os/sdk.py"]},
+            }
+        )
+    )
+
+    assert response["status"] == "ok"
+    assert response["adapter"] == "mammoth-guide"
+    assert "guide::show sdk entry points" in response["reply"]
+
+
+def test_atlas_chat_injects_attached_material_context(monkeypatch):
+    prompt_log = []
+    state = {
+        "current_exercise": {"prompt": "Write a function"},
+        "current_lesson": {"title": "Lesson 1"},
+        "lesson_plan": {},
+        "resume_packet": {},
+    }
+
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    monkeypatch.setattr(api_server, "_sync_resume_packet", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_hydrate_learner_state", lambda *args, **kwargs: {})
+    monkeypatch.setattr(api_server, "_current_request_user_id", lambda: "user-local")
+    monkeypatch.setattr(
+        api_server,
+        "_load_atlas_files_index",
+        lambda user_id: [
+            {
+                "file_id": "atlas-abc",
+                "name": "chapter1-notes.md",
+                "tag": "notes",
+                "text_preview": "Neural networks start with layers...",
+            }
+        ],
+    )
+    monkeypatch.setattr(llm_client_mod, "get_llm_client", lambda config=None: DummyClient(prompt_log))
+
+    response = asyncio.run(
+        api_server.atlas_chat(
+            {
+                "message": "Use my class notes to help me revise.",
+                "mode": "assistant",
+                "attached_material_ids": ["atlas-abc"],
+            }
+        )
+    )
+
+    assert response["status"] == "ok"
+    assert response["attached_materials_used"][0]["name"] == "chapter1-notes.md"
+    assert "Attached lesson materials" in prompt_log[-1]
+    assert "Neural networks start with layers" in prompt_log[-1]

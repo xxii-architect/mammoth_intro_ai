@@ -49,6 +49,9 @@ class CortexRouter:
             "research_plants": "research_agent",
             "compare_gear": "research_agent",
             "summarize": "research_agent",
+
+            "guide": "mammoth_guide",
+            "mammoth_guide": "mammoth_guide",
         }
 
         if intent not in intent_map:

@@ -215,6 +215,9 @@ def test_billing_usage_is_scoped_per_authenticated_user(monkeypatch, tmp_path):
     assert alpha.json()["usage"]["tokens"] == 210
     assert alpha.json()["plan"] == "pro"
     assert alpha.json()["metering_mode"] == "workspace_state_preview"
+    assert "warning_message" in alpha.json()
+    assert "forecast" in alpha.json()
+    assert "recommended_action" in alpha.json()
     assert beta.json()["usage"]["requests"] == 1
     assert beta.json()["usage"]["tokens"] == 15
     assert beta.json()["plan"] == "explorer"

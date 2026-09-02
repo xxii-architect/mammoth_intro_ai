@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Code2, Copy, GitBranch, ListChecks, FileText, Loader2, Sparkles } from 'lucide-react'
+import MammothDiffViewer from './MammothDiffViewer'
 
 function normalizeList(value) {
   return Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : []
@@ -326,6 +327,8 @@ export default function CodingArtifactPanel({ artifact, rawJson, onApplyPatch, a
               </div>
             )}
           </div>
+        ) : activeTab === 'diff' && artifact.code ? (
+          <MammothDiffViewer before={artifact.diff || artifact.code} after={artifact.code} mode="approvable" onAccept={onApplyPatch} height={380} />
         ) : (
           <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.76rem', lineHeight: 1.7, color: 'var(--txt-pri)', maxHeight: 420, overflowY: 'auto', padding: '2px 0' }}>
             {(sections[activeTab] || 'No content available for this tab.').trim()}

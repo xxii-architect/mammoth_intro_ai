@@ -11,6 +11,7 @@ import { api } from './api/client'
 import RuntimeStatusBanner from './components/RuntimeStatusBanner'
 import NotificationsDropdown from './components/NotificationsDropdown'
 import MammothWelcome from './components/MammothWelcome'
+import GuideStepPanel from './components/GuideStepPanel'
 import LoginPage from './pages/LoginPage'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
@@ -438,6 +439,29 @@ function AccessPreviewPage({ gate, entitlements, setPage }) {
   )
 }
 
+
+function fabHiddenStorageKey(surfaceKey) {
+  return `atlas_fab_hidden:${surfaceKey}`
+}
+
+function readFabHidden(surfaceKey) {
+  if (typeof window === 'undefined') return false
+  try {
+    return localStorage.getItem(fabHiddenStorageKey(surfaceKey)) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeFabHidden(surfaceKey, hidden) {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(fabHiddenStorageKey(surfaceKey), hidden ? '1' : '0')
+  } catch {
+    // no-op
+  }
+}
+
 function persistArtifactRecord(entry) {
   if (!entry || typeof window === 'undefined') return
   try {
@@ -462,7 +486,10 @@ function persistArtifactRecord(entry) {
 }
 
 function AtlasFAB({ currentPage, isMobile = false }) {
+  const isMammothMindSurface = currentPage === 'chat'
+  const fabSurfaceKey = isMammothMindSurface ? 'mammoth-mind' : 'atlas'
   const [open, setOpen] = useState(false)
+  const [hidden, setHidden] = useState(() => readFabHidden(currentPage === 'chat' ? 'mammoth-mind' : 'atlas'))
   const [input, setInput] = useState('')
   const [history, setHistory] = useState([])
   const [busy, setBusy] = useState(false)
@@ -471,7 +498,6 @@ function AtlasFAB({ currentPage, isMobile = false }) {
   const [mode, setMode] = useState('assistant')
   const [strictGuard, setStrictGuard] = useState(true)
   const bottomRef = useRef(null)
-  const isMammothMindSurface = currentPage === 'chat'
   const fabLabel = isMammothMindSurface ? 'Mammoth Mind' : 'ATLAS Tutor'
   const fabSubLabel = isMammothMindSurface ? 'Native multi-agent chat' : 'AI-powered coding mentor'
   const lastAssistantIndex = (() => {
@@ -484,6 +510,16 @@ function AtlasFAB({ currentPage, isMobile = false }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [history])
+
+  useEffect(() => {
+    setHidden(readFabHidden(fabSurfaceKey))
+    setOpen(false)
+  }, [fabSurfaceKey])
+
+  useEffect(() => {
+    writeFabHidden(fabSurfaceKey, hidden)
+    if (hidden) setOpen(false)
+  }, [fabSurfaceKey, hidden])
 
   const send = async () => {
     if (!input.trim() || busy) return
@@ -570,6 +606,25 @@ function AtlasFAB({ currentPage, isMobile = false }) {
 
   return (
     <>
+      {hidden ? (
+        <button
+          onClick={() => { setHidden(false); setOpen(true) }}
+          style={{
+            position: 'fixed', bottom: 28, right: 14, zIndex: 9000,
+            padding: '10px 12px', borderRadius: 999,
+            background: isMammothMindSurface ? 'linear-gradient(135deg, rgba(77,166,255,0.95), rgba(0,245,212,0.9))' : 'rgba(180,124,255,0.92)',
+            border: '1px solid rgba(255,255,255,0.2)',
+            boxShadow: isMammothMindSurface ? '0 0 20px rgba(77,166,255,0.35)' : '0 0 20px rgba(180,124,255,0.35)',
+            cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8,
+            color: '#fff', fontSize: '0.78rem', fontWeight: 700,
+          }}
+          title={`Show ${fabLabel}`}
+        >
+          {isMammothMindSurface ? <MessageSquare size={16} /> : <LogoMark src={BRANDING.atlasLogo} alt="ATLAS logo" fallback="🐘" size={18} />}
+          {isMammothMindSurface ? 'Mind' : 'ATLAS'}
+        </button>
+      ) : (
       <button
         onClick={() => setOpen(o => !o)}
         style={{
@@ -597,6 +652,7 @@ function AtlasFAB({ currentPage, isMobile = false }) {
           />
         )}
       </button>
+      )}
 
       {open && (
         <div style={{
@@ -627,7 +683,10 @@ function AtlasFAB({ currentPage, isMobile = false }) {
                 <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{fabSubLabel}</p>
               </div>
             </div>
-            <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4 }}>✕</button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button onClick={() => setHidden(true)} style={{ background: 'none', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 8, cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '0.7rem', padding: '5px 8px' }}>Hide</button>
+              <button onClick={() => setOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4 }}>✕</button>
+            </div>
           </div>
 
           <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
@@ -690,6 +749,9 @@ function AtlasFAB({ currentPage, isMobile = false }) {
                     whiteSpace: 'pre-wrap',
                   }}>
                     {msg.message}
+                    {msg.role !== 'user' && Array.isArray(msg.guide_steps) && msg.guide_steps.length > 0 && (
+                      <GuideStepPanel steps={msg.guide_steps} branch={msg.guide_branch} query={history[i - 1]?.message} />
+                    )}
                   </div>
                   {canSave && (
                     <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>

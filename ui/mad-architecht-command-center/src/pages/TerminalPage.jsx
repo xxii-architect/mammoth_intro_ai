@@ -1,18 +1,24 @@
-import { useState, useEffect, useRef } from 'react'
-import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff, BookOpen } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { Terminal, Play, Copy, Trash2, GitBranch, Hammer, Bot, FlaskConical, CheckCircle, WifiOff, BookOpen, Server, Package, Activity, RefreshCw } from 'lucide-react'
 import { authorizedFetch, openTerminalWS } from '../api/client'
 import { getAccessToken } from '../lib/supabase'
 import OnboardingGuide from '../components/OnboardingGuide'
 
 const QUICK_ACTIONS = [
   { label: 'Git Status', cmd: 'git status', Icon: GitBranch, color: 'var(--violet)', note: 'working tree' },
+  { label: 'Git Log', cmd: 'git log --oneline -20', Icon: GitBranch, color: '#eab308', note: 'recent history' },
+  { label: 'Git Branch', cmd: 'git branch', Icon: GitBranch, color: 'var(--cyan)', note: 'branch list' },
   { label: 'Agent List', cmd: 'python -m cli.main agent-list', Icon: Bot, color: 'var(--photon)', note: 'available lanes' },
   { label: 'CLI Status', cmd: 'python -m cli.main status', Icon: CheckCircle, color: '#22c55e', note: 'runtime snapshot' },
   { label: 'CLI Health', cmd: 'python -m cli.main health', Icon: FlaskConical, color: '#22c55e', note: 'health report' },
   { label: 'ATLAS Status', cmd: 'python -m cli.main atlas status', Icon: Bot, color: 'var(--violet)', note: 'atlas wiring' },
-  { label: 'Git Log', cmd: 'git log --oneline -20', Icon: GitBranch, color: '#eab308', note: 'recent history' },
-  { label: 'Git Branch', cmd: 'git branch', Icon: GitBranch, color: 'var(--cyan)', note: 'branch list' },
+  { label: 'Service Status', cmd: 'systemctl status mammothos', Icon: Server, color: '#f97316', note: 'server process' },
+  { label: 'Server Logs', cmd: 'journalctl -u mammothos -n 50 --no-pager', Icon: Activity, color: '#f97316', note: 'recent log lines' },
+  { label: 'Disk Usage', cmd: 'df -h', Icon: Server, color: 'var(--cyan)', note: 'disk space' },
+  { label: 'Memory', cmd: 'free -h', Icon: Activity, color: '#a3e635', note: 'ram usage' },
+  { label: 'Pip List', cmd: 'pip list', Icon: Package, color: '#a855f7', note: 'installed packages' },
   { label: 'npm Build', cmd: 'npm run build', Icon: Hammer, color: '#eab308', note: 'frontend verify' },
+  { label: 'Restart Service', cmd: 'systemctl restart mammothos', Icon: RefreshCw, color: '#ef4444', note: '⚠ live restart' },
 ]
 
 const COMMAND_PLAYBOOK = [
@@ -33,7 +39,7 @@ const COMMAND_PLAYBOOK = [
   },
   {
     label: 'ATLAS Code Scan',
-    cmd: 'python -m cli.main atlas code scan src\\mammoth_os\\agents\\coding_agent.py',
+    cmd: 'python -m cli.main atlas code scan src/mammoth_os/agents/coding_agent.py',
     note: 'Asks the coding workflow for a structured scan of one file.',
   },
   {
@@ -47,19 +53,54 @@ const COMMAND_PLAYBOOK = [
     note: 'Generates palette-oriented UI guidance for theming tasks.',
   },
   {
-    label: 'Health page source scan',
-    cmd: 'python -m cli.main atlas code scan ui\\mad-architecht-command-center\\src\\pages\\HealthPage.jsx',
-    note: 'Useful before asking agents to split system health and personal health.',
+    label: 'Service Status',
+    cmd: 'systemctl status mammothos',
+    note: 'Check if the MammothOS backend service is running on the server.',
   },
   {
-    label: 'Log Sale page source scan',
-    cmd: 'python -m cli.main atlas code scan ui\\mad-architecht-command-center\\src\\pages\\LogSalePage.jsx',
-    note: 'Useful before asking agents to split personal and business finances.',
+    label: 'Restart Service',
+    cmd: 'systemctl restart mammothos',
+    note: 'Restart the live MammothOS backend. Takes ~5s — refresh the UI after.',
+  },
+  {
+    label: 'Tail Service Logs',
+    cmd: 'journalctl -u mammothos -n 100 --no-pager',
+    note: 'Last 100 lines from the systemd service log — useful for diagnosing crashes.',
+  },
+  {
+    label: 'Git Pull Latest',
+    cmd: 'git pull origin main',
+    note: 'Pull the latest commits from main — run before restarting the service.',
+  },
+  {
+    label: 'Disk Usage',
+    cmd: 'df -h',
+    note: 'Check available disk space on the server. Important for upload/storage health.',
+  },
+  {
+    label: 'Memory Usage',
+    cmd: 'free -h',
+    note: 'See how much RAM the server is using. Helpful when agents feel slow.',
+  },
+  {
+    label: 'Pip List',
+    cmd: 'pip list',
+    note: 'List installed Python packages — confirm dependencies are present.',
+  },
+  {
+    label: 'Python Version',
+    cmd: 'python --version',
+    note: 'Confirm the Python version in use on the server.',
   },
   {
     label: 'Frontend build check',
     cmd: 'npm run build',
     note: 'Validates UI changes compile cleanly after agent-generated edits.',
+  },
+  {
+    label: 'Health page source scan',
+    cmd: 'python -m cli.main atlas code scan ui/mad-architecht-command-center/src/pages/HealthPage.jsx',
+    note: 'Useful before asking agents to split system health and personal health.',
   },
 ]
 
@@ -76,8 +117,11 @@ export default function TerminalPage({ setPage }) {
   const [httpMode, setHttpMode]     = useState(false)
   const [httpBusy, setHttpBusy]     = useState(false)
   const [playbookOpen, setPlaybookOpen] = useState(false)
+  const [history, setHistory]       = useState([])
+  const [historyIdx, setHistoryIdx] = useState(-1)
   const wsRef     = useRef(null)
   const bottomRef = useRef(null)
+  const inputRef  = useRef(null)
 
   const addLine = (text, type = 'stdout') =>
     setLines(prev => [...prev, { text, type }])
@@ -94,23 +138,33 @@ export default function TerminalPage({ setPage }) {
 
         ws.onopen = () => {
           setConnected(true)
+          setHttpMode(false)
           addLine('✓ WebSocket connected to /ws/terminal', 'stdout')
         }
         ws.onmessage = (e) => {
-          const data = JSON.parse(e.data)
-          addLine(data.line, data.type)
+          try {
+            const data = JSON.parse(e.data)
+            addLine(data.line, data.type)
+          } catch { /* ignore malformed */ }
         }
-        ws.onclose = () => {
+        ws.onclose = (e) => {
           setConnected(false)
-          addLine('⚠ WebSocket disconnected. Reconnecting in 3s…', 'stderr')
-          setTimeout(connect, 3000)
+          if (e.code === 1008) {
+            addLine('✗ Auth rejected — check MAMMOTH_OWNER_EMAIL is set in server .env', 'stderr')
+            addLine('  Falling back to HTTP mode. Some commands may still work.', 'stderr')
+            setHttpMode(true)
+          } else {
+            addLine('⚠ WebSocket disconnected. Reconnecting in 3s…', 'stderr')
+            setTimeout(connect, 3000)
+          }
         }
         ws.onerror = () => {
-          addLine('⚠ WebSocket error — backend may be offline.', 'stderr')
+          addLine('⚠ WebSocket error — backend may be offline or refusing connection.', 'stderr')
         }
       } catch (e) {
         if (cancelled) return
         addLine(`Could not connect: ${e.message}`, 'stderr')
+        setHttpMode(true)
       }
     }
     connect()
@@ -135,6 +189,7 @@ export default function TerminalPage({ setPage }) {
         body: JSON.stringify({ cmd }),
       })
       const data = await res.json()
+      if (data.cwd) addLine(`[cwd] ${data.cwd}`, 'stdout')
       if (data.stdout) data.stdout.split('\n').filter(Boolean).forEach(l => addLine(l, 'stdout'))
       if (data.stderr) data.stderr.split('\n').filter(Boolean).forEach(l => addLine(l, 'stderr'))
       addLine(`[exit ${data.exit_code ?? 0}]`, 'exit')
@@ -153,8 +208,14 @@ export default function TerminalPage({ setPage }) {
     }
   }
 
-  const send = (cmd) => {
+  const send = useCallback((cmd) => {
     if (!cmd.trim()) return
+    // push to history
+    setHistory(prev => {
+      const next = prev.filter(c => c !== cmd)
+      return [...next, cmd].slice(-100)
+    })
+    setHistoryIdx(-1)
     if (httpMode || !connected) {
       if (!httpMode) {
         setHttpMode(true)
@@ -164,12 +225,30 @@ export default function TerminalPage({ setPage }) {
     } else {
       sendWS(cmd)
     }
-  }
+  }, [httpMode, connected])
 
   const submit = (e) => {
     e.preventDefault()
     send(input)
     setInput('')
+  }
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setHistoryIdx(prev => {
+        const next = Math.min(prev + 1, history.length - 1)
+        if (next >= 0) setInput(history[history.length - 1 - next])
+        return next
+      })
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setHistoryIdx(prev => {
+        const next = Math.max(prev - 1, -1)
+        setInput(next < 0 ? '' : history[history.length - 1 - next])
+        return next
+      })
+    }
   }
 
   const lineColor = (type) => {
@@ -215,7 +294,8 @@ export default function TerminalPage({ setPage }) {
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 4 }}>
           {QUICK_ACTIONS.map(a => (
             <button key={a.cmd} onClick={() => send(a.cmd)}
-              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 11px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', background: 'rgba(255,255,255,0.04)', opacity: httpBusy ? 0.6 : 1, flexShrink: 0, whiteSpace: 'nowrap', transition: 'all 0.15s' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 11px', borderRadius: 8, border: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace', background: 'rgba(255,255,255,0.04)', opacity: httpBusy ? 0.6 : 1, flexShrink: 0, whiteSpace: 'nowrap', transition: 'all 0.15s' }}
+              title={a.note}>
               <a.Icon size={13} color={a.color} />
               <span style={{ color: 'var(--txt-pri)', fontSize: '0.75rem', fontWeight: 600 }}>{a.label}</span>
             </button>
@@ -232,7 +312,7 @@ export default function TerminalPage({ setPage }) {
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', fontWeight: 600 }}>
             <BookOpen size={13} color="var(--cyan)" /> Terminal Playbook
             <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontWeight: 400, fontFamily: 'JetBrains Mono,monospace' }}>
-              · {COMMAND_PLAYBOOK.length} commands
+              · {COMMAND_PLAYBOOK.length} commands · ↑↓ history
             </span>
           </span>
           <span style={{ fontSize: '0.7rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
@@ -269,10 +349,13 @@ export default function TerminalPage({ setPage }) {
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
+            <span style={{ fontSize: '0.65rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', alignSelf: 'center' }}>
+              {history.length > 0 ? `${history.length} in history` : ''}
+            </span>
             <button onClick={() => navigator.clipboard.writeText(lines.map(l => l.text).join('\n'))}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)' }}><Copy size={14} /></button>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)' }} title="Copy all output"><Copy size={14} /></button>
             <button onClick={() => setLines([])}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)' }}><Trash2 size={14} /></button>
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)' }} title="Clear terminal"><Trash2 size={14} /></button>
           </div>
         </div>
 
@@ -287,9 +370,16 @@ export default function TerminalPage({ setPage }) {
         {/* input */}
         <form onSubmit={submit} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border)', background: '#050608' }}>
           <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>$</span>
-          <input value={input} onChange={e => setInput(e.target.value)} placeholder='Try: python -m cli.main atlas code generate "upgrade my notes panel"'
-            style={{ flex: 1, background: 'none', border: 'none', color: '#4ade80', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.85rem', outline: 'none' }} />
-          <button type="submit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cyan)' }}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder='Try: systemctl status mammothos  — ↑↓ for history'
+            style={{ flex: 1, background: 'none', border: 'none', color: '#4ade80', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.85rem', outline: 'none' }}
+            autoFocus
+          />
+          <button type="submit" disabled={httpBusy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cyan)', opacity: httpBusy ? 0.5 : 1 }}>
             <Play size={14} />
           </button>
         </form>

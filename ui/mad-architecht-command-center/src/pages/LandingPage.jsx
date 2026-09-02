@@ -42,131 +42,130 @@ function MammothLogo({ size = 84, style = {} }) {
   )
 }
 
-const FEATURE_COLUMNS = [
+const LIVE_SIGNAL_CARDS = [
   {
-    title: 'Adaptive tutoring engine',
-    items: [
-      'ATLAS adjusts pacing, difficulty, and coaching depth from your real performance.',
-      'Learner memory tracks confidence, weak concepts, and recovery patterns.',
-      'Every lesson can resume with recap, flashcards, quiz, and next steps.',
-    ],
+    label: 'Mammoth Mind',
+    value: 'Multi-thread, repo-aware, file-attachable',
   },
   {
-    title: 'Multi-agent execution layer',
-    items: [
-      'Planner, tutor, coding, research, and safety agents can coordinate around one objective.',
-      'Plan + Execute runs stay visible through traceable steps and runtime notices.',
-      'Fallback model routing keeps workflows moving during provider outages or quota issues.',
-    ],
+    label: 'ATLAS Tutor',
+    value: 'Adaptive lanes + Monaco lesson workspace',
   },
   {
-    title: 'Trust-first operator controls',
-    items: [
-      'Approval-gated actions help keep powerful automations reviewable.',
-      'Audit export, observability runs, and active project context are built in.',
-      'Workspace account isolation prevents one learner profile from leaking into another.',
-    ],
+    label: 'Trust posture',
+    value: 'Guide steps, approvals, fallback-aware runtime',
+  },
+  {
+    label: 'Learning context',
+    value: 'Materials library, recap, quiz, review, flashcards',
   },
 ]
 
-const TRUST_POINTS = [
-  'Local-first session support',
-  'No-cheat tutoring guardrails',
-  'Live web commands (/research, /web)',
-  'Approval-gated code actions',
-  'Runtime fallback notices',
-  'Workspace multi-account onboarding',
-  'Audit + observability surfaces',
-]
-
-const RECENT_UPGRADES = [
-  '8 -> 9 phase pass is complete (execution quality, browser automation, memory + evals, docs/UI alignment).',
-  'ATLAS now supports live-source commands for current context: /research and /web.',
-  'MemoryEngine and eval history are wired for measurable improvement loops.',
-]
-
-const WORKFLOW_STEPS = [
+const DIFFERENTIATORS = [
   {
-    label: '01',
-    title: 'Set up a workspace account',
-    text: 'Create a learner or operator identity for this workspace so progress, entitlements, and session state stay scoped correctly.',
+    title: 'Context before charisma',
+    body: 'MammothOS is designed to attach the right page, lesson, repo, and workflow context before asking the model to speak.',
   },
   {
-    label: '02',
-    title: 'Start an adaptive lesson',
-    text: 'ATLAS builds a lesson from your topic, learner context, and module track instead of dropping you into a generic chat.',
+    title: 'Agent surfaces, not just a chat box',
+    body: 'Guide, Tutor, Build, Agent, and Terminal each serve a different job so users are not forced into one overloaded UI pattern.',
   },
   {
-    label: '03',
-    title: 'Review the agent plan',
-    text: 'Planner, tutor, and support agents produce visible checkpoints and safe next actions before execution.',
+    title: 'Learning loops with memory',
+    body: 'ATLAS is built to coach through recap, practice, feedback, weak-concept recovery, and next-step pacing instead of one-shot answers.',
   },
   {
-    label: '04',
-    title: 'Ship with confidence',
-    text: 'Use audit trails, runtime status, and approval gates to keep product work explainable and operationally safe.',
+    title: 'Operator-grade trust controls',
+    body: 'Approval gates, runtime notices, observability, and artifact capture make the system safer to use in real workflows.',
   },
 ]
 
-const DOC_LINKS = {
-  atlasFab: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/main/docs/atlas_fab_product_guide.md',
-  sdk: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/main/docs/mammoth_os_package_offering.md',
-  platform: 'https://github.com/xxii-architect/mammoth_intro_ai/blob/main/ATLAS_MANUAL.md',
-}
+const CURRENT_HIGHLIGHTS = [
+  'Expandable guide steps are wired in Mammoth Mind and ATLAS Assistant.',
+  'Repo-aware guidance now pairs with multi-thread chat and attachment support.',
+  'ATLAS lessons use Monaco-based editing and structured exercise support.',
+  'Learning materials and generated artifacts now have cleaner homes inside the app.',
+]
 
-const PRODUCT_OFFERS = [
+const JOURNEYS = [
   {
-    name: 'ATLAS FAB',
-    eyebrow: 'Embeddable adaptive tutor',
-    headline: 'Bring page-aware coaching into your product without settling for a generic chatbot.',
-    description:
-      'ATLAS FAB gives product teams an embeddable tutoring surface with adaptive lesson flows, runtime visibility, and safer next-step guidance that stays aligned to the page the learner is actually on.',
-    bullets: [
-      'Page-aware tutoring that matches the current screen, lesson, or workflow.',
-      'Structured lesson, submit, and next-step loops instead of prompt-only chat.',
-      'Runtime-state visibility for provider health, fallback status, and safer operations.',
-    ],
-    primaryAction: { kind: 'href', label: 'View ATLAS FAB Guide', href: DOC_LINKS.atlasFab },
-    secondaryAction: { kind: 'page', label: 'Open ATLAS Tutor', page: 'atlas' },
+    audience: 'For learners',
+    headline: 'Start with a topic, not a prompt recipe.',
+    body: 'ATLAS builds a lesson, adapts pacing, tracks weak concepts, and gives recap, quiz, review, and flashcard follow-through.',
+    primaryLabel: 'Open Lessons',
+    primaryPage: 'lessons',
+    secondaryLabel: 'Open ATLAS Tutor',
+    secondaryPage: 'atlas',
   },
   {
-    name: 'MammothOS SDK',
-    eyebrow: 'Installable runtime + Python package',
-    headline: 'Ship adaptive agent workflows with a real SDK contract, not a fragile prompt recipe.',
-    description:
-      'The MammothOS SDK packages the runtime, public imports, and hosted-upgrade path you need to move from local prototype to tenant-aware product without rewriting your integration surface.',
-    bullets: [
-      'Stable public imports for AtlasFAB, AtlasFABConfig, and ATLASSession compatibility.',
-      'Base package for embedders plus server extras for hosted FastAPI deployments.',
-      'Clear path from local pilots to auth, usage, and enterprise packaging.',
-    ],
-    primaryAction: { kind: 'href', label: 'View SDK Offering', href: DOC_LINKS.sdk },
-    secondaryAction: { kind: 'page', label: 'See Plans & Packaging', page: 'pricing' },
+    audience: 'For builders',
+    headline: 'Inspect, guide, and ship from one workspace.',
+    body: 'Use Mammoth Mind for repo-aware /guide flows, the Agent page for plan/execute, and the Command Library for high-signal prompts.',
+    primaryLabel: 'Open Mammoth Mind',
+    primaryPage: 'chat',
+    secondaryLabel: 'Open Command Library',
+    secondaryPage: 'commandlib',
   },
   {
-    name: 'MammothOS Learning Platform',
-    eyebrow: 'Learner-facing app experience',
-    headline: 'Give learners a guided platform where lessons, memory, projects, and coaching stay connected.',
-    description:
-      'The Learning Platform is the app layer of MammothOS: structured lessons, flashcards, notes, projects, and ATLAS tutoring tied together so people can build durable skill instead of bouncing between disconnected tools.',
-    bullets: [
-      'Adaptive learning surfaces for lessons, flashcards, notes, and guided projects.',
-      'Workspace-scoped progress and trust-first onboarding for real user journeys.',
-      'A direct path from marketing promise to in-app learning experience.',
-    ],
-    primaryAction: { kind: 'page', label: 'Launch Learning Platform', page: 'lessons' },
-    secondaryAction: { kind: 'href', label: 'Read the ATLAS Manual', href: DOC_LINKS.platform },
+    audience: 'For operators',
+    headline: 'Keep power visible and reviewable.',
+    body: 'Use runtime banners, approvals, artifacts, and task tracking to keep advanced automation explainable instead of magical.',
+    primaryLabel: 'Open Agent',
+    primaryPage: 'agent',
+    secondaryLabel: 'Open Manual',
+    secondaryPage: 'manual',
+  },
+]
+
+const FLOW = [
+  {
+    step: '01',
+    title: 'Ground the session',
+    text: 'Pick the right surface, the right lane, and the correct repo path for the backend you are actually using.',
+  },
+  {
+    step: '02',
+    title: 'Ask with intent',
+    text: 'Name the file, symbol, concept, or lesson outcome you want instead of relying on generic open-ended phrasing.',
+  },
+  {
+    step: '03',
+    title: 'Review the structured output',
+    text: 'Use guide steps, adaptive feedback, artifacts, and visible run status to understand what the system is actually doing.',
+  },
+  {
+    step: '04',
+    title: 'Verify and keep momentum',
+    text: 'Build, test, save artifacts, or move the work into a thread or task so it stays durable after the chat scrolls away.',
+  },
+]
+
+const DOCS = [
+  {
+    title: 'Manual',
+    body: 'The clean operator and tester map for current surfaces, repo context, and validation habits.',
+    page: 'manual',
+  },
+  {
+    title: 'Command Library',
+    body: 'Rich prompt recipes for Guide, ATLAS lanes, attachments, research, and operator execution.',
+    page: 'commandlib',
+  },
+  {
+    title: 'Pricing & Packaging',
+    body: 'The buyer-facing story for the platform, the SDK, and the embeddable ATLAS FAB.',
+    page: 'pricing',
   },
 ]
 
 export default function LandingPage({ setPage }) {
   return (
-    <div className="page-enter" style={{ padding: '32px 20px 70px', maxWidth: 1180, margin: '0 auto' }}>
+    <div className="page-enter" style={{ padding: '32px 20px 72px', maxWidth: 1180, margin: '0 auto' }}>
       <div
         style={{
           position: 'relative',
           overflow: 'hidden',
-          padding: '36px 30px 44px',
+          padding: '38px 30px 44px',
           borderRadius: 30,
           border: '1px solid rgba(255,255,255,0.08)',
           background: 'radial-gradient(circle at top left, rgba(77,166,255,0.18), transparent 28%), radial-gradient(circle at top right, rgba(180,124,255,0.18), transparent 30%), rgba(13,17,23,0.94)',
@@ -183,7 +182,7 @@ export default function LandingPage({ setPage }) {
         />
 
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <div style={{ textAlign: 'center', marginBottom: 30 }}>
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
             <div
               style={{
                 display: 'inline-flex',
@@ -219,13 +218,13 @@ export default function LandingPage({ setPage }) {
             >
               <span style={{ color: 'var(--cyan)' }}>MammothOS</span>
               <span>•</span>
-              <span>Adaptive tutor + agent workspace</span>
+              <span>Adaptive agent workspace + tutoring engine</span>
             </div>
 
             <h1
               style={{
                 margin: '0 0 12px',
-                fontSize: 'clamp(2.5rem, 5vw, 4.2rem)',
+                fontSize: 'clamp(2.45rem, 5vw, 4.25rem)',
                 fontWeight: 800,
                 letterSpacing: '-0.045em',
                 background: 'linear-gradient(90deg, var(--photon), var(--cyan), var(--violet))',
@@ -235,16 +234,16 @@ export default function LandingPage({ setPage }) {
                 lineHeight: 1.02,
               }}
             >
-              Adaptive learning infrastructure for teams, learners, and builders.
+              The learning OS where guidance, execution, and trust finally live in one place.
             </h1>
 
-            <p style={{ fontSize: '1.04rem', color: 'var(--txt-sec)', maxWidth: 780, margin: '0 auto 26px', lineHeight: 1.72 }}>
-              MammothOS connects the learning platform, the ATLAS FAB embed, and the Python SDK so you can teach, build, and operate from one product story instead of three disconnected ideas.
+            <p style={{ fontSize: '1.04rem', color: 'var(--txt-sec)', maxWidth: 820, margin: '0 auto 26px', lineHeight: 1.72 }}>
+              MammothOS combines Mammoth Mind, ATLAS Tutor, agent orchestration, materials-aware learning, and buyer-ready packaging into one coherent system instead of a pile of disconnected AI demos.
             </p>
 
             <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
               <button
-                onClick={() => setPage('lessons')}
+                onClick={() => setPage('chat')}
                 style={{
                   padding: '13px 28px',
                   borderRadius: 12,
@@ -257,10 +256,10 @@ export default function LandingPage({ setPage }) {
                   boxShadow: '0 12px 30px rgba(77,166,255,0.28)',
                 }}
               >
-                Open Learning Platform
+                Open Mammoth Mind
               </button>
               <button
-                onClick={() => window.open(DOC_LINKS.atlasFab, '_blank', 'noopener,noreferrer')}
+                onClick={() => setPage('atlas')}
                 style={{
                   padding: '13px 28px',
                   borderRadius: 12,
@@ -272,12 +271,12 @@ export default function LandingPage({ setPage }) {
                   cursor: 'pointer',
                 }}
               >
-                Explore ATLAS FAB
+                Open ATLAS Tutor
               </button>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center', gap: 10, flexWrap: 'wrap' }}>
-              {['Learning platform', 'Embeddable ATLAS FAB', 'Python SDK', 'Visible agent steps'].map((pill) => (
+              {['Guide steps', 'ATLAS lanes', 'Repo-aware context', 'Materials library', 'Artifacts + tasks'].map((pill) => (
                 <span key={pill} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
                   {pill}
                 </span>
@@ -286,28 +285,23 @@ export default function LandingPage({ setPage }) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14 }}>
-            {[
-              { label: 'Primary mode', value: 'Adaptive tutoring' },
-              { label: 'Execution model', value: 'Multi-agent, traceable' },
-              { label: 'Account model', value: 'Workspace multi-account' },
-              { label: 'Trust posture', value: 'Guardrails + approvals' },
-            ].map((item) => (
+            {LIVE_SIGNAL_CARDS.map((item) => (
               <div key={item.label} className="glass-card-solid" style={{ padding: '14px 16px', borderRadius: 16 }}>
                 <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 6 }}>{item.label}</div>
-                <div style={{ fontSize: '0.92rem', color: 'var(--txt-pri)', fontWeight: 700 }}>{item.value}</div>
+                <div style={{ fontSize: '0.92rem', color: 'var(--txt-pri)', fontWeight: 700, lineHeight: 1.45 }}>{item.value}</div>
               </div>
             ))}
           </div>
         </div>
       </div>
 
-      <div style={{ padding: '54px 0 26px' }}>
+      <div style={{ padding: '52px 0 24px' }}>
         <div className="glass-card-solid" style={{ padding: '18px 20px', borderRadius: 18, marginBottom: 24, border: '1px solid rgba(0,245,212,0.35)' }}>
           <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 10 }}>
-            Latest upgrades now live
+            Current status
           </div>
           <div style={{ display: 'grid', gap: 8 }}>
-            {RECENT_UPGRADES.map((line) => (
+            {CURRENT_HIGHLIGHTS.map((line) => (
               <div key={line} style={{ fontSize: '0.83rem', color: 'var(--txt-sec)', lineHeight: 1.6, display: 'flex', gap: 8 }}>
                 <span style={{ color: 'var(--cyan)' }}>✓</span>
                 <span>{line}</span>
@@ -318,25 +312,18 @@ export default function LandingPage({ setPage }) {
 
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
-            Why teams and learners stick with it
+            Why MammothOS feels different
           </p>
           <h2 style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>
-            Built for durable progress, not disposable prompts.
+            It is built around context, journeys, and verification instead of prompt theater.
           </h2>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
-          {FEATURE_COLUMNS.map((column) => (
-            <div key={column.title} className="glass-card-solid" style={{ padding: '22px 22px 18px', borderRadius: 18 }}>
-              <h3 style={{ margin: '0 0 12px', fontSize: '0.98rem', fontWeight: 700, color: 'var(--photon)' }}>{column.title}</h3>
-              <div style={{ display: 'grid', gap: 10 }}>
-                {column.items.map((item) => (
-                  <div key={item} style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', lineHeight: 1.6, display: 'flex', gap: 8 }}>
-                    <span style={{ color: 'var(--cyan)' }}>✓</span>
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 18 }}>
+          {DIFFERENTIATORS.map((item) => (
+            <div key={item.title} className="glass-card-solid" style={{ padding: '22px 22px 18px', borderRadius: 18 }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: '1rem', fontWeight: 700, color: 'var(--photon)' }}>{item.title}</h3>
+              <div style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', lineHeight: 1.65 }}>{item.body}</div>
             </div>
           ))}
         </div>
@@ -345,112 +332,57 @@ export default function LandingPage({ setPage }) {
       <div style={{ borderTop: '1px solid var(--border)', padding: '42px 0 24px' }}>
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
-            Standalone products
+            Choose your entry point
           </p>
           <h2 style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>
-            Three clear offers, one consistent MammothOS story.
+            Three strong journeys, one MammothOS system.
           </h2>
-          <p style={{ fontSize: '0.92rem', color: 'var(--txt-sec)', maxWidth: 780, margin: '12px auto 0', lineHeight: 1.7 }}>
-            Whether someone wants a full learning experience, an embeddable tutor, or a developer-facing SDK, the landing page should make the path obvious in one glance.
-          </p>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 20 }}>
-          {PRODUCT_OFFERS.map((offer) => (
-            <div key={offer.name} className="glass-card-solid" style={{ padding: '24px 22px', borderRadius: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {JOURNEYS.map((journey) => (
+            <div key={journey.audience} className="glass-card-solid" style={{ padding: '24px 22px', borderRadius: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 8 }}>
-                  {offer.eyebrow}
+                  {journey.audience}
                 </div>
-                <h3 style={{ margin: '0 0 10px', fontSize: '1.2rem', color: 'var(--txt-pri)' }}>{offer.name}</h3>
-                <p style={{ margin: '0 0 10px', fontSize: '0.98rem', color: 'var(--photon)', lineHeight: 1.55 }}>
-                  {offer.headline}
-                </p>
+                <h3 style={{ margin: '0 0 10px', fontSize: '1.2rem', color: 'var(--txt-pri)' }}>{journey.headline}</h3>
                 <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.68 }}>
-                  {offer.description}
+                  {journey.body}
                 </p>
               </div>
 
-              <div style={{ display: 'grid', gap: 10, flex: 1 }}>
-                {offer.bullets.map((bullet) => (
-                  <div key={bullet} style={{ fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.6, display: 'flex', gap: 8 }}>
-                    <span style={{ color: 'var(--cyan)' }}>✓</span>
-                    <span>{bullet}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 6 }}>
-                {offer.primaryAction.kind === 'href' ? (
-                  <a
-                    href={offer.primaryAction.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      padding: '11px 16px',
-                      borderRadius: 10,
-                      textDecoration: 'none',
-                      background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
-                      color: '#050608',
-                      fontWeight: 800,
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    {offer.primaryAction.label}
-                  </a>
-                ) : (
-                  <button
-                    onClick={() => setPage(offer.primaryAction.page)}
-                    style={{
-                      padding: '11px 16px',
-                      borderRadius: 10,
-                      border: 'none',
-                      background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
-                      color: '#050608',
-                      fontWeight: 800,
-                      fontSize: '0.85rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {offer.primaryAction.label}
-                  </button>
-                )}
-
-                {offer.secondaryAction.kind === 'href' ? (
-                  <a
-                    href={offer.secondaryAction.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      padding: '11px 16px',
-                      borderRadius: 10,
-                      textDecoration: 'none',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      background: 'rgba(255,255,255,0.02)',
-                      color: 'var(--txt-pri)',
-                      fontWeight: 700,
-                      fontSize: '0.85rem',
-                    }}
-                  >
-                    {offer.secondaryAction.label}
-                  </a>
-                ) : (
-                  <button
-                    onClick={() => setPage(offer.secondaryAction.page)}
-                    style={{
-                      padding: '11px 16px',
-                      borderRadius: 10,
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      background: 'rgba(255,255,255,0.02)',
-                      color: 'var(--txt-pri)',
-                      fontWeight: 700,
-                      fontSize: '0.85rem',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {offer.secondaryAction.label}
-                  </button>
-                )}
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 'auto' }}>
+                <button
+                  onClick={() => setPage(journey.primaryPage)}
+                  style={{
+                    padding: '11px 16px',
+                    borderRadius: 10,
+                    border: 'none',
+                    background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                    color: '#050608',
+                    fontWeight: 800,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {journey.primaryLabel}
+                </button>
+                <button
+                  onClick={() => setPage(journey.secondaryPage)}
+                  style={{
+                    padding: '11px 16px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'rgba(255,255,255,0.02)',
+                    color: 'var(--txt-pri)',
+                    fontWeight: 700,
+                    fontSize: '0.85rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {journey.secondaryLabel}
+                </button>
               </div>
             </div>
           ))}
@@ -460,18 +392,18 @@ export default function LandingPage({ setPage }) {
       <div style={{ borderTop: '1px solid var(--border)', padding: '42px 0 24px' }}>
         <div style={{ textAlign: 'center', marginBottom: 26 }}>
           <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
-            How the experience flows
+            How the product works
           </p>
           <h2 style={{ fontSize: '1.7rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>
-            From onboarding to execution in four steps.
+            From context to confidence in four steps.
           </h2>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
-          {WORKFLOW_STEPS.map((step) => (
-            <div key={step.label} className="glass-card-solid" style={{ padding: '20px 18px', borderRadius: 18 }}>
-              <div style={{ fontSize: '0.78rem', color: 'var(--cyan)', fontWeight: 800, letterSpacing: '0.12em', marginBottom: 10 }}>{step.label}</div>
-              <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem', color: 'var(--txt-pri)' }}>{step.title}</h3>
-              <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>{step.text}</p>
+          {FLOW.map((item) => (
+            <div key={item.step} className="glass-card-solid" style={{ padding: '20px 18px', borderRadius: 18 }}>
+              <div style={{ fontSize: '0.78rem', color: 'var(--cyan)', fontWeight: 800, letterSpacing: '0.12em', marginBottom: 10 }}>{item.step}</div>
+              <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem', color: 'var(--txt-pri)' }}>{item.title}</h3>
+              <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>{item.text}</p>
             </div>
           ))}
         </div>
@@ -482,20 +414,25 @@ export default function LandingPage({ setPage }) {
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 18, flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 360px' }}>
               <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
-                Trust signals
+                Explore deeper
               </p>
               <h2 style={{ margin: '0 0 10px', fontSize: '1.45rem', color: 'var(--txt-pri)' }}>
-                Product polish matters, but trust posture is what makes the system usable.
+                The docs and in-app pages now tell a tighter, cleaner story.
               </h2>
               <p style={{ margin: 0, fontSize: '0.88rem', color: 'var(--txt-sec)', lineHeight: 1.68 }}>
-                MammothOS is being shaped as a serious learning and operator environment: guarded tutoring, workspace-scoped onboarding, explainable execution, and upgrade paths toward stronger compliance and team delivery.
+                Use the pages below when you want the operational map, the best prompt recipes, or the buyer-facing packaging layer.
               </p>
             </div>
-            <div style={{ flex: '1 1 320px', display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 }}>
-              {TRUST_POINTS.map((point) => (
-                <div key={point} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)' }}>
-                  {point}
-                </div>
+            <div style={{ flex: '1 1 320px', display: 'grid', gap: 10 }}>
+              {DOCS.map((item) => (
+                <button
+                  key={item.title}
+                  onClick={() => setPage(item.page)}
+                  style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', textAlign: 'left', cursor: 'pointer' }}
+                >
+                  <div style={{ color: 'var(--txt-pri)', fontSize: '0.84rem', fontWeight: 700, marginBottom: 4 }}>{item.title}</div>
+                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.77rem', lineHeight: 1.55 }}>{item.body}</div>
+                </button>
               ))}
             </div>
           </div>
@@ -504,17 +441,17 @@ export default function LandingPage({ setPage }) {
 
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 24, marginTop: 36, textAlign: 'center' }}>
         <p style={{ fontSize: '0.78rem', color: 'var(--txt-mut)', marginBottom: 12 }}>
-          © 2026 MammothOS. Educational AI software with safety, progress, and operator clarity at the center.
+          © 2026 MammothOS. Adaptive tutoring, agent execution, and trust-first product design in one ecosystem.
         </p>
         <div style={{ display: 'flex', gap: 16, justifyContent: 'center', marginBottom: 8, flexWrap: 'wrap' }}>
+          <button onClick={() => setPage('manual')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
+            Manual
+          </button>
+          <button onClick={() => setPage('commandlib')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
+            Command Library
+          </button>
           <button onClick={() => setPage('pricing')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
             Pricing
-          </button>
-          <button onClick={() => setPage('compliance')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
-            Legal & Compliance
-          </button>
-          <button onClick={() => setPage('settings')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', fontSize: '0.78rem', padding: 0, textDecoration: 'underline' }}>
-            Workspace Setup
           </button>
         </div>
       </div>

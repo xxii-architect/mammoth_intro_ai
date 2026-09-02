@@ -274,6 +274,10 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.custodial_agent import CustodialAgent
         return CustodialAgent(router)
 
+    if agent_name == "mammoth_guide":
+        from mammoth_os.agents.mammoth_guide_agent import MammothGuideAgent
+        return MammothGuideAgent(router)
+
     raise ValueError(f"Unknown agent '{agent_name}'")
 
 
@@ -294,7 +298,7 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                     else:
                         normalized.setdefault("prompt", prompt_value)
             return normalized
-        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "classifier", "classifier_agent", "orchestrator", "orchestrator_agent", "cache", "cache_agent", "search", "search_agent", "self_heal", "self_heal_agent", "evolution", "evolution_agent"}:
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "mammoth_guide", "classifier", "classifier_agent", "orchestrator", "orchestrator_agent", "cache", "cache_agent", "search", "search_agent", "self_heal", "self_heal_agent", "evolution", "evolution_agent"}:
             normalized = dict(payload)
             prompt_val = str(normalized.get("prompt") or "").strip()
             if agent_name == "tutor" and prompt_val and not normalized.get("topic"):
@@ -334,6 +338,11 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                 prompt_value = normalized.get("task") or normalized.get("description") or normalized.get("content")
                 if isinstance(prompt_value, str):
                     normalized["prompt"] = prompt_value
+            if agent_name == "mammoth_guide":
+                if not normalized.get("message") and prompt_val:
+                    normalized["message"] = prompt_val
+                if "repo_context" not in normalized:
+                    normalized["repo_context"] = {}
             return normalized
         if agent_name in {"curriculum", "research", "custodial"}:
             if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
@@ -379,6 +388,7 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "reasoning":       lambda prompt: run_agent("reasoning", prompt, router),        # type: ignore
     "coding":          lambda prompt: run_agent("coding", prompt, router),           # type: ignore
     "custodial":       lambda prompt: run_agent("custodial", prompt, router),        # type: ignore
+    "mammoth_guide":   lambda prompt: run_agent("mammoth_guide", prompt, router),    # type: ignore
 }
 
 
@@ -424,6 +434,21 @@ def _auto_register_agents() -> None:
         # Use a synchronous direct insert to avoid asyncio.run() at import time
         agent_registry._agents[agent_id] = manifest
         registered.append(agent_id)
+        if agent_id == "mammoth_guide_agent":
+            alias_manifest = AgentManifest(
+                agent_id="mammoth_guide",
+                name="MammothGuideAgent",
+                version=manifest.version,
+                capabilities=list(manifest.capabilities),
+                status=manifest.status,
+                level=manifest.level,
+                dependencies=list(manifest.dependencies),
+                endpoint=manifest.endpoint,
+                registered_at=manifest.registered_at,
+                last_heartbeat=manifest.last_heartbeat,
+            )
+            agent_registry._agents["mammoth_guide"] = alias_manifest
+            registered.append("mammoth_guide")
 
     if registered:
         logger.info("Auto-registered %d agents: %s", len(registered), registered)
