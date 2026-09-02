@@ -13,6 +13,7 @@ import asyncio
 import concurrent.futures
 from mammoth_os.rag_retrieval import get_retriever
 from mammoth_os.llm_client import get_llm_client
+from .curriculum_validation_v2 import validate_curriculum
 
 
 class CurriculumAgent(BaseAgent):
@@ -473,6 +474,41 @@ class CurriculumAgent(BaseAgent):
         return curriculum
 
 
+    def _apply_validation_gate(self, curriculum: Dict[str, Any], subject: str) -> Dict[str, Any]:
+        if not isinstance(curriculum, dict):
+            return curriculum
+
+        modules = curriculum.get("modules")
+        if isinstance(modules, list):
+            for module in modules:
+                if not isinstance(module, dict):
+                    continue
+                lessons = module.get("lessons")
+                if not isinstance(lessons, list):
+                    continue
+                for idx, lesson in enumerate(lessons):
+                    if not isinstance(lesson, dict):
+                        continue
+                    content = str(lesson.get("content") or "").strip()
+                    estimated_minutes = lesson.get("estimated_minutes")
+                    if not isinstance(estimated_minutes, (int, float)) or int(estimated_minutes) <= 0:
+                        lesson["estimated_minutes"] = max(15, min(120, (len(content) // 60) + 10))
+                    for marker in ["todo", "tbd", "placeholder", "{{", "[example]", "insert example"]:
+                        if marker in str(content).lower():
+                            fallback = self._build_structured_lesson_fallback(lesson, subject=subject, module_title=str(module.get("title") or "Module"))
+                            fallback["source"] = str(lesson.get("source") or "template").strip() or "template"
+                            lessons[idx] = fallback
+                            break
+
+        is_valid, result = validate_curriculum(curriculum)
+        curriculum["validation"] = result
+        curriculum["validation_valid"] = is_valid
+        if not is_valid and "generation_warnings" not in curriculum:
+            limited_errors = result.get("errors", [])[:5]
+            if limited_errors:
+                curriculum["generation_warnings"] = limited_errors
+        return curriculum
+
     def run(self, prompt: str) -> Dict[str, Any]:
         """
         Main entry point for CurriculumAgent.
@@ -493,13 +529,20 @@ class CurriculumAgent(BaseAgent):
         # Inject RAG-retrieved lesson chunks for tutor context
         curriculum = self._inject_chunks_into_lessons(curriculum)
         curriculum = self._enrich_curriculum_lessons(curriculum, subject)
+        curriculum = self._apply_validation_gate(curriculum, subject)
+
+        summary = f"{curriculum.get('title', subject)} — {len(curriculum.get('modules', []))} modules, {curriculum.get('estimated_total_minutes', 0)} min estimated"
+        if not curriculum.get("validation_valid", True):
+            summary += " (validation warnings)"
 
         return {
             "status": "ok",
             "agent": self.name,
             "prompt": prompt,
-            "summary": f"{curriculum.get('title', subject)} — {len(curriculum.get('modules', []))} modules, {curriculum.get('estimated_total_minutes', 0)} min estimated",
+            "summary": summary,
             "curriculum": curriculum,
+            "validation": curriculum.get("validation"),
+            "quality_flags": ["curriculum_grounded", "validation_gate_active"] if curriculum.get("validation") else ["curriculum_grounded"],
         }
 
     def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
@@ -519,3 +562,57 @@ class CurriculumAgent(BaseAgent):
             "target": target,
             "details": details,
         }
+
+    def ground_lesson_in_rag(self, lesson_data: Dict[str, Any], user_id: str) -> Dict[str, Any]:
+        """
+        Enrich a lesson with personalised difficulty adjustments and topic highlights
+        drawn from the user's prior RAG context.
+
+        Returns the lesson_data dict with an added ``rag_enrichment`` key.
+        """
+        try:
+            from mammoth_os.rag_context_store import get_rag_context_store
+            store = get_rag_context_store()
+            prior = store.retrieve(user_id, limit=20)
+        except Exception:
+            prior = []
+
+        if not prior:
+            return {**lesson_data, "rag_enrichment": {"adjusted": False, "reason": "no_prior_context"}}
+
+        # Collect signals from prior entries
+        struggle_topics: List[str] = []
+        mastered_topics: List[str] = []
+        seen_difficulties: List[str] = []
+        for entry in prior:
+            content = entry.get("content", {})
+            if isinstance(content, dict):
+                struggle_topics.extend(content.get("struggle_indicators", []))
+                mastered_topics.extend(content.get("mastery_signals", []))
+                if content.get("difficulty"):
+                    seen_difficulties.append(str(content["difficulty"]))
+
+        # Suggest difficulty adjustment
+        lesson_difficulty = lesson_data.get("difficulty", "intermediate")
+        suggested_difficulty = lesson_difficulty
+        if struggle_topics:
+            difficulty_map = {"beginner": "beginner", "intermediate": "beginner", "advanced": "intermediate"}
+            suggested_difficulty = difficulty_map.get(lesson_difficulty, lesson_difficulty)
+        elif mastered_topics:
+            difficulty_map = {"beginner": "intermediate", "intermediate": "advanced", "advanced": "advanced"}
+            suggested_difficulty = difficulty_map.get(lesson_difficulty, lesson_difficulty)
+
+        # Highlight topics the user has struggled with
+        lesson_topics = lesson_data.get("topics", [])
+        highlighted = [t for t in lesson_topics if any(s.lower() in t.lower() for s in struggle_topics)]
+
+        enrichment: Dict[str, Any] = {
+            "adjusted": True,
+            "suggested_difficulty": suggested_difficulty,
+            "prior_struggle_topics": struggle_topics[:5],
+            "prior_mastery_topics": mastered_topics[:5],
+            "highlighted_topics": highlighted,
+            "prior_context_entries": len(prior),
+        }
+        return {**lesson_data, "difficulty": suggested_difficulty, "rag_enrichment": enrichment}
+

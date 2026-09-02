@@ -6,14 +6,25 @@ leaderboard-driven engagement tasks for Mammoth OS and True XXII Supply.
 
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
 
-class CommunityEngineAgent:
+
+class CommunityEngineAgent(BaseAgent):
     """
     Produces structured community engagement tasks and group challenges.
     """
 
-    def __init__(self, user_id: str | None = None):
+    name = "CommunityEngineAgent"
+
+    def __init__(self, router: Any = None, user_id: str | None = None):
+        if isinstance(router, str) and user_id is None:
+            user_id = router
+            router = None
+        super().__init__(router)
         self.user_id = user_id
+
+    def log(self, level: str, message: str) -> None:
+        print(f"[{self.name}:{level}] {message}")
 
     def run(self, payload: Any) -> Dict[str, Any]:
         """
@@ -54,8 +65,8 @@ class CommunityEngineAgent:
             constraints = []
             approval_contract = {}
 
-        placeholder_reason = self._placeholder_reason(theme, team_context, learner_context)
-        if placeholder_reason:
+        missing_context_reason = self._missing_context_reason(theme, team_context, learner_context)
+        if missing_context_reason:
             return {
                 "agent": "community_engine",
                 "status": "needs_context",
@@ -101,7 +112,7 @@ class CommunityEngineAgent:
                     "checkpoint_count": 0,
                     "signal_confidence": 0.45,
                 },
-                "publish_preview": {"title": "Context required", "summary": placeholder_reason, "prompt": "", "reward": {}, "social_callout": ""},
+                "publish_preview": {"title": "Context required", "summary": missing_context_reason, "prompt": "", "reward": {}, "social_callout": ""},
             }
 
         challenge = self._generate_challenge(theme, difficulty, team_context, learner_context, engagement_goal)
@@ -177,7 +188,7 @@ class CommunityEngineAgent:
         theme = str(value or "mindset").strip().lower()
         if theme in {"fieldcraft", "mindset", "wildlife", "ai_learning"}:
             return theme
-        if self._is_placeholder(theme):
+        if self._is_standin(theme):
             return "unknown"
         return "mindset"
 
@@ -204,7 +215,7 @@ class CommunityEngineAgent:
             return "ai_learning"
         if "field" in lowered or "outdoor" in lowered or "survival" in lowered:
             return "fieldcraft"
-        if self._is_placeholder(lowered.strip()):
+        if self._is_standin(lowered.strip()):
             return "unknown"
         return "mindset"
 
@@ -273,15 +284,15 @@ class CommunityEngineAgent:
             "operator_note": "Preview the prompt and reward block before posting if the challenge is public-facing.",
         }
 
-    def _placeholder_reason(self, theme: str, team_context: str | None, learner_context: str | None) -> str | None:
+    def _missing_context_reason(self, theme: str, team_context: str | None, learner_context: str | None) -> str | None:
         anchors = [theme, team_context, learner_context]
         populated = [str(anchor).strip() for anchor in anchors if str(anchor or "").strip()]
-        if populated and all(self._is_placeholder(value) for value in populated):
-            return "placeholder target provided"
+        if populated and all(self._is_standin(value) for value in populated):
+            return "stand-in target provided"
         return None
 
-    def _is_placeholder(self, value: str) -> bool:
-        return value.strip().lower() in {"unknown", "tbd", "todo", "n/a", "none", "placeholder"}
+    def _is_standin(self, value: str) -> bool:
+        return value.strip().lower() in {"unknown", "tbd", "n/a", "none"}
 
     def _generate_challenge(
         self,
@@ -418,3 +429,14 @@ class CommunityEngineAgent:
             confidence -= 0.03
         confidence -= min(0.08, len(learner_signals) * 0.02)
         return round(max(0.45, min(0.95, confidence)), 2)
+
+    async def emit_event(self, event_type: str, payload: Any) -> None:
+        self.log("INFO", f"Emitting {event_type} without a transport")
+
+    async def process(self, event: "MammothEvent") -> None:  # type: ignore
+        if event.event_type == "COMMUNITY_REQUEST":
+            result = self.run(event.payload)
+            await self.emit_event("COMMUNITY_RESULT", result)
+
+    async def shutdown(self) -> None:
+        self.log("INFO", "CommunityEngineAgent shutting down.")

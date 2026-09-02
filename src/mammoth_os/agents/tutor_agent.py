@@ -8,6 +8,12 @@ from typing import Dict, Any, Optional, List
 from .base_agent import BaseAgent
 from mammoth_os.agents.coding_agent import CodingAgent
 from mammoth_os.rag_retrieval import get_retriever
+from .tutor_agent_v2_upgrade import (
+    _extract_difficulty_hint,
+    _safe_retrieve_context,
+    _build_adaptive_checkpoints,
+    _build_coaching_summary,
+)
 
 
 class TutorAgent(BaseAgent):
@@ -81,8 +87,11 @@ class TutorAgent(BaseAgent):
         retriever = get_retriever()
         signal_summary = "Signals:\n- Difficulty: unknown\n- Performance score: unknown\n- Struggle tags: none"
         personalized_chunks: List[Dict[str, Any]] = []
+        
+        # Extract difficulty hint from signal summary (adaptive)
         if lesson_id:
-            personalized_chunks = await retriever.retrieve_chunks(
+            personalized_chunks = await _safe_retrieve_context(
+                retriever=retriever,
                 user_id=user_id,
                 lesson_id=lesson_id,
                 query=topic or lesson_title,
@@ -93,16 +102,21 @@ class TutorAgent(BaseAgent):
             )
         elif lesson_chunks:
             personalized_chunks = [{"chunk_text": chunk, "chunk_index": idx, "score": 0.0} for idx, chunk in enumerate(lesson_chunks)]
+        
+        # Extract adaptive difficulty hint
+        difficulty = _extract_difficulty_hint(signal_summary)
+        
+        # Build adaptive checkpoints based on difficulty
+        checkpoints = _build_adaptive_checkpoints(lesson_title, module_id or "m0", difficulty)
+        if len(checkpoints) < 3:
+            checkpoints.extend([
+                f"Restate the objective for {lesson_title} in your own words.",
+                "Identify one concrete success check before you start.",
+                "Record what confused you so the next coaching step can adapt.",
+            ])
+            checkpoints = checkpoints[:5]
 
-        checkpoints = [
-            f"Restate the objective for {lesson_title} in your own words.",
-            "Identify one concrete success check before you start.",
-            "Record what confused you so the next coaching step can adapt.",
-        ]
-        if module_id:
-            checkpoints.insert(1, f"Keep the work aligned with module '{module_id}'.")
-
-        # Build coaching response with RAG-enriched context
+        # Build coaching response with RAG-enriched context and adaptive coaching
         coaching_context = ""
         if personalized_chunks:
             coaching_context = "\n".join([
@@ -122,6 +136,16 @@ class TutorAgent(BaseAgent):
             quality_flags.append("personalized_context")
         if not quality_flags:
             quality_flags.append("coaching_ready")
+        
+        # Add difficulty flag
+        quality_flags.append(f"difficulty_{difficulty}")
+        
+        # Build adaptive coaching summary
+        adaptive_summary = _build_coaching_summary(
+            lesson_title,
+            difficulty,
+            has_context=bool(personalized_chunks),
+        )
 
         return {
             "status": "ok",
@@ -135,15 +159,17 @@ class TutorAgent(BaseAgent):
             "lesson_context": coaching_context,
             "signal_summary": signal_summary,
             "personalized_chunks": personalized_chunks,
-            "coach_summary": f"Guide the learner through {lesson_title} with a clear objective, one validation checkpoint, and an honest reflection step.",
+            "coach_summary": adaptive_summary,
             "checkpoints": checkpoints,
             "next_step": "Complete the smallest verifiable part of the lesson, then reflect before escalating difficulty.",
-            "summary": f"Tutor guidance for {lesson_title}: focus on one checkpoint, verify the behavior, and reflect before the next step.",
+            "summary": f"Tutor guidance for {lesson_title} ({difficulty} difficulty): {adaptive_summary[:60]}...",
             "quality_flags": quality_flags,
             "evidence": {
                 "has_personalized_context": bool(personalized_chunks),
                 "signal_summary_present": bool(signal_summary),
                 "lesson_context_length": len(coaching_context),
+                "adaptive_difficulty": difficulty,
+                "checkpoint_count": len(checkpoints),
             },
         }
 

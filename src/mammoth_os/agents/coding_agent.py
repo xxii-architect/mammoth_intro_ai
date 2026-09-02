@@ -73,6 +73,18 @@ class CodingAgent(BaseAgent):
                 context.setdefault("target", target)
             if files:
                 context.setdefault("files", files)
+            if self._is_placeholder_target(target) and not self._has_real_context(prompt_text, target, context, files):
+                return {
+                    "status": "needs_context",
+                    "agent": "CodingAgent",
+                    "mode": "coding",
+                    "task_kind": "generate_code",
+                    "target": target,
+                    "prompt": prompt_text,
+                    "files": files,
+                    "summary": "CodingAgent needs a real target or source snippet before it can write code safely.",
+                    "warnings": ["Missing real source context for code generation."],
+                }
             result = self._run_async(self.generate_code(prompt_text, context=context))
             return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
 
@@ -93,6 +105,18 @@ class CodingAgent(BaseAgent):
             return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
         if "refactor" in prompt_lower:
+            if self._is_placeholder_target(target) and not self._has_real_context(prompt_text, target, context, files):
+                return {
+                    "status": "needs_context",
+                    "agent": "CodingAgent",
+                    "mode": "coding",
+                    "task_kind": "refactor",
+                    "target": target,
+                    "prompt": prompt_text,
+                    "files": files,
+                    "summary": "Refactor requires a real file path or source snippet; stand-in placeholders are rejected.",
+                    "warnings": ["Missing real source context for refactor."],
+                }
             target = target if target and target.lower() != "unknown" else "unknown"
             strategy = "default"
             result = self._run_async(self.refactor(target, strategy))
@@ -137,6 +161,18 @@ class CodingAgent(BaseAgent):
         decision = decision.strip().lower()
 
         if "refactor" in decision:
+            if self._is_placeholder_target(target) and not self._has_real_context(prompt_text, target, context, files):
+                return {
+                    "status": "needs_context",
+                    "agent": "CodingAgent",
+                    "mode": "coding",
+                    "task_kind": "refactor",
+                    "target": target,
+                    "prompt": prompt_text,
+                    "files": files,
+                    "summary": "Refactor requires a real file path or source snippet; stand-in placeholders are rejected.",
+                    "warnings": ["Missing real source context for refactor."],
+                }
             result = self._run_async(self.refactor(target or "unknown", "default"))
             return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
@@ -152,8 +188,51 @@ class CodingAgent(BaseAgent):
             result = self._run_async(self.write_docs(target=target, doc_style=str(context.get("doc_style") or "google"), source=str(context.get("source") or prompt_text)))
             return self._standardize_result(result, task_kind="documentation", target=target, prompt=prompt_text, files=files)
 
+        if self._is_placeholder_target(target) and not self._has_real_context(prompt_text, target, context, files):
+            return {
+                "status": "needs_context",
+                "agent": "CodingAgent",
+                "mode": "coding",
+                "task_kind": "generate_code",
+                "target": target,
+                "prompt": prompt_text,
+                "files": files,
+                "summary": "CodingAgent needs a real target or source snippet before it can generate code safely.",
+                "warnings": ["Missing real source context for code generation."],
+            }
         result = self._run_async(self.generate_code(prompt_text, context=context))
         return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
+
+    @staticmethod
+    def _is_placeholder_target(value: str) -> bool:
+        cleaned = str(value or "").strip().lower()
+        if not cleaned:
+            return True
+        if cleaned in {"unknown", "placeholder", "tbd", "n/a", "none", "sample", "example", "dummy", "todo", "temp", "test"}:
+            return True
+        if cleaned.startswith("placeholder") or cleaned.startswith("example") or cleaned.startswith("sample"):
+            return True
+        return False
+
+    def _has_real_context(self, prompt_text: str, target: str, context: Optional[Dict[str, Any]] = None, files: Any = None) -> bool:
+        if prompt_text and not self._is_placeholder_target(prompt_text):
+            return True
+        if not self._is_placeholder_target(target):
+            return True
+        if isinstance(context, dict):
+            for key in ("source", "code", "content", "snippet", "implementation"):
+                value = context.get(key)
+                if value and not self._is_placeholder_target(str(value)):
+                    return True
+        if files:
+            for item in files if isinstance(files, list) else [files]:
+                if isinstance(item, dict):
+                    candidate = str(item.get("path") or item.get("file") or item.get("target") or "").strip()
+                    if candidate and not self._is_placeholder_target(candidate):
+                        return True
+                elif isinstance(item, str) and not self._is_placeholder_target(item):
+                    return True
+        return False
 
     def _extract_target_from_prompt(self, prompt_text: str) -> str:
         text = str(prompt_text or "").strip()
@@ -332,6 +411,23 @@ class CodingAgent(BaseAgent):
         ``parse_structured_code_response`` so callers always receive populated
         code / tests / docs keys.
         """
+        prompt_text = str(prompt or "").strip()
+        context = dict(context or {})
+        target_path = str(context.get("target") or "").strip()
+        source_text = str(context.get("source") or context.get("code") or context.get("content") or "").strip()
+        if (not prompt_text or self._is_placeholder_target(prompt_text) or self._is_placeholder_target(target_path)) and not source_text:
+            return {
+                "status": "needs_context",
+                "summary": "CodingAgent needs a real target or source snippet before it can generate code safely.",
+                "code": "",
+                "tests": "",
+                "docs": "",
+                "diff": "",
+                "confidence": 0.0,
+                "warnings": ["Missing real source context for code generation."],
+                "task_plan": self._build_task_plan(prompt_text or "code generation", context),
+                "quality_checks": ["require_real_target_or_source"],
+            }
         try:
             client = get_llm_client()
         except Exception as exc:
@@ -527,6 +623,15 @@ class CodingAgent(BaseAgent):
             self.log("ERROR", f"refactor failed: {exc}")
             return {"original": "", "refactored": "", "diff": "", "confidence": 0.0, "error": str(exc)}
 
+    @staticmethod
+    def _has_placeholder_test_output(stdout: str, stderr: str) -> bool:
+        combined = f"{stdout or ''}\n{stderr or ''}".lower()
+        markers = [
+            "todo", "tbd", "placeholder", "example here", "insert example", "[example]", "{{", "}}",
+            "not implemented", "fixme", "coming soon", "stub", "replace this", "to be determined"
+        ]
+        return bool(combined.strip()) and any(marker in combined for marker in markers)
+
     async def run_tests(self, project_path: str, test_pattern: str = "test_*.py") -> dict:
         """Run tests for a project path inside the sandbox runner.
 
@@ -678,7 +783,7 @@ sys.exit(failed)
                 result['stderr'] += f"\nfallback_error: {exc}"
 
         # Normalize result
-        return {
+        normalized = {
             "passed": bool(result.get("passed")),
             "stdout": result.get("stdout", ""),
             "stderr": result.get("stderr", ""),
@@ -686,6 +791,14 @@ sys.exit(failed)
             "method": result.get("method"),
             "duration_ms": result.get("duration_ms"),
         }
+        combined_output = f"{normalized['stdout']}\n{normalized['stderr']}"
+        if not combined_output.strip():
+            normalized["passed"] = False
+            normalized["stderr"] = (normalized["stderr"] + " No test output was produced; the run is inconclusive.").strip()
+        elif self._has_placeholder_test_output(normalized["stdout"], normalized["stderr"]):
+            normalized["passed"] = False
+            normalized["stderr"] = (normalized["stderr"] + " Placeholder or fabricated test output detected.").strip()
+        return normalized
 
     async def write_docs(self, target: str, doc_style: str = "google", source: str = "") -> dict:
         """Create a lightweight documentation block without depending on a separate engine."""

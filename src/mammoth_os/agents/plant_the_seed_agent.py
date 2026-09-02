@@ -5,14 +5,25 @@ Generates foundational learning seeds tied to survival mindset and long-game thi
 
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
 
-class PlantTheSeedAgent:
+
+class PlantTheSeedAgent(BaseAgent):
     """
     Generates seed insights for learning modules.
     """
 
-    def __init__(self, user_id: str | None = None):
+    name = "PlantTheSeedAgent"
+
+    def __init__(self, router: Any = None, user_id: str | None = None):
+        if isinstance(router, str) and user_id is None:
+            user_id = router
+            router = None
+        super().__init__(router)
         self.user_id = user_id
+
+    def log(self, level: str, message: str) -> None:
+        print(f"[{self.name}:{level}] {message}")
 
     def run(self, payload: Any) -> Dict[str, Any]:
         """
@@ -51,8 +62,8 @@ class PlantTheSeedAgent:
             constraints = []
             approval_contract = {}
 
-        placeholder_reason = self._placeholder_reason(topic, context, lesson_title, module_title)
-        if placeholder_reason:
+        missing_context_reason = self._missing_context_reason(topic, context, lesson_title, module_title)
+        if missing_context_reason:
             return {
                 "agent": "plant_the_seed",
                 "status": "needs_context",
@@ -76,7 +87,7 @@ class PlantTheSeedAgent:
                     "What specific concept needs the next small rep?",
                 ],
                 "tags": ["needs_context"],
-                "recommendations": ["Replace placeholder targets like 'unknown' with the real lesson or module name."],
+                "recommendations": ["Replace stand-in targets like 'unknown' with the real lesson or module name."],
                 "summary": "PlantTheSeedAgent needs a real lesson, module, or topic before it can generate a grounded seed.",
                 "task_card": {
                     "title": "Plant the seed: context needed",
@@ -95,7 +106,7 @@ class PlantTheSeedAgent:
                     "constraint_count": len(constraints),
                     "progress_bucket": "needs_context",
                 },
-                "evidence": [prompt or topic, placeholder_reason],
+                "evidence": [prompt or topic, missing_context_reason],
             }
 
         seed = self._generate_seed(topic, context, lesson_title, module_title)
@@ -168,7 +179,7 @@ class PlantTheSeedAgent:
                 return keyword
         return ""
 
-    def _placeholder_reason(
+    def _missing_context_reason(
         self,
         topic: str,
         context: str | None,
@@ -177,12 +188,12 @@ class PlantTheSeedAgent:
     ) -> str | None:
         anchors = [topic, context, lesson_title, module_title]
         populated = [str(anchor).strip() for anchor in anchors if str(anchor or "").strip()]
-        if populated and all(self._is_placeholder(value) for value in populated):
-            return "placeholder target provided"
+        if populated and all(self._is_standin(value) for value in populated):
+            return "stand-in target provided"
         return None
 
-    def _is_placeholder(self, value: str) -> bool:
-        return value.strip().lower() in {"unknown", "tbd", "todo", "n/a", "none", "placeholder"}
+    def _is_standin(self, value: str) -> bool:
+        return value.strip().lower() in {"unknown", "tbd", "n/a", "none", "placeholder", "example", "test", "sample"}
 
     def _coerce_progress(self, value: Any) -> float:
         try:
@@ -322,3 +333,14 @@ class PlantTheSeedAgent:
         if next_focus:
             return f"{anchor} is ready for a focused next step around {next_focus}."
         return f"{anchor} is stable enough to keep compounding with one small daily rep."
+
+    async def emit_event(self, event_type: str, payload: Any) -> None:
+        self.log("INFO", f"Emitting {event_type} without a transport")
+
+    async def process(self, event: "MammothEvent") -> None:  # type: ignore
+        if event.event_type == "PLANT_SEED_REQUEST":
+            result = self.run(event.payload)
+            await self.emit_event("PLANT_SEED_RESULT", result)
+
+    async def shutdown(self) -> None:
+        self.log("INFO", "PlantTheSeedAgent shutting down.")

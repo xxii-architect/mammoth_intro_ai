@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 from mammoth_os.supabase_client import get_supabase
 
@@ -37,7 +37,7 @@ def update_streak(user_id: str) -> int:
     """
     supabase = _require_supabase()
     record = get_user_streak(user_id)
-    today = datetime.utcnow().date()
+    today = datetime.now(timezone.utc).date()
 
     if not record:
         new_streak = 1
@@ -71,7 +71,7 @@ def _write_streak(supabase, user_id: str, streak: int):
     payload = {
         "user_id": user_id,
         "streak": streak,
-        "last_active": datetime.utcnow().isoformat(),
+        "last_active": datetime.now(timezone.utc).isoformat(),
     }
 
     supabase.schema("atlas").table("leaderboard").upsert(payload).execute()

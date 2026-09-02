@@ -4,6 +4,12 @@ import re
 from typing import Any, Dict, List, Optional
 
 from .base_agent import BaseAgent
+from .reasoning_agent_v2_upgrade import (
+    _extract_error_pattern_enhanced,
+    _socratic_questions_enhanced,
+    _micro_lesson_enhanced,
+    _estimate_confidence_enhanced,
+)
 
 
 class ReasoningAgent(BaseAgent):  # type: ignore
@@ -36,28 +42,12 @@ class ReasoningAgent(BaseAgent):  # type: ignore
         return re.sub(r"\s+", " ", str(problem or "")).strip()
 
     def _extract_error_pattern(self, context: Dict[str, Any]) -> str:
-        tutor_result = context.get("tutor_result") if isinstance(context, dict) else None
-        tutor_result = tutor_result if isinstance(tutor_result, dict) else {}
-        adaptive = tutor_result.get("adaptive_signals") if isinstance(tutor_result.get("adaptive_signals"), dict) else {}
-        fingerprint = str(adaptive.get("error_fingerprint") or "").strip().lower()
-        if fingerprint:
-            return fingerprint
-        text = f"{tutor_result.get('message', '')} {tutor_result.get('error', '')}".lower()
-        if "syntaxerror" in text:
-            return "syntax_error"
-        if "indentationerror" in text:
-            return "indentation_error"
-        if "assert" in text:
-            return "assertion_error"
-        if "importerror" in text or "modulenotfounderror" in text:
-            return "import_error"
-        if "typeerror" in text:
-            return "type_error"
-        if "nameerror" in text:
-            return "name_error"
-        if context.get("mode") == "coach":
-            return "coaching_request"
-        return "unknown"
+        """Extract error pattern using enhanced v2 detection logic.
+        
+        v2 upgrade: Supports 16 error categories instead of 8, with better
+        heuristic detection for edge cases like recursion, timeout, memory.
+        """
+        return _extract_error_pattern_enhanced(context)
 
     def decompose(self, problem: str) -> List[str]:
         normalized = self._normalize_problem(problem)
@@ -92,45 +82,63 @@ class ReasoningAgent(BaseAgent):  # type: ignore
         return "Keep the guidance short, testable, and focused on one behavior."
 
     def _socratic_questions(self, pattern: str, problem: str) -> List[str]:
-        if pattern == "syntax_error":
-            return [
-                "Which line first breaks Python parsing, and what delimiter is missing?",
-                "Can you run only that function after fixing indentation and syntax shape?",
-            ]
-        if pattern == "assertion_error":
-            return [
-                "What output does the test expect versus what your function returns now?",
-                "Which edge case could explain that mismatch?",
-            ]
-        if pattern == "import_error":
-            return [
-                "Is the module path correct from the test runner's working directory?",
-                "What is the smallest import statement that succeeds in isolation?",
-            ]
-        if pattern == "coaching_request":
-            return [
-                f"What is the first concrete checkpoint for: {problem[:90]}?",
-                "How will you verify progress in under five minutes?",
-            ]
-        return [
-            "What changed right before the failure appeared?",
-            "What tiny experiment can confirm your next assumption?",
-        ]
+        """Generate Socratic questions tailored to error type.
+        
+        v2 upgrade: Uses enhanced error pattern detection with 16 categories
+        and pattern-specific guidance for better learner alignment.
+        """
+        return _socratic_questions_enhanced(pattern, problem)
 
     def _micro_lesson(self, pattern: str) -> str:
-        if pattern in {"syntax_error", "indentation_error"}:
-            return "Micro-lesson: write a minimal passing structure first, then add one logic branch at a time."
-        if pattern == "assertion_error":
-            return "Micro-lesson: translate each failing assertion into plain language before changing implementation."
-        if pattern in {"import_error", "name_error"}:
-            return "Micro-lesson: confirm symbol/module visibility with a tiny isolated snippet before full test runs."
-        if pattern == "type_error":
-            return "Micro-lesson: annotate expected types, then print/inspect runtime values at the failing boundary."
-        return "Micro-lesson: isolate one failing behavior and verify it with a single targeted check."
+        """Generate pattern-specific micro-lessons.
+        
+        v2 upgrade: Supports 16 error categories with targeted guidance
+        for syntax, logic, runtime, and performance errors.
+        """
+        return _micro_lesson_enhanced(pattern)
 
     def _estimate_confidence(self, steps: List[str], pattern: str) -> float:
-        base = 0.68 if pattern == "unknown" else 0.75
-        return round(min(0.98, base + (len(steps) * 0.06)), 2)
+        """Estimate confidence using enhanced pattern clarity assessment.
+        
+        v2 upgrade: Takes context into account with clearer patterns having
+        higher baseline confidence scores.
+        """
+        # Use enhanced confidence estimation with default context
+        return _estimate_confidence_enhanced(pattern, has_context=bool(steps))
+
+    def _quality_score(self, prompt: str, reasoning: Dict[str, Any]) -> float:
+        """Reward clarity, specificity, and actionable guidance in reasoning output."""
+        score = 0.45
+        problem = self._normalize_problem(prompt)
+        if problem:
+            score += 0.15
+        if reasoning.get("error_pattern"):
+            score += 0.1
+        if reasoning.get("socratic_questions"):
+            score += 0.1
+        if reasoning.get("micro_lesson"):
+            score += 0.1
+        confidence = float(reasoning.get("confidence") or 0.0)
+        if confidence >= 0.7:
+            score += 0.1
+        if reasoning.get("steps"):
+            score += 0.1
+        return round(min(score, 0.99), 2)
+
+    def _verification_checks(self, prompt: str, reasoning: Dict[str, Any]) -> List[str]:
+        """Offer a compact verification loop so the model stays grounded and testable."""
+        checks: List[str] = []
+        if not self._normalize_problem(prompt):
+            checks.append("Clarify the target behavior before troubleshooting.")
+        else:
+            checks.append("Confirm the smallest failing condition before changing broader logic.")
+        if reasoning.get("error_pattern"):
+            checks.append(f"Validate the {reasoning.get('error_pattern')} pattern against one real example.")
+        if reasoning.get("socratic_questions"):
+            checks.append("Answer the first Socratic question with a concrete testable hypothesis.")
+        if reasoning.get("micro_lesson"):
+            checks.append("Apply the micro-lesson to one boundary case before widening the fix.")
+        return checks[:4]
 
     def reason(self, problem: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         payload_context = dict(context or {})
@@ -139,7 +147,7 @@ class ReasoningAgent(BaseAgent):  # type: ignore
         sub_problems = self.decompose(problem)
         steps = [self._infer(sub_problem, payload_context) for sub_problem in sub_problems]
         answer = " ".join(step for step in steps if step)
-        return {
+        reasoning = {
             "answer": answer,
             "steps": steps,
             "confidence": self._estimate_confidence(steps, pattern),
@@ -148,6 +156,14 @@ class ReasoningAgent(BaseAgent):  # type: ignore
             "socratic_questions": self._socratic_questions(pattern, self._normalize_problem(problem)),
             "micro_lesson": self._micro_lesson(pattern),
         }
+        reasoning["quality_score"] = self._quality_score(problem, reasoning)
+        reasoning["verification_checks"] = self._verification_checks(problem, reasoning)
+        reasoning["recommended_next_step"] = (
+            reasoning.get("verification_checks", ["Test the narrowest hypothesis."])[0]
+            if reasoning.get("verification_checks")
+            else "Test the narrowest hypothesis."
+        )
+        return reasoning
 
     def _build_reasoning_summary(self, prompt: str, reasoning: Dict[str, Any]) -> str:
         answer = str(reasoning.get("answer") or "").strip()
@@ -174,17 +190,22 @@ class ReasoningAgent(BaseAgent):  # type: ignore
         prompt = normalized.get("problem", "")
         reasoning = self.reason(prompt, normalized.get("context", {}))
         status = "ok" if self._normalize_problem(prompt) else "needs_context"
+        quality_flags = self._build_quality_flags(prompt, reasoning)
+        reasoning_summary = self._build_reasoning_summary(prompt, reasoning)
         return {
             "status": status,
             "agent": self.name,
             "mode": normalized.get("mode", "default"),
             "prompt": prompt,
-            "summary": self._build_reasoning_summary(prompt, reasoning),
-            "quality_flags": self._build_quality_flags(prompt, reasoning),
+            "summary": reasoning_summary,
+            "quality_flags": quality_flags,
+            "quality_score": reasoning.get("quality_score"),
+            "verification_checks": reasoning.get("verification_checks", []),
+            "recommended_next_step": reasoning.get("recommended_next_step"),
             "reasoning": {
                 **reasoning,
-                "summary": self._build_reasoning_summary(prompt, reasoning),
-                "quality_flags": self._build_quality_flags(prompt, reasoning),
+                "summary": reasoning_summary,
+                "quality_flags": quality_flags,
             },
             "evidence": {
                 "error_pattern": reasoning.get("error_pattern"),

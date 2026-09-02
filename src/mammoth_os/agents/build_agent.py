@@ -84,6 +84,27 @@ class BuildAgent(BaseAgent):  # type: ignore
             await emit(event_type, {"project_path": str(project_root), "language": str(language or "python"), "results": results})
         return {"success": success, "project_path": str(project_root), "language": str(language or "python"), "results": results}
 
+    async def run(self, payload) -> dict:
+        if isinstance(payload, dict):
+            project_path = str(payload.get("project_path") or payload.get("path") or ".").strip()
+            language = str(payload.get("language") or "python").strip()
+            config = payload.get("config") or {}
+        else:
+            project_path = str(payload or ".").strip()
+            language = "python"
+            config = {}
+        try:
+            result = await self.build(project_path=project_path, language=language, config=config)
+            return {
+                "status": "ok" if result.get("success") else "error",
+                "agent": self.name,
+                **result,
+                "summary": f"Build {'succeeded' if result.get('success') else 'failed'} for {project_path} ({language}).",
+                "quality_flags": ["lint_test_build_pipeline", "multi_language_support"],
+            }
+        except (FileNotFoundError, ValueError) as exc:
+            return {"status": "error", "agent": self.name, "error": str(exc), "summary": str(exc)}
+
     async def process(self, event: "MammothEvent") -> None:  # type: ignore
         if event is None:
             return None

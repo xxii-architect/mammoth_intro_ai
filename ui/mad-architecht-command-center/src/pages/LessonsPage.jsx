@@ -370,6 +370,7 @@ export default function LessonsPage({ setPage }) {
     () => moduleCatalog.filter(track => FEATURED_MODULE_IDS.includes(track.id)).slice(0, 4),
     [moduleCatalog]
   )
+  const featuredShortcut = activeTrack || featuredTracks[0] || null
   const moduleDiscoveryCount = moduleCatalog.length
   const filteredDiscoveryCount = filteredCatalog.length
 
@@ -441,6 +442,56 @@ export default function LessonsPage({ setPage }) {
               <ExternalLink size={13} /> Full ATLAS Tutor
             </button>
           )}
+        </div>
+      </div>
+
+      <div className="glass-card-solid" style={{ padding: 16, marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ maxWidth: 620 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, color: 'var(--photon)', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+            <Sparkles size={12} /> Learning Stride
+          </div>
+          <h2 style={{ margin: 0, fontSize: '1.12rem', lineHeight: 1.2, letterSpacing: '-0.02em' }}>Build a steady, elevated learning rhythm.</h2>
+          <p style={{ margin: '6px 0 0', color: 'var(--txt-sec)', lineHeight: 1.6, fontSize: '0.8rem' }}>
+            Pick a module, follow the ATLAS flow, and keep each lesson focused on one tangible win instead of broad content churn.
+          </p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10, minWidth: 280, flex: 1 }}>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(77,166,255,0.18)', background: 'rgba(77,166,255,0.06)' }}>
+            <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Ready</div>
+            <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{featuredTracks.length || '0'} picks</div>
+          </div>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(168,85,247,0.18)', background: 'rgba(168,85,247,0.06)' }}>
+            <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Mode</div>
+            <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{typeConfig.label}</div>
+          </div>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(0,245,212,0.18)', background: 'rgba(0,245,212,0.06)' }}>
+            <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Next step</div>
+            <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{activeTrack ? 'Continue' : 'Choose a track'}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginBottom: 14 }}>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Sprint focus</div>
+          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{featuredShortcut ? featuredShortcut.label : 'Pick a module'}</div>
+          <div style={{ marginTop: 6, color: 'var(--txt-sec)', fontSize: '0.75rem', lineHeight: 1.5 }}>
+            {featuredShortcut ? (featuredShortcut.summary || 'A deep, focused learning loop is the best way to keep momentum high.') : 'Start with a module that matches your current learning goal and lock in one win.'}
+          </div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Operator cue</div>
+          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{activeTrack ? 'Continue the current path' : 'Choose your track'}</div>
+          <div style={{ marginTop: 6, color: 'var(--txt-sec)', fontSize: '0.75rem', lineHeight: 1.5 }}>
+            {activeTrack ? `${activeTrack.icon || '✨'} ${activeTrack.summary || 'Keep the lesson moving and close the next loop.'}` : 'The fastest path is a small, deliberate learning loop rather than a broad browse.'}
+          </div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>High-trust motion</div>
+          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{moduleDiscoveryCount} catalog tracks</div>
+          <div style={{ marginTop: 6, color: 'var(--txt-sec)', fontSize: '0.75rem', lineHeight: 1.5 }}>
+            Follow one high-signal module and turn the lesson output into a repeatable learning ritual.
+          </div>
         </div>
       </div>
 

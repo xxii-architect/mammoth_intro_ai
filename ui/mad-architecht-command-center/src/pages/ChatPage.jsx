@@ -3,6 +3,7 @@ import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, Ch
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
 import ChatMessageBody from '../components/ChatMessageBody'
+import AgentResultPanel from '../components/AgentResultPanel'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 import GuideStepPanel from '../components/GuideStepPanel'
 import ChatThreadSidebar from '../components/ChatThreadSidebar'
@@ -217,6 +218,24 @@ function buildLivePageContext() {
     selected_text: selection ? selection.slice(0, 400) : '',
     updated_at: new Date().toISOString(),
   }
+
+  function parseStructuredAgentMessage(message) {
+    if (typeof message !== 'string') return null
+    const trimmed = message.trim()
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed || typeof parsed !== 'object') return null
+      const hasReadableAgentShape =
+        typeof parsed.status === 'string' ||
+        typeof parsed.summary === 'string' ||
+        Array.isArray(parsed.quality_flags) ||
+        typeof parsed.agent === 'string'
+      return hasReadableAgentShape ? parsed : null
+    } catch {
+      return null
+    }
+  }
 }
 
 function findLastAssistantIndex(list) {
@@ -291,6 +310,7 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
   const [copied, setCopied] = useState(false)
   const isUser = entry.role === 'user'
   const isStreamingBubble = !isUser && entry.stream
+  const structuredResult = !isUser ? parseStructuredAgentMessage(entry.message) : null
 
   const agentLabel = isUser
     ? 'You'
@@ -334,7 +354,9 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         {isUser
           ? <div style={{ whiteSpace: 'pre-wrap' }}>{entry.message}</div>
           : entry.message
-            ? <ChatMessageBody text={entry.message} />
+            ? (structuredResult
+              ? <AgentResultPanel result={structuredResult} rawJson={entry.message} agentId={entry.agent_id} />
+              : <ChatMessageBody text={entry.message} />)
             : (isStreamingBubble
               ? <span style={{ color: 'var(--txt-mut)' }}>MammothOS is composing…</span>
               : null)
@@ -413,6 +435,7 @@ export default function ChatPage({ setPage }) {
   const [meta, setMeta] = useState(null)
   const [error, setError] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [streamStatus, setStreamStatus] = useState('idle')
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState(-1)
   const [quickActionsOpen, setQuickActionsOpen] = useState(false)
   const [taskCards, setTaskCards] = useState(() => loadTaskCards())
@@ -870,6 +893,7 @@ export default function ChatPage({ setPage }) {
     const effectiveAgentId = overrideAgentId || agentId
     setBusy(true)
     setStreaming(true)
+    setStreamStatus(effectiveAgentId === 'coding_agent' ? 'patching' : effectiveAgentId === 'reasoning_agent' ? 'reasoning' : 'thinking')
     setError('')
     if (!override) setInput('')
     setAttachedFiles([])
@@ -941,6 +965,7 @@ export default function ChatPage({ setPage }) {
     } finally {
       setBusy(false)
       setStreaming(false)
+      setStreamStatus('idle')
       streamControllerRef.current = null
       await refreshOps()
     }
@@ -1175,9 +1200,10 @@ export default function ChatPage({ setPage }) {
                 onOpenHandoff={() => setPage?.('agent')}
               />
             ))}
-            {busy && !streaming && (
-              <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.8rem', color: 'var(--txt-mut)' }}>
-                MammothOS is checking the herd…
+            {busy && (
+              <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.18)', fontSize: '0.8rem', color: 'var(--txt-sec)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 12px rgba(77,166,255,0.6)' }} />
+                {streaming ? `MammothOS is ${streamStatus}…` : 'MammothOS is checking the herd…'}
               </div>
             )}
             <div ref={bottomRef} />
