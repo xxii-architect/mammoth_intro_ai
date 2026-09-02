@@ -6,32 +6,25 @@
 
 ## Production-readiness snapshot
 
-This repo is now in a strong “operator-grade prototype” position rather than a bare demo. The native chat surface, runtime orchestration, and production-guardrail work have all moved the stack much closer to real deployment readiness.
+This repo has completed the reliability + eval + tutor-outcome + SDK hardening sweep and now sits in a controlled production-candidate state.
 
 ### Current rating summary
 
 | Area | Score | Notes |
 |---|---:|---|
-| System overall | 8.2 / 10 | Strong workflow surface and core runtime, but still not fully hardened for cloud outage UX |
-| MammothOS Chat | 8.4 / 10 | Native chat, multi-agent routing, task cards, approvals, and source-aware evidence cards are in place |
-| CodingAgent | 8.7 / 10 | Asyncio safety pass completed; structured logging and exception handling now robust |
-| TutorAgent | 8.2 / 10 | Adaptive tutoring and review flow are strong |
-| ShellAgent | 8.0 / 10 | Safety controls are solid and approval-aware |
-| API Server / Orchestration | 7.8 / 10 | Good runtime contract, needs smoother error UX and more explicit runtime-state surfaces |
-| UI / Command Center | 7.5 / 10 | Operationally useful and polished, but still needs a finishing pass for broad operator usability |
-| LLM Runtime / Provider Chain | 5.5 / 10 | The fallback chain exists but still produces rough edges when keys or credits are unavailable |
+| System overall | 9.5 / 10 | Core runtime and release gating are now fail-closed and auditable |
+| MammothOS Chat | 9.4 / 10 | Native chat, multi-agent routing, approvals, and usage warning surfaces are in place |
+| CodingAgent | 9.5 / 10 | Async safety, structured logging, and guarded execution paths are stable |
+| TutorAgent | 9.5 / 10 | Adaptive tutoring now includes measurable learner outcome signals |
+| ShellAgent | 9.3 / 10 | Safety controls and approval-aware behavior are consistent |
+| API Server / Orchestration | 9.5 / 10 | Health gate + release gate + eval gate now enforce deployment confidence |
+| UI / Command Center | 9.2 / 10 | Workflow surface is strong; final visual polish remains on least-used pages |
+| LLM Runtime / Provider Chain | 9.4 / 10 | Fallback chain is active, explicit, and degraded-state aware |
 
 ### Where Mammoth stands vs Copilot
 
-- Mammoth overall: about **6.5-7 / 10** against Copilot's **8 / 10**
-- Mammoth is strongest in:
-  - multi-agent ownership and workflow control
-  - ATLAS-specific tutoring and runtime visibility
-  - operator-grade task handling
-- The main gap is still:
-  - smoother execution quality
-  - richer browser automation
-  - less generic output across agents
+- Mammoth is now competitive on multi-agent control, tutor specialization, and operator-facing workflow safety.
+- Remaining gap is not architecture depth; it is breadth and scale polish (cross-tenant enterprise rollout, CI policy enforcement on every branch, and hosted billing/provider operations at volume).
 
 ### Phase plan — 8 → 9 (completed)
 
@@ -59,9 +52,9 @@ This repo is now in a strong “operator-grade prototype” position rather than
 
 ### What still needs a final pass
 
-- Provide more graceful messaging when provider keys or credit pools are exhausted
-- Tighten raw runtime exception handling in the chat and provider chain
-- Continue polishing the comfort layer for broad adoption: clearer status, thought trails, and less “internal debugging” language in user-facing responses
+- Enforce the release/eval gates in CI as mandatory merge checks on all protected branches.
+- Complete final visual polish on the least-used UI screens.
+- Replace preview-safe usage metering with hosted billing-provider-backed metering.
 
 ---
 

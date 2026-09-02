@@ -642,11 +642,30 @@ class AtlasFAB:
         return self.progress_model().as_dict()
 
     def snapshot(self) -> Dict[str, Any]:
+        usage = self.get_usage()
+        runtime = self.runtime_state()
         return {
+            "contract_version": self.contract_version,
+            "product_surface": PRODUCT_SURFACE,
+            "tenant": {
+                "tenant_id": self.config.tenant_id,
+                "is_bound": bool(str(self.config.tenant_id or "").strip()),
+                "plan": self.config.plan,
+                "audience": self.config.audience,
+                "mode": self.config.mode,
+            },
+            "usage_policy": {
+                "metering_mode": "request_and_token",
+                "telemetry_enabled": self.config.telemetry_enabled,
+                "limits": self._usage_limits(),
+                "warning_level": usage.get("warning_level"),
+                "percent_used": usage.get("percent_used"),
+                "source": usage.get("source"),
+            },
             "config": self.config.as_dict(),
             "progress": self.get_progress(),
-            "usage": self.get_usage(),
-            "runtime": self.runtime_state(),
+            "usage": usage,
+            "runtime": runtime,
             "last_submission": dict(self._last_submission_result),
             "last_generation": dict(self._last_generation_result),
             "events": list(self._events),

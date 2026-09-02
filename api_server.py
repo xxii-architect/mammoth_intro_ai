@@ -798,7 +798,12 @@ async def auth_guard_middleware(request: Request, call_next):
     if user is None and _AUTH_REQUIRED and not optional_path:
         return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
 
-    effective_user = user or {"id": "local", "email": "", "is_admin": not _AUTH_REQUIRED}
+    if user is not None:
+        effective_user = user
+    elif _AUTH_REQUIRED:
+        effective_user = {"id": "anonymous", "email": "", "is_admin": False}
+    else:
+        effective_user = {"id": "local", "email": "", "is_admin": True}
     token_user, token_email, token_admin = _set_request_auth_context(request, effective_user)
     try:
         return await call_next(request)
@@ -2013,6 +2018,23 @@ def _merge_latest_runtime_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         merged.get("checked_at") or datetime.now(timezone.utc).isoformat()
     )
 
+    fallback_used = bool(merged.get("fallback_used"))
+    if fallback_used or str(merged.get("active_adapter") or "").strip().lower() == "local":
+        merged["state"] = "degraded"
+        merged["degraded_mode"] = True
+        fallback_reason = str(merged.get("fallback_reason") or "").strip().replace("_", " ")
+        if fallback_reason:
+            merged["issue"] = (
+                "A configured provider fell back to a safe path due to "
+                f"{fallback_reason}. MammothOS is still operating, but the runtime is degraded."
+            )
+        elif not merged.get("issue"):
+            merged["issue"] = "MammothOS is operating on a safe fallback path and the runtime is degraded."
+        if not merged.get("recommendation"):
+            merged["recommendation"] = "Restore the primary provider or credential path to return the runtime to ready mode."
+        if not merged.get("next_action"):
+            merged["next_action"] = "Inspect provider quota, billing, credentials, or network availability before retrying."
+
     providers: List[Dict[str, Any]] = []
     for provider in merged.get("providers", []):
         item = dict(provider)
@@ -2278,6 +2300,70 @@ def _release_readiness_tier(score: float) -> str:
     if score >= 6.8:
         return "stabilizing"
     return "prototype-risk"
+
+
+def _release_gate_snapshot(*, score: float, blockers: List[Dict[str, Any]]) -> Dict[str, Any]:
+    threshold = 8.0
+    blocker_titles = [str(item.get("title") or "unknown") for item in blockers if isinstance(item, dict)]
+    passed = score >= threshold and not blocker_titles
+    return {
+        "threshold": threshold,
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "score": round(float(score), 1),
+        "blocker_count": len(blocker_titles),
+        "blocker_titles": blocker_titles,
+        "reason": blocker_titles[0] if blocker_titles else ("Release readiness score is below threshold." if score < threshold else ""),
+    }
+
+
+def _health_gate_snapshot(*, services: List[Dict[str, Any]], runtime: Dict[str, Any], env_exists: bool, venv_ok: bool, git_ok: bool) -> Dict[str, Any]:
+    red_services = [str(service.get("label") or "unknown") for service in services if service.get("status") == "red"]
+    passed = env_exists and venv_ok and git_ok and not red_services and str(runtime.get("state") or "").lower() == "ready"
+    blockers = []
+    if not env_exists:
+        blockers.append("Missing .env configuration")
+    if not venv_ok:
+        blockers.append("Python virtualenv is unavailable")
+    if not git_ok:
+        blockers.append("Git repository metadata is unavailable")
+    blockers.extend(red_services[:3])
+    return {
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "blockers": blockers,
+        "healthy_services": len([service for service in services if service.get("status") == "green"]),
+        "total_services": len(services),
+        "runtime_state": str(runtime.get("state") or "unknown"),
+    }
+
+
+def _eval_gate_snapshot(*, observability: Dict[str, Any]) -> Dict[str, Any]:
+    metrics = observability.get("metrics") if isinstance(observability.get("metrics"), dict) else {}
+    latest_eval = observability.get("latest_eval") if isinstance(observability.get("latest_eval"), dict) else {}
+    eval_runs = int(metrics.get("eval_runs") or 0)
+    eval_pass_rate = int(metrics.get("eval_pass_rate") or 0)
+    threshold = 80
+    if eval_runs <= 0:
+        passed = False
+        reason = "No ATLAS eval history is available for release gating."
+    elif eval_pass_rate >= threshold:
+        passed = True
+        reason = ""
+    else:
+        passed = False
+        reason = f"Eval pass rate is {eval_pass_rate}% and must reach at least {threshold}% for release."
+    blocker_detail = reason or "Eval history is healthy enough for release."
+    return {
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "threshold": threshold,
+        "eval_runs": eval_runs,
+        "eval_pass_rate": eval_pass_rate,
+        "latest_eval": latest_eval,
+        "reason": reason,
+        "blocker_detail": blocker_detail,
+    }
 
 
 # ── lazy registry imports ─────────────────────────────────────────────────────
@@ -2603,6 +2689,7 @@ async def get_health():
             "yellow_services": yellow_services,
         },
         "runtime": runtime,
+        "health_gate": _health_gate_snapshot(services=services, runtime=runtime, env_exists=env_exists, venv_ok=venv_ok, git_ok=git_ok),
     }
 
 
@@ -8945,6 +9032,9 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
     entitlements = await get_entitlements()
     account = await get_account_profile()
     runtime = health.get("runtime") if isinstance(health.get("runtime"), dict) else _runtime_status_snapshot()
+    eval_history = _load_eval_history()
+    observability = _build_atlas_observability({"learner_model": {}, "plan_history": [], "fab_usage_events": []}, eval_history=eval_history)
+    eval_gate = _eval_gate_snapshot(observability=observability)
 
     services = health.get("services") if isinstance(health.get("services"), list) else []
     red_services = [str(service.get("label") or "unknown") for service in services if service.get("status") == "red"]
@@ -9020,6 +9110,12 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
             "severity": "medium",
             "detail": weakest,
         })
+    if not eval_gate["passed"]:
+        blockers.append({
+            "title": "ATLAS eval moat is below release threshold",
+            "severity": "high",
+            "detail": eval_gate["blocker_detail"],
+        })
     if not bool(account.get("profile_complete")):
         blockers.append({
             "title": "Operator identity scaffolding is still incomplete",
@@ -9049,6 +9145,7 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "score": overall_score,
         "tier": _release_readiness_tier(overall_score),
+        "release_gate": _release_gate_snapshot(score=overall_score, blockers=blockers),
         "scores": {
             "runtime": runtime_score,
             "modules": module_score,
@@ -9060,8 +9157,11 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
             "total_services": int(health.get("summary", {}).get("total_services") or 0),
             "cloud_providers_ready": cloud_ready,
             "non_local_providers_ready": non_local_ready,
+            "eval_runs": eval_gate["eval_runs"],
+            "eval_pass_rate": eval_gate["eval_pass_rate"],
         },
         "runtime": runtime,
+        "eval_gate": eval_gate,
         "lowest_rated": lowest_rated,
         "blockers": blockers,
         "strengths": strengths[:4],

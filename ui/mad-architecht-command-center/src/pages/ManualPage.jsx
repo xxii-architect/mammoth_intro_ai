@@ -25,6 +25,8 @@ const liveNow = [
   'ATLAS Tutor now has clear Assistant / Tutor / Build lanes, Monaco lesson editing, and expandable guide cards.',
   'Learning materials can be uploaded into the ATLAS library for lesson-side context and reuse.',
   'The FAB can now be hidden and restored without losing its context or history.',
+  'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
+  'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',
 ]
 
 const surfaceMap = [
@@ -139,6 +141,8 @@ const qaChecklist = [
   'Open Landing, Manual, and Command Library first to confirm product positioning and surface naming are current.',
   'Run one Mammoth Mind /guide request and verify expandable guide steps appear.',
   'Run one ATLAS lesson loop: lesson start -> exercise -> submit -> adaptive feedback -> recap or quiz.',
+  'Check /api/health and confirm health_gate is present and passed before release actions.',
+  'Check /api/release-readiness and confirm release_gate and eval_gate are both passed.',
   'Upload one chat attachment or ATLAS material and confirm it appears in the right library.',
   'Capture final artifacts or tasks in Artifacts / Task Inbox so test sessions stay replayable.',
 ]

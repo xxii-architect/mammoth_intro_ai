@@ -148,6 +148,39 @@ function summarizePlanResult(result) {
   ].join(' • ')
 }
 
+function labelForAgent(agentId) {
+  const found = AGENT_OPTIONS.find((item) => item.id === agentId)
+  if (found?.label) return found.label
+  return (agentId || 'assistant').replaceAll('_', ' ')
+}
+
+function buildSuccessToast({ agentId, keyResult, nextAction }) {
+  const resultText = String(keyResult || '').trim()
+  const actionText = String(nextAction || '').trim()
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2, 7)}`,
+    title: `${labelForAgent(agentId)} run completed`,
+    keyResult: resultText || 'Response delivered to chat.',
+    nextAction: actionText || 'Review the latest response and continue.',
+  }
+}
+
+function deriveSuccessDetailsFromMessage(message, fallbackResult = '') {
+  const structured = parseStructuredAgentMessage(message)
+  if (structured && typeof structured === 'object') {
+    const result = structured.result && typeof structured.result === 'object' ? structured.result : {}
+    return {
+      keyResult: structured.summary || result.summary || structured.message || fallbackResult,
+      nextAction: structured.next_action || result.next_action || structured.runtime_notice?.next_action || '',
+    }
+  }
+  const plain = String(message || '').trim().replace(/\s+/g, ' ')
+  return {
+    keyResult: plain ? plain.slice(0, 170) : fallbackResult,
+    nextAction: '',
+  }
+}
+
 function parseSlashCommand(input) {
   const message = String(input || '').trim()
   if (!message.startsWith('/')) return null
@@ -485,12 +518,26 @@ export default function ChatPage({ setPage }) {
   const [activeThreadId, setActiveThreadId] = useState(null)
   const [threadSidebarOpen, setThreadSidebarOpen] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState([])
+  const [successToast, setSuccessToast] = useState(null)
   const threadSidebarRef = useRef(null)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
+  const toastTimerRef = useRef(null)
   const historySnapshotRef = useRef([])
   const { user } = useAuth()
   const scopeUserId = user?.id || 'local'
+
+  const publishSuccessToast = useCallback((payload) => {
+    if (!payload) return
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+    }
+    setSuccessToast(payload)
+    toastTimerRef.current = setTimeout(() => {
+      setSuccessToast(null)
+      toastTimerRef.current = null
+    }, 4800)
+  }, [])
 
   const refreshOps = async () => {
     try {
@@ -578,6 +625,12 @@ export default function ChatPage({ setPage }) {
 
   useEffect(() => () => {
     streamControllerRef.current?.abort?.()
+  }, [])
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -774,7 +827,19 @@ export default function ChatPage({ setPage }) {
           setThoughtSteps(payload.thought_steps)
         }
         if (payload.chat_history) {
-          setHistory(Array.isArray(payload.chat_history) ? payload.chat_history : [])
+          const nextHistory = Array.isArray(payload.chat_history) ? payload.chat_history : []
+          setHistory(nextHistory)
+          const lastAssistant = [...nextHistory].reverse().find((entry) => entry.role === 'assistant')
+          if (lastAssistant) {
+            const derived = deriveSuccessDetailsFromMessage(lastAssistant.message, 'Agent run finished.')
+            publishSuccessToast(
+              buildSuccessToast({
+                agentId: payload.agent_id || lastAssistant.agent_id || effectiveAgentId,
+                keyResult: derived.keyResult,
+                nextAction: derived.nextAction,
+              }),
+            )
+          }
         } else if (Array.isArray(payload.guide_steps) && payload.guide_steps.length) {
           // Inject guide_steps into the placeholder bubble if history not replaced
           setHistory((prev) => {
@@ -883,6 +948,13 @@ export default function ChatPage({ setPage }) {
             model: 'plan-execute',
             evidence_items: evidenceItems,
           })
+          publishSuccessToast(
+            buildSuccessToast({
+              agentId: 'orchestrator',
+              keyResult: summary,
+              nextAction: result?.next_action || (result?.progress?.pending_approval ? 'Review pending approvals in Agent Console.' : 'Start execution or refine the plan.'),
+            }),
+          )
           saveTaskCardFromEntry(
             { agent_id: 'orchestrator', message: summary, task_id: result.plan_id || '', evidence_items: evidenceItems },
             {
@@ -1076,6 +1148,17 @@ export default function ChatPage({ setPage }) {
 
   return (
     <div className="page-enter" style={{ padding: 24, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+      {successToast && (
+        <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 70, maxWidth: 420, borderRadius: 12, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(6,25,15,0.95)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', padding: '10px 12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#86efac', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>
+            <Check size={14} />
+            Run complete
+          </div>
+          <div style={{ fontSize: '0.84rem', color: 'var(--txt-pri)', fontWeight: 700, marginBottom: 4 }}>{successToast.title}</div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)', lineHeight: 1.5, marginBottom: 4 }}>Result: {successToast.keyResult}</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', lineHeight: 1.4 }}>Next: {successToast.nextAction}</div>
+        </div>
+      )}
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1496,6 +1579,5 @@ export default function ChatPage({ setPage }) {
     </div>
   )
 }
-
 
 

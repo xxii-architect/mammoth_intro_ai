@@ -193,3 +193,17 @@ def test_atlas_fab_error_serializes_cleanly():
     error = AtlasFABError("empty_submission", "Need files", context={"hint": "add solution.py"})
     assert str(error) == "empty_submission: Need files"
     assert error.as_dict()["context"]["hint"] == "add solution.py"
+
+
+def test_atlas_fab_snapshot_exposes_contract_surface():
+    fab = AtlasFAB(AtlasFABConfig(user_id="workspace:test", tenant_id="tenant-42", plan="pro"))
+    snapshot = fab.snapshot()
+
+    assert snapshot["contract_version"] == "v2"
+    assert snapshot["product_surface"] == "atlas_fab"
+    assert snapshot["tenant"]["tenant_id"] == "tenant-42"
+    assert snapshot["tenant"]["is_bound"] is True
+    assert snapshot["usage_policy"]["metering_mode"] == "request_and_token"
+    assert snapshot["usage_policy"]["telemetry_enabled"] is True
+    assert "config" in snapshot
+    assert "runtime" in snapshot
