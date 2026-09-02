@@ -51,13 +51,14 @@ export default function HomePage({ setPage }) {
   const [sales, setSales] = useState([])
   const [entitlements, setEntitlements] = useState(null)
   const [deploySnapshot, setDeploySnapshot] = useState(null)
+  const [runtimeStatus, setRuntimeStatus] = useState(null)
   const [selfAudit, setSelfAudit] = useState(null)
   const [auditBusy, setAuditBusy] = useState(false)
   const [copied, setCopied] = useState(null)
 
   const fetchAll = async () => {
     try {
-      const [s, h, b, sl, deploy] = await Promise.all([
+      const [s, h, b, sl, deploy, rt] = await Promise.all([
         api('/status'),
         api('/health'),
         api('/buildlog'),
@@ -255,6 +256,44 @@ export default function HomePage({ setPage }) {
         </div>
       </div>
 
+      {/* Runtime provider status strip */}
+      {runtimeStatus && Array.isArray(runtimeStatus.providers) && (
+        <div className="glass-card-solid" style={{ padding: '12px 16px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700 }}>
+              AI Provider Chain
+            </span>
+            <span style={{ fontSize: '0.7rem', fontFamily: 'JetBrains Mono,monospace', color: runtimeStatus.state === 'ready' ? '#22c55e' : '#f59e0b' }}>
+              {runtimeStatus.active_model || runtimeStatus.active_adapter || 'unknown'} · {runtimeStatus.state}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {runtimeStatus.providers.map((p) => (
+              <div key={p.provider} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 12px', borderRadius: 999,
+                border: p.active ? '1px solid rgba(34,197,94,0.45)' : '1px solid rgba(255,255,255,0.08)',
+                background: p.active ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.03)',
+              }}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                  background: p.available ? (p.active ? '#22c55e' : '#94a3b8') : '#f87171',
+                  boxShadow: p.active ? '0 0 8px rgba(34,197,94,0.6)' : 'none',
+                }} />
+                <span style={{ fontSize: '0.72rem', fontWeight: p.active ? 700 : 500, color: p.active ? '#22c55e' : 'var(--txt-sec)', textTransform: 'capitalize' }}>
+                  {p.provider}
+                </span>
+                {p.active && (
+                  <span style={{ fontSize: '0.6rem', padding: '1px 5px', borderRadius: 999, background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontWeight: 700 }}>
+                    ACTIVE
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 24 }}>
         {stats.map(s => (
@@ -436,3 +475,5 @@ export default function HomePage({ setPage }) {
     </div>
   )
 }
+
+

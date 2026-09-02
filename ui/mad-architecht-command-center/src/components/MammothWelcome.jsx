@@ -1,18 +1,39 @@
 // MammothWelcome.jsx
 // First-run immersive welcome overlay — shown once per browser session
+// Uses inline styles (no Tailwind dependency)
 import React, { useEffect, useState } from "react";
 
 const STORAGE_KEY = "mammoth_welcomed_v1";
 
+const steps = [
+  {
+    icon: "🦣",
+    headline: "Welcome to MammothOS",
+    body: "A multi-agent cognitive operating system built for the long game. Every agent you see here works together — planning, coding, learning, and evolving.",
+    accent: "var(--photon)",
+  },
+  {
+    icon: "🧠",
+    headline: "Meet ATLAS",
+    body: "ATLAS (Mammoth Mind) is your personal AI tutor. It adapts to how you learn, tracks your progress, and gets sharper every session.",
+    accent: "var(--violet)",
+  },
+  {
+    icon: "⚡",
+    headline: "You're in control",
+    body: "Run plans. Trigger agents. Review outputs before anything ships. MammothOS is approval-safe — nothing moves without you.",
+    accent: "var(--cyan)",
+  },
+];
+
 export default function MammothWelcome({ onDismiss }) {
   const [visible, setVisible] = useState(false);
   const [step, setStep] = useState(0);
+  const [animating, setAnimating] = useState(false);
 
   useEffect(() => {
     const seen = sessionStorage.getItem(STORAGE_KEY);
-    if (!seen) {
-      setVisible(true);
-    }
+    if (!seen) setVisible(true);
   }, []);
 
   const dismiss = () => {
@@ -21,63 +42,126 @@ export default function MammothWelcome({ onDismiss }) {
     onDismiss?.();
   };
 
-  if (!visible) return null;
+  const advance = (dir) => {
+    setAnimating(true);
+    setTimeout(() => {
+      setStep(s => s + dir);
+      setAnimating(false);
+    }, 120);
+  };
 
-  const steps = [
-    {
-      icon: "🦣",
-      headline: "Welcome to MammothOS",
-      body: "A multi-agent cognitive operating system built for the long game. Every agent you see here works together — planning, coding, learning, and evolving.",
-    },
-    {
-      icon: "🧠",
-      headline: "Meet ATLAS",
-      body: "ATLAS (Mammoth Mind) is your personal AI tutor. It adapts to how you learn, tracks your progress, and gets sharper every session.",
-    },
-    {
-      icon: "⚡",
-      headline: "You're in control",
-      body: "Run plans. Trigger agents. Review outputs before anything ships. MammothOS is approval-safe — nothing moves without you.",
-    },
-  ];
+  if (!visible) return null;
 
   const current = steps[step];
   const isLast = step === steps.length - 1;
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-[#0d0d1a] border border-[#3d3d5c] rounded-3xl w-full max-w-lg p-10 text-center shadow-2xl animate-fade-in">
-        <div className="text-6xl mb-6">{current.icon}</div>
-        <h2 className="text-white text-2xl font-bold mb-3">{current.headline}</h2>
-        <p className="text-[#aaaacc] text-base leading-relaxed mb-8">{current.body}</p>
+    <div
+      style={{
+        position: "fixed", inset: 0, zIndex: 9999,
+        background: "rgba(0,0,0,0.82)", backdropFilter: "blur(6px)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: "var(--card, #0d0d1a)",
+          border: `1px solid ${current.accent}44`,
+          borderRadius: 24,
+          width: "100%", maxWidth: 480,
+          padding: "40px 36px 32px",
+          textAlign: "center",
+          boxShadow: `0 0 48px ${current.accent}22, 0 16px 48px rgba(0,0,0,0.6)`,
+          opacity: animating ? 0 : 1,
+          transform: animating ? "scale(0.97)" : "scale(1)",
+          transition: "opacity 0.12s ease, transform 0.12s ease, border-color 0.3s ease, box-shadow 0.3s ease",
+        }}
+      >
+        {/* Icon */}
+        <div style={{ fontSize: 52, marginBottom: 20, lineHeight: 1 }}>
+          {current.icon}
+        </div>
 
-        <div className="flex justify-center gap-2 mb-8">
+        {/* Headline */}
+        <h2 style={{
+          margin: "0 0 12px",
+          fontSize: "1.45rem", fontWeight: 800,
+          color: "var(--txt-pri, #fff)",
+          letterSpacing: "-0.02em",
+          lineHeight: 1.2,
+        }}>
+          {current.headline}
+        </h2>
+
+        {/* Body */}
+        <p style={{
+          margin: "0 0 28px",
+          fontSize: "0.9rem",
+          color: "var(--txt-sec, #aaaacc)",
+          lineHeight: 1.7,
+        }}>
+          {current.body}
+        </p>
+
+        {/* Step dots */}
+        <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 28 }}>
           {steps.map((_, i) => (
             <div
               key={i}
-              className={`w-2 h-2 rounded-full transition-all ${i === step ? "bg-[#6655cc] w-6" : "bg-[#3d3d5c]"}`}
+              style={{
+                height: 6, borderRadius: 3,
+                width: i === step ? 22 : 6,
+                background: i === step ? current.accent : "rgba(255,255,255,0.15)",
+                transition: "width 0.25s ease, background 0.25s ease",
+              }}
             />
           ))}
         </div>
 
-        <div className="flex gap-3 justify-center">
+        {/* Buttons */}
+        <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
           {step > 0 && (
             <button
-              onClick={() => setStep(s => s - 1)}
-              className="px-5 py-2.5 rounded-xl border border-[#3d3d5c] text-[#aaaacc] hover:text-white hover:border-[#6655cc] text-sm transition-colors"
+              onClick={() => advance(-1)}
+              style={{
+                padding: "10px 18px", borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.04)",
+                color: "var(--txt-sec, #aaaacc)",
+                fontSize: "0.84rem", fontWeight: 600,
+                cursor: "pointer",
+              }}
             >
               Back
             </button>
           )}
           <button
-            onClick={isLast ? dismiss : () => setStep(s => s + 1)}
-            className="px-8 py-2.5 rounded-xl bg-[#6655cc] hover:bg-[#7766dd] text-white text-sm font-semibold transition-colors"
+            onClick={isLast ? dismiss : () => advance(1)}
+            style={{
+              padding: "10px 28px", borderRadius: 10,
+              border: "none",
+              background: current.accent,
+              color: "#fff",
+              fontSize: "0.84rem", fontWeight: 700,
+              cursor: "pointer",
+              boxShadow: `0 0 16px ${current.accent}55`,
+            }}
           >
             {isLast ? "Let's go 🚀" : "Next"}
           </button>
         </div>
 
-        <button onClick={dismiss} className="mt-4 text-[#555577] hover:text-[#8888aa] text-xs transition-colors">
+        {/* Skip */}
+        <button
+          onClick={dismiss}
+          style={{
+            display: "block", margin: "16px auto 0",
+            background: "none", border: "none",
+            color: "rgba(255,255,255,0.25)",
+            fontSize: "0.72rem", cursor: "pointer",
+          }}
+        >
           Skip intro
         </button>
       </div>

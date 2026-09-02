@@ -6,6 +6,7 @@ import ChatMessageBody from '../components/ChatMessageBody'
 import AgentResultPanel from '../components/AgentResultPanel'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 import GuideStepPanel from '../components/GuideStepPanel'
+import AgentThinkingIndicator from '../components/AgentThinkingIndicator'
 import ChatThreadSidebar from '../components/ChatThreadSidebar'
 import FileAttachmentPanel from '../components/FileAttachmentPanel'
 
@@ -425,6 +426,36 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
   )
 }
 
+function persistSessionContext(agentId, history) {
+  if (typeof window === 'undefined') return
+  try {
+    // Extract topics from the last few user messages
+    const userMsgs = history.filter(e => e.role === 'user').slice(-5)
+    const topics = [...new Set(
+      userMsgs.flatMap(e => {
+        const words = String(e.message || '').split(/\s+/).filter(w => w.length > 4)
+        return words.slice(0, 3)
+      })
+    )].slice(0, 5)
+
+    // Collect agent IDs used
+    const agentsUsed = [...new Set(
+      history.map(e => e.agent_id).filter(Boolean)
+    )].slice(0, 4)
+
+    // Last assistant message summary
+    const lastAssistant = [...history].reverse().find(e => e.role === 'assistant' && e.message)
+    const last_summary = lastAssistant ? String(lastAssistant.message).slice(0, 200) : ''
+
+    const ctx = {
+      updated_at: new Date().toISOString(),
+      topics,
+      agents: agentsUsed.length ? agentsUsed : [agentId],
+      last_summary,
+    }
+    localStorage.setItem('mammoth_session_context_v1', JSON.stringify(ctx))
+  } catch { /* no-op */ }
+}
 export default function ChatPage({ setPage }) {
   const [history, setHistory] = useState([])
   const [input, setInput] = useState('')
@@ -457,6 +488,7 @@ export default function ChatPage({ setPage }) {
   const threadSidebarRef = useRef(null)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
+  const historySnapshotRef = useRef([])
   const { user } = useAuth()
   const scopeUserId = user?.id || 'local'
 
@@ -1464,3 +1496,6 @@ export default function ChatPage({ setPage }) {
     </div>
   )
 }
+
+
+
