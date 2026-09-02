@@ -9,16 +9,46 @@ import GuideStepPanel from '../components/GuideStepPanel'
 import AgentThinkingIndicator from '../components/AgentThinkingIndicator'
 import ChatThreadSidebar from '../components/ChatThreadSidebar'
 import FileAttachmentPanel from '../components/FileAttachmentPanel'
+import { TrustBadgeRow } from '../components/TrustSurfaces'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
 const DEFAULT_SERVER_REPO = '/opt/mammothos/mammoth_intro_ai'
 const DEFAULT_LOCAL_REPO = 'C:\\Users\\runni\\mammoth_intro_ai.worktrees\\agents-mammothos-atlas-agent-system'
 
+function safeStorageGet(key, fallback = null) {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const value = window.localStorage.getItem(key)
+    return value === null ? fallback : value
+  } catch {
+    return fallback
+  }
+}
+
+function safeStorageSet(key, value) {
+  if (typeof window === 'undefined') return false
+  try {
+    window.localStorage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function safeStorageRemove(key) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // no-op: storage protections should never crash the UI
+  }
+}
+
 // ─── Repo picker helpers ────────────────────────────────────────────────────
 
 function loadRepos(userId) {
   try {
-    const raw = localStorage.getItem(`mammoth_repos:${userId}`)
+    const raw = safeStorageGet(`mammoth_repos:${userId}`)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
@@ -26,18 +56,16 @@ function loadRepos(userId) {
 }
 
 function saveRepos(userId, repos) {
-  localStorage.setItem(`mammoth_repos:${userId}`, JSON.stringify(repos.slice(0, 20)))
+  safeStorageSet(`mammoth_repos:${userId}`, JSON.stringify(repos.slice(0, 20)))
 }
 
 function loadActiveRepo(userId) {
-  try {
-    return localStorage.getItem(`mammoth_active_repo:${userId}`) || null
-  } catch { return null }
+  return safeStorageGet(`mammoth_active_repo:${userId}`) || null
 }
 
 function saveActiveRepo(userId, repoId) {
-  if (repoId) localStorage.setItem(`mammoth_active_repo:${userId}`, repoId)
-  else localStorage.removeItem(`mammoth_active_repo:${userId}`)
+  if (repoId) safeStorageSet(`mammoth_active_repo:${userId}`, repoId)
+  else safeStorageRemove(`mammoth_active_repo:${userId}`)
 }
 
 function isGitHubRepoRef(value = '') {
@@ -125,7 +153,7 @@ const SLASH_ACTIONS = [
 
 function loadTaskCards() {
   try {
-    const raw = localStorage.getItem(TASK_CARD_STORAGE_KEY)
+    const raw = safeStorageGet(TASK_CARD_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
@@ -135,7 +163,7 @@ function loadTaskCards() {
 }
 
 function saveTaskCards(cards) {
-  localStorage.setItem(TASK_CARD_STORAGE_KEY, JSON.stringify(cards.slice(0, 20)))
+  safeStorageSet(TASK_CARD_STORAGE_KEY, JSON.stringify(cards.slice(0, 20)))
 }
 
 function summarizePlanResult(result) {
@@ -252,24 +280,31 @@ function buildLivePageContext() {
     selected_text: selection ? selection.slice(0, 400) : '',
     updated_at: new Date().toISOString(),
   }
+}
 
-  function parseStructuredAgentMessage(message) {
-    if (typeof message !== 'string') return null
-    const trimmed = message.trim()
-    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
-    try {
-      const parsed = JSON.parse(trimmed)
-      if (!parsed || typeof parsed !== 'object') return null
-      const hasReadableAgentShape =
-        typeof parsed.status === 'string' ||
-        typeof parsed.summary === 'string' ||
-        Array.isArray(parsed.quality_flags) ||
-        typeof parsed.agent === 'string'
-      return hasReadableAgentShape ? parsed : null
-    } catch {
-      return null
-    }
+function parseStructuredAgentMessage(message) {
+  if (typeof message !== 'string') return null
+  const trimmed = message.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!parsed || typeof parsed !== 'object') return null
+    const hasReadableAgentShape =
+      typeof parsed.status === 'string' ||
+      typeof parsed.summary === 'string' ||
+      Array.isArray(parsed.quality_flags) ||
+      typeof parsed.agent === 'string'
+    return hasReadableAgentShape ? parsed : null
+  } catch {
+    return null
   }
+}
+
+function normalizeConfidence(value, fallback = 0.74) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric > 1) return Math.max(0, Math.min(1, numeric / 100))
+  return Math.max(0, Math.min(1, numeric))
 }
 
 function findLastAssistantIndex(list) {
@@ -345,6 +380,35 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
   const isUser = entry.role === 'user'
   const isStreamingBubble = !isUser && entry.stream
   const structuredResult = !isUser ? parseStructuredAgentMessage(entry.message) : null
+  const contradictionFlags = !isUser
+    ? (
+      Array.isArray(structuredResult?.contradictions)
+        ? structuredResult.contradictions
+        : Array.isArray(structuredResult?.quality_flags)
+          ? structuredResult.quality_flags.filter((flag) => String(flag).toLowerCase().includes('contrad'))
+          : []
+    )
+    : []
+  const sourceCount = !isUser
+    ? (
+      Array.isArray(structuredResult?.citations) ? structuredResult.citations.length
+        : Array.isArray(structuredResult?.sources) ? structuredResult.sources.length
+          : Array.isArray(structuredResult?.references) ? structuredResult.references.length
+            : Array.isArray(entry.evidence_items) ? entry.evidence_items.length
+              : 0
+    )
+    : 0
+  const providerLabel = String(
+    entry.adapter
+      || structuredResult?.provider
+      || structuredResult?.runtime_state?.provider
+      || 'unknown'
+  )
+  const confidenceScore = normalizeConfidence(
+    structuredResult?.confidence
+    ?? structuredResult?.confidence_score
+    ?? entry.confidence
+  )
 
   const agentLabel = isUser
     ? 'You'
@@ -399,6 +463,17 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
           <span style={{ display: 'inline-block', width: 8, height: 8, marginLeft: 6, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)', verticalAlign: 'middle' }} />
         )}
       </div>
+
+      {!isUser && (
+        <TrustBadgeRow
+          provider={providerLabel}
+          confidence={confidenceScore}
+          contradictions={contradictionFlags}
+          sourceCount={sourceCount}
+          showEvidence={sourceCount > 0}
+          style={{ marginTop: 6, marginBottom: 0, borderBottom: 'none', padding: '4px 0 0' }}
+        />
+      )}
 
       {/* Meta row */}
       {!isUser && (entry.model || entry.adapter || entry.task_id) && (
@@ -486,7 +561,7 @@ function persistSessionContext(agentId, history) {
       agents: agentsUsed.length ? agentsUsed : [agentId],
       last_summary,
     }
-    localStorage.setItem('mammoth_session_context_v1', JSON.stringify(ctx))
+    safeStorageSet('mammoth_session_context_v1', JSON.stringify(ctx))
   } catch { /* no-op */ }
 }
 export default function ChatPage({ setPage }) {
@@ -562,7 +637,7 @@ export default function ChatPage({ setPage }) {
   useEffect(() => {
     let stored = null
     try {
-      stored = typeof window !== 'undefined' ? JSON.parse(window.localStorage.getItem(`mammoth_chat_history:${scopeUserId}`) || 'null') : null
+      stored = typeof window !== 'undefined' ? JSON.parse(safeStorageGet(`mammoth_chat_history:${scopeUserId}`, 'null') || 'null') : null
     } catch {
       stored = null
     }
@@ -606,9 +681,9 @@ export default function ChatPage({ setPage }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (history.length > 0) {
-      window.localStorage.setItem(`mammoth_chat_history:${scopeUserId}`, JSON.stringify(history.slice(-50)))
+      safeStorageSet(`mammoth_chat_history:${scopeUserId}`, JSON.stringify(history.slice(-50)))
     } else {
-      window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
+      safeStorageRemove(`mammoth_chat_history:${scopeUserId}`)
     }
   }, [history, scopeUserId])
 
@@ -1091,9 +1166,7 @@ export default function ChatPage({ setPage }) {
         setError('')
         setExpandedThoughtIndex(-1)
         setAttachedFiles([])
-        if (typeof window !== 'undefined') {
-          window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
-        }
+        safeStorageRemove(`mammoth_chat_history:${scopeUserId}`)
         // Refresh sidebar
         threadSidebarRef.current?.reload?.()
       }
@@ -1127,9 +1200,7 @@ export default function ChatPage({ setPage }) {
     } catch (e) {
       console.warn('Failed to clear chat history on backend:', e)
     }
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
-    }
+    safeStorageRemove(`mammoth_chat_history:${scopeUserId}`)
     setHistory([])
     setThoughtSteps([])
     setMeta(null)
@@ -1579,5 +1650,4 @@ export default function ChatPage({ setPage }) {
     </div>
   )
 }
-
 

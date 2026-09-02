@@ -80,6 +80,26 @@ const SMOKE_TESTS = [
   { agent_id: 'coding_agent', intent: 'generate_code', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
 ]
 
+function safeStorageGet(key, fallback = null) {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const value = window.localStorage.getItem(key)
+    return value === null ? fallback : value
+  } catch {
+    return fallback
+  }
+}
+
+function safeStorageSet(key, value) {
+  if (typeof window === 'undefined') return false
+  try {
+    window.localStorage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+
 const PROMPT_PLAYBOOK = [
   {
     label: 'Quick one-liner',
@@ -203,7 +223,7 @@ export default function AgentPage({ setPage }) {
   const [traceOpen, setTraceOpen] = useState(true)
   const [runHistory, setRunHistory] = useState(() => {
     try {
-      const raw = localStorage.getItem('mammoth_run_history')
+      const raw = safeStorageGet('mammoth_run_history')
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
@@ -355,7 +375,7 @@ export default function AgentPage({ setPage }) {
 
   const persistRunHistory = (entries) => {
     setRunHistory(entries)
-    localStorage.setItem('mammoth_run_history', JSON.stringify(entries))
+    safeStorageSet('mammoth_run_history', JSON.stringify(entries))
   }
 
   const addRunHistoryEntry = (res, currentPrompt, currentAgent, currentIntent, extras = {}) => {
@@ -374,7 +394,7 @@ export default function AgentPage({ setPage }) {
     }
     setRunHistory(prev => {
       const next = [...prev, entry].slice(-20)
-      localStorage.setItem('mammoth_run_history', JSON.stringify(next))
+      safeStorageSet('mammoth_run_history', JSON.stringify(next))
       return next
     })
   }
@@ -627,7 +647,7 @@ export default function AgentPage({ setPage }) {
           }
           break
         }
-        localStorage.setItem('mammoth_run_history', JSON.stringify(next))
+        safeStorageSet('mammoth_run_history', JSON.stringify(next))
         return next
       })
       setOutput(JSON.stringify(result, null, 2))

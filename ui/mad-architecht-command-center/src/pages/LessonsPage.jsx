@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, CheckCircle2, Circle, ChevronDown, ChevronUp, Sparkles, Wand2, Code2, AlignLeft, List, Map, Radio, HeartPulse, Dumbbell, DollarSign, Mic2, Wrench, Leaf, Brain, Camera, ChefHat, Scale, Globe2, Music2, Zap, ToggleRight, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
+import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 
 // ─── Expanded module catalog ──────────────────────────────────────────────────
 const FALLBACK_MODULE_TRACKS = [
@@ -153,6 +154,7 @@ export default function LessonsPage({ setPage }) {
   const [categoryFilter, setCategoryFilter] = useState(null)
   const [atlasLibrary, setAtlasLibrary] = useState(null)
   const [billingUsage, setBillingUsage] = useState(null)
+  const [journeyStageOverride, setJourneyStageOverride] = useState(null)
   const [showTopOverview, setShowTopOverview] = useState(() => {
     try {
       const stored = window.localStorage.getItem('atlas.lesson.showTopOverview')
@@ -358,6 +360,8 @@ export default function LessonsPage({ setPage }) {
   const modules         = curriculum?.modules || []
   const currentLessonId = atlasState?.lesson_id
   const chatHistory     = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const lessonHistory   = Array.isArray(atlasState?.lesson_history) ? atlasState.lesson_history : []
+  const totalLessons    = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
   const lessonOverview = atlasState?.current_lesson?.summary || exercise?.lesson_summary || activeTrack?.summary || ''
   const lessonTeachingPoints = Array.isArray(atlasState?.current_lesson?.teaching_points) ? atlasState.current_lesson.teaching_points : (Array.isArray(exercise?.teaching_points) ? exercise.teaching_points : [])
   const lessonBody = atlasState?.current_lesson?.content || exercise?.lesson_body || ''
@@ -439,6 +443,22 @@ export default function LessonsPage({ setPage }) {
     return { mastery, recommendedDifficulty, focusAreas }
   }, [result, atlasState?.learner_context])
 
+  const inferredJourneyStage = useMemo(() => {
+    if (!exercise) return 'start'
+    if (result?.passed || result?.adaptive_feedback) return 'check'
+    if (String(code || '').trim() || chatHistory.length > 0) return 'practice'
+    return 'start'
+  }, [exercise, result?.passed, result?.adaptive_feedback, code, chatHistory.length])
+
+  const currentJourneyStage = journeyStageOverride || inferredJourneyStage
+  const journeyProgress = {
+    start: 0.2,
+    practice: 0.45,
+    check: 0.72,
+    reflect: 0.88,
+    next: 1,
+  }[currentJourneyStage] || 0.2
+
   const toggleModule = (id) => setExpandedModules(prev => ({ ...prev, [id]: !prev[id] }))
   const moduleProgress = (mod) => {
     const lessonsList = Array.isArray(mod?.lessons) ? mod.lessons : []
@@ -460,7 +480,7 @@ export default function LessonsPage({ setPage }) {
   }, [exercise?.prompt])
 
   return (
-    <div className="page-enter" style={{ padding: 24, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+    <div className="page-enter" style={{ padding: 24, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {/* Hero header */}
       <div style={{ marginBottom: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
@@ -901,6 +921,21 @@ export default function LessonsPage({ setPage }) {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflowY: 'auto' }}>
           {exercise ? (
             <>
+              <TutorJourneyRail
+                currentStage={currentJourneyStage}
+                progress={journeyProgress}
+                onStageChange={setJourneyStageOverride}
+              />
+
+              <OutcomesCard
+                masteryTrend={Math.max(0, Math.min(1, outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery))}
+                timeToCompetency={Math.max(10, Math.round((lessonHistory.length + 1) * 12))}
+                retentionSignal={Math.max(0.4, Math.min(0.98, (outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery) || 0.55))}
+                lessonsCompleted={lessonHistory.length}
+                totalLessons={Math.max(totalLessons, lessonHistory.length + 1)}
+                nextMilestone={outcomeSummary.focusAreas.length ? `Focus next: ${outcomeSummary.focusAreas.slice(0, 2).join(' · ')}` : `Continue with ${outcomeSummary.recommendedDifficulty} pacing.`}
+              />
+
               {(lessonOverview || lessonTeachingPoints.length || lessonBody || lessonExamples.length) && (
                 <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>

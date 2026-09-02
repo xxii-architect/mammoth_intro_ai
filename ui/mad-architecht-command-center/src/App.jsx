@@ -13,6 +13,8 @@ import NotificationsDropdown from './components/NotificationsDropdown'
 import MammothWelcome from './components/MammothWelcome'
 import GuideStepPanel from './components/GuideStepPanel'
 import LoginPage from './pages/LoginPage'
+import First15MinutesModal from './components/First15MinutesModal'
+import { useOnboardingState } from './lib/onboardingState'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
 const AgentPage = lazy(() => import('./pages/AgentPage'))
@@ -831,6 +833,8 @@ function AtlasFAB({ currentPage, isMobile = false }) {
 
 export default function App() {
   const [page, setPage] = useState('home')
+  const { hasSeenOnboarding, isLoading: onboardingLoading, completeOnboarding } = useOnboardingState()
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false)
   const [theme, setTheme] = useState(() => {
     if (typeof window === 'undefined') return 'dark'
     try {
@@ -857,6 +861,11 @@ export default function App() {
   const betaTesterAccess = fallbackBetaTesterFromEmail
   const canAccessProjectTools = isAdminHost || adminAccess === true
   const visibleNav = compactNavSections(NAV)
+
+  useEffect(() => {
+    if (onboardingLoading) return
+    setShowOnboardingModal(!hasSeenOnboarding)
+  }, [onboardingLoading, hasSeenOnboarding])
 
   useEffect(() => {
     let alive = true
@@ -958,6 +967,15 @@ export default function App() {
   return (
     <div style={{ display: 'flex', height: '100dvh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
       <MammothWelcome onDismiss={() => setWelcomeDone(true)} />
+
+      <First15MinutesModal
+        isOpen={showOnboardingModal}
+        onClose={() => setShowOnboardingModal(false)}
+        onSelectRole={(role) => {
+          completeOnboarding(role)
+          setPage(role.primaryAction || 'lessons')
+        }}
+      />
 
       {/* Mobile sidebar overlay backdrop */}
       {isMobile && sidebarOpen && (

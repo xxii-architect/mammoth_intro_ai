@@ -46,16 +46,24 @@ export default function AgentCommandLibrary({ onClose }) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   const modal = (
     <div
-      className="fixed inset-0 bg-black/70 z-[1200] flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 bg-black/70 z-[1200] flex items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain"
       onClick={() => onClose && onClose()}
     >
       <div
-        className="bg-[#1a1a2e] border border-[#3d3d5c] rounded-2xl w-full max-w-3xl max-h-[calc(100vh-1.5rem)] sm:max-h-[88vh] overflow-hidden flex flex-col my-2 sm:my-0"
+        className="bg-[#1a1a2e] border border-[#3d3d5c] rounded-2xl w-full max-w-3xl max-h-[min(92vh,860px)] overflow-hidden flex flex-col"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-5 border-b border-[#3d3d5c]">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#3d3d5c]">
           <div>
             <h2 className="text-white text-xl font-bold">🦣 Command Library</h2>
             <p className="text-[#8888aa] text-sm mt-0.5">All MammothOS agent capabilities</p>
@@ -65,7 +73,7 @@ export default function AgentCommandLibrary({ onClose }) {
           )}
         </div>
 
-        <div className="flex gap-3 p-4 border-b border-[#3d3d5c]">
+        <div className="flex flex-col sm:flex-row gap-3 p-4 border-b border-[#3d3d5c]">
           <input
             className="flex-1 bg-[#0d0d1a] border border-[#3d3d5c] rounded-lg px-3 py-2 text-white text-sm placeholder-[#555577] focus:outline-none focus:border-[#6655cc]"
             placeholder="Search commands..."
@@ -74,7 +82,7 @@ export default function AgentCommandLibrary({ onClose }) {
             autoFocus
           />
           <select
-            className="bg-[#0d0d1a] border border-[#3d3d5c] rounded-lg px-3 py-2 text-white text-sm focus:outline-none min-w-[140px]"
+            className="bg-[#0d0d1a] border border-[#3d3d5c] rounded-lg px-3 py-2 text-white text-sm focus:outline-none min-w-[140px] w-full sm:w-auto"
             value={agentFilter}
             onChange={e => setAgentFilter(e.target.value)}
           >
@@ -82,7 +90,7 @@ export default function AgentCommandLibrary({ onClose }) {
           </select>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-4 space-y-2">
+        <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-2">
           {filtered.length === 0 && (
             <p className="text-[#555577] text-sm text-center py-8">No commands match your search.</p>
           )}

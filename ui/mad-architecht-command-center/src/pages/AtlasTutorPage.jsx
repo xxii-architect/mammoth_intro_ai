@@ -5,6 +5,8 @@ import { api } from '../api/client'
 import MammothDiffViewer from '../components/MammothDiffViewer'
 import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
 import GuideStepPanel from '../components/GuideStepPanel'
+import { TrustBadgeRow } from '../components/TrustSurfaces'
+import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 import { useInterval } from '../hooks/useApi'
 
 
@@ -63,6 +65,13 @@ function getBillingWarningState(billingUsage = null) {
   return { warningLevel, show, color, text, percentUsed }
 }
 
+function normalizeConfidence(value, fallback = 0.74) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric > 1) return Math.max(0, Math.min(1, numeric / 100))
+  return Math.max(0, Math.min(1, numeric))
+}
+
 function MonacoReadOnlyBlock({ value, language = 'plaintext', height = 220 }) {
   if (!String(value || '').trim()) return null
   return (
@@ -114,6 +123,7 @@ export default function AtlasTutorPage() {
   const [attachedMaterials, setAttachedMaterials] = useState([])
   const [showRightPanel, setShowRightPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
   const [billingUsage, setBillingUsage] = useState(null)
+  const [journeyStageOverride, setJourneyStageOverride] = useState(null)
   const [showAdvancedTools, setShowAdvancedTools] = useState(() => {
     try {
       const stored = window.localStorage.getItem('atlas.tutor.showAdvancedTools')
@@ -523,6 +533,23 @@ export default function AtlasTutorPage() {
     }
   }, [result, learnerContext, lastSubmission])
 
+  const inferredJourneyStage = useMemo(() => {
+    if (!exercise) return 'start'
+    if (studyAid?.type === 'review' || studyAid?.type === 'recap') return 'reflect'
+    if (result?.passed || result?.adaptive_feedback) return 'check'
+    if (String(code || '').trim() || chatHistory.length > 0) return 'practice'
+    return 'start'
+  }, [exercise, studyAid?.type, result?.passed, result?.adaptive_feedback, code, chatHistory.length])
+
+  const currentJourneyStage = journeyStageOverride || inferredJourneyStage
+  const journeyProgress = {
+    start: 0.2,
+    practice: 0.45,
+    check: 0.72,
+    reflect: 0.9,
+    next: 1,
+  }[currentJourneyStage] || 0.2
+
   useEffect(() => {
     const context = {
       lesson_id: currentLessonId || null,
@@ -804,6 +831,21 @@ export default function AtlasTutorPage() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
         {exercise ? (
           <>
+            <TutorJourneyRail
+              currentStage={currentJourneyStage}
+              progress={journeyProgress}
+              onStageChange={setJourneyStageOverride}
+            />
+
+            <OutcomesCard
+              masteryTrend={Math.max(0, Math.min(1, outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery))}
+              timeToCompetency={Math.max(10, Math.round((lessonHistory.length + 1) * 12))}
+              retentionSignal={Math.max(0.4, Math.min(0.98, confidenceSummary.confidence / 100))}
+              lessonsCompleted={lessonHistory.length}
+              totalLessons={Math.max(totalLessons, lessonHistory.length + 1)}
+              nextMilestone={confidenceSummary.nextStep}
+            />
+
             <div className="glass-card-solid" style={{ padding: 16, flexShrink: 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
                 <div>
@@ -1206,6 +1248,27 @@ export default function AtlasTutorPage() {
                   </p>
                   <div style={{ padding: '8px 10px', borderRadius: 10, background: msg.role === 'user' ? 'rgba(77,166,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <p style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{msg.message}</p>
+                    {msg.role !== 'user' && (
+                      <TrustBadgeRow
+                        provider={String(msg.adapter || msg.provider || 'unknown')}
+                        confidence={normalizeConfidence(msg.confidence ?? msg.confidence_score)}
+                        contradictions={
+                          Array.isArray(msg.contradictions)
+                            ? msg.contradictions
+                            : Array.isArray(msg.quality_flags)
+                              ? msg.quality_flags.filter((flag) => String(flag).toLowerCase().includes('contrad'))
+                              : []
+                        }
+                        sourceCount={
+                          Array.isArray(msg.citations) ? msg.citations.length
+                            : Array.isArray(msg.sources) ? msg.sources.length
+                              : Array.isArray(msg.references) ? msg.references.length
+                                : 0
+                        }
+                        showEvidence
+                        style={{ marginTop: 6, marginBottom: 0, borderBottom: 'none', padding: '4px 0 0' }}
+                      />
+                    )}
                     {hasGuideSteps && (
                       <GuideStepPanel steps={msg.guide_steps} branch={msg.guide_branch} query={previousMessage?.message} />
                     )}
