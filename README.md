@@ -86,6 +86,18 @@ All four phases of the 8 → 9 pass are now done:
 
 This repo now includes `.github/workflows/deploy-digitalocean.yml` for push-to-`main` and manual deploys.
 Every push to `main` auto-deploys to the live server at `165.227.80.86`.
+The deploy workflow now runs release guardrail tests first and only deploys when they pass.
+
+### Mandatory release gate workflow
+
+`.github/workflows/release-guardrails.yml` enforces the reliability/eval/tutor/SDK gate suite on:
+- pull requests targeting `main`
+- pushes to `main`
+- manual workflow dispatch
+
+Recommended branch protection policy:
+- require `Release Guardrails / guardrails` to pass before merge
+- require `CI / tests` to pass before merge
 
 ### GitHub repository secrets (set once under Settings → Environments → production)
 
