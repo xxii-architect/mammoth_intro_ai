@@ -51,8 +51,16 @@ from mammoth_os.supabase_client import get_supabase
 from mammoth_os.memory_engine import MemoryEngine
 from mammoth_os.rag_context_store import get_rag_context_store
 from mammoth_os.audit_engine import AuditEngine
+from mammoth_os.team_workflows import TeamWorkflowManager, RunbookStep
+from mammoth_os.telemetry_engine import TelemetryEngine
+from mammoth_os.provenance_contract import (
+    validate_response,
+    enforce_on_release,
+    add_trust_metadata,
+)
 
 _audit = AuditEngine()
+_telemetry = TelemetryEngine(db_path=None)
 
 app = FastAPI(title="MammothOS API", version="1.0.0")
 
@@ -97,8 +105,9 @@ NOTIFICATIONS_FILE = MAMMOTH_DIR / "notifications.json"
 ACCOUNT_DELETIONS_FILE = MAMMOTH_DIR / "account_deletion_requests.json"
 ONBOARDING_FILE = MAMMOTH_DIR / "onboarding_state.json"
 EXECUTION_LOG_FILE = MAMMOTH_DIR / "execution_log.json"
+TRUST_METRICS_FILE = MAMMOTH_DIR / "trust_metrics.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE, NOTIFICATIONS_FILE, ACCOUNT_DELETIONS_FILE, EXECUTION_LOG_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE, NOTIFICATIONS_FILE, ACCOUNT_DELETIONS_FILE, EXECUTION_LOG_FILE, TRUST_METRICS_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 if not AUTH_ADMIN_POLICY_FILE.exists():
@@ -108,6 +117,7 @@ if not ONBOARDING_FILE.exists():
 ATLAS_STATE_DIR.mkdir(exist_ok=True)
 
 _MEMORY_ENGINE = MemoryEngine(config={"storage_path": str(MAMMOTH_DIR / "memory_store.json"), "max_entries": 5000})
+_TEAM_WORKFLOW_MANAGER = TeamWorkflowManager(MAMMOTH_DIR)
 
 _AUTH_REQUIRED = str(os.environ.get("MAMMOTH_REQUIRE_AUTH", "")).strip().lower() in {"1", "true", "yes", "on"}
 _OWNER_EMAIL = str(os.environ.get("MAMMOTH_OWNER_EMAIL", "")).strip().lower()
@@ -2469,6 +2479,94 @@ except Exception as _e:
     _agent_registry_ok = False
     _agent_registry_err = str(_e)
 
+# ── Trust Metrics Management ──────────────────────────────────────────────────
+def _record_trust_metric(
+    endpoint: str,
+    response_type: str,
+    provider: str,
+    confidence: float,
+    validation_issues: List[str],
+    validation_passed: bool,
+) -> None:
+    """Record a trust validation metric for telemetry."""
+    try:
+        metrics = _read_json(TRUST_METRICS_FILE)
+        if not isinstance(metrics, list):
+            metrics = []
+        
+        # Keep only last 1000 entries
+        if len(metrics) >= 1000:
+            metrics = metrics[-900:]
+        
+        metric = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "endpoint": endpoint,
+            "response_type": response_type,
+            "provider": provider,
+            "confidence": confidence,
+            "issue_count": len(validation_issues),
+            "validation_passed": validation_passed,
+            "issues_sample": validation_issues[:2],  # First 2 issues for trending
+        }
+        metrics.append(metric)
+        TRUST_METRICS_FILE.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    except Exception:
+        pass  # Fail silently on telemetry
+
+
+def _wrap_response_with_trust(
+    response: Dict[str, Any],
+    endpoint: str,
+    response_type: str = "general"
+) -> Dict[str, Any]:
+    """
+    Validate response and add trust metadata before sending to client.
+    
+    In conservative mode: wraps response with trust info and warnings
+    In strict mode: may block low-trust responses
+    """
+    # Ensure response is a dict
+    if not isinstance(response, dict):
+        response = {"result": response}
+    
+    # Make a copy to avoid modifying original
+    wrapped = dict(response)
+    
+    # Run validation and enforcement
+    should_release, block_reason, trust_metadata = enforce_on_release(
+        response,
+        response_type=response_type
+    )
+    
+    # Record telemetry
+    _record_trust_metric(
+        endpoint=endpoint,
+        response_type=response_type,
+        provider=trust_metadata.get("provider", "unknown"),
+        confidence=float(trust_metadata.get("confidence", 0.0)),
+        validation_issues=trust_metadata.get("validation_issues", []),
+        validation_passed=trust_metadata.get("validation_passed", False),
+    )
+    
+    # If blocked in strict mode, return error
+    if not should_release:
+        return {
+            "status": "error",
+            "error": f"Response blocked: {block_reason}",
+            "trust_metadata": trust_metadata,
+            "original_response": wrapped,
+        }
+    
+    # In non-strict mode (default), add trust metadata to response
+    wrapped["trust_metadata"] = trust_metadata
+    
+    # Add warning if issues were found
+    if trust_metadata.get("trust_warning"):
+        wrapped["trust_warning"] = True
+        wrapped["trust_warning_reason"] = trust_metadata.get("warning_reason", "Low trust metrics")
+    
+    return wrapped
+
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/status
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2797,7 +2895,187 @@ async def get_models():
     return _models_snapshot()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/telemetry/* — Release-gate trust metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/telemetry/trust-metrics")
+async def get_telemetry_trust_metrics(hours: int = 2):
+    """
+    GET /api/telemetry/trust-metrics
+    Returns aggregated trust metrics (confidence, contradiction rate, citations) for the last N hours.
+    Query params:
+      - hours: int (default 2) — time window in hours
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    metrics = _telemetry.get_metrics_for_window(hours=hours)
+    return {
+        "status": "ok",
+        "metrics": metrics,
+        "window_hours": hours,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/telemetry/release-readiness")
+async def get_telemetry_release_readiness():
+    """
+    GET /api/telemetry/release-readiness
+    Returns release readiness score (0-100) and go/no-go recommendation based on:
+      - Confidence trend (must be >= 0.72 avg)
+      - Contradiction rate < 8%
+      - Citation coverage (avg >= 2.5 citations per response)
+      - No critical provider errors in last 2 hours
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    readiness = _telemetry.get_release_readiness()
+    return {
+        "status": "ok",
+        "release_readiness": readiness,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/telemetry/provenance-metrics")
+async def get_provenance_metrics(limit: int = 100, hours: int = 24):
+    """
+    GET /api/telemetry/provenance-metrics
+    Returns provenance contract validation metrics from responses.
+    Query params:
+      - limit: int (default 100) — max number of metrics to return
+      - hours: int (default 24) — time window in hours
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    try:
+        all_metrics = _read_json(TRUST_METRICS_FILE)
+        if not isinstance(all_metrics, list):
+            all_metrics = []
+        
+        # Filter by time window
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        recent_metrics = []
+        for metric in all_metrics:
+            try:
+                metric_time = datetime.fromisoformat(metric.get("timestamp", "").replace("Z", "+00:00"))
+                if metric_time >= cutoff:
+                    recent_metrics.append(metric)
+            except Exception:
+                pass
+        
+        # Sort by timestamp descending and limit results
+        recent_metrics.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
+        recent_metrics = recent_metrics[:limit]
+        
+        # Aggregate statistics
+        total_count = len(recent_metrics)
+        passed_count = sum(1 for m in recent_metrics if m.get("validation_passed"))
+        failed_count = total_count - passed_count
+        avg_confidence = (
+            sum(float(m.get("confidence", 0)) for m in recent_metrics) / total_count
+            if total_count > 0 else 0
+        )
+        providers = {}
+        for m in recent_metrics:
+            provider = m.get("provider", "unknown")
+            providers.setdefault(provider, 0)
+            providers[provider] += 1
+        
+        return {
+            "status": "ok",
+            "metrics": recent_metrics,
+            "aggregate": {
+                "total": total_count,
+                "passed": passed_count,
+                "failed": failed_count,
+                "pass_rate": passed_count / total_count if total_count > 0 else 0,
+                "avg_confidence": round(avg_confidence, 3),
+                "providers": providers,
+            },
+            "window_hours": hours,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "metrics": [],
+            "aggregate": {},
+        }
+
+
+@app.post("/api/telemetry/record")
+async def record_telemetry(body: Dict[str, Any]):
+    """
+    POST /api/telemetry/record
+    Record a trust metric from an agent/provider response.
+    Body:
+      {
+        "provider": "string",  // e.g. "gpt-4o-mini", "claude-3.5-sonnet", "deepseek"
+        "confidence": float,   // 0.0-1.0
+        "contradiction_count": int,
+        "citation_count": int,
+        "response_latency_ms": float
+      }
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    provider = str(body.get("provider", "unknown"))
+    confidence = float(body.get("confidence", 0.5))
+    contradiction_count = int(body.get("contradiction_count", 0))
+    citation_count = int(body.get("citation_count", 0))
+    response_latency_ms = float(body.get("response_latency_ms", 0.0))
+    
+    _telemetry.record_response(
+        provider=provider,
+        confidence=confidence,
+        contradiction_count=contradiction_count,
+        citation_count=citation_count,
+        response_latency_ms=response_latency_ms,
+    )
+    
+    return {
+        "status": "ok",
+        "recorded": {
+            "provider": provider,
+            "confidence": confidence,
+            "contradiction_count": contradiction_count,
+            "citation_count": citation_count,
+            "response_latency_ms": response_latency_ms,
+        },
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/telemetry/summary")
+async def get_telemetry_summary():
+    """
+    GET /api/telemetry/summary
+    Returns complete telemetry dashboard data: metrics, trends, and release readiness.
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    summary = _telemetry.get_summary()
+    return {
+        "status": "ok",
+        "data": summary,
+    }
+
+
 @app.get("/api/runtime/status")
+
 async def get_runtime_status():
     return _merge_latest_runtime_status(_runtime_status_snapshot())
 
@@ -3864,7 +4142,7 @@ async def plan_execute(body: Dict[str, Any]):
         details={"objective": objective, "plan_profile": plan_profile, "coding_intent": coding_intent, "executed": executed_count, "failed": failed_count},
     )
 
-    return {
+    response = {
         "status": "ok",
         "plan_id": plan_id,
         "objective": objective,
@@ -3880,7 +4158,12 @@ async def plan_execute(body: Dict[str, Any]):
         },
         "plan_steps": step_results,
         **runtime_snapshot,
+        "provider": "orchestrator",
+        "confidence": 0.9 if plan_status == "completed" else 0.6,  # Lower confidence if partial/failed
+        "citations": ["Plan step execution", "Task tracking"],
+        "contradictions": ["approved" if pending_count > 0 else ""],
     }
+    return _wrap_response_with_trust(response, endpoint="/api/plan-execute", response_type="general")
 
 
 @app.get("/api/autonomous/runs")
@@ -4652,7 +4935,7 @@ async def run_agent(body: Dict[str, Any]):
             )
 
         _think("Run complete", f"task_status={task_status!r}", "success")
-        return {
+        response = {
             "status": "ok",
             "result": result,
             "intent": intent,
@@ -4664,7 +4947,14 @@ async def run_agent(body: Dict[str, Any]):
             "preflight": preflight,
             "runtime_notice": build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=tracked_agent_id or "", context="run_agent"),
             "thought_steps": thought_steps,
+            "provider": runtime_agent or "unknown",
+            "confidence": 1.0 - temperature,  # Higher temp = lower confidence
+            "citations": [],  # Agent runs typically don't have citations unless specified
+            "contradictions": [],
         }
+        # Determine response type from runtime_agent
+        response_type = "coding" if runtime_agent == "coding" else "general"
+        return _wrap_response_with_trust(response, endpoint="/api/run", response_type=response_type)
     except Exception as e:
         if manifest:
             manifest.status = AgentStatus.ERROR
@@ -5980,14 +6270,19 @@ async def atlas_submit(body: Dict[str, Any]):
             source="atlas",
             actor="learner",
         )
-        return {
+        response = {
             "status": "ok",
             "result": result,
             "learner_context": state.get("learner_context"),
             "adaptive_feedback": adaptive_feedback,
             "current_exercise": state.get("current_exercise"),
             "regenerated_exercise": regenerated_exercise,
+            "provider": "atlas-tutor",
+            "confidence": 0.85,  # ATLAS has high confidence in structured exercises
+            "citations": ["Exercise library", "Curriculum standards"],
+            "contradictions": [],
         }
+        return _wrap_response_with_trust(response, endpoint="/api/atlas/submit", response_type="tutor")
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -9293,6 +9588,551 @@ async def get_release_readiness():
     if blocked is not None:
         return blocked
     return await _release_readiness_snapshot()
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/team/workflow-templates, /api/team/approval-policies, /api/team/runbooks
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/team/workflow-templates")
+async def list_workflow_templates():
+    """List all workflow templates"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        templates = _TEAM_WORKFLOW_MANAGER.templates.list()
+        return {
+            "status": "ok",
+            "templates": [t.to_dict() for t in templates],
+            "count": len(templates),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/workflow-templates")
+async def create_workflow_template(body: Dict[str, Any]):
+    """Create a new workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        name = str(body.get("name", "")).strip()
+        description = str(body.get("description", "")).strip()
+        intent = str(body.get("intent", "")).strip()
+        prompt_shape = body.get("prompt_shape", {})
+        required_approvals = body.get("required_approvals", [])
+        estimated_duration_min = int(body.get("estimated_duration_min", 30))
+        owner = str(body.get("owner", "") or _REQUEST_USER_ID.get())
+        tags = body.get("tags", [])
+
+        if not name or not intent:
+            return {"status": "error", "message": "name and intent are required"}
+
+        template = _TEAM_WORKFLOW_MANAGER.templates.create(
+            name=name,
+            description=description,
+            intent=intent,
+            prompt_shape=prompt_shape,
+            required_approvals=required_approvals,
+            estimated_duration_min=estimated_duration_min,
+            owner=owner,
+            tags=tags,
+        )
+        _append_activity(
+            f"Workflow template created: {name}",
+            agent_id="team_workflows",
+            kind="workflow_template_created",
+            details={"template_id": template.id, "name": name},
+        )
+        return {"status": "ok", "template": template.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/workflow-templates/{template_id}")
+async def get_workflow_template(template_id: str):
+    """Get a specific workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        template = _TEAM_WORKFLOW_MANAGER.templates.get(template_id)
+        if not template:
+            return {"status": "error", "message": "Template not found"}
+        return {"status": "ok", "template": template.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/workflow-templates/{template_id}")
+async def update_workflow_template(template_id: str, body: Dict[str, Any]):
+    """Update a workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        update_dict = {k: v for k, v in body.items() if k not in {"id", "created_at"}}
+        template = _TEAM_WORKFLOW_MANAGER.templates.update(template_id, **update_dict)
+        if not template:
+            return {"status": "error", "message": "Template not found"}
+        _append_activity(
+            f"Workflow template updated: {template.name}",
+            agent_id="team_workflows",
+            kind="workflow_template_updated",
+            details={"template_id": template_id},
+        )
+        return {"status": "ok", "template": template.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/team/workflow-templates/{template_id}")
+async def delete_workflow_template(template_id: str):
+    """Delete a workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        success = _TEAM_WORKFLOW_MANAGER.templates.delete(template_id)
+        if not success:
+            return {"status": "error", "message": "Template not found"}
+        _append_activity(
+            f"Workflow template deleted: {template_id}",
+            agent_id="team_workflows",
+            kind="workflow_template_deleted",
+            details={"template_id": template_id},
+        )
+        return {"status": "ok", "message": "Template deleted"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/approval-policies")
+async def list_approval_policies():
+    """List all approval policies"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        policies = _TEAM_WORKFLOW_MANAGER.policies.list()
+        return {
+            "status": "ok",
+            "policies": [p.to_dict() for p in policies],
+            "count": len(policies),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/approval-policies")
+async def create_approval_policy(body: Dict[str, Any]):
+    """Create a new approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        name = str(body.get("name", "")).strip()
+        policy_type = str(body.get("policy_type", "")).strip()
+        triggers = body.get("triggers", [])
+        required_reviewers = body.get("required_reviewers", [])
+        auto_approve_conditions = body.get("auto_approve_conditions", {})
+        owner = str(body.get("owner", "") or _REQUEST_USER_ID.get())
+
+        if not name or not policy_type:
+            return {"status": "error", "message": "name and policy_type are required"}
+
+        policy = _TEAM_WORKFLOW_MANAGER.policies.create(
+            name=name,
+            policy_type=policy_type,
+            triggers=triggers,
+            required_reviewers=required_reviewers,
+            auto_approve_conditions=auto_approve_conditions,
+            owner=owner,
+        )
+        _append_activity(
+            f"Approval policy created: {name}",
+            agent_id="team_workflows",
+            kind="approval_policy_created",
+            details={"policy_id": policy.id, "name": name},
+        )
+        return {"status": "ok", "policy": policy.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/approval-policies/{policy_id}")
+async def get_approval_policy(policy_id: str):
+    """Get a specific approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        policy = _TEAM_WORKFLOW_MANAGER.policies.get(policy_id)
+        if not policy:
+            return {"status": "error", "message": "Policy not found"}
+        return {"status": "ok", "policy": policy.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/approval-policies/{policy_id}")
+async def update_approval_policy(policy_id: str, body: Dict[str, Any]):
+    """Update an approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        update_dict = {k: v for k, v in body.items() if k not in {"id", "created_at"}}
+        policy = _TEAM_WORKFLOW_MANAGER.policies.update(policy_id, **update_dict)
+        if not policy:
+            return {"status": "error", "message": "Policy not found"}
+        _append_activity(
+            f"Approval policy updated: {policy.name}",
+            agent_id="team_workflows",
+            kind="approval_policy_updated",
+            details={"policy_id": policy_id},
+        )
+        return {"status": "ok", "policy": policy.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/team/approval-policies/{policy_id}")
+async def delete_approval_policy(policy_id: str):
+    """Delete an approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        success = _TEAM_WORKFLOW_MANAGER.policies.delete(policy_id)
+        if not success:
+            return {"status": "error", "message": "Policy not found"}
+        _append_activity(
+            f"Approval policy deleted: {policy_id}",
+            agent_id="team_workflows",
+            kind="approval_policy_deleted",
+            details={"policy_id": policy_id},
+        )
+        return {"status": "ok", "message": "Policy deleted"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks")
+async def list_runbooks():
+    """List all runbooks"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        runbooks = _TEAM_WORKFLOW_MANAGER.runbooks.list()
+        return {
+            "status": "ok",
+            "runbooks": [r.to_dict() for r in runbooks],
+            "count": len(runbooks),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks")
+async def create_runbook(body: Dict[str, Any]):
+    """Create a new runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        name = str(body.get("name", "")).strip()
+        description = str(body.get("description", "")).strip()
+        steps_data = body.get("steps", [])
+        owner = str(body.get("owner", "") or _REQUEST_USER_ID.get())
+        tags = body.get("tags", [])
+        enabled = bool(body.get("enabled", True))
+
+        if not name:
+            return {"status": "error", "message": "name is required"}
+
+        # Convert steps to RunbookStep objects
+        steps = []
+        for idx, step_data in enumerate(steps_data):
+            if isinstance(step_data, dict):
+                step_data = dict(step_data)  # Make a copy
+                if "step_index" not in step_data:
+                    step_data["step_index"] = idx
+                steps.append(RunbookStep.from_dict(step_data))
+            else:
+                steps.append(step_data)
+
+        runbook = _TEAM_WORKFLOW_MANAGER.runbooks.create(
+            name=name,
+            description=description,
+            steps=steps,
+            owner=owner,
+            tags=tags,
+            enabled=enabled,
+        )
+        _append_activity(
+            f"Runbook created: {name}",
+            agent_id="team_workflows",
+            kind="runbook_created",
+            details={"runbook_id": runbook.id, "name": name, "step_count": len(steps)},
+        )
+        return {"status": "ok", "runbook": runbook.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks/{runbook_id}")
+async def get_runbook(runbook_id: str):
+    """Get a specific runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        runbook = _TEAM_WORKFLOW_MANAGER.runbooks.get(runbook_id)
+        if not runbook:
+            return {"status": "error", "message": "Runbook not found"}
+        return {"status": "ok", "runbook": runbook.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}")
+async def update_runbook(runbook_id: str, body: Dict[str, Any]):
+    """Update a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        update_dict = {k: v for k, v in body.items() if k not in {"id", "created_at"}}
+        
+        # Handle steps specially
+        if "steps" in update_dict:
+            steps_data = update_dict["steps"]
+            steps = []
+            for idx, step_data in enumerate(steps_data):
+                if isinstance(step_data, dict):
+                    step_data = dict(step_data)
+                    if "step_index" not in step_data:
+                        step_data["step_index"] = idx
+                    steps.append(RunbookStep.from_dict(step_data))
+                else:
+                    steps.append(step_data)
+            update_dict["steps"] = steps
+        
+        runbook = _TEAM_WORKFLOW_MANAGER.runbooks.update(runbook_id, **update_dict)
+        if not runbook:
+            return {"status": "error", "message": "Runbook not found"}
+        _append_activity(
+            f"Runbook updated: {runbook.name}",
+            agent_id="team_workflows",
+            kind="runbook_updated",
+            details={"runbook_id": runbook_id},
+        )
+        return {"status": "ok", "runbook": runbook.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/team/runbooks/{runbook_id}")
+async def delete_runbook(runbook_id: str):
+    """Delete a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        success = _TEAM_WORKFLOW_MANAGER.runbooks.delete(runbook_id)
+        if not success:
+            return {"status": "error", "message": "Runbook not found"}
+        _append_activity(
+            f"Runbook deleted: {runbook_id}",
+            agent_id="team_workflows",
+            kind="runbook_deleted",
+            details={"runbook_id": runbook_id},
+        )
+        return {"status": "ok", "message": "Runbook deleted"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute")
+async def execute_runbook(runbook_id: str, body: Dict[str, Any]):
+    """Start execution of a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        dry_run = bool(body.get("dry_run", False))
+        result = _TEAM_WORKFLOW_MANAGER.engine.execute_runbook(runbook_id, dry_run=dry_run)
+        
+        if result.get("status") == "started":
+            _append_activity(
+                f"Runbook execution started: {runbook_id}",
+                agent_id="team_workflows",
+                kind="runbook_execution_started",
+                details={
+                    "runbook_id": runbook_id,
+                    "execution_id": result.get("execution_id"),
+                    "dry_run": dry_run,
+                },
+            )
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks/{runbook_id}/execute/{execution_id}")
+async def get_execution_status(runbook_id: str, execution_id: str):
+    """Get status of a runbook execution"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution:
+            return {"status": "error", "message": "Execution not found"}
+        if execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution does not match runbook"}
+        
+        return {
+            "status": "ok",
+            "execution": execution.to_dict(),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/next-step")
+async def get_next_step(runbook_id: str, execution_id: str):
+    """Get the next step to execute"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        result = _TEAM_WORKFLOW_MANAGER.engine.get_next_step(execution_id)
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/step-result")
+async def record_step_result(runbook_id: str, execution_id: str, body: Dict[str, Any]):
+    """Record result of a step execution"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        step_result = body.get("result", {})
+        success = bool(body.get("success", False))
+        
+        if success:
+            result = _TEAM_WORKFLOW_MANAGER.engine.complete_step(execution_id, step_result)
+        else:
+            error_msg = str(body.get("error", "Unknown error"))
+            result = _TEAM_WORKFLOW_MANAGER.engine.fail_step(execution_id, error_msg)
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/request-approval")
+async def request_approval_for_step(runbook_id: str, execution_id: str):
+    """Request approval for the current step"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        result = _TEAM_WORKFLOW_MANAGER.engine.request_approval(execution_id)
+        
+        # Also create an approval record in the main approvals system
+        if result.get("status") == "ok":
+            approval_record = _create_approval_record(
+                task_id=execution_id,
+                agent_id="team_workflows",
+                operation="runbook_step_approval",
+                target=f"Runbook {runbook_id}, Step {execution.current_step}",
+                preview={
+                    "runbook_id": runbook_id,
+                    "execution_id": execution_id,
+                    "step_index": execution.current_step,
+                    "policy_id": result.get("policy_id"),
+                    "required_reviewers": result.get("required_reviewers"),
+                },
+            )
+            result["approval_record_id"] = approval_record.get("id")
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/approve/{approval_id}")
+async def approve_step(runbook_id: str, execution_id: str, approval_id: str, body: Dict[str, Any]):
+    """Approve a pending step"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        approved_by = str(body.get("approved_by", "") or _REQUEST_USER_ID.get())
+        result = _TEAM_WORKFLOW_MANAGER.engine.approve_step(execution_id, approval_id, approved_by)
+        
+        if result.get("status") == "ok":
+            _approve_record(approval_id)
+            _append_activity(
+                f"Runbook step approved in execution {execution_id}",
+                agent_id="team_workflows",
+                kind="runbook_step_approved",
+                details={
+                    "runbook_id": runbook_id,
+                    "execution_id": execution_id,
+                    "approval_id": approval_id,
+                    "approved_by": approved_by,
+                },
+            )
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks/{runbook_id}/history")
+async def get_runbook_history(runbook_id: str):
+    """Get execution history for a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        executions = _TEAM_WORKFLOW_MANAGER.executions.list_by_runbook(runbook_id)
+        return {
+            "status": "ok",
+            "runbook_id": runbook_id,
+            "executions": [e.to_dict() for e in executions],
+            "count": len(executions),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 

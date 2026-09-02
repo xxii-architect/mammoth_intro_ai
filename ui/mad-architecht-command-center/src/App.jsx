@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
-  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare, LogOut, User,
+  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare, LogOut, User, BarChart3,
 } from 'lucide-react'
 
 import { useAuth, useIsAdminHost } from './lib/authContext'
@@ -24,6 +24,7 @@ const ManualPage = lazy(() => import('./pages/ManualPage'))
 const NotesPage = lazy(() => import('./pages/NotesPage'))
 const ModulesPage = lazy(() => import('./pages/ModulesPage'))
 const HealthPage = lazy(() => import('./pages/HealthPage'))
+const TelemetryPage = lazy(() => import('./pages/TelemetryPage'))
 const LessonsPage = lazy(() => import('./pages/LessonsPage'))
 const BuildLogPage = lazy(() => import('./pages/BuildLogPage'))
 const LogSalePage = lazy(() => import('./pages/LogSalePage'))
@@ -106,6 +107,7 @@ const NAV = [
   { id: 'taskinbox', label: 'Task Inbox', Icon: ClipboardList, accent: 'var(--photon)' },
   { id: 'modules',  label: 'Modules',     Icon: Package },
   { id: 'health',   label: 'Health',      Icon: HeartPulse },
+  { id: 'telemetry', label: 'Telemetry',  Icon: BarChart3, accent: 'var(--cyan)' },
   { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--cyan)' },
 
   { section: 'Product' },
@@ -137,6 +139,7 @@ const PAGE_COMPONENTS = {
   notes:       NotesPage,
   modules:     ModulesPage,
   health:      HealthPage,
+  telemetry:   TelemetryPage,
   logsale:     LogSalePage,
   lessons:     LessonsPage,
   atlas:       AtlasTutorPage,
