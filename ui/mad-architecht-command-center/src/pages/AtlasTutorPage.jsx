@@ -512,7 +512,9 @@ export default function AtlasTutorPage() {
       recommended_difficulty: learnerContext?.recommended_difficulty || null,
       weakest_concepts: learnerContext?.weakest_concepts || [],
     }
-    localStorage.setItem('atlas_fab_context', JSON.stringify(context))
+    try {
+      localStorage.setItem('atlas_fab_context', JSON.stringify(context))
+    } catch (_) {}
   }, [
     atlasState?.current_lesson?.title,
     atlasState?.current_lesson?.lesson_title,
