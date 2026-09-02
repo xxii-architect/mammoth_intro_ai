@@ -384,3 +384,108 @@ h3 { font-size: 0.9rem; font-weight: 600; color: var(--txt-pri); }
   40% { opacity: 1; transform: scale(1.2); }
 }
 
+/* ── Shared page shells ── */
+.page-shell {
+  padding: 28px 24px 80px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.page-shell--narrow {
+  max-width: 920px;
+}
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.page-header__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── Page-specific responsive classes ── */
+.diagnostics-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.buildlog-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.compliance-tab-row {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+}
+
+/* ── Breakpoints ── */
+@media (max-width: 980px) {
+  .page-shell {
+    padding: 22px 16px 72px;
+  }
+  .diagnostics-layout,
+  .buildlog-layout {
+    grid-template-columns: 1fr !important;
+  }
+  .page-header__actions {
+    width: 100%;
+  }
+  .page-header__actions button {
+    flex: 1 1 190px;
+  }
+}
+
+@media (max-width: 640px) {
+  body::before {
+    display: none;
+  }
+  .page-shell {
+    padding: 16px 12px 64px;
+  }
+  .glass-card,
+  .glass-card-solid,
+  .glass-panel {
+    border-radius: 10px;
+  }
+  .page-header__actions button {
+    width: 100%;
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+  .manual-grid-wide,
+  .manual-grid-mid {
+    grid-template-columns: 1fr !important;
+  }
+  .diagnostics-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+  .compact-pill-wrap {
+    overflow-x: auto;
+    display: flex;
+    flex-wrap: nowrap !important;
+    padding-bottom: 4px;
+  }
+  .compact-pill-wrap > * {
+    flex: 0 0 auto;
+  }
+  .compliance-tab-row {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    padding-bottom: 6px;
+  }
+  .compliance-tab-row button {
+    flex: 0 0 auto;
+  }
+  .buildlog-expanded {
+    padding: 0 12px 12px 20px !important;
+  }
+}

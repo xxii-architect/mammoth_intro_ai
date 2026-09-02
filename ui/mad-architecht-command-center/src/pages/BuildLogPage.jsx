@@ -182,8 +182,8 @@ export default function BuildLogPage() {
   )
 
   return (
-    <div className="page-enter" style={{ padding: '28px 24px 80px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 22 }}>
+    <div className="page-enter page-shell">
+      <div className="page-header" style={{ marginBottom: 22 }}>
         <div style={{ maxWidth: 840 }}>
           <div style={{ fontSize: '0.72rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
             ATLAS Protocol // Operator Field Document
@@ -196,19 +196,21 @@ export default function BuildLogPage() {
             Each session becomes operational proof of progress for ATLAS, MammothOS, and your broader learning system.
           </p>
         </div>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.3)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)', fontSize: '0.85rem', cursor: 'pointer' }}
-        >
-          <Plus size={16} /> {showForm ? 'Close Entry Form' : 'New Session Entry'}
-        </button>
+        <div className="page-header__actions">
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.3)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)', fontSize: '0.85rem', cursor: 'pointer' }}
+          >
+            <Plus size={16} /> {showForm ? 'Close Entry Form' : 'New Session Entry'}
+          </button>
+        </div>
       </div>
 
       <div className="glass-card-solid" style={{ padding: 18, marginBottom: 18 }}>
         <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, marginBottom: 10 }}>
           Operator manual
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
           {[
             'Duplicate a clean session entry for every learning block.',
             'Fill the mission brief before opening code, lessons, or diagnostics.',
@@ -222,14 +224,14 @@ export default function BuildLogPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 18 }}>
         {statCard('Sessions logged', String(totalSessions), 'Running total of operator records')}
         {statCard('Latest project', mostRecentProject, 'Most recent build target', 'var(--cyan)')}
         {statCard('Avg confidence', totalSessions ? `${avgConfidence}/10` : '0/10', 'Confidence trend from debriefs', 'var(--violet)')}
         {statCard('Future module lane', String(MODULE_ROADMAP.length), 'Domain tracks queued for curriculum expansion', 'var(--photon)')}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(320px, 1fr)', gap: 16, alignItems: 'start' }}>
+      <div className="buildlog-layout">
         <div style={{ display: 'grid', gap: 16 }}>
           {showForm && (
             <form onSubmit={submit} className="glass-card-solid" style={{ padding: 20 }}>
@@ -243,7 +245,7 @@ export default function BuildLogPage() {
               <div style={{ display: 'grid', gap: 18 }}>
                 <section>
                   <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 10 }}>Mission brief</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
                     {[
                       ['date', 'Date', 'date'],
                       ['start_time', 'Start Time', 'time'],
@@ -313,7 +315,7 @@ export default function BuildLogPage() {
 
                 <section>
                   <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 10 }}>Session debrief</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12 }}>
                     <div>
                       <label style={{ display: 'block', marginBottom: 4, fontSize: '0.72rem', color: 'var(--txt-mut)' }}>Total Time Logged</label>
                       <input
@@ -439,8 +441,8 @@ export default function BuildLogPage() {
                     </div>
 
                     {open[entry.id] && (
-                      <div style={{ padding: '0 16px 16px 42px', borderTop: '1px solid var(--border)', display: 'grid', gap: 12 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, paddingTop: 14 }}>
+                      <div className="buildlog-expanded" style={{ padding: '0 16px 16px 42px', borderTop: '1px solid var(--border)', display: 'grid', gap: 12 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10, paddingTop: 14 }}>
                           {[
                             ['Session #', fields.session_number || '—'],
                             ['Month', entry.month || '—'],
