@@ -156,8 +156,8 @@ export default function DiagnosticsPage() {
   const flaggedServices = services.filter(service => service.status !== 'green')
 
   return (
-    <div className="page-enter page-shell">
-      <div className="page-header" style={{ marginBottom: 20 }}>
+    <div className="page-enter page-shell" style={{ maxWidth: 1400, margin: '0 auto' }}>
+      <div className="page-header" style={{ marginBottom: 20, gap: 18, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: '1.3rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <Activity size={20} color="var(--cyan)" /> Diagnostics
@@ -166,7 +166,7 @@ export default function DiagnosticsPage() {
             MammothOS can now self-evaluate. This page keeps a history of shell audits, ATLAS eval health, model routing visibility, and current platform diagnostics, including service triage and runtime fallback state.
           </p>
         </div>
-        <div className="page-header__actions">
+        <div className="page-header__actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           <button
             onClick={runAudit}
             disabled={busy}
@@ -202,6 +202,24 @@ export default function DiagnosticsPage() {
           >
             <Download size={14} /> {jsonExportBusy ? 'Bundling snapshot…' : 'Export JSON snapshot'}
           </button>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12, marginBottom: 18 }}>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 8 }}>Runtime posture</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: runtime?.state === 'ready' ? 'var(--cyan)' : 'var(--txt-pri)' }}>{runtime?.state || 'warming'}</div>
+          <div style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>{runtime?.issue || 'Waiting for a fresh runtime status update.'}</div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 8 }}>Active provider</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--photon)' }}>{runtime?.active_provider || 'pending'}</div>
+          <div style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>{runtime?.recommendation || 'Provider path is still settling.'}</div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 8 }}>Release gate</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: releaseReadiness?.ready ? 'var(--cyan)' : 'var(--ember, #ff8a80)' }}>{releaseReadiness?.ready ? 'Green' : 'Hold'}</div>
+          <div style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>{releaseReadiness?.summary || 'Launch guard is still evaluating system trust.'}</div>
         </div>
       </div>
 
