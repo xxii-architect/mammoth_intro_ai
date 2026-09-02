@@ -6,13 +6,15 @@ and practical survival tasks for Monday fieldwork and learning modules.
 
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
 
-class FieldOpsAgent:
+class FieldOpsAgent(BaseAgent):
     """
     Produces rugged, outdoors-focused practice tasks with concrete criteria.
     """
 
-    def __init__(self, user_id: str | None = None):
+    def __init__(self, user_id: str | None = None, router=None):
+        super().__init__(router)
         self.user_id = user_id
 
     def run(self, payload: Any) -> Dict[str, Any]:

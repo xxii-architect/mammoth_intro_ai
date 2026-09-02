@@ -6,13 +6,15 @@ Generates structured market intelligence briefings with source-aware signals.
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
 
-class MarketIntelAgent:
+class MarketIntelAgent(BaseAgent):
     """
     Produces structured market intelligence briefings.
     """
 
-    def __init__(self, user_id: str | None = None):
+    def __init__(self, user_id: str | None = None, router=None):
+        super().__init__(router)
         self.user_id = user_id
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -3,15 +3,16 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from mammoth_os.memory_engine import MemoryEngine
+from .base_agent import BaseAgent
 
 
-class MemoryAgent:
+class MemoryAgent(BaseAgent):
     """A simple persistent memory layer for agent context and recall."""
 
     name = "MemoryAgent"
 
     def __init__(self, router: Any = None, storage_root: Optional[str] = None):
-        self.router = router
+        super().__init__(router)
         self.engine = MemoryEngine({
             "backend": "json",
             "storage_path": str(storage_root or ".mammoth/memory_store.json"),

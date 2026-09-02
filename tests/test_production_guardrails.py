@@ -51,6 +51,16 @@ def test_release_readiness_scorecard_uses_runtime_modules_and_profile(monkeypatc
     monkeypatch.setattr(api_server, "_load_approvals", lambda: [])
     monkeypatch.setattr(api_server, "_load_audit_log", lambda: [{"id": "audit-1", "message": "audit ready"}])
     monkeypatch.setattr(api_server, "_load_eval_history", lambda: [])
+    monkeypatch.setattr(
+        api_server,
+        "_research_eval_gate_snapshot",
+        lambda: {
+            "passed": True,
+            "status": "ready",
+            "blocker_detail": "",
+            "summary": {"source_count": 2, "citation_coverage": 1.0, "findings": 3, "alignment_score": 1.0, "quality_flags": ["evidence_ranked"]},
+        },
+    )
 
     async def fake_modules():
         return [
@@ -71,12 +81,23 @@ def test_release_readiness_scorecard_uses_runtime_modules_and_profile(monkeypatc
     assert snapshot["lowest_rated"][0]["name"] == "ATLAS Chat"
     assert any("Provider resilience" in blocker["title"] for blocker in snapshot["blockers"])
     assert snapshot["eval_gate"]["status"] == "blocked"
+    assert snapshot["research_gate"]["status"] == "ready"
     assert snapshot["account"]["profile_complete"] is False
 
 
 def test_release_readiness_requires_eval_history_even_when_runtime_is_ready(monkeypatch, tmp_path):
     monkeypatch.setattr(api_server, "ATLAS_FILE", tmp_path / "atlas_state.json")
     monkeypatch.setattr(api_server, "_load_eval_history", lambda: [])
+    monkeypatch.setattr(
+        api_server,
+        "_research_eval_gate_snapshot",
+        lambda: {
+            "passed": True,
+            "status": "ready",
+            "blocker_detail": "",
+            "summary": {"source_count": 2, "citation_coverage": 1.0, "findings": 3, "alignment_score": 1.0, "quality_flags": ["evidence_ranked"]},
+        },
+    )
 
     async def fake_health():
         return {
@@ -126,6 +147,67 @@ def test_release_readiness_requires_eval_history_even_when_runtime_is_ready(monk
     assert snapshot["eval_gate"]["passed"] is False
     assert snapshot["eval_gate"]["eval_runs"] == 0
     assert any("ATLAS eval moat" in blocker["title"] for blocker in snapshot["blockers"])
+
+
+def test_release_readiness_blocks_when_research_gate_fails(monkeypatch, tmp_path):
+    monkeypatch.setattr(api_server, "ATLAS_FILE", tmp_path / "atlas_state.json")
+    monkeypatch.setattr(api_server, "_load_eval_history", lambda: [{"summary": {"pass_count": 3, "fail_count": 0}}])
+    monkeypatch.setattr(
+        api_server,
+        "_research_eval_gate_snapshot",
+        lambda: {
+            "passed": False,
+            "status": "blocked",
+            "blocker_detail": "Research gate failed in test.",
+            "summary": {"source_count": 0, "citation_coverage": 0.0, "findings": 0, "alignment_score": 0.0, "quality_flags": []},
+        },
+    )
+
+    async def fake_health():
+        return {
+            "services": [
+                {"label": "Backend API", "status": "green", "up": True},
+                {"label": "React Dev Server (5173)", "status": "green", "up": True},
+            ],
+            "summary": {"healthy_services": 2, "total_services": 2, "red_services": [], "yellow_services": []},
+            "runtime": {
+                "state": "ready",
+                "degraded_mode": False,
+                "active_adapter": "openai",
+                "active_model": "gpt-4o-mini",
+                "providers": [
+                    {"provider": "openai", "status": "ready", "available": True},
+                    {"provider": "local", "status": "ready", "available": True},
+                ],
+                "available_providers": ["openai", "local"],
+                "fallback_chain": ["deepseek", "openai", "ollama", "local"],
+                "summary": {"openai_key_present": True, "deepseek_key_present": True, "ollama_running": False},
+            },
+            "health_gate": {"passed": True, "status": "ready", "blockers": []},
+        }
+
+    async def fake_modules():
+        return [
+            {"id": "atlas_chat", "name": "ATLAS Chat", "quality_score": 92, "quality_tier": "top-tier", "quality_findings": []},
+            {"id": "command_center", "name": "Command Center", "quality_score": 90, "quality_tier": "top-tier", "quality_findings": []},
+            {"id": "coding_agent", "name": "CodingAgent", "quality_score": 94, "quality_tier": "top-tier", "quality_findings": []},
+        ]
+
+    async def fake_entitlements():
+        return {"plan": "pro", "usage": {"requests": 12, "request_limit": 100, "tokens": 1000, "token_limit": 10000}}
+
+    async def fake_account():
+        return {"auth_mode": "local_operator", "session_scope": "workspace_local", "profile_complete": True}
+
+    monkeypatch.setattr(api_server, "get_health", fake_health)
+    monkeypatch.setattr(api_server, "get_modules", fake_modules)
+    monkeypatch.setattr(api_server, "get_entitlements", fake_entitlements)
+    monkeypatch.setattr(api_server, "get_account_profile", fake_account)
+
+    snapshot = asyncio.run(api_server.get_release_readiness())
+    assert snapshot["research_gate"]["status"] == "blocked"
+    assert snapshot["release_gate"]["passed"] is False
+    assert any("Research quality gate" in blocker["title"] for blocker in snapshot["blockers"])
 
 
 def test_diagnostics_export_includes_release_readiness(monkeypatch, tmp_path):

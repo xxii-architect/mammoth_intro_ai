@@ -343,7 +343,7 @@ class CodingAgent(BaseAgent):
         self.log("INFO", "CodingAgent initialized (no sub-engines to load).")
 
     # ---------------------------------------------------------
-    # PUBLIC API (placeholders until engines exist)
+    # PUBLIC API
     # ---------------------------------------------------------
 
     async def analyze_codebase(self, codebase_path: str) -> dict:
@@ -870,7 +870,7 @@ sys.exit(failed)
         return {"commit_hash": commit_hash, "pushed": pushed, "branch": "main"}
 
     # ---------------------------------------------------------
-    # INTERNAL HELPERS (unchanged placeholders)
+    # INTERNAL HELPERS
     # ---------------------------------------------------------
 
     async def _get_files(self, path: str) -> list[str]:

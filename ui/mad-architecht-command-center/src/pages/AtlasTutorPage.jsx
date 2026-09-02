@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Editor } from '@monaco-editor/react'
-import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X } from 'lucide-react'
+import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
 import MammothDiffViewer from '../components/MammothDiffViewer'
 import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
@@ -46,6 +46,21 @@ function inferAtlasLanguage(exercise, code = '') {
   if (sample.includes('function ') || sample.includes('const ')) return 'javascript'
   if (sample.includes('# ') || sample.includes('## ')) return 'markdown'
   return 'python'
+}
+
+function getBillingWarningState(billingUsage = null) {
+  const warningLevel = String(billingUsage?.warning_level || 'normal')
+  const percentUsed = Number.isFinite(Number(billingUsage?.usage?.percent_used))
+    ? Math.round(Number(billingUsage.usage.percent_used))
+    : 0
+  const show = ['elevated', 'critical', 'blocked'].includes(warningLevel)
+  const color = warningLevel === 'blocked'
+    ? '#ef4444'
+    : warningLevel === 'critical'
+      ? '#f97316'
+      : '#f59e0b'
+  const text = String(billingUsage?.warning_message || '').trim() || 'Usage is trending high for your current plan.'
+  return { warningLevel, show, color, text, percentUsed }
 }
 
 function MonacoReadOnlyBlock({ value, language = 'plaintext', height = 220 }) {
@@ -98,8 +113,24 @@ export default function AtlasTutorPage() {
   const [atlasLibraryOpen, setAtlasLibraryOpen] = useState(false)
   const [attachedMaterials, setAttachedMaterials] = useState([])
   const [showRightPanel, setShowRightPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
+  const [billingUsage, setBillingUsage] = useState(null)
+  const [showAdvancedTools, setShowAdvancedTools] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.tutor.showAdvancedTools')
+      return stored === null ? false : stored === 'true'
+    } catch {
+      return false
+    }
+  })
   const chatBottomRef = useRef(null)
   const onboardingSeededRef = useRef(false)
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.tutor.showAdvancedTools')
+      if (stored !== null) setShowAdvancedTools(stored === 'true')
+    } catch (_) {}
+  }, [])
 
   useEffect(() => {
     const onResize = () => {
@@ -113,6 +144,12 @@ export default function AtlasTutorPage() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.tutor.showAdvancedTools', String(showAdvancedTools))
+    } catch (_) {}
+  }, [showAdvancedTools])
 
   const loadState = async () => {
     try {
@@ -133,6 +170,7 @@ export default function AtlasTutorPage() {
       setModels(m)
       if (m?.active_model) setChatModel(m.active_model)
     }).catch(() => {})
+    api('/billing/usage/current').then(setBillingUsage).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -445,6 +483,24 @@ export default function AtlasTutorPage() {
   const starterFiles = exercise?.starter_files && typeof exercise.starter_files === 'object' ? exercise.starter_files : {}
   const primaryStarterFile = Object.keys(starterFiles)[0] || ''
   const exerciseLanguage = inferAtlasLanguage(exercise, code)
+  const billingWarning = getBillingWarningState(billingUsage)
+  const outcomeSummary = useMemo(() => {
+    const feedback = result?.adaptive_feedback || learnerContext || {}
+    const mastery = Number.isFinite(Number(feedback.mastery))
+      ? Number(feedback.mastery)
+      : Number.isFinite(Number(feedback.score))
+        ? Number(feedback.score)
+        : Number.isFinite(Number(feedback.progress))
+          ? Number(feedback.progress)
+          : 0
+    const recommendedDifficulty = feedback.recommended_difficulty || learnerContext?.recommended_difficulty || 'steady'
+    const focusAreas = Array.isArray(feedback.focus_areas)
+      ? feedback.focus_areas
+      : Array.isArray(learnerContext?.weakest_concepts)
+        ? learnerContext.weakest_concepts.slice(0, 3).map((item) => item.concept || item.name || item.label).filter(Boolean)
+        : []
+    return { mastery, recommendedDifficulty, focusAreas }
+  }, [result, learnerContext])
 
   useEffect(() => {
     const context = {
@@ -489,6 +545,45 @@ export default function AtlasTutorPage() {
           </div>
         )}
       </div>
+
+      {billingWarning.show && (
+        <div className="glass-card-solid" style={{ padding: '12px 14px', border: `1px solid ${billingWarning.color}55`, background: `${billingWarning.color}14` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={15} color={billingWarning.color} />
+              <span style={{ fontSize: '0.76rem', color: billingWarning.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Usage warning
+              </span>
+            </div>
+            <span style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
+              {billingWarning.percentUsed}% used
+            </span>
+          </div>
+          <p style={{ margin: '8px 0 0', color: 'var(--txt-pri)', fontSize: '0.78rem', lineHeight: 1.45 }}>{billingWarning.text}</p>
+        </div>
+      )}
+
+      {(result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
+        <div className="glass-card-solid" style={{ padding: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(0,245,212,0.8)' }}>
+          {result?.error ? (
+            <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>Tutor action failed: {result.error}</div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)' }}>Learning outcome</div>
+                <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>
+                  {Math.round(outcomeSummary.mastery || 0)}% mastery signal · {outcomeSummary.recommendedDifficulty} pace
+                </div>
+              </div>
+              {outcomeSummary.focusAreas.length > 0 && (
+                <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)' }}>
+                  Focus next: {outcomeSummary.focusAreas.slice(0, 2).join(' · ')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Three-column row — fills all remaining height */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 16, minHeight: 0, overflow: isMobile ? 'auto' : 'hidden' }}>
@@ -741,20 +836,35 @@ export default function AtlasTutorPage() {
               </div>
             </div>
 
-            <div className="glass-card-solid" style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button onClick={loadRecap} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Recap</button>
-              <button onClick={loadQuiz} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Quiz</button>
-              <button onClick={loadFlashcards} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Flashcards</button>
-              <button onClick={loadReview} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Review</button>
-              <select value={atlasPlanProfile} onChange={e => setAtlasPlanProfile(e.target.value)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
-                <option value="coding">Tutor + Coding</option>
-                <option value="balanced">Balanced</option>
-                <option value="atlas">ATLAS-first</option>
-                <option value="autonomous">Autonomous Prep</option>
-              </select>
-              <button onClick={runAtlasPlan} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Build Plan</button>
-              <button onClick={runAtlasEvals} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Run Evals</button>
-              <button onClick={regenerateExercise} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.12)', color: 'var(--violet)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>New Variant</button>
+            <div className="glass-card-solid" style={{ padding: 12, display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)' }}>Support tools</div>
+                <button
+                  onClick={() => setShowAdvancedTools(v => !v)}
+                  style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.7rem', cursor: 'pointer' }}
+                >
+                  {showAdvancedTools ? 'Hide advanced' : 'Show advanced'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={loadRecap} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Recap</button>
+                <button onClick={loadQuiz} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Quiz</button>
+                <button onClick={loadFlashcards} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Flashcards</button>
+                <button onClick={loadReview} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Review</button>
+              </div>
+              {showAdvancedTools && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <select value={atlasPlanProfile} onChange={e => setAtlasPlanProfile(e.target.value)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
+                    <option value="coding">Tutor + Coding</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="atlas">ATLAS-first</option>
+                    <option value="autonomous">Autonomous Prep</option>
+                  </select>
+                  <button onClick={runAtlasPlan} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Build Plan</button>
+                  <button onClick={runAtlasEvals} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Run Evals</button>
+                  <button onClick={regenerateExercise} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.12)', color: 'var(--violet)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>New Variant</button>
+                </div>
+              )}
             </div>
 
             {atlasState?.active_plan && (

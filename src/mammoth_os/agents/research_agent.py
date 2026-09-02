@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Set, Tuple
 
 from .base_agent import BaseAgent
 
@@ -31,11 +33,20 @@ class ResearchAgent(BaseAgent):
             allow_web_lookup=request["allow_web_lookup"],
             provided_sources=request["provided_sources"],
         )
-        citations, references = self._build_citations_and_references(objective, focus, external_sources)
-        findings = self._build_findings(objective, focus, external_sources)
+        ranked_sources = self._rank_sources(objective, external_sources)
+        contradiction_report = self._cross_source_contradictions(objective, ranked_sources)
+        citations, references = self._build_citations_and_references(objective, focus, ranked_sources)
+        findings = self._build_findings(objective, focus, ranked_sources)
         citation_coverage = self._citation_coverage(findings)
-        quality_flags = self._quality_flags(external_sources, retrieval_errors, citation_coverage)
-        confidence = self._estimate_confidence(focus, objective, external_sources, citation_coverage, retrieval_errors)
+        quality_flags = self._quality_flags(ranked_sources, retrieval_errors, citation_coverage, contradiction_report)
+        confidence = self._estimate_confidence(
+            focus,
+            objective,
+            ranked_sources,
+            citation_coverage,
+            retrieval_errors,
+            contradiction_report,
+        )
 
         return {
             "status": "ok",
@@ -50,9 +61,11 @@ class ResearchAgent(BaseAgent):
             "findings": findings,
             "citations": citations,
             "references": references,
-            "sources": external_sources,
+            "sources": ranked_sources,
+            "ranked_sources": ranked_sources,
+            "contradiction_report": contradiction_report,
             "source_coverage": {
-                "source_count": len(external_sources),
+                "source_count": len(ranked_sources),
                 "citation_coverage": citation_coverage,
                 "fully_supported_claims": int(round(citation_coverage * len(findings))) if findings else 0,
                 "total_claims": len(findings),
@@ -65,6 +78,7 @@ class ResearchAgent(BaseAgent):
                 "supports_curriculum": "lesson" in objective.lower() or "curriculum" in objective.lower(),
                 "supports_fieldwork": any(token in objective.lower() for token in ("survival", "plant", "field", "outdoor")),
                 "web_lookup_enabled": request["allow_web_lookup"],
+                "contradiction_scan_enabled": True,
             },
             "retrieval_errors": retrieval_errors,
         }
@@ -286,6 +300,105 @@ class ResearchAgent(BaseAgent):
             )
         return findings
 
+    def _rank_sources(self, objective: str, sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        objective_tokens = self._tokenize(objective)
+        ranked: List[Dict[str, Any]] = []
+        for source in sources:
+            snippet = str(source.get("snippet") or "")
+            title = str(source.get("title") or "")
+            source_type = str(source.get("source_type") or "")
+            publisher = str(source.get("publisher") or "")
+            snippet_tokens = self._tokenize(f"{title} {snippet}")
+            token_overlap = len(objective_tokens.intersection(snippet_tokens))
+            token_denominator = max(1, len(objective_tokens))
+            relevance = min(1.0, token_overlap / token_denominator)
+            depth = min(1.0, len(snippet) / 260.0)
+            authority = 0.65
+            if source_type == "provided":
+                authority = 0.85
+            elif source_type == "web":
+                authority = 0.76
+            if publisher.lower() == "wikipedia":
+                authority = max(authority, 0.8)
+            score = round((relevance * 0.45) + (depth * 0.25) + (authority * 0.30), 4)
+            ranked.append(
+                {
+                    **source,
+                    "evidence_score": score,
+                    "relevance_score": round(relevance, 4),
+                    "depth_score": round(depth, 4),
+                    "authority_score": round(authority, 4),
+                    "matched_tokens": sorted(objective_tokens.intersection(snippet_tokens))[:12],
+                }
+            )
+        ranked.sort(key=lambda item: float(item.get("evidence_score") or 0.0), reverse=True)
+        return ranked
+
+    def _cross_source_contradictions(self, objective: str, sources: List[Dict[str, Any]]) -> Dict[str, Any]:
+        polarity_pairs = [
+            ("increase", "decrease"),
+            ("recommended", "not recommended"),
+            ("safe", "unsafe"),
+            ("effective", "ineffective"),
+            ("required", "optional"),
+            ("high", "low"),
+        ]
+        objective_tokens = self._tokenize(objective)
+        source_tokens: Dict[str, Set[str]] = {}
+        for source in sources:
+            sid = str(source.get("id") or "")
+            source_tokens[sid] = self._tokenize(
+                f"{source.get('title') or ''} {source.get('snippet') or ''}"
+            )
+
+        contradictions: List[Dict[str, Any]] = []
+        for idx, left in enumerate(sources):
+            left_id = str(left.get("id") or "")
+            left_tokens = source_tokens.get(left_id, set())
+            if not left_tokens:
+                continue
+            left_goal_overlap = objective_tokens.intersection(left_tokens)
+            for right in sources[idx + 1:]:
+                right_id = str(right.get("id") or "")
+                right_tokens = source_tokens.get(right_id, set())
+                if not right_tokens:
+                    continue
+                right_goal_overlap = objective_tokens.intersection(right_tokens)
+                if not left_goal_overlap and not right_goal_overlap:
+                    continue
+                for positive, negative in polarity_pairs:
+                    has_pos_left = positive in left_tokens and negative not in left_tokens
+                    has_neg_left = negative in left_tokens and positive not in left_tokens
+                    has_pos_right = positive in right_tokens and negative not in right_tokens
+                    has_neg_right = negative in right_tokens and positive not in right_tokens
+                    if (has_pos_left and has_neg_right) or (has_neg_left and has_pos_right):
+                        contradictions.append(
+                            {
+                                "term_pair": [positive, negative],
+                                "left_source_id": left_id,
+                                "right_source_id": right_id,
+                                "left_label": str(left.get("title") or left_id),
+                                "right_label": str(right.get("title") or right_id),
+                            }
+                        )
+                        break
+
+        total_pairs = max(1, math.comb(len(sources), 2) if len(sources) >= 2 else 1)
+        contradiction_count = len(contradictions)
+        alignment_score = round(max(0.0, 1.0 - (contradiction_count / total_pairs)), 2)
+        status = "aligned"
+        if contradiction_count > 0:
+            status = "mixed"
+        if contradiction_count >= 2:
+            status = "contested"
+        return {
+            "status": status,
+            "alignment_score": alignment_score,
+            "contradiction_count": contradiction_count,
+            "pairs_checked": total_pairs,
+            "contradictions": contradictions[:8],
+        }
+
     def _claim_templates(self, objective: str, focus: str) -> List[str]:
         base = [
             f"The core objective for '{objective}' should be framed as a measurable decision with explicit constraints.",
@@ -345,7 +458,13 @@ class ResearchAgent(BaseAgent):
                 supported += 1
         return round(supported / len(findings), 2)
 
-    def _quality_flags(self, sources: List[Dict[str, Any]], retrieval_errors: List[str], citation_coverage: float) -> List[str]:
+    def _quality_flags(
+        self,
+        sources: List[Dict[str, Any]],
+        retrieval_errors: List[str],
+        citation_coverage: float,
+        contradiction_report: Dict[str, Any],
+    ) -> List[str]:
         flags: List[str] = []
         external_source_count = len([source for source in sources if str(source.get("source_type") or "") in {"web", "provided"}])
         if external_source_count == 0:
@@ -354,6 +473,12 @@ class ResearchAgent(BaseAgent):
             flags.append("incomplete_citation_coverage")
         if retrieval_errors:
             flags.append("retrieval_errors_present")
+        if int(contradiction_report.get("contradiction_count") or 0) > 0:
+            flags.append("cross_source_conflicts_detected")
+        if float(contradiction_report.get("alignment_score") or 0) >= 0.8 and external_source_count >= 2:
+            flags.append("cross_source_consensus_strong")
+        if len(sources) >= 2:
+            flags.append("evidence_ranked")
         if len(sources) >= 3 and citation_coverage >= 0.66:
             flags.append("source_grounding_acceptable")
         return flags
@@ -365,6 +490,7 @@ class ResearchAgent(BaseAgent):
         sources: List[Dict[str, Any]],
         citation_coverage: float,
         retrieval_errors: List[str],
+        contradiction_report: Dict[str, Any],
     ) -> float:
         base = 0.56
         if focus == "curriculum":
@@ -377,11 +503,20 @@ class ResearchAgent(BaseAgent):
             base += 0.06
         base += min(0.22, len(sources) * 0.05)
         base += min(0.16, citation_coverage * 0.16)
+        base += min(0.08, float(contradiction_report.get("alignment_score") or 0) * 0.08)
         if retrieval_errors:
             base -= min(0.12, len(retrieval_errors) * 0.04)
+        contradiction_count = int(contradiction_report.get("contradiction_count") or 0)
+        if contradiction_count:
+            base -= min(0.14, contradiction_count * 0.05)
         if "verify" in prompt.lower() or "test" in prompt.lower():
             base += 0.04
         return round(min(0.97, max(0.35, base)), 2)
+
+    @staticmethod
+    def _tokenize(text: str) -> Set[str]:
+        tokens = {token for token in re.findall(r"[a-z0-9]{3,}", str(text or "").lower())}
+        return {token for token in tokens if token not in {"with", "from", "that", "this", "should", "could", "would"}}
 
     def _build_summary(self, prompt: str, focus: str, sources: List[Dict[str, Any]]) -> str:
         source_hint = f"{len(sources)} sourced reference(s)" if sources else "no external references yet"
