@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, CheckCircle2, Circle, ChevronDown, ChevronUp, Sparkles, Wand2, Code2, AlignLeft, List, Map, Radio, HeartPulse, Dumbbell, DollarSign, Mic2, Wrench, Leaf, Brain, Camera, ChefHat, Scale, Globe2, Music2, Zap, ToggleRight } from 'lucide-react'
+import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, CheckCircle2, Circle, ChevronDown, ChevronUp, Sparkles, Wand2, Code2, AlignLeft, List, Map, Radio, HeartPulse, Dumbbell, DollarSign, Mic2, Wrench, Leaf, Brain, Camera, ChefHat, Scale, Globe2, Music2, Zap, ToggleRight, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
 
 // ─── Expanded module catalog ──────────────────────────────────────────────────
@@ -67,6 +67,21 @@ const FEATURED_MODULE_IDS = [
 ]
 
 const LESSON_TYPE_FILTERS = ['all', 'knowledge', 'checklist', 'scenario', 'writing', 'code']
+
+function getBillingWarningState(billingUsage = null) {
+  const warningLevel = String(billingUsage?.warning_level || 'normal')
+  const percentUsed = Number.isFinite(Number(billingUsage?.usage?.percent_used))
+    ? Math.round(Number(billingUsage.usage.percent_used))
+    : 0
+  const show = ['elevated', 'critical', 'blocked'].includes(warningLevel)
+  const color = warningLevel === 'blocked'
+    ? '#ef4444'
+    : warningLevel === 'critical'
+      ? '#f97316'
+      : '#f59e0b'
+  const text = String(billingUsage?.warning_message || '').trim() || 'Usage is trending high for your current plan.'
+  return { warningLevel, show, color, text, percentUsed }
+}
 
 // ─── Lesson type → adaptive UI config ────────────────────────────────────────
 const LESSON_TYPE_CONFIG = {
@@ -137,6 +152,8 @@ export default function LessonsPage({ setPage }) {
   const [checklistState, setChecklistState] = useState({})
   const [categoryFilter, setCategoryFilter] = useState(null)
   const [atlasLibrary, setAtlasLibrary] = useState(null)
+  const [billingUsage, setBillingUsage] = useState(null)
+  const [showAdvancedTools, setShowAdvancedTools] = useState(false)
   useEffect(() => {
     try {
       const storedTopic = window.localStorage.getItem('atlas.lesson.topic')
@@ -200,6 +217,7 @@ export default function LessonsPage({ setPage }) {
   useEffect(() => {
     loadState()
     loadLibrary()
+    api('/billing/usage/current').then(setBillingUsage).catch(() => {})
   }, [])
   useEffect(() => {
     const onResize = () => {
@@ -373,6 +391,24 @@ export default function LessonsPage({ setPage }) {
   const featuredShortcut = activeTrack || featuredTracks[0] || null
   const moduleDiscoveryCount = moduleCatalog.length
   const filteredDiscoveryCount = filteredCatalog.length
+  const billingWarning = getBillingWarningState(billingUsage)
+  const outcomeSummary = useMemo(() => {
+    const feedback = result?.adaptive_feedback || atlasState?.learner_context || {}
+    const mastery = Number.isFinite(Number(feedback.mastery))
+      ? Number(feedback.mastery)
+      : Number.isFinite(Number(feedback.score))
+        ? Number(feedback.score)
+        : Number.isFinite(Number(feedback.progress))
+          ? Number(feedback.progress)
+          : 0
+    const recommendedDifficulty = feedback.recommended_difficulty || atlasState?.learner_context?.recommended_difficulty || 'steady'
+    const focusAreas = Array.isArray(feedback.focus_areas)
+      ? feedback.focus_areas
+      : Array.isArray(atlasState?.learner_context?.weakest_concepts)
+        ? atlasState.learner_context.weakest_concepts.slice(0, 3).map(item => item.concept || item.name || item.label).filter(Boolean)
+        : []
+    return { mastery, recommendedDifficulty, focusAreas }
+  }, [result, atlasState?.learner_context])
 
   const toggleModule = (id) => setExpandedModules(prev => ({ ...prev, [id]: !prev[id] }))
   const moduleProgress = (mod) => {
@@ -444,6 +480,47 @@ export default function LessonsPage({ setPage }) {
           )}
         </div>
       </div>
+
+      {billingWarning.show && (
+        <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 14, border: `1px solid ${billingWarning.color}55`, background: `${billingWarning.color}14` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={15} color={billingWarning.color} />
+              <span style={{ fontSize: '0.76rem', color: billingWarning.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Usage warning
+              </span>
+            </div>
+            <span style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
+              {billingWarning.percentUsed}% used
+            </span>
+          </div>
+          <p style={{ margin: '8px 0 0', color: 'var(--txt-pri)', fontSize: '0.78rem', lineHeight: 1.45 }}>
+            {billingWarning.text}
+          </p>
+        </div>
+      )}
+
+      {(result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
+        <div className="glass-card-solid" style={{ padding: 14, marginBottom: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(0,245,212,0.8)' }}>
+          {result?.error ? (
+            <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>Lesson action failed: {result.error}</div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)' }}>Learning outcome</div>
+                <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>
+                  {Math.round(outcomeSummary.mastery || 0)}% mastery signal · {outcomeSummary.recommendedDifficulty} pace
+                </div>
+              </div>
+              {outcomeSummary.focusAreas.length > 0 && (
+                <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)' }}>
+                  Focus next: {outcomeSummary.focusAreas.slice(0, 2).join(' · ')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="glass-card-solid" style={{ padding: 16, marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ maxWidth: 620 }}>
@@ -535,26 +612,40 @@ export default function LessonsPage({ setPage }) {
                     placeholder="Search module tracks"
                     style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', fontSize: '0.76rem', outline: 'none', boxSizing: 'border-box' }}
                   />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {LESSON_TYPE_FILTERS.map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setLessonTypeFilter(type)}
-                        style={{
-                          padding: '3px 8px',
-                          borderRadius: 999,
-                          border: `1px solid ${lessonTypeFilter === type ? 'var(--photon)' : 'var(--border)'}`,
-                          background: lessonTypeFilter === type ? 'rgba(0,245,212,0.1)' : 'transparent',
-                          color: lessonTypeFilter === type ? 'var(--photon)' : 'var(--txt-mut)',
-                          fontSize: '0.63rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {type === 'all' ? 'All types' : type}
-                      </button>
-                    ))}
-                  </div>
+                  <button
+                    onClick={() => setShowAdvancedTools(v => !v)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                      padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)',
+                      background: 'rgba(255,255,255,0.02)', color: 'var(--txt-sec)', fontSize: '0.68rem', fontWeight: 700,
+                      cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em'
+                    }}
+                  >
+                    <span>Advanced filters</span>
+                    <span>{showAdvancedTools ? 'Hide' : 'Show'}</span>
+                  </button>
+                  {showAdvancedTools && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {LESSON_TYPE_FILTERS.map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setLessonTypeFilter(type)}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 999,
+                            border: `1px solid ${lessonTypeFilter === type ? 'var(--photon)' : 'var(--border)'}`,
+                            background: lessonTypeFilter === type ? 'rgba(0,245,212,0.1)' : 'transparent',
+                            color: lessonTypeFilter === type ? 'var(--photon)' : 'var(--txt-mut)',
+                            fontSize: '0.63rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {type === 'all' ? 'All types' : type}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 

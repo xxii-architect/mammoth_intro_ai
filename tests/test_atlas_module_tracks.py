@@ -348,11 +348,26 @@ def test_atlas_submit_text_submission_scores_topic_specific_response(monkeypatch
     }
 
     saved = {}
+    memory_calls = {"awaited": False, "items": []}
+
+    class FakeMemoryEngine:
+        async def store(self, content, memory_type="semantic", metadata=None):
+            memory_calls["awaited"] = True
+            memory_calls["items"].append(
+                {
+                    "content": content,
+                    "memory_type": memory_type,
+                    "metadata": dict(metadata or {}),
+                }
+            )
+            return "memory-1"
+
     monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
     monkeypatch.setattr(api_server, "_save_atlas_state", lambda updated: saved.setdefault("state", dict(updated)))
     monkeypatch.setattr(api_server, "_sync_resume_packet", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server, "_append_audit_event", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server, "_record_submission_on_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_MEMORY_ENGINE", FakeMemoryEngine())
     monkeypatch.setattr(
         api_server,
         "_hydrate_learner_state",
@@ -375,6 +390,18 @@ def test_atlas_submit_text_submission_scores_topic_specific_response(monkeypatch
     assert result["result"]["passed"] is True
     assert result["result"]["score"] >= 0.5
     assert saved["state"]["last_submission"]["submission_mode"] == "text"
+    assert memory_calls["awaited"] is True
+    assert memory_calls["items"][0]["memory_type"] == "atlas_outcome"
+
+
+def test_atlas_regenerate_route_is_registered():
+    routes = [
+        route
+        for route in api_server.app.routes
+        if getattr(route, "path", None) == "/api/atlas/regenerate"
+    ]
+    assert routes
+    assert any("POST" in (getattr(route, "methods", set()) or set()) for route in routes)
 
 
 def test_atlas_plan_steps_include_curriculum_and_tutor_for_lesson_flow():

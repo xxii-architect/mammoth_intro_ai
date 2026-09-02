@@ -8,6 +8,7 @@ import asyncio
 import base64
 from copy import deepcopy
 import csv
+import inspect
 import io
 import json
 import math
@@ -5870,7 +5871,7 @@ async def atlas_submit(body: Dict[str, Any]):
             _topic = str(state.get("topic") or "")
             _lesson_title = str(current_lesson.get("title") or current_lesson.get("objective") or "lesson")
             _outcome_label = "passed" if bool(result.get("passed")) else "attempted"
-            _MEMORY_ENGINE.store(
+            store_result = _MEMORY_ENGINE.store(
                 f"Lesson '{_lesson_title}' on topic '{_topic}': {_outcome_label}. Score: {result.get('score') or 0}.",
                 memory_type="atlas_outcome",
                 metadata={
@@ -5881,6 +5882,8 @@ async def atlas_submit(body: Dict[str, Any]):
                     "user_id": learner_user_id,
                 },
             )
+            if inspect.isawaitable(store_result):
+                await store_result
         except Exception:
             pass
         _append_audit_event(
@@ -6139,8 +6142,11 @@ async def search_memory(request: Request, body: Dict[str, Any]):
     memory_type = body.get("memory_type")
     if not query:
         return {"status": "error", "error": "query is required"}
+    raw_results = _MEMORY_ENGINE.retrieve(query, top_k=top_k * 5, memory_type=memory_type)
+    if inspect.isawaitable(raw_results):
+        raw_results = await raw_results
     results = [
-        r for r in _MEMORY_ENGINE.retrieve(query, top_k=top_k * 5, memory_type=memory_type)
+        r for r in (raw_results or [])
         if str((r.get("metadata") or {}).get("user_id") or "") == uid
         and _normalize_account_id((r.get("metadata") or {}).get("account_id") or "default") == account_id
     ][:top_k]
@@ -6162,12 +6168,15 @@ async def store_memory_entry(request: Request, body: Dict[str, Any]):
     metadata = {**metadata, "user_id": uid, "account_id": account_id}
     try:
         entry_id = _MEMORY_ENGINE.store(content, memory_type=memory_type, metadata=metadata)
+        if inspect.isawaitable(entry_id):
+            entry_id = await entry_id
         return {"status": "ok", "id": entry_id}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 
 
+@app.post("/api/atlas/regenerate")
 async def atlas_regenerate(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()
     reason = "manual_regeneration"
