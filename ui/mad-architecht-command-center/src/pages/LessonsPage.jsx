@@ -153,6 +153,14 @@ export default function LessonsPage({ setPage }) {
   const [categoryFilter, setCategoryFilter] = useState(null)
   const [atlasLibrary, setAtlasLibrary] = useState(null)
   const [billingUsage, setBillingUsage] = useState(null)
+  const [showTopOverview, setShowTopOverview] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.lesson.showTopOverview')
+      return stored === 'true'
+    } catch {
+      return false
+    }
+  })
   const [showAdvancedTools, setShowAdvancedTools] = useState(() => {
     try {
       const stored = window.localStorage.getItem('atlas.lesson.showAdvancedTools')
@@ -168,11 +176,13 @@ export default function LessonsPage({ setPage }) {
       const storedLessonType = window.localStorage.getItem('atlas.lesson.lessonTypeFilter')
       const storedLastModule = window.localStorage.getItem('atlas.lesson.lastModuleId')
       const storedAdvancedTools = window.localStorage.getItem('atlas.lesson.showAdvancedTools')
+      const storedTopOverview = window.localStorage.getItem('atlas.lesson.showTopOverview')
       if (storedTopic) setTopic(storedTopic)
       if (storedModuleSearch) setModuleSearch(storedModuleSearch)
       if (storedLessonType && LESSON_TYPE_FILTERS.includes(storedLessonType)) setLessonTypeFilter(storedLessonType)
       if (storedLastModule) setLastSelectedModuleId(storedLastModule)
       if (storedAdvancedTools !== null) setShowAdvancedTools(storedAdvancedTools === 'true')
+      if (storedTopOverview !== null) setShowTopOverview(storedTopOverview === 'true')
     } catch (_) {}
   }, [])
   useEffect(() => {
@@ -195,6 +205,11 @@ export default function LessonsPage({ setPage }) {
       window.localStorage.setItem('atlas.lesson.showAdvancedTools', String(showAdvancedTools))
     } catch (_) {}
   }, [showAdvancedTools])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.lesson.showTopOverview', String(showTopOverview))
+    } catch (_) {}
+  }, [showTopOverview])
   useEffect(() => {
     if (!activeTrack?.id) return
     setLastSelectedModuleId(activeTrack.id)
@@ -536,6 +551,35 @@ export default function LessonsPage({ setPage }) {
         </div>
       )}
 
+      <div className="glass-card-solid" style={{ padding: 10, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setShowTopOverview(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 9px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer' }}
+            title={showTopOverview ? 'Hide overview banners' : 'Show overview banners'}
+          >
+            {showTopOverview ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {showTopOverview ? 'Hide overview' : 'Show overview'}
+          </button>
+          <span style={{ fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+            Lesson workspace is {showTopOverview ? 'expanded with context' : 'prioritized'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(77,166,255,0.25)', color: 'var(--photon)', fontSize: '0.68rem' }}>
+            Ready {featuredTracks.length || '0'}
+          </span>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(168,85,247,0.25)', color: 'var(--violet)', fontSize: '0.68rem' }}>
+            Mode {typeConfig.label}
+          </span>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(0,245,212,0.25)', color: 'var(--cyan)', fontSize: '0.68rem' }}>
+            Next {activeTrack ? 'Continue' : 'Choose'}
+          </span>
+        </div>
+      </div>
+
+      {showTopOverview && (
+      <>
       <div className="glass-card-solid" style={{ padding: 16, marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
         <div style={{ maxWidth: 620 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, color: 'var(--photon)', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
@@ -585,6 +629,8 @@ export default function LessonsPage({ setPage }) {
           </div>
         </div>
       </div>
+      </>
+      )}
 
       <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
         {/* Mobile: floating module button when sidebar is collapsed */}
