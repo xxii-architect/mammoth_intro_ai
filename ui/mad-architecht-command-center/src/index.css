@@ -377,3 +377,10 @@ h3 { font-size: 0.9rem; font-weight: 600; color: var(--txt-pri); }
   color: #22c55e;
   animation: fadeSlideUp 0.35s ease forwards;
 }
+
+/* AgentThinkingIndicator dot animation */
+@keyframes thinking-dot {
+  0%, 80%, 100% { opacity: 0.15; transform: scale(0.8); }
+  40% { opacity: 1; transform: scale(1.2); }
+}
+
