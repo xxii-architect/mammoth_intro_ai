@@ -2367,6 +2367,93 @@ def _eval_gate_snapshot(*, observability: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _research_eval_gate_snapshot() -> Dict[str, Any]:
+    try:
+        from mammoth_os.agents.research_agent import ResearchAgent
+    except Exception as exc:
+        return {
+            "passed": False,
+            "status": "blocked",
+            "threshold": {"min_sources": 2, "min_citation_coverage": 0.66},
+            "reason": f"ResearchAgent import failed: {exc}",
+            "blocker_detail": "Research quality gate could not import ResearchAgent.",
+            "summary": {},
+        }
+
+    try:
+        probe = ResearchAgent(router=None).run(
+            {
+                "prompt": "Validate release-quality evidence synthesis for ATLAS tutor recommendations.",
+                "allow_web_lookup": False,
+                "max_sources": 2,
+                "sources": [
+                    {
+                        "title": "Release checklist guideline",
+                        "summary": "Recommendations should be linked to evidence and explicit validation steps.",
+                        "publisher": "Mammoth Internal QA",
+                    },
+                    {
+                        "title": "Research protocol note",
+                        "summary": "Conflicting source claims should be surfaced before publishing guidance.",
+                        "publisher": "Mammoth Research Ops",
+                    },
+                ],
+            }
+        )
+    except Exception as exc:
+        return {
+            "passed": False,
+            "status": "blocked",
+            "threshold": {"min_sources": 2, "min_citation_coverage": 0.66},
+            "reason": f"ResearchAgent probe failed: {exc}",
+            "blocker_detail": "Research quality gate execution failed.",
+            "summary": {},
+        }
+
+    coverage = probe.get("source_coverage") if isinstance(probe.get("source_coverage"), dict) else {}
+    contradiction_report = probe.get("contradiction_report") if isinstance(probe.get("contradiction_report"), dict) else {}
+    source_count = int(coverage.get("source_count") or 0)
+    citation_coverage = float(coverage.get("citation_coverage") or 0.0)
+    findings = probe.get("findings") if isinstance(probe.get("findings"), list) else []
+    quality_flags = probe.get("quality_flags") if isinstance(probe.get("quality_flags"), list) else []
+    alignment_score = float(contradiction_report.get("alignment_score") or 0.0)
+    contradiction_scan_enabled = bool(probe.get("workflow_hints", {}).get("contradiction_scan_enabled"))
+
+    passed = (
+        source_count >= 2
+        and citation_coverage >= 0.66
+        and len(findings) >= 2
+        and contradiction_scan_enabled
+        and "evidence_ranked" in quality_flags
+    )
+    reason = ""
+    if not passed:
+        reason = (
+            "Research eval gate requires >=2 sources, citation coverage >=0.66, "
+            ">=2 findings, ranked evidence, and contradiction scan support."
+        )
+
+    return {
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "threshold": {
+            "min_sources": 2,
+            "min_citation_coverage": 0.66,
+            "min_findings": 2,
+            "requires_contradiction_scan": True,
+        },
+        "reason": reason,
+        "blocker_detail": reason or "Research quality gate is healthy enough for release.",
+        "summary": {
+            "source_count": source_count,
+            "citation_coverage": citation_coverage,
+            "findings": len(findings),
+            "alignment_score": alignment_score,
+            "quality_flags": quality_flags,
+        },
+    }
+
+
 # ── lazy registry imports ─────────────────────────────────────────────────────
 try:
     from mammoth_os.engine_registry import EngineRegistry
@@ -9050,6 +9137,7 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
     eval_history = _load_eval_history()
     observability = _build_atlas_observability({"learner_model": {}, "plan_history": [], "fab_usage_events": []}, eval_history=eval_history)
     eval_gate = _eval_gate_snapshot(observability=observability)
+    research_gate = _research_eval_gate_snapshot()
 
     services = health.get("services") if isinstance(health.get("services"), list) else []
     red_services = [str(service.get("label") or "unknown") for service in services if service.get("status") == "red"]
@@ -9103,7 +9191,8 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
         observability_score += 0.5
     observability_score = round(min(observability_score, 9.0), 1)
 
-    overall_score = round(((runtime_score * 0.4) + (module_score * 0.4) + (observability_score * 0.2)), 1)
+    research_score = 8.8 if research_gate.get("passed") else 5.8
+    overall_score = round(((runtime_score * 0.35) + (module_score * 0.35) + (observability_score * 0.15) + (research_score * 0.15)), 1)
 
     blockers: List[Dict[str, Any]] = []
     if runtime_score < 8.0 or cloud_ready == 0:
@@ -9130,6 +9219,12 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
             "title": "ATLAS eval moat is below release threshold",
             "severity": "high",
             "detail": eval_gate["blocker_detail"],
+        })
+    if not research_gate["passed"]:
+        blockers.append({
+            "title": "Research quality gate is below release threshold",
+            "severity": "high",
+            "detail": research_gate["blocker_detail"],
         })
     if not bool(account.get("profile_complete")):
         blockers.append({
@@ -9165,6 +9260,7 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
             "runtime": runtime_score,
             "modules": module_score,
             "observability": observability_score,
+            "research": research_score,
         },
         "summary": {
             "rated_modules": len(rated_modules),
@@ -9174,9 +9270,11 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
             "non_local_providers_ready": non_local_ready,
             "eval_runs": eval_gate["eval_runs"],
             "eval_pass_rate": eval_gate["eval_pass_rate"],
+            "research_gate_status": research_gate.get("status"),
         },
         "runtime": runtime,
         "eval_gate": eval_gate,
+        "research_gate": research_gate,
         "lowest_rated": lowest_rated,
         "blockers": blockers,
         "strengths": strengths[:4],
