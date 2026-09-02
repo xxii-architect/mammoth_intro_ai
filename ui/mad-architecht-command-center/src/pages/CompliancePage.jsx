@@ -60,7 +60,7 @@ export default function CompliancePage({ setPage }) {
   const [activeTab, setActiveTab] = useState('Terms of Use')
 
   return (
-    <div className="page-enter" style={{ padding: '32px 28px 80px', maxWidth: 920, margin: '0 auto' }}>
+    <div className="page-enter page-shell page-shell--narrow">
       <div style={{ marginBottom: 28 }}>
         <button
           onClick={() => setPage('landing')}
@@ -76,7 +76,7 @@ export default function CompliancePage({ setPage }) {
       </p>
 
       <div className="glass-card-solid" style={{ marginBottom: 20, padding: '18px 20px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
           <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
             <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 6 }}>Current account model</div>
             <div style={{ fontSize: '0.86rem', color: 'var(--txt-pri)', fontWeight: 700 }}>Workspace multi-account</div>
@@ -92,7 +92,7 @@ export default function CompliancePage({ setPage }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 28, flexWrap: 'wrap' }}>
+      <div className="compliance-tab-row">
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -114,7 +114,7 @@ export default function CompliancePage({ setPage }) {
         ))}
       </div>
 
-      <div className="glass-card-solid" style={{ padding: '28px 32px' }}>
+      <div className="glass-card-solid" style={{ padding: '22px 20px' }}>
         <h2 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--photon)', marginBottom: 20 }}>{activeTab}</h2>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {CONTENT[activeTab].map((para) => (
@@ -128,7 +128,7 @@ export default function CompliancePage({ setPage }) {
         </p>
       </div>
 
-      <div className="glass-card-solid" style={{ marginTop: 18, padding: '20px 24px' }}>
+      <div className="glass-card-solid" style={{ marginTop: 18, padding: '18px 16px' }}>
         <h3 style={{ margin: '0 0 10px', fontSize: '1rem', color: 'var(--txt-pri)' }}>Current posture snapshot</h3>
         <div style={{ display: 'grid', gap: 8 }}>
           {POSTURE_POINTS.map((line) => (

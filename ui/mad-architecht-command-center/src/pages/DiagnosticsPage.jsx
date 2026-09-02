@@ -156,8 +156,8 @@ export default function DiagnosticsPage() {
   const flaggedServices = services.filter(service => service.status !== 'green')
 
   return (
-    <div className="page-enter" style={{ padding: '28px 24px 80px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
+    <div className="page-enter page-shell">
+      <div className="page-header" style={{ marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: '1.3rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
             <Activity size={20} color="var(--cyan)" /> Diagnostics
@@ -166,7 +166,7 @@ export default function DiagnosticsPage() {
             MammothOS can now self-evaluate. This page keeps a history of shell audits, ATLAS eval health, model routing visibility, and current platform diagnostics, including service triage and runtime fallback state.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <div className="page-header__actions">
           <button
             onClick={runAudit}
             disabled={busy}
@@ -205,7 +205,7 @@ export default function DiagnosticsPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '320px minmax(0, 1fr)', gap: 16, alignItems: 'start' }}>
+      <div className="diagnostics-layout">
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <span style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700 }}>
@@ -247,7 +247,7 @@ export default function DiagnosticsPage() {
         </div>
 
         <div style={{ display: 'grid', gap: 16 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+          <div className="diagnostics-stat-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
             <div className="glass-card-solid" style={{ padding: 16 }}>
               <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Current shell health</div>
               <div style={{ fontSize: '1.3rem', fontWeight: 800, fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)' }}>
@@ -302,7 +302,7 @@ export default function DiagnosticsPage() {
                 {runtime?.next_action || runtime?.recommendation || 'Continue monitoring the runtime chain.'}
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div className="compact-pill-wrap" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
               <span style={{ padding: '5px 10px', borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--txt-sec)' }}>
                 Active adapter: {runtime?.active_adapter || 'pending'}
               </span>
@@ -313,7 +313,7 @@ export default function DiagnosticsPage() {
                 Fallback chain: {(runtime?.fallback_chain || []).join(' -> ') || 'pending'}
               </span>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 10 }}>
               {providers.map((provider) => (
                 <div key={provider.provider} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid ' + (provider.available ? 'rgba(34,197,94,0.24)' : 'rgba(234,179,8,0.24)'), background: provider.available ? 'rgba(34,197,94,0.06)' : 'rgba(234,179,8,0.06)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
@@ -344,7 +344,7 @@ export default function DiagnosticsPage() {
                   {releaseReadiness.recommended_next_action || releaseReadiness['recommendedNextAction'] || 'Continue incremental upgrade work on the next lowest-rated lane.'}
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
                 <div style={{ display: 'grid', gap: 8 }}>
                   <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Top blockers</div>
                   {(releaseReadiness.blockers || []).map((blocker) => (
@@ -370,7 +370,7 @@ export default function DiagnosticsPage() {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12 }}>
             <div className="glass-card-solid" style={{ padding: 16 }}>
               <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Recent activity</div>
               <div style={{ display: 'grid', gap: 8 }}>
@@ -418,7 +418,7 @@ export default function DiagnosticsPage() {
             {selectedAudit ? (
               <div style={{ display: 'grid', gap: 14 }}>
                 <div style={{ fontSize: '0.76rem', color: 'var(--txt-mut)' }}>Generated {selectedAudit.generatedAt}</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
                   {selectedChecks.map(check => (
                     <div
                       key={check.label}
@@ -482,7 +482,7 @@ export default function DiagnosticsPage() {
             )}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 16 }}>
             <div className="glass-card-solid" style={{ padding: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
