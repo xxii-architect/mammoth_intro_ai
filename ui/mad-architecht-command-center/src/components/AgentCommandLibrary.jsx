@@ -1,6 +1,7 @@
 // AgentCommandLibrary.jsx
 // Searchable command library for all MammothOS agents
-import React, { useState, useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 const COMMANDS = [
   { agent: "OrchestratorAgent", cmd: "route", desc: "Route a task to the best agent for the job", example: '{ "task": "Build a login page" }' },
@@ -35,9 +36,25 @@ export default function AgentCommandLibrary({ onClose }) {
     });
   }, [query, agentFilter]);
 
-  return (
-    <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-      <div className="bg-[#1a1a2e] border border-[#3d3d5c] rounded-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === "Escape" && onClose) {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const modal = (
+    <div
+      className="fixed inset-0 bg-black/70 z-[1200] flex items-start sm:items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      onClick={() => onClose && onClose()}
+    >
+      <div
+        className="bg-[#1a1a2e] border border-[#3d3d5c] rounded-2xl w-full max-w-3xl max-h-[calc(100vh-1.5rem)] sm:max-h-[88vh] overflow-hidden flex flex-col my-2 sm:my-0"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-between p-5 border-b border-[#3d3d5c]">
           <div>
             <h2 className="text-white text-xl font-bold">🦣 Command Library</h2>
@@ -57,7 +74,7 @@ export default function AgentCommandLibrary({ onClose }) {
             autoFocus
           />
           <select
-            className="bg-[#0d0d1a] border border-[#3d3d5c] rounded-lg px-3 py-2 text-white text-sm focus:outline-none"
+            className="bg-[#0d0d1a] border border-[#3d3d5c] rounded-lg px-3 py-2 text-white text-sm focus:outline-none min-w-[140px]"
             value={agentFilter}
             onChange={e => setAgentFilter(e.target.value)}
           >
@@ -88,4 +105,6 @@ export default function AgentCommandLibrary({ onClose }) {
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

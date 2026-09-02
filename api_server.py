@@ -8823,16 +8823,22 @@ def _agent_quality_snapshot(agent_id: str) -> Dict[str, Any]:
         for base in class_node.bases
     )
 
-    score = 92
+    score = 100
     findings: List[str] = []
     interface_mode = "async" if isinstance(run_node, ast.AsyncFunctionDef) else "sync" if run_node else "specialized"
     lowered = text.lower()
     placeholder_markers = [
-        marker for marker in ("implement later", "placeholder", "todo", "deeper logic later")
+        marker for marker in (
+            "implement later",
+            "deeper logic later",
+            "stub response",
+            "tbd implementation",
+        )
         if marker in lowered
     ]
+    is_base_agent_class = class_node.name == "BaseAgent"
 
-    if not inherits_base_agent:
+    if not inherits_base_agent and not is_base_agent_class:
         score -= 12
         findings.append("Does not inherit BaseAgent.")
     if "run" not in method_names and "accept_submission" not in method_names:

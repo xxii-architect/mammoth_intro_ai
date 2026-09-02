@@ -4,15 +4,20 @@ Applies the True XXII Supply brand voice: rugged, empowering, outdoors-minded,
 and grounded in the 'Plant the Seed' philosophy and survival aesthetic.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from .base_agent import BaseAgent
 
 
-class BrandVoiceAgent:
+class BrandVoiceAgent(BaseAgent):
     """
     Rewrites or generates content in the True XXII Supply brand voice.
     """
 
-    def __init__(self, user_id: str | None = None):
+    def __init__(self, router: Optional[Any] = None, user_id: str | None = None):
+        if isinstance(router, str) and user_id is None:
+            user_id = router
+            router = None
+        super().__init__(router)
         self.user_id = user_id
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
