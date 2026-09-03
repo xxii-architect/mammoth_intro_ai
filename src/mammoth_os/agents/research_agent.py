@@ -215,40 +215,85 @@ class ResearchAgent(BaseAgent):
         return sources[:max_sources], errors
 
     def _fetch_wikipedia_summary(self, objective: str) -> Tuple[List[Dict[str, Any]], str | None]:
-        query = urllib.parse.quote(objective[:120])
-        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{query}"
-        req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "MammothOS/1.0 ResearchAgent"})
+        candidates = [str(objective or "").strip()]
+        search_error: str | None = None
         try:
+            search_url = (
+                "https://en.wikipedia.org/w/api.php?"
+                + urllib.parse.urlencode(
+                    {
+                        "action": "query",
+                        "list": "search",
+                        "srsearch": str(objective or "")[:140],
+                        "srlimit": 3,
+                        "format": "json",
+                        "utf8": 1,
+                    }
+                )
+            )
+            req = urllib.request.Request(
+                search_url,
+                headers={"Accept": "application/json", "User-Agent": "MammothOS/1.0 ResearchAgent"},
+            )
             with urllib.request.urlopen(req, timeout=7) as resp:
-                payload = json.loads(resp.read().decode("utf-8"))
+                search_payload = json.loads(resp.read().decode("utf-8"))
+            results = (
+                search_payload.get("query", {}).get("search")
+                if isinstance(search_payload.get("query"), dict)
+                else []
+            )
+            if isinstance(results, list):
+                for item in results:
+                    title = str(item.get("title") or "").strip() if isinstance(item, dict) else ""
+                    if title and title not in candidates:
+                        candidates.append(title)
         except urllib.error.HTTPError as exc:
-            return [], f"wikipedia_http_error:{exc.code}"
+            search_error = f"wikipedia_search_http_error:{exc.code}"
         except urllib.error.URLError as exc:
-            return [], f"wikipedia_network_error:{exc.reason}"
+            search_error = f"wikipedia_search_network_error:{exc.reason}"
         except (TimeoutError, ValueError) as exc:
-            return [], f"wikipedia_parse_error:{exc}"
+            search_error = f"wikipedia_search_parse_error:{exc}"
 
-        extract = str(payload.get("extract") or "").strip()
-        content_urls = payload.get("content_urls") if isinstance(payload.get("content_urls"), dict) else {}
-        desktop = content_urls.get("desktop") if isinstance(content_urls.get("desktop"), dict) else {}
-        page_url = str(desktop.get("page") or "").strip()
-        title = str(payload.get("title") or objective).strip() or objective
-        if not extract:
-            return [], "wikipedia_empty_extract"
-        return (
-            [
-                {
-                    "id": "src-web-wikipedia-1",
-                    "title": title,
-                    "url": page_url,
-                    "snippet": extract[:600],
-                    "publisher": "Wikipedia",
-                    "source_type": "web",
-                    "accessed_at": datetime.now(timezone.utc).isoformat(),
-                }
-            ],
-            None,
-        )
+        for index, candidate in enumerate(candidates[:4], start=1):
+            page_key = urllib.parse.quote(candidate[:120].replace(" ", "_"))
+            url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{page_key}"
+            req = urllib.request.Request(
+                url,
+                headers={"Accept": "application/json", "User-Agent": "MammothOS/1.0 ResearchAgent"},
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=7) as resp:
+                    payload = json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError:
+                continue
+            except urllib.error.URLError as exc:
+                return [], f"wikipedia_network_error:{exc.reason}"
+            except (TimeoutError, ValueError) as exc:
+                return [], f"wikipedia_parse_error:{exc}"
+
+            extract = str(payload.get("extract") or "").strip()
+            content_urls = payload.get("content_urls") if isinstance(payload.get("content_urls"), dict) else {}
+            desktop = content_urls.get("desktop") if isinstance(content_urls.get("desktop"), dict) else {}
+            page_url = str(desktop.get("page") or "").strip()
+            title = str(payload.get("title") or candidate or objective).strip() or objective
+            if not extract:
+                continue
+            return (
+                [
+                    {
+                        "id": f"src-web-wikipedia-{index}",
+                        "title": title,
+                        "url": page_url,
+                        "snippet": extract[:600],
+                        "publisher": "Wikipedia",
+                        "source_type": "web",
+                        "accessed_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ],
+                None,
+            )
+
+        return [], search_error or "wikipedia_empty_extract"
 
     def _fetch_duckduckgo_summary(self, objective: str) -> Tuple[List[Dict[str, Any]], str | None]:
         query = urllib.parse.quote(objective[:140])

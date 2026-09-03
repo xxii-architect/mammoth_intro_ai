@@ -6291,40 +6291,75 @@ async def atlas_submit(body: Dict[str, Any]):
 async def atlas_next():
     state = _load_atlas_state()
     curriculum = state.get("curriculum", {})
-    modules    = curriculum.get("modules", []) if curriculum else []
+    modules = curriculum.get("modules", []) if isinstance(curriculum, dict) else []
+    lesson_id = str(state.get("lesson_id") or "").strip()
+    if not lesson_id:
+        return {"status": "ok", "message": "No active lesson to advance from."}
 
-    lesson_id = state.get("lesson_id", "")
-    # find next lesson index
-    found = False
-    for mod in modules:
-        for i, lesson in enumerate(mod.get("lessons", [])):
-            if lesson.get("lesson_id") == lesson_id:
-                found = True
-                next_i = i + 1
-                if next_i < len(mod["lessons"]):
-                    next_lesson = mod["lessons"][next_i]
-                    active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
-                    next_lesson = _decorate_lesson_for_module_track(next_lesson, active_track)
-                    state["current_lesson"] = next_lesson
-                    state["lesson_id"]      = next_lesson["lesson_id"]
-                    try:
-                        from mammoth_os.exercise_generator import generate_exercises_for_lesson
-                        generated = generate_exercises_for_lesson(next_lesson, count=1)
-                        if generated:
-                            state["current_exercise"] = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
-                    except Exception:
-                        # Keep session moving even if exercise generation fails.
-                        pass
-                    state["updated_at"]     = datetime.now(timezone.utc).isoformat()
-                    _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
-                    _sync_resume_packet(state, state.get("lesson_id"))
-                    _save_atlas_state(state)
-                    return {"status": "ok", "lesson": mod["lessons"][next_i]}
+    next_lesson = None
+    next_module = None
+    for mod_idx, mod in enumerate(modules):
+        lessons = mod.get("lessons", []) if isinstance(mod, dict) else []
+        for i, lesson in enumerate(lessons):
+            if str(lesson.get("lesson_id") or "").strip() != lesson_id:
+                continue
+            if i + 1 < len(lessons):
+                next_lesson = lessons[i + 1]
+                next_module = mod
                 break
-        if found:
+            if mod_idx + 1 < len(modules):
+                next_module = modules[mod_idx + 1]
+                next_lessons = next_module.get("lessons", []) if isinstance(next_module, dict) else []
+                if next_lessons:
+                    next_lesson = next_lessons[0]
+                break
+            return {"status": "ok", "message": "No more lessons in curriculum."}
+        if next_lesson is not None:
             break
 
-    return {"status": "ok", "message": "No more lessons in current module"}
+    if next_lesson is None:
+        return {"status": "ok", "message": "No more lessons in current module"}
+
+    next_module_id = str((next_module or {}).get("module_id") or (next_module or {}).get("id") or state.get("module_id") or "").strip()
+    active_track = _resolve_module_track(next_module_id, state.get("topic"))
+    if active_track is None:
+        active_track = _resolve_module_track((next_module or {}).get("title"), state.get("topic"))
+    next_lesson = _decorate_lesson_for_module_track(next_lesson, active_track)
+
+    state["current_lesson"] = next_lesson
+    state["lesson_id"] = next_lesson["lesson_id"]
+    state["module_id"] = next_module_id or state.get("module_id")
+    state["active_module"] = _serialize_module_track(active_track) or {
+        "id": next_module_id,
+        "label": str((next_module or {}).get("title") or "Next module").strip(),
+        "topic": str(state.get("topic") or "").strip(),
+        "summary": "",
+        "category": "",
+        "icon": "",
+        "lesson_type": "knowledge",
+        "outcomes": [],
+        "operator_note": "",
+    }
+    try:
+        from mammoth_os.exercise_generator import generate_exercises_for_lesson
+        generated = generate_exercises_for_lesson(next_lesson, count=1)
+        if generated:
+            state["current_exercise"] = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
+    except Exception:
+        pass
+
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
+    _sync_resume_packet(state, state.get("lesson_id"))
+    _save_atlas_state(state)
+    return {
+        "status": "ok",
+        "lesson": next_lesson,
+        "exercise": state.get("current_exercise"),
+        "module_id": state.get("module_id"),
+        "active_module": state.get("active_module"),
+        "lesson_id": state.get("lesson_id"),
+    }
 
 
 @app.post("/api/atlas/back")
@@ -7082,70 +7117,62 @@ def _internet_research_query(query: str) -> Dict[str, Any]:
     q = str(query or "").strip()
     if not q:
         return {"status": "error", "error": "Research query is required."}
-    endpoint = (
-        "https://api.duckduckgo.com/?"
-        + urllib.parse.urlencode({"q": q, "format": "json", "no_html": 1, "skip_disambig": 1})
-    )
-    req = urllib.request.Request(
-        endpoint,
-        headers={"User-Agent": "MammothOS/1.0 (+https://command.truexxiisupply.com)"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
-        return {"status": "error", "error": _sanitize_runtime_error_message(exc, "Could not reach internet research endpoint.")}
-    except json.JSONDecodeError:
-        return {"status": "error", "error": "Research endpoint returned an unreadable response."}
+    from mammoth_os.agents.research_agent import ResearchAgent
 
-    highlights: List[Dict[str, str]] = []
-    abstract = str(payload.get("AbstractText") or "").strip()
-    if abstract:
-        highlights.append({
-            "title": str(payload.get("Heading") or "Primary finding"),
-            "snippet": abstract,
-            "url": str(payload.get("AbstractURL") or ""),
-        })
-    related = payload.get("RelatedTopics") if isinstance(payload.get("RelatedTopics"), list) else []
-    for item in related:
+    result = ResearchAgent(router=None).run(
+        {
+            "prompt": q,
+            "focus": "general",
+            "max_sources": 5,
+            "allow_web_lookup": True,
+        }
+    )
+    sources = result.get("sources") if isinstance(result.get("sources"), list) else []
+    highlights = []
+    for item in sources:
+        if not isinstance(item, dict) or str(item.get("source_type") or "").strip().lower() != "web":
+            continue
+        snippet = str(item.get("snippet") or "").strip()
+        if not snippet:
+            continue
+        matched_tokens = item.get("matched_tokens") if isinstance(item.get("matched_tokens"), list) else []
+        relevance_score = float(item.get("relevance_score") or 0.0)
+        if relevance_score <= 0 and not matched_tokens:
+            continue
+        highlights.append(
+            {
+                "title": str(item.get("title") or "Primary finding").strip() or "Primary finding",
+                "snippet": snippet,
+                "url": str(item.get("url") or "").strip(),
+                "publisher": str(item.get("publisher") or "").strip(),
+            }
+        )
         if len(highlights) >= 5:
             break
-        if isinstance(item, dict) and isinstance(item.get("Topics"), list):
-            nested = item.get("Topics") or []
-            for sub in nested:
-                if len(highlights) >= 5:
-                    break
-                if isinstance(sub, dict):
-                    snippet = str(sub.get("Text") or "").strip()
-                    if snippet:
-                        highlights.append({
-                            "title": str(sub.get("FirstURL") or "Related source"),
-                            "snippet": snippet,
-                            "url": str(sub.get("FirstURL") or ""),
-                        })
-            continue
-        if isinstance(item, dict):
-            snippet = str(item.get("Text") or "").strip()
-            if snippet:
-                highlights.append({
-                    "title": str(item.get("FirstURL") or "Related source"),
-                    "snippet": snippet,
-                    "url": str(item.get("FirstURL") or ""),
-                })
 
+    retrieval_errors = result.get("retrieval_errors") if isinstance(result.get("retrieval_errors"), list) else []
     if not highlights:
+        detail = f" Retrieval notes: {', '.join(str(err) for err in retrieval_errors[:2])}." if retrieval_errors else ""
         return {
             "status": "ok",
             "query": q,
             "highlights": [],
-            "summary": "No concise internet highlights were found for this query.",
+            "summary": f"No grounded internet highlights were found for this query.{detail}",
+            "retrieval_errors": retrieval_errors,
         }
 
     summary_lines = [f"Internet research brief for: {q}"]
-    for idx, item in enumerate(highlights[:5], start=1):
+    for idx, item in enumerate(highlights, start=1):
+        publisher = f" [{item['publisher']}]" if item.get("publisher") else ""
         url = f" ({item['url']})" if item.get("url") else ""
-        summary_lines.append(f"{idx}. {item['snippet']}{url}")
-    return {"status": "ok", "query": q, "highlights": highlights[:5], "summary": "\n".join(summary_lines)}
+        summary_lines.append(f"{idx}. {item['snippet']}{publisher}{url}")
+    return {
+        "status": "ok",
+        "query": q,
+        "highlights": highlights,
+        "summary": "\n".join(summary_lines),
+        "retrieval_errors": retrieval_errors,
+    }
 
 
 def _run_internet_command(slash: Dict[str, Any]) -> Dict[str, Any]:

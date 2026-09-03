@@ -268,6 +268,48 @@ def test_atlas_library_snapshot_surfaces_persisted_chunks(monkeypatch):
     assert result["modules"][0]["lessons"][1]["persisted"] is False
 
 
+def test_atlas_next_moves_to_next_module_and_updates_progress_state(monkeypatch):
+    state = {
+        "topic": "python fundamentals",
+        "module_id": "module-1",
+        "lesson_id": "lesson-2",
+        "curriculum": {
+            "modules": [
+                {
+                    "module_id": "module-1",
+                    "title": "Module 1",
+                    "lessons": [
+                        {"lesson_id": "lesson-1", "title": "Intro"},
+                        {"lesson_id": "lesson-2", "title": "Variables"},
+                    ],
+                },
+                {
+                    "module_id": "module-2",
+                    "title": "Module 2",
+                    "lessons": [
+                        {"lesson_id": "lesson-3", "title": "Functions"},
+                    ],
+                },
+            ]
+        },
+    }
+
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda updated: None)
+    monkeypatch.setattr(api_server, "_append_lesson_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_sync_resume_packet", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda *args, **kwargs: None)
+
+    result = asyncio.run(api_server.atlas_next())
+
+    assert result["status"] == "ok"
+    assert result["module_id"] == "module-2"
+    assert result["lesson_id"] == "lesson-3"
+    assert state["module_id"] == "module-2"
+    assert state["lesson_id"] == "lesson-3"
+    assert state["active_module"]["id"] == "module-2"
+
+
 def test_atlas_lesson_noncode_track_sanitizes_python_seed_payload(monkeypatch):
     state = {}
 

@@ -76,6 +76,40 @@ def test_research_agent_fetches_web_sources_when_enabled(monkeypatch):
     assert "alignment_score" in result["contradiction_report"]
 
 
+def test_research_agent_uses_wikipedia_search_when_exact_summary_misses(monkeypatch):
+    def _fake_urlopen(req, timeout=0):
+        url = req.full_url
+        if "w/api.php" in url:
+            return _FakeResponse(
+                {
+                    "query": {
+                        "search": [
+                            {"title": "Mammoth"},
+                            {"title": "Adaptive learning"},
+                        ]
+                    }
+                }
+            )
+        if "page/summary/MammothOS%20ATLAS%20tutoring%20engine" in url:
+            raise urllib.error.HTTPError(url, 404, "not found", hdrs=None, fp=None)
+        if "page/summary/Adaptive_learning" in url:
+            return _FakeResponse(
+                {
+                    "title": "Adaptive learning",
+                    "extract": "Adaptive learning systems personalize instruction using learner performance signals.",
+                    "content_urls": {"desktop": {"page": "https://en.wikipedia.org/wiki/Adaptive_learning"}},
+                }
+            )
+        return _FakeResponse({"AbstractText": "", "AbstractURL": "", "Heading": ""})
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    result = ResearchAgent(router=None).run({"prompt": "MammothOS ATLAS tutoring engine", "max_sources": 3})
+
+    assert result["status"] == "ok"
+    assert any(source["publisher"] == "Wikipedia" for source in result["sources"])
+    assert any("Adaptive learning" in source["title"] for source in result["sources"])
+
+
 def test_research_agent_surfaces_retrieval_errors_when_sources_fail(monkeypatch):
     def _boom(*_args, **_kwargs):
         raise urllib.error.URLError("network unavailable")

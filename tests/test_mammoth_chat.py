@@ -273,6 +273,44 @@ def test_atlas_chat_research_command_uses_internet_tool(monkeypatch):
     assert response['chat_history'][-1]['adapter'] == 'internet-tool'
 
 
+def test_internet_research_query_uses_grounded_web_sources(monkeypatch):
+    class _FakeResearchAgent:
+        def __init__(self, router):
+            self.router = router
+
+        def run(self, prompt):
+            return {
+                'status': 'ok',
+                'sources': [
+                    {
+                        'title': 'Adaptive learning',
+                        'snippet': 'Adaptive learning systems personalize instruction using learner performance signals.',
+                        'url': 'https://en.wikipedia.org/wiki/Adaptive_learning',
+                        'publisher': 'Wikipedia',
+                        'source_type': 'web',
+                        'relevance_score': 0.5,
+                        'matched_tokens': ['learning'],
+                    },
+                    {
+                        'title': 'Prompt objective',
+                        'snippet': 'MammothOS ATLAS tutoring engine',
+                        'url': '',
+                        'publisher': 'mammoth_runtime',
+                        'source_type': 'prompt',
+                    },
+                ],
+                'retrieval_errors': ['duckduckgo_empty_abstract'],
+            }
+
+    monkeypatch.setattr('mammoth_os.agents.research_agent.ResearchAgent', _FakeResearchAgent)
+    result = api_server._internet_research_query('MammothOS ATLAS tutoring engine')
+
+    assert result['status'] == 'ok'
+    assert len(result['highlights']) == 1
+    assert result['highlights'][0]['publisher'] == 'Wikipedia'
+    assert 'Adaptive learning systems personalize instruction' in result['summary']
+
+
 def test_mammoth_chat_gitops_is_disabled_when_auth_enabled(monkeypatch):
     monkeypatch.setattr(api_server, '_AUTH_REQUIRED', True)
 
