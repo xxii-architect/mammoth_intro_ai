@@ -219,7 +219,7 @@ export default function DiagnosticsPage() {
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 8 }}>Release gate</div>
           <div style={{ fontSize: '1.3rem', fontWeight: 800, color: releaseReadiness?.ready ? 'var(--cyan)' : 'var(--ember, #ff8a80)' }}>{releaseReadiness?.ready ? 'Green' : 'Hold'}</div>
-          <div style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>{releaseReadiness?.summary || 'Launch guard is still evaluating system trust.'}</div>
+          <div style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>{releaseReadiness?.summary?.research_gate_status ? `Launch gate status: ${releaseReadiness.summary.research_gate_status}` : 'Launch guard is still evaluating system trust.'}</div>
         </div>
       </div>
 
