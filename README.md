@@ -12,6 +12,7 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Run History replay keeps task metadata (`task_id`, `trace_id`) and runtime adapter/model context
   - Coding patch apply status is reflected in both artifact detail and run history markers
   - Internet command runs (`/research`, `/web`) are persisted as structured chat events with evidence metadata
+  - Chat trust surfaces now consume dynamic backend metadata (`confidence`, `trust_metadata`, `evidence_items`) rather than static UI defaults.
 - UX consistency updates now live:
   - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
   - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
@@ -20,6 +21,23 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
 ## MCP Browser Bridge + Repo Access
 
 MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.
+
+## Repo-context quick prompting (Mammoth Mind + ATLAS)
+
+If you want the chat assistant to read file contents (not just repo names), include at least one of:
+
+- a filename (`api_server.py`, `DiagnosticsPage.jsx`)
+- a relative path (`src/mammoth_os/atlas_session.py`)
+- an absolute path that exists on the backend host (`/opt/mammothos/mammoth_intro_ai/...`)
+
+What now happens automatically:
+
+- absolute paths under the configured repo root are normalized to tracked repo paths
+- filename/path hints in natural language are resolved to real tracked files when possible
+- repo context falls back to token-based search when full-query grep returns no hits
+- chat evidence now includes repo snippet/search signals so trust badges can reflect real context use
+
+Tip for hosted deployments: if you prompt from a Windows workstation but the backend runs on Linux, prefer relative paths or `/opt/...` server paths.
 
 ### Quick start
 

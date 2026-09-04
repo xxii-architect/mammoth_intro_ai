@@ -125,6 +125,14 @@ The UI should not rely on placeholder values for production trust surfaces. If a
 - These commands are surfaced as `internet-tool` runs and are included in
   chat history with evidence metadata.
 
+### Repo content quick paths (recommended prompting style)
+- You can now prompt with plain file names (`api_server.py`, `ChatPage.jsx`) and Mammoth Mind will attempt to resolve them to tracked files.
+- Relative paths are still strongest for precision:
+  - `src/mammoth_os/atlas_session.py`
+  - `ui/mad-architecht-command-center/src/pages/DiagnosticsPage.jsx`
+- If the backend host is Linux, use backend-visible absolute paths (`/opt/...`) instead of local Windows-only paths.
+- Trust badges now read dynamic metadata from backend responses (`confidence`, `trust_metadata`, `evidence_items`) so confidence and source counts update per response.
+
 ### Coding shortcuts
 When `coding_agent` is selected, shortcut templates are available for:
 - `/create`

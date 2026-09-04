@@ -245,6 +245,7 @@ function inferRepoTargets(message) {
 
   // File paths inside the message (src/pages/..., components/..., etc.)
   const fileMatches = text.match(/(?:src|app|components|pages)[\\/][A-Za-z0-9_.\\/-]+/g) || []
+  const filenameMatches = text.match(/\b[A-Za-z0-9_.-]+\.(?:py|js|jsx|ts|tsx|md|json|toml|ya?ml|sql|sh|ps1)\b/g) || []
 
   // Windows-style absolute paths (C:\folder\file.js)
   const windowsMatches = text.match(/(?:[A-Za-z]:)?[\\/](?:[A-Za-z0-9_.-]+[\\/])+(?:[A-Za-z0-9_.-]+)/g) || []
@@ -254,6 +255,7 @@ function inferRepoTargets(message) {
 
   const all = [
     ...(fileMatches || []),
+    ...(filenameMatches || []),
     ...(windowsMatches || []),
     selection || null,
     codeBlock || null
@@ -386,26 +388,41 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         ? structuredResult.contradictions
         : Array.isArray(structuredResult?.quality_flags)
           ? structuredResult.quality_flags.filter((flag) => String(flag).toLowerCase().includes('contrad'))
+          : entry.trust_metadata?.has_contradictions
+            ? ['Potential contradiction signals detected in trust metadata.']
           : []
     )
     : []
+  const evidenceItems = Array.isArray(entry.evidence_items) ? entry.evidence_items : []
+  const evidenceDerivedSourceCount = evidenceItems.reduce((count, item) => {
+    if (!item || typeof item !== 'object') return count
+    const nested = ['files', 'source_files', 'references', 'evidence', 'citations']
+      .map((key) => (Array.isArray(item[key]) ? item[key].length : 0))
+      .reduce((a, b) => a + b, 0)
+    if (nested > 0) return count + nested
+    return count + 1
+  }, 0)
+  const trustCitationCount = Number(entry.trust_metadata?.citation_count)
   const sourceCount = !isUser
     ? (
       Array.isArray(structuredResult?.citations) ? structuredResult.citations.length
         : Array.isArray(structuredResult?.sources) ? structuredResult.sources.length
           : Array.isArray(structuredResult?.references) ? structuredResult.references.length
-            : Array.isArray(entry.evidence_items) ? entry.evidence_items.length
-              : 0
+            : Number.isFinite(trustCitationCount) ? trustCitationCount
+              : evidenceDerivedSourceCount
     )
     : 0
   const providerLabel = String(
     entry.adapter
+      || entry.trust_metadata?.provider
       || structuredResult?.provider
       || structuredResult?.runtime_state?.provider
       || 'unknown'
   )
   const confidenceScore = normalizeConfidence(
-    structuredResult?.confidence
+    entry.trust_metadata?.confidence
+    ?? entry.runtime_status?.confidence
+    ?? structuredResult?.confidence
     ?? structuredResult?.confidence_score
     ?? entry.confidence
   )
@@ -1650,4 +1667,3 @@ export default function ChatPage({ setPage }) {
     </div>
   )
 }
-

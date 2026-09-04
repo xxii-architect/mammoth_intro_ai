@@ -6772,6 +6772,8 @@ async def atlas_chat(body: Dict[str, Any]):
     page_context = _normalize_page_context(body.get("page_context"), body.get("page_snapshot"))
     repo_context_request = _normalize_repo_context_request(body.get("repo_context"))
     repo_context = _collect_repo_context_snapshot(repo_context_request) if repo_context_request else {}
+    repo_evidence_items = _repo_context_evidence_items(repo_context)
+    repo_evidence_items = _repo_context_evidence_items(repo_context)
     attached_material_ids = body.get("attached_material_ids") if isinstance(body.get("attached_material_ids"), list) else []
     attached_material_context = _collect_attached_atlas_material_context(
         user_id=_current_request_user_id(),
@@ -6809,6 +6811,21 @@ async def atlas_chat(body: Dict[str, Any]):
     if slash and slash.get("kind") in {"web", "research"}:
         command_result = _run_internet_command(slash)
         internet_reply = str(command_result.get("reply") or "No response produced.")
+        internet_evidence = [item for item in [command_result.get("evidence"), *repo_evidence_items] if isinstance(item, dict)]
+        runtime_status = _runtime_status_snapshot()
+        confidence = _derive_chat_confidence(
+            runtime_status=runtime_status,
+            evidence_items=internet_evidence,
+            reply=internet_reply,
+            base=0.78 if command_result.get("status") == "ok" else 0.46,
+        )
+        trust_metadata = _build_chat_trust_metadata(
+            provider="internet-tool",
+            confidence=confidence,
+            evidence_items=internet_evidence,
+            content=internet_reply,
+            response_type="research" if slash.get("kind") == "research" else "general",
+        )
         history.append({
             "role": "assistant",
             "message": internet_reply,
@@ -6816,7 +6833,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "adapter": "internet-tool",
             "model": "internet-tool",
             "mode": mode,
-            "evidence_items": [command_result.get("evidence")],
+            "evidence_items": internet_evidence,
+            "confidence": confidence,
+            "trust_metadata": trust_metadata,
         })
         state[history_key] = history[-60:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -6838,6 +6857,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
             "trace_id": trace_id,
+            "confidence": confidence,
+            "trust_metadata": trust_metadata,
+            "evidence_items": internet_evidence,
         }
     if slash and slash.get("kind") == "error":
         return {"status": "error", "error": slash.get("error") or "Invalid command."}
@@ -6876,9 +6898,25 @@ async def atlas_chat(body: Dict[str, Any]):
                         "repo_context_used": bool(repo_context),
                         "branch": str(repo_context.get("branch") or "main"),
                     }
-                ],
+                ] + repo_evidence_items[:2],
             }
         )
+        guide_evidence = history[-1].get("evidence_items") if isinstance(history[-1].get("evidence_items"), list) else []
+        guide_confidence = _derive_chat_confidence(
+            runtime_status=_runtime_status_snapshot(),
+            evidence_items=guide_evidence,
+            reply=guide_reply,
+            base=0.74,
+        )
+        guide_trust = _build_chat_trust_metadata(
+            provider="mammoth-guide",
+            confidence=guide_confidence,
+            evidence_items=guide_evidence,
+            content=guide_reply,
+            response_type="general",
+        )
+        history[-1]["confidence"] = guide_confidence
+        history[-1]["trust_metadata"] = guide_trust
         state[history_key] = history[-60:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _append_fab_usage_event(
@@ -6902,6 +6940,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "guide_steps": guide_steps if isinstance(guide_steps, list) else [],
             "guide_branch": guide_branch,
             "attached_materials_used": attached_material_context.get("materials", []),
+            "confidence": guide_confidence,
+            "trust_metadata": guide_trust,
+            "evidence_items": guide_evidence,
         }
 
     if guard_triggered:
@@ -6924,7 +6965,23 @@ async def atlas_chat(body: Dict[str, Any]):
             "adapter": "policy-guard",
             "model": "policy-guard",
             "guard_triggered": True,
+            "evidence_items": repo_evidence_items[:2],
         })
+        guard_confidence = _derive_chat_confidence(
+            runtime_status=_runtime_status_snapshot(),
+            evidence_items=history[-1].get("evidence_items") if isinstance(history[-1].get("evidence_items"), list) else [],
+            reply=guard_reply,
+            base=0.68,
+        )
+        guard_trust = _build_chat_trust_metadata(
+            provider="policy-guard",
+            confidence=guard_confidence,
+            evidence_items=history[-1].get("evidence_items") if isinstance(history[-1].get("evidence_items"), list) else [],
+            content=guard_reply,
+            response_type="tutor",
+        )
+        history[-1]["confidence"] = guard_confidence
+        history[-1]["trust_metadata"] = guard_trust
         state[history_key] = history[-60:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _append_fab_usage_event(
@@ -6944,6 +7001,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "regenerated_exercise": regenerated_exercise,
             "current_exercise": state.get("current_exercise"),
             "trace_id": trace_id,
+            "confidence": guard_confidence,
+            "trust_metadata": guard_trust,
+            "evidence_items": history[-1].get("evidence_items"),
         }
 
     if mode == "assistant":
@@ -7036,6 +7096,29 @@ async def atlas_chat(body: Dict[str, Any]):
         runtime_status["safe_error"] = safe_error
         _remember_runtime_status(runtime_status)
 
+    assistant_evidence = list(repo_evidence_items[:2])
+    if attached_material_context.get("count"):
+        assistant_evidence.append(
+            {
+                "agent_id": "atlas-materials",
+                "source": "attached-materials",
+                "summary": f"Attached materials included: {attached_material_context.get('count')}.",
+                "status": "ok",
+            }
+        )
+    llm_confidence = _derive_chat_confidence(
+        runtime_status=runtime_status,
+        evidence_items=assistant_evidence,
+        reply=llm_reply,
+        base=0.72,
+    )
+    llm_trust = _build_chat_trust_metadata(
+        provider=active_adapter or "unknown",
+        confidence=llm_confidence,
+        evidence_items=assistant_evidence,
+        content=llm_reply,
+        response_type="tutor" if mode != "assistant" else "general",
+    )
     history.append({
         "role": "assistant",
         "message": llm_reply,
@@ -7044,6 +7127,9 @@ async def atlas_chat(body: Dict[str, Any]):
         "model": active_model,
         "mode": mode,
         "attached_materials": attached_material_context.get("materials", []),
+        "evidence_items": assistant_evidence,
+        "confidence": llm_confidence,
+        "trust_metadata": llm_trust,
     })
     state[history_key] = history[-60:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -7067,6 +7153,9 @@ async def atlas_chat(body: Dict[str, Any]):
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id="atlas_chat", context=mode, provider=active_adapter),
         "trace_id": trace_id,
         "attached_materials_used": attached_material_context.get("materials", []),
+        "evidence_items": assistant_evidence,
+        "confidence": llm_confidence,
+        "trust_metadata": llm_trust,
     }
 
 
@@ -7080,6 +7169,108 @@ def _clean_web_text(raw: str, *, max_chars: int = 2200) -> str:
     if len(text) > max_chars:
         return text[:max_chars].rstrip() + "..."
     return text
+
+
+def _repo_context_evidence_items(repo_context: Dict[str, Any], *, limit: int = 3) -> List[Dict[str, Any]]:
+    evidence: List[Dict[str, Any]] = []
+    if not isinstance(repo_context, dict):
+        return evidence
+    for snippet in (repo_context.get("snippets") or []):
+        if len(evidence) >= limit:
+            break
+        if not isinstance(snippet, dict) or snippet.get("status") != "ok":
+            continue
+        evidence.append(
+            {
+                "agent_id": "repo-context",
+                "source": "repo-snippet",
+                "path": str(snippet.get("path") or ""),
+                "summary": f"Loaded {snippet.get('path') or 'file'} ({snippet.get('line_count') or 0} lines).",
+                "status": "ok",
+            }
+        )
+    for hit in (repo_context.get("search_hits") or []):
+        if len(evidence) >= limit:
+            break
+        if not isinstance(hit, dict):
+            continue
+        evidence.append(
+            {
+                "agent_id": "repo-context",
+                "source": "repo-search",
+                "path": str(hit.get("path") or ""),
+                "summary": str(hit.get("preview") or "").strip()[:220],
+                "status": "ok",
+            }
+        )
+    warning = str(repo_context.get("root_warning") or "").strip()
+    if warning and len(evidence) < limit:
+        evidence.append(
+            {
+                "agent_id": "repo-context",
+                "source": "repo-warning",
+                "summary": warning,
+                "status": "warning",
+            }
+        )
+    return evidence
+
+
+def _derive_chat_confidence(
+    *,
+    runtime_status: Dict[str, Any],
+    evidence_items: List[Dict[str, Any]],
+    reply: str,
+    base: float = 0.74,
+) -> float:
+    confidence = float(base)
+    state = str((runtime_status or {}).get("state") or "").lower()
+    if state == "ready":
+        confidence += 0.08
+    elif state in {"degraded", "fallback"}:
+        confidence -= 0.14
+    elif state in {"error", "down"}:
+        confidence -= 0.24
+    if (runtime_status or {}).get("error_type"):
+        confidence -= 0.08
+
+    count = len([item for item in (evidence_items or []) if isinstance(item, dict)])
+    if count >= 1:
+        confidence += 0.04
+    if count >= 3:
+        confidence += 0.03
+    if len(str(reply or "").strip()) < 40:
+        confidence -= 0.06
+    return round(max(0.2, min(0.96, confidence)), 2)
+
+
+def _build_chat_trust_metadata(
+    *,
+    provider: str,
+    confidence: float,
+    evidence_items: List[Dict[str, Any]],
+    content: str,
+    response_type: str = "general",
+) -> Dict[str, Any]:
+    citations: List[str] = []
+    for item in evidence_items or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ("url", "path", "source", "agent_id"):
+            value = str(item.get(key) or "").strip()
+            if value and value not in citations:
+                citations.append(value)
+    _, _, trust_metadata = enforce_on_release(
+        {
+            "provider": str(provider or "unknown"),
+            "confidence": float(confidence),
+            "citations": citations[:8],
+            "contradictions": [],
+            "content": str(content or ""),
+        },
+        response_type=response_type,
+    )
+    return trust_metadata
 
 
 def _internet_fetch_url(url: str) -> Dict[str, Any]:
@@ -7309,16 +7500,114 @@ def _normalize_page_context(raw_page_context: Any, raw_page_snapshot: Any = None
     return {k: v for k, v in normalized.items() if v}
 
 
-def _safe_repo_relative_path(raw_path: Any) -> str:
+def _safe_repo_relative_path(raw_path: Any, *, repo_root: Any = None) -> str:
     candidate = str(raw_path or "").strip().replace("\\", "/")
     if not candidate:
         return ""
     path_obj = Path(candidate)
     if path_obj.is_absolute():
-        return ""
+        if repo_root:
+            try:
+                path_obj = path_obj.relative_to(Path(str(repo_root)))
+            except ValueError:
+                return ""
+        else:
+            return ""
     if any(part in {"..", ""} for part in path_obj.parts):
         return ""
-    return str(Path(*path_obj.parts))
+    return str(Path(*path_obj.parts)).replace("\\", "/")
+
+
+def _repo_context_query_tokens(text: str, *, max_tokens: int = 8) -> List[str]:
+    tokens = re.findall(r"[a-zA-Z0-9_]{3,}", str(text or "").lower())
+    stop = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "into",
+        "your",
+        "repo",
+        "file",
+        "path",
+        "scan",
+        "check",
+    }
+    ordered: List[str] = []
+    for token in tokens:
+        if token in stop:
+            continue
+        if token not in ordered:
+            ordered.append(token)
+        if len(ordered) >= max_tokens:
+            break
+    return ordered
+
+
+def _extract_repo_file_hints(text: str, *, max_hints: int = 8) -> List[str]:
+    query = str(text or "")
+    hints: List[str] = []
+    patterns = [
+        r"(?:[A-Za-z]:[\\/]|/)(?:[A-Za-z0-9_.\-]+[\\/])*[A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,8}",
+        r"(?:[A-Za-z0-9_.\-]+[\\/])+[A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,8}",
+        r"\b[A-Za-z0-9_.\-]+\.(?:py|js|jsx|ts|tsx|md|json|toml|ya?ml|sql|sh|ps1)\b",
+    ]
+    for pattern in patterns:
+        for match in re.findall(pattern, query):
+            candidate = str(match).strip().strip(".,:;()[]{}<>\"'").replace("\\", "/")
+            if not candidate:
+                continue
+            if candidate not in hints:
+                hints.append(candidate)
+            if len(hints) >= max_hints:
+                return hints
+    return hints
+
+
+def _list_tracked_repo_files(git_ref: str, *, cwd: str) -> List[str]:
+    for args in (["ls-tree", "-r", "--name-only", git_ref], ["ls-files"]):
+        result = _run_git_command(args, timeout=60, cwd=cwd)
+        if result.get("status") != "ok":
+            continue
+        files: List[str] = []
+        for line in str(result.get("stdout") or "").splitlines():
+            cleaned = _safe_repo_relative_path(line)
+            if cleaned:
+                files.append(cleaned)
+        if files:
+            return files
+    return []
+
+
+def _resolve_repo_file_hint_to_tracked_path(hint: str, *, tracked_files: List[str], repo_root: str) -> str:
+    if not hint:
+        return ""
+    normalized = _safe_repo_relative_path(hint, repo_root=repo_root) or _safe_repo_relative_path(hint)
+    if not normalized:
+        normalized = str(hint).strip().replace("\\", "/").lstrip("./")
+    if not normalized:
+        return ""
+
+    tracked_set = set(tracked_files)
+    if normalized in tracked_set:
+        return normalized
+
+    lowered = normalized.lower()
+    suffix_matches = [path for path in tracked_files if path.lower().endswith(lowered)]
+    if suffix_matches:
+        suffix_matches.sort(key=len)
+        return suffix_matches[0]
+
+    base = Path(normalized).name.lower()
+    if base:
+        base_matches = [path for path in tracked_files if Path(path).name.lower() == base]
+        if base_matches:
+            base_matches.sort(key=len)
+            return base_matches[0]
+    return ""
 
 
 def _resolve_repo_context_root(raw_root: Any) -> Dict[str, str]:
@@ -7355,10 +7644,11 @@ def _resolve_repo_context_root(raw_root: Any) -> Dict[str, str]:
 def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     if not isinstance(raw_repo_context, dict):
         return {}
+    root_resolution = _resolve_repo_context_root(raw_repo_context.get("root"))
     files_raw = raw_repo_context.get("files") if isinstance(raw_repo_context.get("files"), list) else []
     files = []
     for value in files_raw:
-        cleaned = _safe_repo_relative_path(value)
+        cleaned = _safe_repo_relative_path(value, repo_root=root_resolution["root"])
         if cleaned:
             files.append(cleaned)
         if len(files) >= 12:
@@ -7369,7 +7659,6 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     branch = str(raw_repo_context.get("branch") or "main").strip() or "main"
     if not re.fullmatch(r"[A-Za-z0-9._/\-]+", branch):
         branch = "main"
-    root_resolution = _resolve_repo_context_root(raw_repo_context.get("root"))
     return {
         "query": query[:240],
         "files": files,
@@ -7384,8 +7673,8 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     }
 
 
-def _read_repo_file_excerpt(relative_path: str, *, max_lines: int = 120, max_chars: int = 3600) -> Dict[str, Any]:
-    target = ROOT / relative_path
+def _read_repo_file_excerpt(relative_path: str, *, repo_root: Any = None, max_lines: int = 120, max_chars: int = 3600) -> Dict[str, Any]:
+    target = Path(str(repo_root or ROOT)) / relative_path
     if not target.exists() or not target.is_file():
         return {"path": relative_path, "status": "missing"}
     try:
@@ -7465,14 +7754,51 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
         }
 
     git_ref = str(repo_request.get("branch") or "main")
+    tracked_files: List[str] = []
+    snippet_paths: List[str] = []
     for relative_path in (repo_request.get("files") or [])[: int(repo_request.get("max_snippets") or 3)]:
-        snapshot["snippets"].append(_read_repo_file_excerpt_from_ref(relative_path, git_ref, cwd=repo_cwd))
+        snippet = _read_repo_file_excerpt_from_ref(relative_path, git_ref, cwd=repo_cwd)
+        if snippet.get("status") != "ok":
+            snippet = _read_repo_file_excerpt(relative_path, repo_root=repo_cwd)
+            if snippet.get("status") == "ok":
+                snippet["ref"] = "working-tree"
+        snapshot["snippets"].append(snippet)
+        if snippet.get("status") == "ok":
+            snippet_paths.append(str(snippet.get("path") or ""))
 
-    query = str(repo_request.get("query") or "").strip().lower()
+    query = str(repo_request.get("query") or "").strip()
+    if len(snapshot["snippets"]) < int(repo_request.get("max_snippets") or 3):
+        hints = _extract_repo_file_hints(query)
+        if hints:
+            tracked_files = _list_tracked_repo_files(git_ref, cwd=repo_cwd)
+        for hint in hints:
+            if len(snapshot["snippets"]) >= int(repo_request.get("max_snippets") or 3):
+                break
+            resolved = _resolve_repo_file_hint_to_tracked_path(hint, tracked_files=tracked_files, repo_root=repo_cwd)
+            if not resolved or resolved in snippet_paths:
+                continue
+            snippet = _read_repo_file_excerpt_from_ref(resolved, git_ref, cwd=repo_cwd)
+            if snippet.get("status") != "ok":
+                snippet = _read_repo_file_excerpt(resolved, repo_root=repo_cwd)
+                if snippet.get("status") == "ok":
+                    snippet["ref"] = "working-tree"
+            snapshot["snippets"].append(snippet)
+            if snippet.get("status") == "ok":
+                snippet_paths.append(resolved)
+        if hints:
+            snapshot["resolved_file_hints"] = snippet_paths[:]
+
+    query_lower = query.lower()
     if query:
         max_hits = int(repo_request.get("max_results") or 4)
-        grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", query, git_ref], timeout=60, cwd=repo_cwd)
-        if grep_result.get("status") == "ok":
+        query_terms = [query]
+        query_terms.extend(_repo_context_query_tokens(query))
+        for term in query_terms:
+            if len(snapshot["search_hits"]) >= max_hits:
+                break
+            grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", "-F", "-i", term, git_ref], timeout=60, cwd=repo_cwd)
+            if grep_result.get("status") != "ok":
+                continue
             for line in str(grep_result.get("stdout") or "").splitlines():
                 if len(snapshot["search_hits"]) >= max_hits:
                     break
@@ -7480,14 +7806,19 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
                 if len(parts) < 4:
                     continue
                 _, hit_path, hit_line, hit_preview = parts
+                normalized_path = str(hit_path).replace("/", "\\")
+                if any(str(item.get("path") or "") == normalized_path and int(item.get("line") or 0) == int(hit_line) for item in snapshot["search_hits"]):
+                    continue
                 snapshot["search_hits"].append(
                     {
-                        "path": str(hit_path).replace("/", "\\"),
+                        "path": normalized_path,
                         "line": int(hit_line) if str(hit_line).isdigit() else 0,
                         "preview": str(hit_preview).strip()[:280],
                         "ref": git_ref,
                     }
                 )
+            if snapshot["search_hits"]:
+                break
         else:
             skipped_dirs = {".git", "node_modules", "dist", "__pycache__", ".venv", "venv", ".mammoth"}
             walk_root = Path(repo_cwd)
@@ -7505,7 +7836,12 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
                 except Exception:
                     continue
                 lowered = file_text.lower()
-                index = lowered.find(query)
+                index = lowered.find(query_lower)
+                if index < 0:
+                    for token in _repo_context_query_tokens(query):
+                        index = lowered.find(token)
+                        if index >= 0:
+                            break
                 if index < 0:
                     continue
                 start = max(0, index - 120)
@@ -8050,6 +8386,9 @@ async def mammoth_chat(body: Dict[str, Any]):
             message = message + "\n\n[ATTACHED FILES]\n" + "\n\n".join(_file_texts)
 
     trace_id = str(body.get("trace_id") or new_trace_id("chat"))
+    initial_repo_request = _normalize_repo_context_request(body.get("repo_context"))
+    initial_repo_context = _collect_repo_context_snapshot(initial_repo_request) if initial_repo_request else {}
+    repo_evidence_items = _repo_context_evidence_items(initial_repo_context)
     slash = _parse_mammoth_chat_command(message)
     if slash and slash.get("kind") == "plan":
         plan_result = await plan_execute({
@@ -8108,6 +8447,20 @@ async def mammoth_chat(body: Dict[str, Any]):
             and _normalize_account_id(item.get("account_id") or "default") == account_id
         ]
 
+        internet_evidence = [item for item in [command_result.get("evidence"), *repo_evidence_items] if isinstance(item, dict)]
+        internet_confidence = _derive_chat_confidence(
+            runtime_status=_runtime_status_snapshot(),
+            evidence_items=internet_evidence,
+            reply=reply,
+            base=0.78 if command_result.get("status") == "ok" else 0.46,
+        )
+        internet_trust = _build_chat_trust_metadata(
+            provider="internet-tool",
+            confidence=internet_confidence,
+            evidence_items=internet_evidence,
+            content=reply,
+            response_type="research" if slash.get("kind") == "research" else "general",
+        )
         history.append({
             "role": "user",
             "message": message,
@@ -8132,7 +8485,9 @@ async def mammoth_chat(body: Dict[str, Any]):
                 "detail": f"kind={slash.get('kind')}",
                 "status": "success" if command_result.get("status") == "ok" else "warning",
             }],
-            "evidence_items": [command_result.get("evidence")],
+            "evidence_items": internet_evidence,
+            "confidence": internet_confidence,
+            "trust_metadata": internet_trust,
             "orchestrated": False,
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
@@ -8169,11 +8524,13 @@ async def mammoth_chat(body: Dict[str, Any]):
             "mode": "chat",
             "task_id": "",
             "dispatched": False,
-            "evidence_items": [command_result.get("evidence")],
+            "evidence_items": internet_evidence,
             "orchestrated": False,
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
             "trace_id": trace_id,
+            "confidence": internet_confidence,
+            "trust_metadata": internet_trust,
         }
     if slash and slash.get("kind") == "gitops":
         return {
@@ -8469,6 +8826,26 @@ async def mammoth_chat(body: Dict[str, Any]):
         active_model = active_model or "fallback-local"
         thought_steps.append({"ts": _ts(), "label": "Hamster escaped", "detail": safe_error, "status": "error"})
 
+    for item in repo_evidence_items:
+        if len(evidence_items) >= 5:
+            break
+        evidence_items.append(item)
+
+    reply_response_type = "research" if str(agent_id or "").strip() == "research_agent" else "general"
+    response_confidence = _derive_chat_confidence(
+        runtime_status=runtime_status,
+        evidence_items=evidence_items,
+        reply=reply,
+        base=0.72,
+    )
+    response_trust_metadata = _build_chat_trust_metadata(
+        provider=active_adapter or "unknown",
+        confidence=response_confidence,
+        evidence_items=evidence_items,
+        content=reply,
+        response_type=reply_response_type,
+    )
+
     assistant_entry = {
         "role": "assistant",
         "message": reply,
@@ -8481,6 +8858,8 @@ async def mammoth_chat(body: Dict[str, Any]):
         "task_id": task_id,
         "dispatched": dispatched,
         "evidence_items": evidence_items,
+        "confidence": response_confidence,
+        "trust_metadata": response_trust_metadata,
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
@@ -8521,6 +8900,8 @@ async def mammoth_chat(body: Dict[str, Any]):
         "task_id": task_id,
         "dispatched": dispatched,
         "evidence_items": evidence_items,
+        "confidence": response_confidence,
+        "trust_metadata": response_trust_metadata,
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
