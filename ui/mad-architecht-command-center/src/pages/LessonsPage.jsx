@@ -137,10 +137,6 @@ export default function LessonsPage({ setPage }) {
   const [code, setCode]             = useState('')
   const [result, setResult]         = useState(null)
   const [loading, setLoading]       = useState(false)
-  const [chatInput, setChatInput]   = useState('')
-  const [chatBusy, setChatBusy]     = useState(false)
-  const [models, setModels]         = useState(null)
-  const [chatModel, setChatModel]   = useState('')
   const [moduleCatalog, setModuleCatalog] = useState(FALLBACK_MODULE_TRACKS)
   const [moduleSearch, setModuleSearch] = useState('')
   const [lessonTypeFilter, setLessonTypeFilter] = useState('all')
@@ -269,13 +265,6 @@ export default function LessonsPage({ setPage }) {
       }
     }).catch(() => {})
   }, [])
-  useEffect(() => {
-    api('/models').then((m) => {
-      setModels(m)
-      if (m?.active_model) setChatModel(m.active_model)
-    }).catch(() => {})
-  }, [])
-
   const startLesson = async (overrideTopic, moduleTrack = null) => {
     const requestedTopic = (overrideTopic || topic).trim()
     if (!requestedTopic) return
@@ -330,36 +319,10 @@ export default function LessonsPage({ setPage }) {
     setLoading(false)
   }
 
-  const sendTutorChat = async () => {
-    if (!chatInput.trim()) return
-    setChatBusy(true)
-    try {
-      const res = await api('/atlas/chat', {
-        method: 'POST',
-        body: { message: chatInput, model: chatModel || undefined },
-      })
-      setChatInput('')
-      if (res.chat_history) {
-        setAtlasState((prev) => ({ ...(prev || {}), chat_history: res.chat_history }))
-      }
-    } catch (e) {
-      setAtlasState((prev) => ({
-        ...(prev || {}),
-        chat_history: [
-          ...((prev && Array.isArray(prev.chat_history)) ? prev.chat_history : []),
-          { role: 'assistant', message: `Tutor chat error: ${e.message}` },
-        ],
-      }))
-    } finally {
-      setChatBusy(false)
-    }
-  }
-
   const exercise        = atlasState?.current_exercise
   const curriculum      = atlasState?.curriculum
   const modules         = curriculum?.modules || []
   const currentLessonId = atlasState?.lesson_id
-  const chatHistory     = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
   const lessonHistory   = Array.isArray(atlasState?.lesson_history) ? atlasState.lesson_history : []
   const totalLessons    = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
   const lessonOverview = atlasState?.current_lesson?.summary || exercise?.lesson_summary || activeTrack?.summary || ''
@@ -446,9 +409,9 @@ export default function LessonsPage({ setPage }) {
   const inferredJourneyStage = useMemo(() => {
     if (!exercise) return 'start'
     if (result?.passed || result?.adaptive_feedback) return 'check'
-    if (String(code || '').trim() || chatHistory.length > 0) return 'practice'
+    if (String(code || '').trim()) return 'practice'
     return 'start'
-  }, [exercise, result?.passed, result?.adaptive_feedback, code, chatHistory.length])
+  }, [exercise, result?.passed, result?.adaptive_feedback, code])
 
   const currentJourneyStage = journeyStageOverride || inferredJourneyStage
   const journeyProgress = {
@@ -1131,53 +1094,6 @@ export default function LessonsPage({ setPage }) {
                 </div>
               )}
 
-              {/* Tutor chat */}
-              <div className="glass-card-solid" style={{ padding: 16, flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Sparkles size={13} color="var(--violet)" /> ATLAS Tutor Chat
-                  </p>
-                  <select
-                    value={chatModel}
-                    onChange={(e) => setChatModel(e.target.value)}
-                    className="filter-select"
-                    style={{ fontSize: '0.74rem', padding: '4px 8px' }}
-                  >
-                    {(models?.models || []).map((m) => (
-                      <option key={m.id} value={m.id}>{m.id}{m.installed === false ? ' (not installed)' : ''}</option>
-                    ))}
-                    {!models?.models?.length && <option value="">default model</option>}
-                  </select>
-                </div>
-                <div style={{ maxHeight: 200, overflowY: 'auto', padding: 10, background: 'rgba(0,0,0,0.25)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 10 }}>
-                  {chatHistory.length ? chatHistory.slice(-20).map((msg, idx) => (
-                    <div key={idx} style={{ marginBottom: 10 }}>
-                      <p style={{ fontSize: '0.68rem', color: msg.role === 'user' ? 'var(--photon)' : 'var(--cyan)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-                        {msg.role === 'user' ? 'You' : 'ATLAS Tutor'}
-                      </p>
-                      <p style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>{msg.message}</p>
-                    </div>
-                  )) : (
-                    <p style={{ color: 'var(--txt-mut)', fontSize: '0.82rem', margin: 0 }}>Ask ATLAS for hints, debugging help, or explanations.</p>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Ask ATLAS Tutor…"
-                    style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem', outline: 'none' }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendTutorChat() } }}
-                  />
-                  <button
-                    onClick={sendTutorChat}
-                    disabled={chatBusy}
-                    style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--violet), var(--photon))', color: '#050608', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', opacity: chatBusy ? 0.7 : 1 }}
-                  >
-                    {chatBusy ? '…' : 'Send'}
-                  </button>
-                </div>
-              </div>
             </>
           ) : (
             <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 16 }}>

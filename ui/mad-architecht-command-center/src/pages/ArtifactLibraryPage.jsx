@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Copy, FileText, FolderOpen, Sparkles, Trash2 } from 'lucide-react'
+import { api } from '../api/client'
 
 const STORAGE_KEY = 'mammoth_artifact_library_v1'
 
@@ -30,18 +31,48 @@ function formatStamp(value) {
 
 export default function ArtifactLibraryPage() {
   const [items, setItems] = useState(() => loadArtifacts())
+  const [source, setSource] = useState('local')
 
   const sorted = useMemo(
     () => [...items].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)),
     [items],
   )
 
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await api('/workspace/artifacts')
+        if (Array.isArray(data?.artifacts)) {
+          setItems(data.artifacts)
+          setSource('backend')
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(data.artifacts))
+          return
+        }
+      } catch {
+        // keep local fallback
+      }
+      setSource('local')
+      setItems(loadArtifacts())
+    }
+    load()
+  }, [])
+
   const removeItem = (id) => {
-    setItems((prev) => {
+    const applyLocalRemove = () => setItems((prev) => {
       const next = prev.filter((item) => item.id !== id)
       localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
       return next
     })
+    if (source !== 'backend') {
+      applyLocalRemove()
+      return
+    }
+    api(`/workspace/artifacts/${encodeURIComponent(id)}`, { method: 'DELETE' })
+      .then(() => applyLocalRemove())
+      .catch(() => {
+        setSource('local')
+        applyLocalRemove()
+      })
   }
 
   const copySnippet = async (text) => {
@@ -61,13 +92,19 @@ export default function ArtifactLibraryPage() {
             Artifact Index
           </div>
           <h1 style={{ margin: 0, fontSize: '1.5rem', color: 'var(--txt-pri)' }}>Saved reports & outputs</h1>
+          <p style={{ margin: '8px 0 0', fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+            Source: {source}
+          </p>
         </div>
         <button
-          type="button"
-          onClick={() => {
-            setItems([])
-            localStorage.setItem(STORAGE_KEY, JSON.stringify([]))
-          }}
+        type="button"
+        onClick={() => {
+          setItems([])
+          localStorage.setItem(STORAGE_KEY, JSON.stringify([]))
+          if (source === 'backend') {
+            api('/workspace/artifacts', { method: 'DELETE' }).catch(() => {})
+          }
+        }}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer' }}
         >
           <Trash2 size={14} /> Clear library

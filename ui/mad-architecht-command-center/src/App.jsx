@@ -467,26 +467,38 @@ function writeFabHidden(surfaceKey, hidden) {
   }
 }
 
-function persistArtifactRecord(entry) {
+async function persistArtifactRecord(entry) {
   if (!entry || typeof window === 'undefined') return
+  const item = {
+    id: entry.id || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    created_at: entry.created_at || new Date().toISOString(),
+    title: entry.title || 'Saved artifact',
+    summary: entry.summary || 'Saved from MammothOS workspace.',
+    body: entry.body || '',
+    path: entry.path || '',
+    source: entry.source || 'workspace',
+    format: entry.format || 'txt',
+    meta: entry.meta && typeof entry.meta === 'object' ? entry.meta : {},
+  }
+  if (!item.body) return
   try {
-    const raw = localStorage.getItem('mammoth_artifact_library_v1')
-    const existing = raw ? JSON.parse(raw) : []
-    const next = Array.isArray(existing) ? existing : []
-    const item = {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      created_at: new Date().toISOString(),
-      title: entry.title || 'Saved artifact',
-      summary: entry.summary || 'Saved from MammothOS workspace.',
-      body: entry.body || '',
-      path: entry.path || '',
-      source: entry.source || 'workspace',
-      format: entry.format || 'txt',
-    }
-    localStorage.setItem('mammoth_artifact_library_v1', JSON.stringify([item, ...next].slice(0, 30)))
+    await api('/workspace/artifacts', {
+      method: 'POST',
+      body: item,
+    })
+    localStorage.removeItem('mammoth_artifact_library_v1')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[artifact-library] Failed to persist record: ${message}`)
+    console.warn(`[artifact-library] Backend persist failed, using local cache: ${message}`)
+    try {
+      const raw = localStorage.getItem('mammoth_artifact_library_v1')
+      const existing = raw ? JSON.parse(raw) : []
+      const next = Array.isArray(existing) ? existing : []
+      localStorage.setItem('mammoth_artifact_library_v1', JSON.stringify([item, ...next].slice(0, 30)))
+    } catch (storageError) {
+      const storageMessage = storageError instanceof Error ? storageError.message : String(storageError)
+      console.warn(`[artifact-library] Local cache persist failed: ${storageMessage}`)
+    }
   }
 }
 
@@ -591,7 +603,7 @@ function AtlasFAB({ currentPage, isMobile = false }) {
           approval_mode: false,
         },
       })
-      persistArtifactRecord({
+      await persistArtifactRecord({
         title: `${fabLabel} report`,
         summary: `Saved ${ext.toUpperCase()} report from ${currentPage}.`,
         body: message,

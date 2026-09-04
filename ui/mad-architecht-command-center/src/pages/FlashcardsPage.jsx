@@ -10,6 +10,19 @@ const SAMPLE_CARDS = [
   { q: 'What does the box-sizing: border-box CSS property do?', a: 'Makes padding and border included in the element\'s total width and height, preventing unexpected layout overflow.' },
 ]
 
+function normalizeCard(raw, index) {
+  if (!raw || typeof raw !== 'object') return null
+  const q = String(raw.q || raw.front || raw.question || '').trim()
+  const a = String(raw.a || raw.back || raw.answer || '').trim()
+  if (!q || !a) return null
+  return {
+    id: String(raw.id || `card-${index + 1}`),
+    q,
+    a,
+    source: raw.source && typeof raw.source === 'object' ? raw.source : null,
+  }
+}
+
 export default function FlashcardsPage() {
   const [cards, setCards] = useState(SAMPLE_CARDS)
   const [index, setIndex] = useState(0)
@@ -29,7 +42,11 @@ export default function FlashcardsPage() {
     setLoadError('')
     api('/flashcards')
       .then(data => {
-        if (Array.isArray(data?.cards) && data.cards.length > 0) setCards(data.cards)
+        if (!Array.isArray(data?.cards)) return
+        const normalized = data.cards
+          .map((card, index) => normalizeCard(card, index))
+          .filter(Boolean)
+        if (normalized.length > 0) setCards(normalized)
       })
       .catch(err => {
         setLoadError(err instanceof Error ? err.message : 'Could not load flashcards from the backend.')

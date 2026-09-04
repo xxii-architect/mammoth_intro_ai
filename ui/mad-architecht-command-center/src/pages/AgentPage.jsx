@@ -285,6 +285,20 @@ export default function AgentPage({ setPage }) {
     } catch (_) {}
   }
 
+  const refreshRunHistory = async () => {
+    try {
+      const data = await api('/workspace/run-history')
+      const entries = Array.isArray(data?.entries) ? data.entries : []
+      setRunHistory(entries.slice(-20))
+      safeStorageSet('mammoth_run_history', JSON.stringify(entries.slice(-20)))
+    } catch (_) {
+      try {
+        const raw = safeStorageGet('mammoth_run_history')
+        setRunHistory(raw ? JSON.parse(raw) : [])
+      } catch (_) {}
+    }
+  }
+
   const approveApproval = async (approvalId) => {
     try {
       await api(`/approvals/${approvalId}/approve`, { method: 'POST' })
@@ -315,6 +329,7 @@ export default function AgentPage({ setPage }) {
     refreshApprovals()
     refreshSnapshots()
     refreshAutonomousRuns()
+    refreshRunHistory()
     const t = setInterval(() => {
       refreshAgents()
       refreshTimeline()
@@ -373,12 +388,22 @@ export default function AgentPage({ setPage }) {
     setPrompt(entry.prompt)
   }
 
-  const persistRunHistory = (entries) => {
-    setRunHistory(entries)
-    safeStorageSet('mammoth_run_history', JSON.stringify(entries))
+  const persistRunHistory = async (entries) => {
+    const normalized = Array.isArray(entries) ? entries.slice(-20) : []
+    setRunHistory(normalized)
+    safeStorageSet('mammoth_run_history', JSON.stringify(normalized))
+    try {
+      await api('/workspace/run-history', { method: 'DELETE' })
+      await Promise.all(
+        normalized.map(entry =>
+          // preserve ids/timestamps when syncing the local list to backend
+          api('/workspace/run-history', { method: 'POST', body: entry }),
+        ),
+      )
+    } catch (_) {}
   }
 
-  const addRunHistoryEntry = (res, currentPrompt, currentAgent, currentIntent, extras = {}) => {
+  const addRunHistoryEntry = async (res, currentPrompt, currentAgent, currentIntent, extras = {}) => {
     const entry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       created_at: new Date().toISOString(),
@@ -392,11 +417,18 @@ export default function AgentPage({ setPage }) {
       runtime_model: res?.model || null,
       ...extras,
     }
+    let nextEntries = []
     setRunHistory(prev => {
       const next = [...prev, entry].slice(-20)
+      nextEntries = next
       safeStorageSet('mammoth_run_history', JSON.stringify(next))
       return next
     })
+    try {
+      await api('/workspace/run-history', { method: 'POST', body: entry })
+    } catch (_) {
+      safeStorageSet('mammoth_run_history', JSON.stringify(nextEntries))
+    }
   }
 
   const replayHistoryEntry = (entry) => {
@@ -425,10 +457,10 @@ export default function AgentPage({ setPage }) {
     setPrompt(run.objective || '')
   }
 
-  const clearRunHistory = () => {
+  const clearRunHistory = async () => {
     setCodingArtifact(null)
     setResearchArtifact(null)
-    persistRunHistory([])
+    await persistRunHistory([])
   }
 
   const run = async () => {
@@ -450,7 +482,7 @@ export default function AgentPage({ setPage }) {
       setCodingArtifact(artifact)
       setResearchArtifact(research)
       if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
-      addRunHistoryEntry(res, prompt, selectedAgent, intent, {
+      await addRunHistoryEntry(res, prompt, selectedAgent, intent, {
         execution_mode: 'single',
         coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
         coding_artifact: artifact,
@@ -507,7 +539,7 @@ export default function AgentPage({ setPage }) {
       setCodingArtifact(artifact)
       setResearchArtifact(research)
       setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile, coding_intent: res.coding_intent || codingIntent })
-      addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
+      await addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
         execution_mode: 'plan',
         plan_profile: res.plan_profile || planProfile,
         coding_intent: res.coding_intent || codingIntent,

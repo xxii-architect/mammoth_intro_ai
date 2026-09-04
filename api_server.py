@@ -5017,6 +5017,8 @@ def _load_atlas_state() -> Dict[str, Any]:
                     normalized_aids.append(aid)
             state["study_aids"] = normalized_aids[-120:]
             _ensure_account_collections(state)
+            state["workspace_artifacts"] = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+            state["agent_run_history"] = _normalize_agent_run_history_collection(state.get("agent_run_history"))
             _sync_resume_packet(state)
             return state
         except Exception:
@@ -5051,6 +5053,8 @@ _ACCOUNT_SESSION_KEYS = (
     "study_aids",
     "learner_profile",
     "fab_usage_events",
+    "workspace_artifacts",
+    "agent_run_history",
     "plan_history",
     "active_plan",
     "eval_history",
@@ -5219,6 +5223,81 @@ def _persist_active_account_collections(state: Dict[str, Any]) -> Dict[str, Any]
     state["session_scope"] = "workspace_multi_account"
     state["user_id"] = _atlas_user_id(state)
     return state
+
+
+def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    created_at = str(raw.get("created_at") or now or datetime.now(timezone.utc).isoformat())
+    artifact_id = str(raw.get("id") or "").strip() or f"artifact-{uuid.uuid4().hex[:12]}"
+    title = str(raw.get("title") or "").strip() or "Saved artifact"
+    summary = str(raw.get("summary") or "").strip() or "Saved from MammothOS workspace."
+    body = str(raw.get("body") or "").strip()
+    if not body:
+        return None
+    return {
+        "id": artifact_id,
+        "created_at": created_at,
+        "title": title,
+        "summary": summary,
+        "body": body,
+        "path": str(raw.get("path") or "").strip(),
+        "source": str(raw.get("source") or "workspace").strip() or "workspace",
+        "format": str(raw.get("format") or "txt").strip().lower() or "txt",
+        "meta": raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
+    }
+
+
+def _normalize_workspace_artifact_collection(raw_items: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_items, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for raw in raw_items:
+        item = _normalize_workspace_artifact_record(raw)
+        if not item:
+            continue
+        if item["id"] in seen_ids:
+            continue
+        seen_ids.add(item["id"])
+        normalized.append(item)
+    normalized.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return normalized[:120]
+
+
+def _normalize_agent_run_history_entry(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    created_at = str(raw.get("created_at") or now or datetime.now(timezone.utc).isoformat())
+    run_id = str(raw.get("id") or "").strip() or f"run-{uuid.uuid4().hex[:12]}"
+    prompt = str(raw.get("prompt") or "").strip()
+    if not prompt:
+        return None
+    entry = dict(raw)
+    entry["id"] = run_id
+    entry["created_at"] = created_at
+    entry["status"] = str(raw.get("status") or "unknown").strip().lower() or "unknown"
+    entry["agent_id"] = str(raw.get("agent_id") or "agent").strip() or "agent"
+    entry["intent"] = str(raw.get("intent") or "run").strip() or "run"
+    entry["prompt"] = prompt
+    return entry
+
+
+def _normalize_agent_run_history_collection(raw_items: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_items, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for raw in raw_items:
+        item = _normalize_agent_run_history_entry(raw)
+        if not item:
+            continue
+        if item["id"] in seen_ids:
+            continue
+        seen_ids.add(item["id"])
+        normalized.append(item)
+    normalized.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return normalized[:160]
 
 
 def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
@@ -5411,16 +5490,27 @@ def _build_lesson_review(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _append_study_aid(state: Dict[str, Any], aid_type: str, data: Any):
+def _append_study_aid(
+    state: Dict[str, Any],
+    aid_type: str,
+    data: Any,
+    *,
+    lesson_id: Optional[str] = None,
+    lesson_title: Optional[str] = None,
+):
     aids = state.get("study_aids") or []
     if not isinstance(aids, list):
         aids = []
     lesson = state.get("current_lesson") or {}
+    resolved_lesson_id = str(lesson_id or state.get("lesson_id") or lesson.get("lesson_id") or "").strip()
+    resolved_lesson_title = str(
+        lesson_title or lesson.get("title") or lesson.get("lesson_title") or ""
+    ).strip()
     aids.append({
         "id": str(uuid.uuid4()),
         "type": str(aid_type or "unknown"),
-        "lesson_id": state.get("lesson_id") or lesson.get("lesson_id"),
-        "lesson_title": lesson.get("title") or lesson.get("lesson_title"),
+        "lesson_id": resolved_lesson_id,
+        "lesson_title": resolved_lesson_title,
         "data": data,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
@@ -5536,6 +5626,101 @@ def _build_lesson_flashcards(state: Dict[str, Any]) -> List[Dict[str, str]]:
         })
 
     return cards[:6]
+
+
+def _normalize_flashcard_item(raw: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        return {
+            "front": text,
+            "back": "Recall the concept in your own words, then verify against lesson notes.",
+            "source": None,
+        }
+    if not isinstance(raw, dict):
+        return None
+    front = str(raw.get("front") or raw.get("q") or raw.get("question") or "").strip()
+    back = str(raw.get("back") or raw.get("a") or raw.get("answer") or "").strip()
+    if not front or not back:
+        return None
+    source = raw.get("source")
+    if isinstance(source, dict):
+        normalized_source = {
+            "title": str(source.get("title") or "").strip(),
+            "url": str(source.get("url") or "").strip(),
+        }
+        if not normalized_source["title"] and not normalized_source["url"]:
+            source = None
+        else:
+            source = normalized_source
+    else:
+        source = None
+    return {"front": front, "back": back, "source": source}
+
+
+def _normalize_flashcard_list(raw_cards: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_cards, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for card in raw_cards:
+        item = _normalize_flashcard_item(card)
+        if item:
+            normalized.append(item)
+    return normalized
+
+
+def _latest_stored_flashcards(state: Dict[str, Any], *, limit: int = 12) -> List[Dict[str, Any]]:
+    aids = state.get("study_aids") or []
+    if not isinstance(aids, list):
+        return []
+    cards: List[Dict[str, Any]] = []
+    for raw in reversed(aids):
+        if not isinstance(raw, dict):
+            continue
+        aid_type = str(raw.get("type") or "").strip().lower()
+        if aid_type != "flashcards":
+            continue
+        data = raw.get("data")
+        if isinstance(data, dict) and isinstance(data.get("cards"), list):
+            source_cards = data.get("cards")
+        elif isinstance(data, list):
+            source_cards = data
+        else:
+            source_cards = []
+        for card in source_cards:
+            item = _normalize_flashcard_item(card)
+            if not item:
+                continue
+            cards.append(item)
+            if len(cards) >= limit:
+                return cards
+    return cards
+
+
+def _flashcards_to_ui_cards(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    seen = set()
+    for index, card in enumerate(cards, start=1):
+        front = str(card.get("front") or "").strip()
+        back = str(card.get("back") or "").strip()
+        if not front or not back:
+            continue
+        dedupe_key = front.lower()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        normalized.append(
+            {
+                "id": str(card.get("id") or f"card-{index}"),
+                "q": front,
+                "a": back,
+                "front": front,
+                "back": back,
+                "source": card.get("source") if isinstance(card.get("source"), dict) else None,
+            }
+        )
+    return normalized
 
 
 def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> List[Dict[str, Any]]:
@@ -6421,6 +6606,64 @@ async def atlas_flashcards():
     _append_study_aid(state, "flashcards", flashcards)
     _save_atlas_state(state)
     return {"status": "ok", "flashcards": flashcards}
+
+
+@app.get("/api/flashcards")
+async def get_flashcards():
+    state = _load_atlas_state()
+    lesson_id = str(state.get("lesson_id") or "").strip()
+    lesson_cards = _flashcards_for_lesson(state, lesson_id) if lesson_id else []
+    stored_cards = _latest_stored_flashcards(state, limit=12)
+    cards = lesson_cards or stored_cards or _build_lesson_flashcards(state)
+    ui_cards = _flashcards_to_ui_cards(cards)
+    topic = str(state.get("topic") or (state.get("current_lesson") or {}).get("title") or "").strip()
+    return {
+        "status": "ok",
+        "cards": ui_cards,
+        "lesson_id": lesson_id or None,
+        "topic": topic or None,
+    }
+
+
+@app.post("/api/flashcards")
+async def create_flashcards(body: Dict[str, Any]):
+    cards_input = body.get("cards")
+    normalized_cards = _normalize_flashcard_list(cards_input)
+    if not normalized_cards:
+        return JSONResponse(
+            {"status": "error", "error": "cards must include at least one item with front/back (or q/a)."},
+            status_code=400,
+        )
+
+    state = _load_atlas_state()
+    lesson_id = str(body.get("lesson_id") or state.get("lesson_id") or "").strip()
+    topic = str(
+        body.get("topic")
+        or body.get("lesson_title")
+        or (state.get("current_lesson") or {}).get("title")
+        or state.get("topic")
+        or ""
+    ).strip()
+    payload = {
+        "cards": normalized_cards,
+        "topic": topic,
+        "generated_by": str(body.get("generated_by") or "atlas").strip() or "atlas",
+    }
+    _append_study_aid(
+        state,
+        "flashcards",
+        payload,
+        lesson_id=lesson_id,
+        lesson_title=topic,
+    )
+    _save_atlas_state(state)
+    return {
+        "status": "ok",
+        "count": len(normalized_cards),
+        "cards": _flashcards_to_ui_cards(normalized_cards),
+        "lesson_id": lesson_id or None,
+        "topic": topic or None,
+    }
 
 
 @app.post("/api/atlas/plan")
@@ -7979,6 +8222,106 @@ async def delete_mammoth_chat_history():
     )
 
     return {"status": "ok", "deleted_messages": deleted_messages}
+
+
+@app.get("/api/workspace/artifacts")
+async def list_workspace_artifacts():
+    state = _load_atlas_state()
+    artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+    if artifacts != state.get("workspace_artifacts"):
+        state["workspace_artifacts"] = artifacts
+        _save_atlas_state(state)
+    return {"status": "ok", "artifacts": artifacts}
+
+
+@app.post("/api/workspace/artifacts")
+async def create_workspace_artifact(body: Dict[str, Any]):
+    artifact = _normalize_workspace_artifact_record(body)
+    if not artifact:
+        return JSONResponse(
+            {"status": "error", "error": "artifact body is required and must include non-empty text content."},
+            status_code=400,
+        )
+    state = _load_atlas_state()
+    artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+    artifacts = [item for item in artifacts if item.get("id") != artifact["id"]]
+    artifacts.insert(0, artifact)
+    state["workspace_artifacts"] = artifacts[:120]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "artifact": artifact}
+
+
+@app.delete("/api/workspace/artifacts/{artifact_id}")
+async def delete_workspace_artifact(artifact_id: str):
+    state = _load_atlas_state()
+    artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+    remaining = [item for item in artifacts if str(item.get("id") or "") != str(artifact_id or "")]
+    deleted = len(remaining) != len(artifacts)
+    state["workspace_artifacts"] = remaining
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "deleted": artifact_id, "removed": deleted}
+
+
+@app.delete("/api/workspace/artifacts")
+async def clear_workspace_artifacts():
+    state = _load_atlas_state()
+    count = len(_normalize_workspace_artifact_collection(state.get("workspace_artifacts")))
+    state["workspace_artifacts"] = []
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "cleared": count}
+
+
+@app.get("/api/workspace/run-history")
+async def list_workspace_run_history():
+    state = _load_atlas_state()
+    entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
+    if entries != state.get("agent_run_history"):
+        state["agent_run_history"] = entries
+        _save_atlas_state(state)
+    return {"status": "ok", "entries": entries}
+
+
+@app.post("/api/workspace/run-history")
+async def upsert_workspace_run_history_entry(body: Dict[str, Any]):
+    entry = _normalize_agent_run_history_entry(body)
+    if not entry:
+        return JSONResponse(
+            {"status": "error", "error": "run history entry requires a non-empty prompt."},
+            status_code=400,
+        )
+    state = _load_atlas_state()
+    entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
+    entries = [item for item in entries if item.get("id") != entry["id"]]
+    entries.insert(0, entry)
+    state["agent_run_history"] = entries[:160]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "entry": entry}
+
+
+@app.delete("/api/workspace/run-history/{entry_id}")
+async def delete_workspace_run_history_entry(entry_id: str):
+    state = _load_atlas_state()
+    entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
+    remaining = [item for item in entries if str(item.get("id") or "") != str(entry_id or "")]
+    deleted = len(remaining) != len(entries)
+    state["agent_run_history"] = remaining
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "deleted": entry_id, "removed": deleted}
+
+
+@app.delete("/api/workspace/run-history")
+async def clear_workspace_run_history():
+    state = _load_atlas_state()
+    count = len(_normalize_agent_run_history_collection(state.get("agent_run_history")))
+    state["agent_run_history"] = []
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "cleared": count}
 
 
 
