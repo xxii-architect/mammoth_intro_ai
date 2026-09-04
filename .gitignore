@@ -67,3 +67,13 @@ COMPLETION_CHECKLIST.md
 IMPLEMENTATION_SUMMARY.md
 PROVENANCE_QUICK_REFERENCE.md
 TEAM_WORKFLOWS_QUICKSTART.md
+
+# MammothOS runtime/generated local data
+.mammoth/chat_threads/
+.mammoth/uploads/
+.mammoth/atlas_files/
+.mammoth/atlas_state/
+
+# Local Python environments
+venv/
+.venv/
