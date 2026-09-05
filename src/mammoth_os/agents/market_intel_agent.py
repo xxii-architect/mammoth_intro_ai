@@ -152,6 +152,7 @@ class MarketIntelAgent(BaseAgent):
             f"{SYSTEM_PROMPT}\n\n{user_message}",
             max_tokens=2800,
             temperature=0.35,
+            response_format={"type": "json_object"},
         )
         parsed = self._extract_json(raw)
         trends = parsed.get("key_trends", [])

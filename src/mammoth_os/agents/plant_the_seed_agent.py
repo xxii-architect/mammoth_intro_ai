@@ -128,6 +128,7 @@ class PlantTheSeedAgent(BaseAgent):
             f"{SYSTEM_PROMPT}\n\n{user_message}",
             max_tokens=2500,
             temperature=0.4,
+            response_format={"type": "json_object"},
         )
         parsed = self._extract_json(raw)
         steps = parsed.get("validation_steps", [])

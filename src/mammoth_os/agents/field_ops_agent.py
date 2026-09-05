@@ -110,6 +110,7 @@ class FieldOpsAgent(BaseAgent):
             f"{SYSTEM_PROMPT}\n\n{user_message}",
             max_tokens=2048,
             temperature=0.3,
+            response_format={"type": "json_object"},
         )
         parsed = self._extract_json(raw)
         priorities = parsed.get("priorities", [])

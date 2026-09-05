@@ -48,7 +48,7 @@ class OpenAIAdapter:
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
             }
-            for k in ("temperature", "max_tokens"):
+            for k in ("temperature", "max_tokens", "response_format"):
                 if k in kwargs:
                     params[k] = kwargs[k]
             return client.chat.completions.create(**params)
@@ -58,7 +58,7 @@ class OpenAIAdapter:
         except asyncio.TimeoutError:
             raise RuntimeError(f"OpenAI generate timed out after {timeout}s")
 
-        return resp.choices[0].message.content
+        return resp.choices[0].message.content or ""
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
         client = self._ensure_client()
