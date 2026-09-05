@@ -157,6 +157,9 @@ class FieldOpsAgent(BaseAgent):
     @staticmethod
     def _extract_json(raw: str) -> Dict[str, Any]:
         text = str(raw or "").strip()
+        # Strip markdown code fences (deepseek wraps JSON in ```json...```)
+        import re as _re
+        text = _re.sub(r"```(?:json)?\s*", "", text).strip()
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
