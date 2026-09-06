@@ -88,6 +88,8 @@ Respond in this exact JSON structure:
   "verdict_rationale": "2-3 sentences — why this verdict, what's the biggest risk, what's the biggest opportunity"
 }
 
+CRITICAL: The validation_steps array MUST contain between 3 and 5 items. Never leave it empty.
+The hypothesis field MUST be specific to the idea described in this prompt — never reference any other business ideas or prior context.
 Return ONLY the JSON. No preamble. No explanation outside the JSON.
 """
 
@@ -123,10 +125,17 @@ class PlantTheSeedAgent(BaseAgent):
         context_block = ""
         if context:
             context_block = f"\n\nAdditional context:\n{json.dumps(context, indent=2)}"
-        user_message = f"Seed idea to validate: {prompt_text}{context_block}"
+        # Always build a fresh message scoped only to this prompt
+        context_block = ""
+        user_message = (
+            f"Seed idea to validate: {prompt_text}\n\n"
+            "IMPORTANT: Your entire response must be about THIS specific idea only. "
+            "Do not reference any other business ideas or prior context."
+        )
         raw = await client.generate(
-            f"{SYSTEM_PROMPT}\n\n{user_message}",
-            max_tokens=2500,
+            user_message,
+            system_prompt=SYSTEM_PROMPT,
+            max_tokens=3500,
             temperature=0.4,
         )
         parsed = self._extract_json(raw)

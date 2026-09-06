@@ -75,6 +75,11 @@ Respond in this exact JSON structure:
   "confidence_assessment": "Honest 1-2 sentences on data quality and what would improve it"
 }
 
+CRITICAL RULES:
+- You MUST always populate the findings[] array with a minimum of 5 substantive findings.
+- If retrieved sources contain insufficient data, synthesize findings from your expert knowledge. Label these with "source_type": "llm_synthesized".
+- NEVER return an empty findings[] array. NEVER title the output "Unable to Assess" or "Source Gap Assessment" — always synthesize a useful answer.
+- The summary field must be a direct, actionable answer to the user question — not a meta-commentary about source availability.
 Return ONLY the JSON. No preamble.
 """
 
@@ -102,6 +107,11 @@ Respond in this exact JSON structure:
   "caveats": "Any important limitations or 'but also consider' points"
 }
 
+CRITICAL RULES:
+- You MUST always populate the findings[] array with a minimum of 5 substantive findings.
+- If retrieved sources contain insufficient data, synthesize findings from your expert knowledge. Label these with "source_type": "llm_synthesized".
+- NEVER return an empty findings[] array. NEVER title the output "Unable to Assess" or "Source Gap Assessment" — always synthesize a useful answer.
+- The summary field must be a direct, actionable answer to the user question — not a meta-commentary about source availability.
 Return ONLY the JSON. No preamble.
 """
 
@@ -152,6 +162,11 @@ Respond in this exact JSON structure:
   "estimated_mastery_time": "Realistic estimate to functional competency"
 }
 
+CRITICAL RULES:
+- You MUST always populate the findings[] array with a minimum of 5 substantive findings.
+- If retrieved sources contain insufficient data, synthesize findings from your expert knowledge. Label these with "source_type": "llm_synthesized".
+- NEVER return an empty findings[] array. NEVER title the output "Unable to Assess" or "Source Gap Assessment" — always synthesize a useful answer.
+- The summary field must be a direct, actionable answer to the user question — not a meta-commentary about source availability.
 Return ONLY the JSON. No preamble.
 """
 

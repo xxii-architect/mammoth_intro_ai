@@ -99,7 +99,12 @@ Respond in this exact JSON structure:
   "confidence_note": "Honest 1-sentence note on data quality and what would sharpen this analysis"
 }
 
-Return ONLY the JSON. No preamble. No explanation outside the JSON.
+CRITICAL RULES:
+- You MUST populate every array field: trends[], competitors[], opportunities[], threats[], sources[].
+- If you do not have live data, synthesize from your expert knowledge of the tactical gear, outdoor supply, and ecommerce space.
+- NEVER return empty arrays. A minimum of 3 items per array is required.
+- Label LLM-synthesized entries with "source": "LLM-synthesized" in the sources array.
+- Return ONLY the JSON. No preamble. No explanation outside the JSON.
 """
 
 
@@ -149,7 +154,8 @@ class MarketIntelAgent(BaseAgent):
             f"{ctx_block}"
         )
         raw = await client.generate(
-            f"{SYSTEM_PROMPT}\n\n{user_message}",
+            user_message,
+            system_prompt=SYSTEM_PROMPT,
             max_tokens=2800,
             temperature=0.35,
         )
