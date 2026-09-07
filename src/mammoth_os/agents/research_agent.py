@@ -239,7 +239,7 @@ class ResearchAgent(BaseAgent):
         raw = await client.generate(
             user_message,
             system_prompt=system,
-            max_tokens=3000,
+            max_tokens=4096,
             temperature=0.3,
             response_format={"type": "json_object"},
         )
@@ -591,9 +591,32 @@ class ResearchAgent(BaseAgent):
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
+            candidate = text[start : end + 1]
             try:
-                return json.loads(text[start : end + 1])
+                return json.loads(candidate)
             except json.JSONDecodeError:
+                pass
+            # ── truncation repair: close any unclosed arrays/objects ──────────
+            try:
+                stack = []
+                in_str = False
+                esc = False
+                for ch in candidate:
+                    if esc:
+                        esc = False; continue
+                    if ch == "\\" and in_str:
+                        esc = True; continue
+                    if ch == "\"":
+                        in_str = not in_str; continue
+                    if not in_str:
+                        if ch in "{[":
+                            stack.append("}" if ch == "{" else "]")
+                        elif ch in "}]":
+                            if stack and stack[-1] == ch:
+                                stack.pop()
+                repaired = candidate + "".join(reversed(stack))
+                return json.loads(repaired)
+            except Exception:
                 pass
         return {
             "title": "Research Output",
