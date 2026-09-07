@@ -232,13 +232,49 @@ class ResearchAgent(BaseAgent):
             f"Research query: {prompt_text}\n"
             f"{source_block}"
             f"{ctx_block}"
+            "\n\n---\nIMPORTANT: Your entire response must be a single valid JSON object."
+            " Start with {{ and end with }}. No preamble, no prose, no explanation outside the JSON."
+            " Populate findings[] with at least 5 objects each having \"heading\", \"content\", \"source_support\" keys."
         )
         raw = await client.generate(
-            f"{system}\n\n{user_message}",
+            user_message,
+            system_prompt=system,
             max_tokens=3000,
             temperature=0.3,
+            response_format={"type": "json_object"},
         )
         parsed = self._extract_json(raw)
+        # ── nested-JSON rescue: LLM sometimes returns JSON inside executive_summary ──
+        exec_val = parsed.get("executive_summary", "")
+        if isinstance(exec_val, str):
+            _es = exec_val.strip()
+            # find outermost { } in exec_val (handles leading prose)
+            _s = _es.find("{"); _e = _es.rfind("}")
+            if _s != -1 and _e > _s:
+                try:
+                    import json as _jj
+                    inner = _jj.loads(_es[_s:_e+1])
+                    if isinstance(inner, dict) and (inner.get("findings") or inner.get("executive_summary")):
+                        # fully replace parsed with inner when we have richer data
+                        if parsed.get("_raw_unparsed") or not parsed.get("findings"):
+                            parsed = inner
+                        else:
+                            for k, v in inner.items():
+                                if not parsed.get(k):
+                                    parsed[k] = v
+                except Exception:
+                    pass
+        # ── findings rescue: if LLM omitted findings[], synthesize from executive_summary ──
+        if not parsed.get("findings"):
+            exec_sum = str(parsed.get("executive_summary") or "").strip()
+            key_facts = parsed.get("key_facts") or []
+            if exec_sum or key_facts:
+                synth = []
+                if exec_sum:
+                    synth.append({"claim": exec_sum[:500], "source_type": "llm_synthesized", "source_ref": "S0"})
+                for i, kf in enumerate(key_facts[:4], 1):
+                    synth.append({"claim": str(kf)[:300], "source_type": "llm_synthesized", "source_ref": f"S{i}"})
+                parsed["findings"] = synth
         normalized_sources = self._normalize_sources(top_sources)
         confidence = round(
             min(0.95,
@@ -389,40 +425,44 @@ class ResearchAgent(BaseAgent):
         return results, None
 
     def _fetch_duckduckgo(self, query: str) -> Tuple[List[Dict], Optional[str]]:
+        """Scrape DuckDuckGo HTML search — no API key, returns real results."""
+        import re as _re
+        import hashlib as _hash
         results: List[Dict] = []
         try:
             encoded_q = urllib.parse.quote(query[:140])
-            url = (
-                f"https://api.duckduckgo.com/?q={encoded_q}"
-                "&format=json&no_html=1&skip_disambig=1"
-            )
+            url = f"https://html.duckduckgo.com/html/?q={encoded_q}"
             req = urllib.request.Request(
                 url,
-                headers={"User-Agent": "MammothOS/1.0 ResearchAgent (research)"},
+                headers={
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Accept-Encoding": "identity",
+                },
             )
-            with urllib.request.urlopen(req, timeout=6) as resp:
-                payload = json.loads(resp.read().decode("utf-8", errors="replace"))
-            abstract = str(payload.get("AbstractText") or "").strip()
-            if abstract:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                html = resp.read().decode("utf-8", errors="replace")
+            # Parse result titles, snippets, and urls from DDG HTML response
+            titles   = _re.findall(r'class="result__a"[^>]*>([^<]{5,200})</', html)
+            # Snippets may contain inner tags (<b> etc) — capture full innerHTML then strip
+            raw_snips = _re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', html, _re.DOTALL)
+            snippets  = [_re.sub(r'<[^>]+>', '', s).strip() for s in raw_snips]
+            url_hits  = _re.findall(r'class="result__url"[^>]*>\s*([^\s<]{5,200})\s*</', html)
+            for i, snippet in enumerate(snippets[:5]):
+                snippet = snippet.strip()
+                if not snippet or len(snippet) < 15:
+                    continue
+                title    = (titles[i].strip()    if i < len(titles)   else query[:60])
+                url_hint = (url_hits[i].strip()  if i < len(url_hits) else "")
                 results.append({
-                    "id": f"ddg-{hashlib.md5(abstract[:50].encode()).hexdigest()[:8]}",
-                    "title": str(payload.get("Heading") or query[:60]),
-                    "snippet": abstract[:700],
+                    "id": f"ddg-{_hash.md5(snippet[:50].encode()).hexdigest()[:8]}",
+                    "title": title[:120],
+                    "snippet": snippet[:600],
                     "source": "DuckDuckGo",
-                    "url": str(payload.get("AbstractURL") or ""),
+                    "url": url_hint,
                     "relevance_score": 0.0,
                 })
-            for topic in (payload.get("RelatedTopics") or [])[:3]:
-                text = str(topic.get("Text") or "").strip()
-                if text and len(text) > 40:
-                    results.append({
-                        "id": f"ddg-{hashlib.md5(text[:50].encode()).hexdigest()[:8]}",
-                        "title": "Related: " + text[:60],
-                        "snippet": text[:400],
-                        "source": "DuckDuckGo Related",
-                        "url": str(topic.get("FirstURL") or ""),
-                        "relevance_score": 0.0,
-                    })
         except Exception as exc:
             return results, f"duckduckgo: {exc}"
         return results, None
@@ -521,7 +561,23 @@ class ResearchAgent(BaseAgent):
             intent = str(prompt.get("intent") or prompt.get("mode") or "research").strip()
             ctx = prompt.get("context") or {}
         else:
-            text = str(prompt or "").strip()
+            text_raw = str(prompt or "").strip()
+            # ── try JSON-string payload unwrap ────────────────────────────────
+            if text_raw.startswith("{"):
+                try:
+                    import json as _jj
+                    d = _jj.loads(text_raw)
+                    if isinstance(d, dict):
+                        text = str(
+                            d.get("query") or d.get("topic") or d.get("prompt") or
+                            d.get("task") or d.get("content") or ""
+                        ).strip()
+                        intent = str(d.get("intent") or d.get("mode") or "research").strip()
+                        ctx = d.get("context") or {}
+                        return text or text_raw, intent, ctx
+                except Exception:
+                    pass
+            text = text_raw
             intent = "research"
             ctx = {}
         return text, intent, ctx
@@ -541,7 +597,8 @@ class ResearchAgent(BaseAgent):
                 pass
         return {
             "title": "Research Output",
-            "executive_summary": text[:500] if text else "Unable to parse LLM response.",
+            "executive_summary": text if text else "Unable to parse LLM response.",
+            "_raw_unparsed": True,
             "findings": [],
             "key_facts": [],
             "key_points": [],

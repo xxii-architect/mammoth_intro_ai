@@ -107,7 +107,8 @@ class FieldOpsAgent(BaseAgent):
             context_block = f"\n\nAdditional context provided:\n{json.dumps(context, indent=2)}"
         user_message = f"Field ops query: {prompt_text}{context_block}"
         raw = await client.generate(
-            f"{SYSTEM_PROMPT}\n\n{user_message}",
+            user_message,
+            system_prompt=SYSTEM_PROMPT,
             max_tokens=2048,
             temperature=0.3,
         )

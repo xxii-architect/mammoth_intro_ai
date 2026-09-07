@@ -1,17 +1,42 @@
 """
-Mammoth OS — BrandVoiceAgent
-Applies the True XXII Supply brand voice: rugged, empowering, outdoors-minded,
-and grounded in the 'Plant the Seed' philosophy and survival aesthetic.
+Mammoth OS — BrandVoiceAgent (P16: LLM-powered)
+Rewrites / generates content in the True XXII Supply brand voice via LLM synthesis.
 """
-
-from typing import Dict, Any, Optional
+from __future__ import annotations
+import json
+import logging
+from typing import Any, Dict, List, Optional
 from .base_agent import BaseAgent
+
+logger = logging.getLogger("mammoth.agents.brand_voice")
+
+BRAND_VOICE_SYSTEM = """You are the brand voice engine for True XXII Supply, a Boise Idaho tactical/outdoor gear company.
+
+True XXII Supply identity:
+- Voice: rugged, direct, empowering — a seasoned operator talking to a peer, not a marketer
+- Philosophy: "Plant the Seed" — small daily actions compound into real capability and resilience  
+- Core energy: "Don't get caught running with scissors. Stand your ground. Build your skills. Feel more alive than ever."
+- Audience: outdoor operators, EDC enthusiasts, Boise/Idaho community, preppers, hunters, hikers
+- Tone range: rugged (default), motivational, calm — never corporate, never fluffy, never generic
+
+Mode instructions:
+- rewrite: Rewrite provided content in True XXII voice. Keep the core message, transform the delivery completely.
+- tagline: One sharp memorable tagline. Short. Punchy. Operator energy.
+- caption: Social media caption. Hook first. Plant the Seed philosophy woven in naturally.
+- stakeholder_summary: Business stakeholder summary. Clear, confident, grounded — zero corporate fluff.
+- tutorial_copy: Instructional copy that feels like a skilled operator guiding a peer, not a dry manual.
+- rewrite_with_constraints: Rewrite with supplied constraints honored exactly — no exceptions.
+
+Respond in this exact JSON structure — no preamble, no explanation outside the JSON:
+{
+  "output": "The rewritten or generated content — full ready-to-use copy, not a placeholder",
+  "summary": "One sentence: what changed and why it lands for the True XXII audience",
+  "tone_notes": "Brief note on the specific tone choices made"
+}"""
 
 
 class BrandVoiceAgent(BaseAgent):
-    """
-    Rewrites or generates content in the True XXII Supply brand voice.
-    """
+    """Rewrites or generates content in the True XXII Supply brand voice."""
 
     def __init__(self, router: Optional[Any] = None, user_id: str | None = None):
         if isinstance(router, str) and user_id is None:
@@ -21,142 +46,92 @@ class BrandVoiceAgent(BaseAgent):
         self.user_id = user_id
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Expected payload:
-        {
-            "content": "text to rewrite",
-            "mode": "rewrite" | "tagline" | "caption" | "stakeholder_summary" | "tutorial_copy" | "rewrite_with_constraints",
-            "tone": "rugged" | "calm" | "motivational",
-            "audience": "stakeholder" | "learner" | "operator",
-            "constraints": ["..."],
-            "output_format": "markdown" | "plain"
-        }
-        """
         if not isinstance(payload, dict):
             payload = {"content": str(payload or ""), "mode": "rewrite", "tone": "rugged"}
 
-        content = str(payload.get("content") or payload.get("prompt") or payload.get("text") or "").strip()
-        mode = str(payload.get("mode", "rewrite") or "rewrite").strip()
-        tone = str(payload.get("tone", "rugged") or "rugged").strip()
-        audience = str(payload.get("audience", "general") or "general").strip()
+        content     = str(payload.get("content") or payload.get("prompt") or payload.get("text") or "").strip()
+        mode        = str(payload.get("mode",      "rewrite") or "rewrite").strip()
+        tone        = str(payload.get("tone",      "rugged")  or "rugged").strip()
+        audience    = str(payload.get("audience",  "general") or "general").strip()
         constraints = payload.get("constraints") or []
         if not isinstance(constraints, list):
             constraints = [str(constraints)] if str(constraints).strip() else []
 
-        if mode == "tagline":
-            result = self._generate_tagline(content)
-        elif mode == "caption":
-            result = self._generate_caption(content, tone)
-        elif mode == "stakeholder_summary":
-            result = self._stakeholder_summary(content, audience, tone, constraints)
-        elif mode == "tutorial_copy":
-            result = self._tutorial_copy(content, audience, tone)
-        elif mode == "rewrite_with_constraints":
-            result = self._rewrite_with_constraints(content, tone, audience, constraints)
-        else:
-            result = self._rewrite(content, tone)
+        try:
+            result = self._run_async(self._llm_pipeline(content, mode, tone, audience, constraints))
+        except Exception as exc:
+            logger.warning("BrandVoiceAgent LLM failed, using template fallback: %s", exc)
+            result = {"output": self._template_fallback(content, mode, tone), "summary": "", "tone_notes": ""}
+
+        output_text  = result.get("output", "")     if isinstance(result, dict) else str(result)
+        summary_text = result.get("summary", "")    if isinstance(result, dict) else str(output_text)[:220]
+        tone_notes   = result.get("tone_notes", "") if isinstance(result, dict) else ""
 
         return {
-            "agent": "brand_voice",
-            "status": "ok",
-            "mode": mode,
-            "tone": tone,
-            "audience": audience,
-            "input": content,
-            "output": result,
-            "summary": result[:220] if isinstance(result, str) else str(result)[:220],
+            "agent":      "brand_voice",
+            "status":     "ok",
+            "mode":       mode,
+            "tone":       tone,
+            "audience":   audience,
+            "input":      content,
+            "output":     output_text,
+            "summary":    summary_text or str(output_text)[:220],
+            "tone_notes": tone_notes,
         }
 
-    def _stakeholder_summary(self, content: str, audience: str, tone: str, constraints: list[str]) -> str:
-        if not content:
-            return "No source content provided for a stakeholder summary. Add the objective, scope, and expected impact."
-        guardrail_text = "\n- Guardrails: " + "; ".join(constraints) if constraints else "\n- Guardrails: keep scope tight and preserve approval-safe workflows"
-        return (
-            f"### What changed\n{content}\n\n"
-            f"### Why it matters\nThis update strengthens the operator experience, reduces ambiguity, and keeps execution grounded in a clearer workflow.\n\n"
-            f"### Guardrails\n- Audience: {audience}\n- Tone: {tone}{guardrail_text}"
+    async def _llm_pipeline(
+        self,
+        content: str,
+        mode: str,
+        tone: str,
+        audience: str,
+        constraints: List[str],
+    ) -> Dict[str, Any]:
+        from mammoth_os.llm_client import get_llm_client
+        client = get_llm_client()
+
+        constraint_block = ""
+        if constraints:
+            constraint_block = "\n\nHard constraints (honor exactly):\n" + "\n".join(f"- {c}" for c in constraints)
+
+        user_message = (
+            f"Mode: {mode}\n"
+            f"Tone: {tone}\n"
+            f"Audience: {audience}\n"
+            f"Content to process:\n{content or '(none provided — generate a representative sample for the given mode)'}"
+            f"{constraint_block}"
         )
-
-    def _tutorial_copy(self, content: str, audience: str, tone: str) -> str:
-        if not content:
-            return "Tutorial copy is ready once the task, user path, and expected actions are provided."
-        return (
-            f"### {audience.title()} walkthrough\n"
-            f"{content}\n\n"
-            f"1. Start with the goal and keep scope clear.\n"
-            f"2. Use the tool that matches the task.\n"
-            f"3. Review the output before approving changes.\n"
-            f"4. Keep the workflow additive and safe."
+        raw = await client.generate(
+            user_message,
+            system_prompt=BRAND_VOICE_SYSTEM,
+            max_tokens=1200,
+            temperature=0.7,
+            response_format={"type": "json_object"},
         )
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            return parsed if isinstance(parsed, dict) else {"output": str(parsed), "summary": "", "tone_notes": ""}
+        except Exception:
+            return {"output": str(raw), "summary": str(raw)[:220], "tone_notes": ""}
 
-    def _rewrite_with_constraints(self, content: str, tone: str, audience: str, constraints: list[str]) -> str:
-        if not content:
-            return "No source content provided. Add the text you want rewritten and the constraints for the output."
-        rule_text = "; ".join(constraints) if constraints else "keep it concise and grounded"
-        return (
-            f"{content.strip()}\n\n"
-            f"Audience: {audience}. Tone: {tone}. Constraints: {rule_text}."
-        )
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError("closed")
+            return loop.run_until_complete(coro)
+        except RuntimeError:
+            return asyncio.run(coro)
 
-    # ---------------------------------------------------------
-    # INTERNAL GENERATORS
-    # ---------------------------------------------------------
-
-    def _rewrite(self, content: str, tone: str) -> str:
-        """
-        Rewrite content in the True XXII Supply brand voice.
-        """
-        base = (
-            f"{content.strip()} "
-            f"Stay equipped. Stay aware. Keep moving forward."
-        )
-
+    def _template_fallback(self, content: str, mode: str, tone: str) -> str:
+        if mode == "tagline":
+            return f"{content.strip().title()}. Be equipped. Be skilled. Be ready."
+        if mode == "caption":
+            return f"{content.strip()} — Plant the seed today. Even the smallest habit grows into strength."
         if tone == "motivational":
-            return (
-                f"{content.strip()} "
-                f"Every step you take plants a seed for tomorrow. "
-                f"Be equipped. Be skilled. Be ready."
-            )
-
+            return f"{content.strip()} Every step plants a seed for tomorrow. Be equipped. Be skilled. Be ready."
         if tone == "calm":
-            return (
-                f"{content.strip()} "
-                f"Slow down, breathe, and trust your training. "
-                f"Even small steps plant the seed."
-            )
-
-        return (
-            f"{content.strip()} "
-            f"Don’t get caught running with scissors. "
-            f"Stand your ground. Build your skills. Feel more alive than ever."
-        )
-
-    def _generate_tagline(self, theme: str) -> str:
-        """
-        Generate a rugged tagline based on a theme.
-        """
-        return (
-            f"{theme.strip().title()}. "
-            f"Be equipped. Be skilled. Be ready."
-        )
-
-    def _generate_caption(self, content: str, tone: str) -> str:
-        """
-        Generate a short caption for social posts.
-        """
-        if tone == "motivational":
-            return (
-                f"{content.strip()} — Plant the seed today. "
-                f"Even the smallest habit grows into strength."
-            )
-
-        if tone == "calm":
-            return (
-                f"{content.strip()} — A quiet moment to reset. "
-                f"Preparation is peace."
-            )
-
-        return (
-            f"{content.strip()} — Fire burning, music playing, "
-            f"and you’re exactly where you need to be."
-        )
+            return f"{content.strip()} Slow down, breathe, and trust your training. Even small steps plant the seed."
+        return f"{content.strip()} Don't get caught running with scissors. Stand your ground. Build your skills. Feel more alive than ever."

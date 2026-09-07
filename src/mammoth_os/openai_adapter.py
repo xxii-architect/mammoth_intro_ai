@@ -64,7 +64,8 @@ class OpenAIAdapter:
         except asyncio.TimeoutError:
             raise RuntimeError(f"OpenAI generate timed out after {timeout}s")
 
-        return resp.choices[0].message.content or ""
+        msg = resp.choices[0].message
+        return msg.content or getattr(msg, "reasoning_content", None) or ""
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
         client = self._ensure_client()

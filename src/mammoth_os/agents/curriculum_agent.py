@@ -43,7 +43,30 @@ class CurriculumAgent(BaseAgent):
             future = executor.submit(asyncio.run, coro)
             return future.result()
 
-    def _extract_subject(self, prompt: str) -> str:
+    def _extract_subject(self, prompt) -> str:
+        import json as _json
+        # ── normalize dict / JSON-string payloads ──────────────────────────────
+        if isinstance(prompt, dict):
+            return str(
+                prompt.get("topic") or prompt.get("subject") or
+                prompt.get("prompt") or prompt.get("task") or "Untitled Subject"
+            ).strip()
+        if isinstance(prompt, str):
+            s = prompt.strip()
+            if s.startswith("{"):
+                try:
+                    d = _json.loads(s)
+                    if isinstance(d, dict):
+                        extracted = str(
+                            d.get("topic") or d.get("subject") or
+                            d.get("prompt") or d.get("task") or ""
+                        ).strip()
+                        if extracted:
+                            return extracted
+                except Exception:
+                    pass
+        # ── original heuristic extraction (unchanged) ──────────────────────────
+        prompt = str(prompt or "").strip()
         lesson_track_match = re.search(
             r"lesson track for\s+(.+?)(?:\s+with\s+|\s+emphasis\s+on:|[.;]|$)",
             prompt,

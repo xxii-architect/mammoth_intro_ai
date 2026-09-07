@@ -5,8 +5,28 @@ Generates structured learning reflections, mindset prompts, and personal growth 
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List
+import json
+import logging
 
 from .base_agent import BaseAgent
+
+logger = logging.getLogger("mammoth.agents.reflection")
+
+REFLECTION_SYSTEM = """You are an elite strategic reflection analyst for True XXII Supply (Boise, Idaho).
+Your job: analyze the operator situation described and return a focused, actionable reflection.
+
+Rules:
+- Read the actual situation described. Respond to IT specifically. No generic coaching platitudes.
+- insight: what the data or situation actually reveals — sharp, specific, non-obvious
+- action: one concrete next step the operator can take TODAY — specific and executable
+- prompt_question: one powerful reflection question tailored to this exact situation
+
+Respond in this exact JSON only — no text outside the JSON:
+{
+  "prompt_question": "A sharp reflection question specific to this situation",
+  "insight": "What this situation actually reveals — specific, non-obvious, operator-grade analysis",
+  "action": "One concrete executable action to take today based on this exact situation"
+}"""
 
 class ReflectionAgent(BaseAgent):
     """
@@ -34,9 +54,20 @@ class ReflectionAgent(BaseAgent):
         progress_score = self._coerce_progress(payload.get("progress_score"))
         signals = self._collect_signals(payload)
 
-        prompt = self._generate_prompt(topic, lesson_title, signals)
-        insight = self._generate_insight(topic, difficulty, progress_score, signals)
-        action = self._generate_action(topic, difficulty, signals)
+        free_text = str(payload.get("prompt") or "").strip()
+        if free_text:
+            topic = free_text
+
+        try:
+            llm_out = self._run_async(self._llm_analyze(topic, lesson_title, difficulty, progress_score, signals))
+            prompt  = llm_out.get("prompt_question") or self._generate_prompt(topic, lesson_title, signals)
+            insight = llm_out.get("insight")         or self._generate_insight(topic, difficulty, progress_score, signals)
+            action  = llm_out.get("action")          or self._generate_action(topic, difficulty, signals)
+        except Exception as exc:
+            logger.warning("ReflectionAgent LLM failed, using templates: %s", exc)
+            prompt  = self._generate_prompt(topic, lesson_title, signals)
+            insight = self._generate_insight(topic, difficulty, progress_score, signals)
+            action  = self._generate_action(topic, difficulty, signals)
         follow_up_tags = self._derive_follow_up_tags(difficulty, progress_score, signals)
         sources = [
             {
@@ -87,6 +118,60 @@ class ReflectionAgent(BaseAgent):
             "summary": reflection_summary,           # standard contract key
             "reflection_summary": reflection_summary, # preserved for back-compat
         }
+
+    async def _llm_analyze(
+        self,
+        topic: str,
+        lesson_title,
+        difficulty: str,
+        progress_score: float,
+        signals: List[str],
+    ) -> Dict[str, Any]:
+        from mammoth_os.llm_client import get_llm_client
+        client = get_llm_client()
+        signal_str = ", ".join(signals) if signals else "none"
+        user_message = (
+            f"Situation: {topic}\n"
+            f"Lesson/module: {lesson_title or 'not specified'}\n"
+            f"Difficulty: {difficulty}  |  Progress score: {progress_score:.2f}\n"
+            f"Struggle signals: {signal_str}\n"
+            f"Analyze this situation and return the JSON reflection."
+        )
+        raw = await client.generate(
+            user_message,
+            system_prompt=REFLECTION_SYSTEM,
+            max_tokens=1500,
+            temperature=0.4,
+            response_format={"type": "json_object"},
+        )
+        import re as _r
+        try:
+            parsed = json.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception:
+            pass
+        if isinstance(raw, str):
+            out = {}
+            for k in ["prompt_question", "insight", "action"]:
+                m = _r.search('"' + k + r'"\s*:\s*"(.*?)(?:"|$)', raw, _r.DOTALL)
+                if m:
+                    out[k] = m.group(1).strip()
+            if out:
+                return out
+        return {}
+
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_closed():
+                raise RuntimeError("closed")
+            return loop.run_until_complete(coro)
+        except RuntimeError:
+            return asyncio.run(coro)
+
 
     def _build_citation_bundle(self, sources: List[Dict[str, str]]) -> tuple[List[Dict[str, str]], List[Dict[str, str]]]:
         citations: List[Dict[str, str]] = []

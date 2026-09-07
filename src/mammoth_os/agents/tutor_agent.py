@@ -16,6 +16,12 @@ from .tutor_agent_v2_upgrade import (
 )
 
 
+TUTOR_SYSTEM = """You are a world-class adaptive learning coach for MammothOS.
+Given a learner topic, generate a focused, actionable coaching packet.
+
+Return JSON only:
+{"coaching_summary":"<2-3 sentence adaptive coaching response — direct, encouraging, specific>","checkpoint":"<one concrete action the learner should take right now>","hint":"<one Socratic nudge — a question that reveals the next insight without giving it away>"}"""
+
 class TutorAgent(BaseAgent):
     """TutorAgent MVP
 
@@ -53,6 +59,41 @@ class TutorAgent(BaseAgent):
 
     def log(self, level: str, message: str) -> None:
         print(f"[{self.name}:{level}] {message}")
+
+
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+
+    async def _llm_coach(self, topic: str, difficulty: str = "intermediate") -> dict:
+        import json as _j, re as _re
+        from mammoth_os.llm_client import get_llm_client
+        raw = await get_llm_client().generate(
+            f"Topic: {topic}. Difficulty: {difficulty}. Generate coaching packet.",
+            system_prompt=TUTOR_SYSTEM,
+            max_tokens=600,
+            temperature=0.4,
+        )
+        try:
+            return _j.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            pass
+        if isinstance(raw, str):
+            m = _re.search(r'\{[^{}]*"coaching_summary"[^{}]*\}', raw, _re.DOTALL)
+            if m:
+                try:
+                    return _j.loads(m.group())
+                except Exception:
+                    pass
+        return {}
 
     async def run(self, payload: Any) -> Dict[str, Any]:
         """
@@ -103,8 +144,8 @@ class TutorAgent(BaseAgent):
         elif lesson_chunks:
             personalized_chunks = [{"chunk_text": chunk, "chunk_index": idx, "score": 0.0} for idx, chunk in enumerate(lesson_chunks)]
         
-        # Extract adaptive difficulty hint
-        difficulty = _extract_difficulty_hint(signal_summary)
+        # Extract adaptive difficulty hint (payload override takes priority)
+        difficulty = str(payload.get("difficulty") or "").strip().lower() or _extract_difficulty_hint(signal_summary)
         
         # Build adaptive checkpoints based on difficulty
         checkpoints = _build_adaptive_checkpoints(lesson_title, module_id or "m0", difficulty)
@@ -140,12 +181,21 @@ class TutorAgent(BaseAgent):
         # Add difficulty flag
         quality_flags.append(f"difficulty_{difficulty}")
         
-        # Build adaptive coaching summary
-        adaptive_summary = _build_coaching_summary(
-            lesson_title,
-            difficulty,
-            has_context=bool(personalized_chunks),
-        )
+        # Build adaptive coaching summary — LLM path
+        _llm_packet = self._run_async(self._llm_coach(topic, difficulty))
+        if isinstance(_llm_packet, dict) and _llm_packet.get("coaching_summary"):
+            adaptive_summary = _llm_packet["coaching_summary"]
+            if _llm_packet.get("checkpoint"):
+                quality_flags.append("llm_checkpoint")
+            if _llm_packet.get("hint"):
+                quality_flags.append("llm_hint")
+            print("  [TutorAgent] LLM coaching active")
+        else:
+            adaptive_summary = _build_coaching_summary(
+                lesson_title,
+                difficulty,
+                has_context=bool(personalized_chunks),
+            )
 
         return {
             "status": "ok",
@@ -162,7 +212,7 @@ class TutorAgent(BaseAgent):
             "coach_summary": adaptive_summary,
             "checkpoints": checkpoints,
             "next_step": "Complete the smallest verifiable part of the lesson, then reflect before escalating difficulty.",
-            "summary": f"Tutor guidance for {lesson_title} ({difficulty} difficulty): {adaptive_summary[:60]}...",
+            "summary": adaptive_summary,
             "quality_flags": quality_flags,
             "evidence": {
                 "has_personalized_context": bool(personalized_chunks),

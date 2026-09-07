@@ -12,6 +12,8 @@ from .reasoning_agent_v2_upgrade import (
 )
 
 
+REASONING_SYSTEM = "Output ONLY JSON. No explanation. No thinking. No prose."
+
 class ReasoningAgent(BaseAgent):  # type: ignore
     """Reasoning layer for tutor hints, Socratic probes, and micro-lessons."""
 
@@ -23,6 +25,53 @@ class ReasoningAgent(BaseAgent):  # type: ignore
 
     def log(self, level: str, message: str) -> None:
         print(f"[{self.name}:{level}] {message}")
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+
+    async def _llm_reason(self, problem: str, context: dict) -> dict:
+        import json as _j, re as _re
+        from mammoth_os.llm_client import get_llm_client
+        ctx_str = ", ".join(f"{k}: {v}" for k, v in (context or {}).items() if v)
+        user_msg = f"Problem: {problem}" + (f"\nContext: {ctx_str}" if ctx_str else "")
+        json_template = (
+            f'Fill this JSON for the problem below. Replace values only, keep keys exact:\n'
+            '{"answer":"<2 sentence diagnosis>","steps":["check 1","check 2","check 3"],'
+            '"recommended_next_step":"<action>","confidence":0.85}\n\n'
+            f"PROBLEM: {user_msg}"
+        )
+        raw = await get_llm_client().generate(
+            json_template,
+            system_prompt=REASONING_SYSTEM,
+            max_tokens=700,
+            temperature=0.1,
+        )
+        try:
+            return _j.loads(raw) if isinstance(raw, str) else raw
+        except Exception:
+            pass
+        if isinstance(raw, str):
+            import re as _re2
+            m = _re2.search(r'\{[\s\S]*?"answer"[\s\S]*?\}', raw)
+            if m:
+                try:
+                    return _j.loads(m.group())
+                except Exception:
+                    pass
+            clean = raw.strip()
+            if len(clean) > 40:
+                return {"answer": clean[:600], "steps": [], "recommended_next_step": "", "confidence": 0.65}
+        return {}
+
+
 
     async def initialize(self) -> None:
         if hasattr(self, "get_config"):
@@ -189,15 +238,30 @@ class ReasoningAgent(BaseAgent):  # type: ignore
         normalized = self._normalize_payload(payload)
         prompt = normalized.get("problem", "")
         reasoning = self.reason(prompt, normalized.get("context", {}))
+        if prompt:
+            _llm = self._run_async(self._llm_reason(prompt, normalized.get("context", {})))
+            if isinstance(_llm, dict) and _llm.get("answer"):
+                reasoning["answer"] = _llm["answer"]
+                if _llm.get("steps"): reasoning["steps"] = _llm["steps"]
+                if _llm.get("recommended_next_step"): reasoning["recommended_next_step"] = _llm["recommended_next_step"]
+                if _llm.get("confidence"): reasoning["confidence"] = float(_llm["confidence"])
+                reasoning["llm_enriched"] = True
+                print("  [ReasoningAgent] LLM enrichment active")
         status = "ok" if self._normalize_problem(prompt) else "needs_context"
         quality_flags = self._build_quality_flags(prompt, reasoning)
-        reasoning_summary = self._build_reasoning_summary(prompt, reasoning)
+        # Surface LLM answer as the reasoning_summary if enriched
+        if reasoning.get("llm_enriched") and reasoning.get("answer"):
+            reasoning_summary = str(reasoning["answer"])
+        else:
+            reasoning_summary = self._build_reasoning_summary(prompt, reasoning)
         return {
             "status": status,
             "agent": self.name,
             "mode": normalized.get("mode", "default"),
             "prompt": prompt,
             "summary": reasoning_summary,
+            "answer": reasoning.get("answer", reasoning_summary),
+            "llm_enriched": reasoning.get("llm_enriched", False),
             "quality_flags": quality_flags,
             "quality_score": reasoning.get("quality_score"),
             "verification_checks": reasoning.get("verification_checks", []),

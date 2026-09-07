@@ -3245,7 +3245,10 @@ _INTENT_TO_AGENT_ID = {
     "guide": "mammoth_guide",
     "classifier": "classifier_agent",
     "community": "community_engine_agent",
-    "search": "search_agent",
+    "search":        "search_agent",
+    "coding":        "coding_agent",
+    "curriculum":    "curriculum_agent",
+    "orchestrator":  "orchestrator_agent",
 }
 
 _AGENT_ID_TO_RUNTIME = {
@@ -3265,8 +3268,9 @@ _AGENT_ID_TO_RUNTIME = {
     "custodial_agent": "custodial",
     "mammoth_guide": "mammoth_guide",
     "classifier_agent": "classifier",
-    "planner_agent": "planner",
-    "search_agent": "search",
+    "planner_agent":       "planner",
+    "search_agent":        "search",
+    "orchestrator_agent":  "orchestrator",
 }
 
 _ATLAS_WORKFLOW_AGENT_IDS = {

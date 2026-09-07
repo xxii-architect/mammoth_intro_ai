@@ -17,9 +17,18 @@ class OrchestratorAgent(BaseAgent):# type: ignore
         print(f"[{self.name}:{level}] {message}")
 
     def _normalize_payload(self, payload):  # type: ignore
+        import json as _json
+        # ── unwrap JSON-string payloads ───────────────────────────────────────
+        if isinstance(payload, str):
+            s = payload.strip()
+            if s.startswith("{"):
+                try:
+                    payload = _json.loads(s)
+                except Exception:
+                    pass
         if isinstance(payload, dict):
             return {
-                "goal": str(payload.get("goal") or payload.get("prompt") or "").strip(),
+                "goal": str(payload.get("goal") or payload.get("prompt") or payload.get("task") or "").strip(),
                 "user_id": str(payload.get("user_id") or "").strip() or None,
                 "constraints": payload.get("constraints") if isinstance(payload.get("constraints"), dict) else {},
             }

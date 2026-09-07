@@ -52,6 +52,7 @@ class CortexRouter:
 
             "guide": "mammoth_guide",
             "mammoth_guide": "mammoth_guide",
+            "classifier": "classifier_agent",
         }
 
         if intent not in intent_map:

@@ -6,6 +6,12 @@ from typing import Any, Dict, List
 from .base_agent import BaseAgent
 
 
+SEARCH_SYSTEM = """You are MammothOS's search synthesizer.
+Given a query and search result snippets, write a precise, grounded summary.
+
+Return JSON only:
+{\"summary\":\"<2-3 sentence synthesis — specific, grounded in the results>\",\"top_source\":\"<title of most relevant result>\",\"confidence\":0.0}"""
+
 class SearchAgent(BaseAgent):# type: ignore
     """
     Unified search agent combining lightweight workspace search with optional
@@ -20,6 +26,50 @@ class SearchAgent(BaseAgent):# type: ignore
 
     def log(self, level: str, message: str) -> None:
         print(f"[{self.name}:{level}] {message}")
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+
+    async def _llm_summarize(self, results: list, query: str) -> str:
+        import json as _j, re as _re
+        from mammoth_os.llm_client import get_llm_client
+        snippets = "\n".join(
+            f"- [{r.get('title', '?')}]: {r.get('snippet', '')[:180]}"
+            for r in results[:6]
+        ) if results else "(no local results — synthesize from knowledge)"
+        raw = await get_llm_client().generate(
+            f"Query: {query}\n\nResults:\n{snippets}",
+            system_prompt=SEARCH_SYSTEM,
+            max_tokens=400,
+            temperature=0.2,
+        )
+        try:
+            parsed = _j.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict) and parsed.get("summary"):
+                return str(parsed["summary"])
+        except Exception:
+            pass
+        if isinstance(raw, str):
+            m = _re.search(r'"summary"\s*:\s*"([^"]+)"', raw)
+            if m:
+                return m.group(1)
+            if len(raw) < 400 and not raw.strip().startswith("{"):
+                return raw.strip()
+            # raw-text fallback for narrative LLM output
+            clean = raw.strip()
+            if len(clean) > 40:
+                return clean[:500]
+        return ""
+
+
 
     async def web_search(self, query: str, limit: int = 10) -> list[dict]:
         return [{
@@ -70,6 +120,10 @@ class SearchAgent(BaseAgent):# type: ignore
         return ranked
 
     async def summarize(self, results: list[dict], query: str) -> str:
+        llm_sum = await self._llm_summarize(results or [], query)
+        if llm_sum and len(llm_sum) > 30:
+            print("  [SearchAgent] LLM summarize active")
+            return llm_sum
         if not results:
             return f"No search evidence found for {query}."
         top = results[0]

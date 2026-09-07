@@ -158,6 +158,7 @@ class MarketIntelAgent(BaseAgent):
             system_prompt=SYSTEM_PROMPT,
             max_tokens=2800,
             temperature=0.35,
+            response_format={"type": "json_object"},
         )
         parsed = self._extract_json(raw)
         trends = parsed.get("key_trends", [])
@@ -296,25 +297,55 @@ class MarketIntelAgent(BaseAgent):
 
     @staticmethod
     def _extract_json(raw: str) -> Dict[str, Any]:
-        text = str(raw or "").strip()
-        # Strip markdown code fences (deepseek wraps JSON in ```json...```)
-        import re as _re
-        text = _re.sub(r"```(?:json)?\s*", "", text).strip()
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                pass
-        return {
-            "market_summary": text[:400] if text else "Unable to parse LLM response.",
-            "key_trends": [],
-            "competitive_landscape": [],
-            "demand_signals": [],
-            "strategic_moves": [],
-            "risks": [],
+        import re as _re, logging as _logging
+        _log = _logging.getLogger("mammoth.agents.market_intel")
+        _EMPTY: Dict[str, Any] = {
+            "market_summary": "Unable to parse LLM response.",
+            "key_trends": [], "competitive_landscape": [],
+            "demand_signals": [], "white_space": "",
+            "strategic_moves": [], "risks": [],
+            "confidence_note": "", "sources": [],
         }
+        text = str(raw or "").strip()
+        if not text:
+            _log.error("market_intel: raw is empty")
+            return _EMPTY
+        text = _re.sub(r"```(?:json)?\s*", "", text).strip()
+        def _esc(s):
+            out, ins, esc = [], False, False
+            for ch in s:
+                if esc: out.append(ch); esc = False
+                elif ch == chr(92) and ins: out.append(ch); esc = True
+                elif ch == chr(34): out.append(ch); ins = not ins
+                elif ins and ch == chr(10): out.append(chr(92)+"n")
+                elif ins and ch == chr(13): out.append(chr(92)+"r")
+                elif ins and ch == chr(9): out.append(chr(92)+"t")
+                else: out.append(ch)
+            return "".join(out)
+        text = _esc(text)
+        start = text.find("{")
+        end   = text.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            _log.error("market_intel: no braces; len=%d", len(text))
+            return _EMPTY
+        cand = text[start:end+1]
+        cand = _re.sub("," + r"\s*" + "([}" + r"\]" + "])", r"\1", cand)
+        cand = _re.sub("}" + r"\s*" + "{", "},{", cand)
+        cand = cand.replace(chr(92)+chr(39), chr(39))
+        import json as _j
+        for _a in range(15):
+            try:
+                return _j.loads(cand)
+            except _j.JSONDecodeError as e:
+                _log.warning("mi attempt %d: %s pos=%d ctx=%s", _a, e.msg, e.pos, repr(cand[max(0,e.pos-40):e.pos+40]))
+                if e.pos > 0:
+                    q = cand[:e.pos].rfind(chr(34))
+                    if q > 0 and cand[q-1] != chr(92):
+                        cand = cand[:q] + chr(92) + chr(34) + cand[q+1:]
+                        continue
+                break
+        _log.error("market_intel: all repairs exhausted")
+        return _EMPTY
 
     @staticmethod
     def _error_response(message: str) -> Dict[str, Any]:

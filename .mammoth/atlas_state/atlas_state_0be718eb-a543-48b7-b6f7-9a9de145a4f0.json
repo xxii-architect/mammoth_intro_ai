@@ -3,17 +3,17 @@
   "accounts": {
     "default": {
       "profile": {
-        "display_name": "Operator",
-        "email": "",
-        "organization": ""
+        "display_name": "Mad-Architecht",
+        "email": "runningwithsissors2026@outlook.com",
+        "organization": "True XXII Supply"
       },
-      "tier": "explorer",
+      "tier": "pro",
       "developer_access": false,
       "created_at": "2026-08-23T08:50:35.954977+00:00",
       "updated_at": "2026-08-23T08:50:35.977882+00:00",
-      "profile_updated_at": null,
-      "tier_updated_at": null,
-      "developer_access_updated_at": null
+      "profile_updated_at": "2026-09-02T05:55:47.601886+00:00",
+      "tier_updated_at": "2026-09-02T05:56:03.339632+00:00",
+      "developer_access_updated_at": "2026-09-02T05:56:09.522528+00:00"
     }
   },
   "account_sessions": {
@@ -165,22 +165,23 @@
           "runtime_notice": null
         }
       ],
+      "resume_packet": null,
       "updated_at": "2026-08-23T08:50:35.977882+00:00"
     }
   },
-  "status": "no_session",
   "account_profile": {
-    "display_name": "Operator",
-    "email": "",
-    "organization": ""
+    "display_name": "Mad-Architecht",
+    "email": "runningwithsissors2026@outlook.com",
+    "organization": "True XXII Supply"
   },
-  "tier": "explorer",
+  "tier": "pro",
   "developer_access": false,
-  "account_profile_updated_at": null,
-  "tier_updated_at": null,
-  "developer_access_updated_at": null,
+  "account_profile_updated_at": "2026-09-02T05:55:47.601886+00:00",
+  "tier_updated_at": "2026-09-02T05:56:03.339632+00:00",
+  "developer_access_updated_at": "2026-09-02T05:56:09.522528+00:00",
   "session_scope": "workspace_multi_account",
   "user_id": "workspace:default",
+  "status": "no_session",
   "mammoth_chat_history": [
     {
       "role": "user",
@@ -327,5 +328,6 @@
       "runtime_notice": null
     }
   ],
+  "resume_packet": null,
   "updated_at": "2026-08-23T08:50:35.977882+00:00"
 }

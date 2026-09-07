@@ -6,6 +6,21 @@ from typing import Any, Dict, List
 from .base_agent import BaseAgent
 
 
+CLASSIFIER_SYSTEM = """You are an intent classifier for MammothOS.
+Given a user request, return JSON only — no other text:
+{
+  "intent": "guide|coding|curriculum|tutoring|community|seed|research|brand_voice|reflection|field_ops|market_intel|general",
+  "target_agent": "matching agent slug",
+  "confidence": 0.0,
+  "labels": ["label"],
+  "summary": "one-line routing reason"
+}
+Intent map: guide->mammoth_guide, coding->coding, curriculum->curriculum,
+tutoring->tutor, community->community_engine, seed->plant_the_seed,
+research->research, brand_voice->brand_voice, reflection->reflection,
+field_ops->field_ops, market_intel->market_intel, general->orchestrator_agent
+"""
+
 class ClassifierAgent(BaseAgent):# type: ignore
     """
     Classifies incoming requests and events into intents, routes them to
@@ -71,6 +86,46 @@ class ClassifierAgent(BaseAgent):# type: ignore
                     "summary": f"Route to {target_agent} for {intent}-focused handling.",
                 }
 
+        # LLM semantic fallback for unmatched requests
+        try:
+            import json as _j
+            from mammoth_os.llm_client import get_llm_client
+            _raw = await get_llm_client().generate(
+                normalized,
+                system_prompt=CLASSIFIER_SYSTEM,
+                max_tokens=500,
+                temperature=0.2,
+            )
+            import re as _re
+            _p = None
+            try:
+                _p = _j.loads(_raw) if isinstance(_raw, str) else _raw
+            except Exception:
+                pass
+            if not isinstance(_p, dict) and isinstance(_raw, str):
+                _m = _re.search(r'\{[^{}]*"intent"[^{}]*\}', _raw, _re.DOTALL)
+                if _m:
+                    try:
+                        _p = _j.loads(_m.group())
+                    except Exception:
+                        pass
+            if not isinstance(_p, dict) and isinstance(_raw, str):
+                _SLUG_MAP = {"brand_voice":"brand_voice","brand_voice_agent":"brand_voice","reflection":"reflection","field_ops":"field_ops","market_intel":"market_intel","community":"community_engine","plant_the_seed":"plant_the_seed","plant_seed":"plant_the_seed","coding":"coding","research":"research","curriculum":"curriculum","guide":"mammoth_guide","tutor":"tutor"}
+                for slug, agent in _SLUG_MAP.items():
+                    if slug in _raw.lower():
+                        _p = {"intent": slug, "target_agent": agent, "confidence": 0.72, "labels": [slug], "summary": "LLM narrative routed."}
+                        break
+            if isinstance(_p, dict) and _p.get("intent"):
+                return {
+                    "intent": _p.get("intent", "general"),
+                    "target_agent": _p.get("target_agent", "orchestrator_agent"),
+                    "confidence": float(_p.get("confidence", 0.75)),
+                    "labels": _p.get("labels", self._labels_for(normalized) or ["general"]),
+                    "routing": {"reason": "LLM semantic classification", "match_type": "llm"},
+                    "summary": _p.get("summary", "LLM-routed request."),
+                }
+        except Exception:
+            pass
         return {
             "intent": "general",
             "target_agent": "orchestrator_agent",
