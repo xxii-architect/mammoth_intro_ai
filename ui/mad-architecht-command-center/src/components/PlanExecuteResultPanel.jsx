@@ -41,6 +41,7 @@ function extractReadableSummary(result) {
   // Try known readable fields in priority order
   const candidates = [
     result.summary,
+    result.executive_summary,
     result.output,
     result.preview,
     result.message,

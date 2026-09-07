@@ -86,7 +86,7 @@ function ReadMoreText({ text }) {
 const PROMINENT_KEYS = new Set(['status', 'agent', 'summary', 'quality_flags'])
 
 // Keys that are skipped in detail (noisy internal/metadata)
-const SKIP_KEYS = new Set(['status', 'agent', 'quality_flags', 'thought_steps', 'trace_id', 'task_id'])
+const SKIP_KEYS = new Set(['status', 'agent', 'quality_flags', 'thought_steps', 'trace_id', 'task_id', 'executive_summary'])
 
 function QualityFlags({ flags }) {
   if (!Array.isArray(flags) || !flags.length) return null
@@ -162,7 +162,7 @@ export default function AgentResultPanel({ result, rawJson, agentId }) {
   const sc = statusCfg(result.status)
   const StatusIcon = sc.icon
   const agentLabel = (result.agent || agentId || '').replace(/_agent$/, '').replace(/_/g, ' ')
-  const summary = result.summary
+  const summary = result.summary || result.executive_summary
 
   return (
     <div>
