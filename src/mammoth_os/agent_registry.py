@@ -389,6 +389,8 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "coding":          lambda prompt: run_agent("coding", prompt, router),           # type: ignore
     "custodial":       lambda prompt: run_agent("custodial", prompt, router),        # type: ignore
     "mammoth_guide":   lambda prompt: run_agent("mammoth_guide", prompt, router),    # type: ignore
+    "planner":         lambda prompt: run_agent("planner",        prompt),           # type: ignore
+    "planning":        lambda prompt: run_agent("planner",        prompt),           # type: ignore
 }
 
 

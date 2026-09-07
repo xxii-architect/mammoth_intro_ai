@@ -1,5 +1,13 @@
 from .base_agent import BaseAgent
 
+PLANNER_SYSTEM = """You are MammothOS's execution planner. Break a goal into a precise task list.
+
+Return JSON only — a list of tasks:
+[{"task_id":"t1","agent":"<agent_slug>","title":"<task title>","input":{"goal":"<sub-goal>"},"depends_on":[],"estimated_minutes":<int>}]
+
+Agent slugs: research, curriculum, tutor, coding, brand_voice, community_engine, field_ops, market_intel, reflection, mammoth_guide
+Keep tasks focused, ordered, and DAG-valid (no circular depends_on)."""
+
 class PlannerAgent(BaseAgent):# type: ignore
     """
     Converts high-level goals into structured execution plans represented
@@ -14,6 +22,98 @@ class PlannerAgent(BaseAgent):# type: ignore
 
     def log(self, level: str, message: str) -> None:
         print(f"[PlannerAgent:{level}] {message}")
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+
+    async def _llm_decompose(self, goal: str) -> list:
+        import json as _j, re as _re, uuid as _uuid
+        from mammoth_os.llm_client import get_llm_client
+
+        # Few-shot template forces the model to fill JSON directly
+        template = (
+            "Fill the JSON task list below for the GOAL. "
+            "Replace ALL placeholder values. Keep exact keys. Output JSON only, no prose.\n\n"
+            '[{"task_id":"t1","agent":"research","title":"Research the domain","input":{"goal":"understand context"},"depends_on":[],"estimated_minutes":10},'
+            '{"task_id":"t2","agent":"brand_voice","title":"Draft campaign messaging","input":{"goal":"create brand copy"},"depends_on":["t1"],"estimated_minutes":20}]'
+            "\n\nGOAL: " + goal
+        )
+        raw = await get_llm_client().generate(
+            template,
+            system_prompt="Output ONLY a JSON array of tasks. No prose. No explanation.",
+            max_tokens=900,
+            temperature=0.1,
+        )
+
+        # Pass 1: direct JSON parse
+        if isinstance(raw, str):
+            try:
+                parsed = _j.loads(raw)
+                if isinstance(parsed, list) and parsed:
+                    return parsed
+            except Exception:
+                pass
+
+        # Pass 2: extract JSON array from prose
+        if isinstance(raw, str):
+            m = _re.search(r'\[\s*\{[\s\S]*?\}\s*\]', raw)
+            if m:
+                try:
+                    parsed = _j.loads(m.group())
+                    if isinstance(parsed, list) and parsed:
+                        return parsed
+                except Exception:
+                    pass
+
+        # Pass 3: prose fallback — extract any agent mentions and synthesise tasks
+        if isinstance(raw, str) and raw.strip():
+            agent_slugs = [
+                "research", "curriculum", "tutor", "coding", "brand_voice",
+                "community_engine", "field_ops", "market_intel", "reflection", "mammoth_guide"
+            ]
+            seen = []
+            for slug in agent_slugs:
+                if slug.replace("_", " ") in raw.lower() or slug in raw.lower():
+                    seen.append(slug)
+            if not seen:
+                seen = ["research", "brand_voice", "community_engine"]
+            tasks = []
+            titles = {
+                "research": "Research background and context",
+                "brand_voice": "Develop brand voice and messaging",
+                "community_engine": "Engage and grow the community",
+                "field_ops": "Execute field operations",
+                "market_intel": "Gather market intelligence",
+                "curriculum": "Build educational content",
+                "tutor": "Deliver coaching and guidance",
+                "coding": "Build technical components",
+                "reflection": "Review and iterate on outcomes",
+                "mammoth_guide": "Guide platform experience",
+            }
+            for i, slug in enumerate(seen[:6]):
+                tid = f"t{i+1}"
+                dep = [f"t{i}"] if i > 0 else []
+                tasks.append({
+                    "task_id": tid,
+                    "agent": slug,
+                    "title": titles.get(slug, slug.replace("_", " ").title()),
+                    "input": {"goal": goal},
+                    "depends_on": dep,
+                    "estimated_minutes": 15,
+                })
+            return tasks
+
+        return []
+
+
 
     async def emit_event(self, event_type: str, payload) -> None:
         self.log("INFO", f"Emitting {event_type}")
@@ -133,6 +233,11 @@ class PlannerAgent(BaseAgent):# type: ignore
             if tasks:
                 return tasks
 
+        # LLM DAG decomposition
+        _llm_tasks = self._run_async(self._llm_decompose(goal))
+        if _llm_tasks and isinstance(_llm_tasks, list):
+            print("  [PlannerAgent] LLM DAG active")
+            return _llm_tasks
         fallback_minutes = max(15, min(90, len(goal.split()) // 4 + 15))
         return [
             {

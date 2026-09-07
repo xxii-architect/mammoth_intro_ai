@@ -3212,6 +3212,7 @@ async def get_observability_runs():
 
 
 _INTENT_TO_AGENT_ID = {
+    "plant_the_seed": "plant_the_seed_agent",
     "plant_seed": "plant_the_seed_agent",
     "field_ops": "field_ops_agent",
     "market_intel": "market_intel_agent",
@@ -3225,6 +3226,7 @@ _INTENT_TO_AGENT_ID = {
     "site_audit": "browser_agent",
     "lighthouse_audit": "browser_agent",
     "task_queue": "task_queue_agent",
+    "research": "research_agent",
     "summarize": "research_agent",
     "lesson_curriculum": "curriculum_agent",
     "grade_submission": "tutor_agent",
@@ -3238,6 +3240,12 @@ _INTENT_TO_AGENT_ID = {
     "run_tests": "coding_agent",
     "write_docs": "coding_agent",
     "guide_platform": "mammoth_guide",
+    "planning": "planner_agent",
+    "plan_goal": "planner_agent",
+    "guide": "mammoth_guide",
+    "classifier": "classifier_agent",
+    "community": "community_engine_agent",
+    "search": "search_agent",
 }
 
 _AGENT_ID_TO_RUNTIME = {
@@ -3256,6 +3264,9 @@ _AGENT_ID_TO_RUNTIME = {
     "task_queue_agent": "task_queue",
     "custodial_agent": "custodial",
     "mammoth_guide": "mammoth_guide",
+    "classifier_agent": "classifier",
+    "planner_agent": "planner",
+    "search_agent": "search",
 }
 
 _ATLAS_WORKFLOW_AGENT_IDS = {
@@ -4437,7 +4448,11 @@ def _verify_execution_contract(envelope: Dict[str, Any], policy: Dict[str, Any])
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
     intent = str(body.get("intent", "")).strip()
-    payload = body.get("payload", {})
+    payload = body.get("payload") or {}
+    if not payload:
+        _top = {k: v for k, v in body.items() if k in {"prompt", "query", "topic", "content", "context"}}
+        if _top:
+            payload = _top
     payload_dict = dict(payload) if isinstance(payload, dict) else {}
     temperature = body.get("temperature", 0.7)
     requested_agent_id = str(body.get("agent_id", "")).strip()
@@ -4625,7 +4640,7 @@ async def run_agent(body: Dict[str, Any]):
         elif runtime_agent and (runtime_agent == "custodial" or (_agent_registry_ok and runtime_agent in AGENTS)):
             handled_special_result = False
             payload_for_agent: Any = prompt_text or json.dumps(payload)
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue", "mammoth_guide"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue", "mammoth_guide", "planner", "search"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
                 if not isinstance(payload_for_agent, dict):
@@ -4659,6 +4674,10 @@ async def run_agent(body: Dict[str, Any]):
                             payload_for_agent["prompt"] = prompt_text
                         if runtime_agent == "reasoning" and not payload_for_agent.get("problem"):
                             payload_for_agent["problem"] = prompt_text
+                    if runtime_agent == "planner":
+                        payload_for_agent.setdefault("goal", prompt_text)
+                    if runtime_agent == "search":
+                        payload_for_agent.setdefault("query", prompt_text)
                 elif isinstance(payload, dict):
                     payload_for_agent.setdefault("prompt", payload.get("prompt") or payload.get("content") or payload.get("task") or "")
                 if runtime_agent == "coding":
@@ -4862,6 +4881,11 @@ async def run_agent(body: Dict[str, Any]):
                         "verification": verification,
                     },
                 }
+                if runtime_agent == "planner":
+                    _p_out = result.get("output") or {}
+                    if isinstance(_p_out, dict) and not _p_out.get("tasks"):
+                        _p_plan = (_p_out.get("plan") or {})
+                        result["output"] = dict(list(_p_out.items()) + [("tasks", _p_plan.get("tasks") or [])])
                 attach_reasoning = runtime_agent == "tutor" and (
                     intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(final_envelope.get("output", raw_result)))
                 )
