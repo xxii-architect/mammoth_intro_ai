@@ -132,7 +132,7 @@ function DetailSection({ result }) {
                 fontFamily: 'JetBrains Mono,monospace',
                 minWidth: 100, flexShrink: 0, paddingTop: 2,
               }}>
-                {k.replace(/_/g, '_')}
+                {k.replace(/_/g, ' ')}
               </span>
               <div style={{ flex: 1, minWidth: 0, fontSize: '0.78rem' }}>
                 {renderValue(v)}
