@@ -2,10 +2,14 @@ import asyncio
 import concurrent.futures
 import json
 import logging
+from multiprocessing import context
 import os
 import re
 import urllib.request
 from typing import Optional, Any, Dict, Union
+
+from openai import files
+from requests.packages import target
 
 from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
 from mammoth_os.llm_client import get_llm_client, extract_code_from_text  # type: ignore
@@ -67,7 +71,7 @@ class CodingAgent(BaseAgent):
 
         prompt_lower = prompt_text.lower()
 
-        if explicit_intent in {"generate_code", "patch_existing"}:
+        if explicit_intent == "generate_code":
             context = dict(context or {})
             if target and target.lower() != "unknown":
                 context.setdefault("target", target)
@@ -87,6 +91,27 @@ class CodingAgent(BaseAgent):
                 }
             result = self._run_async(self.generate_code(prompt_text, context=context))
             return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
+
+        if explicit_intent == "patch_existing":
+            context = dict(context or {})
+            if target and target.lower() != "unknown":
+                context.setdefault("target", target)
+            if files:
+                context.setdefault("files", files)
+            if self._is_placeholder_target(target) and not self._has_real_context(prompt_text, target, context, files):
+                return {
+                    "status": "needs_context",
+                    "agent": "CodingAgent",
+                    "mode": "coding",
+                    "task_kind": "patch_existing",
+                    "target": target,
+                    "prompt": prompt_text,
+                    "files": files,
+                    "summary": "CodingAgent needs a real target or source snippet before it can patch code safely.",
+                    "warnings": ["Missing real source context for patch_existing."],
+                }
+            result = self._run_async(self.autonomous_engine.apply_patch(prompt_text, context=context))
+            return self._standardize_result(result, task_kind="patch_existing", target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "refactor_code":
             result = self._run_async(self.refactor(target or "unknown", "default"))
