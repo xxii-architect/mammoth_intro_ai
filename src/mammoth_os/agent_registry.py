@@ -345,6 +345,10 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                     normalized["repo_context"] = {}
             return normalized
         if agent_name in {"curriculum", "research", "custodial"}:
+            # Preserve full dict when a non-default intent must reach the agent
+            _long_form_intents = {"research_long_form", "long_form_research"}
+            if isinstance(payload, dict) and payload.get("intent") in _long_form_intents:
+                return payload
             if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
                 return payload["prompt"]
             if isinstance(payload.get("topic"), str) and payload.get("topic").strip():
