@@ -1,3 +1,4 @@
+import LongFormResearchPanel from './LongFormResearchPanel'
 import { useState } from 'react'
 import { AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, Link2, Search, Sparkles } from 'lucide-react'
 
@@ -37,6 +38,10 @@ function SourceCard({ source, kind }) {
 }
 
 export default function ResearchArtifactPanel({ artifact, rawJson }) {
+  if (artifact) {
+    var at=artifact.artifact_type
+    if (at==='long_form_research') { return <LongFormResearchPanel artifact={artifact} rawJson={rawJson} /> }
+  }
   const [showRaw, setShowRaw] = useState(false)
   if (!artifact) return null
 
