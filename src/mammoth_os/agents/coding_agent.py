@@ -278,11 +278,13 @@ class CodingAgent(BaseAgent):
         router: Optional[Any] = None,
         agent_id: Optional[str] = None,
         config: Optional[Dict[str, Any]] = None,
+        autonomous_engine: bool = False,
     ):
         super().__init__(router)
 
         self.agent_id = agent_id or "coding"
         self.config = config or {}
+        self.autonomous_engine = autonomous_engine
 
         # Safe logging
         self.log("WARNING", "CodingAgent initialized without sub-engines.")

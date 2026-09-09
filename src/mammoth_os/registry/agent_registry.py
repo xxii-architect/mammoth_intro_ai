@@ -210,7 +210,7 @@ def load_agent(agent_name: str, router: Optional[CortexRouter] = None) -> Any:
 
     if agent_name == "coding":
         from mammoth_os.agents.coding_agent import CodingAgent
-        return CodingAgent(router)
+        return CodingAgent(autonomous_engine=None,router)
 
     if agent_name == "custodial":
         from mammoth_os.agents.custodial_agent import CustodialAgent
