@@ -873,7 +873,7 @@ export default function AgentPage({ setPage }) {
 
           <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 480, overflowY: 'auto' }}>
             {researchArtifact ? (
-              {researchArtifact?.artifact_type === 'long_form_research' ? <LongFormResearchPanel artifact={researchArtifact} rawJson={output} /> : <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />}
+              {researchArtifact && researchArtifact.artifact_type === 'long_form_research' ? <LongFormResearchPanel artifact={researchArtifact} rawJson={output} /> : <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />}
             ) : codingArtifact ? (
               <CodingArtifactPanel
                 artifact={codingArtifact}
