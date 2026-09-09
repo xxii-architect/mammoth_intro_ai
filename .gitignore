@@ -78,3 +78,7 @@ TEAM_WORKFLOWS_QUICKSTART.md
 venv/
 .venv/
 .mammoth/atlas_state/
+
+# Runtime-generated research documents
+generated_docs/
+*.docx
