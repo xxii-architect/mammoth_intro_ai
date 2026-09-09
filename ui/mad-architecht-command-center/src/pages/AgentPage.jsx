@@ -13,6 +13,16 @@ import AgentResultPanel from '../components/AgentResultPanel'
 import MammothEmpty from '../components/MammothEmpty'
 import AgentCommandLibrary from '../components/AgentCommandLibrary'
 
+function renderResearchPanel(artifact, output) {
+  if (artifact) {
+    if (artifact.artifact_type === 'long_form_research') {
+      return <LongFormResearchPanel artifact={artifact} rawJson={output} />
+    }
+  }
+  return <ResearchArtifactPanel artifact={artifact} rawJson={output} />
+}
+
+
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
   'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'browse_web', 'summarize',
@@ -873,7 +883,7 @@ export default function AgentPage({ setPage }) {
 
           <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 480, overflowY: 'auto' }}>
             {researchArtifact ? (
-              {researchArtifact && researchArtifact.artifact_type === 'long_form_research' ? <LongFormResearchPanel artifact={researchArtifact} rawJson={output} /> : <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />}
+              {renderResearchPanel(researchArtifact, output)}
             ) : codingArtifact ? (
               <CodingArtifactPanel
                 artifact={codingArtifact}
