@@ -171,6 +171,13 @@ function normalizeResearchArtifact(runResult) {
     retrievalErrors: normalizeList(output.retrieval_errors),
     workflowHints: output.workflow_hints && typeof output.workflow_hints === 'object' ? output.workflow_hints : null,
     confidence: typeof output.confidence === 'number' ? output.confidence : null,
+    artifact_type: output.artifact_type || '',
+    title: output.title || '',
+    abstract: output.abstract || output.executive_summary || '',
+    sections: Array.isArray(output.sections) ? output.sections : [],
+    conclusion: output.conclusion || '',
+    docx_filename: output.docx_filename || '',
+    word_count: output.word_count || 0,
     raw: output,
   }
 }
