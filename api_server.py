@@ -3228,6 +3228,7 @@ _INTENT_TO_AGENT_ID = {
     "task_queue": "task_queue_agent",
     "research": "research_agent",
     "summarize": "research_agent",
+    "research_long_form": "research_agent",
     "lesson_curriculum": "curriculum_agent",
     "grade_submission": "tutor_agent",
     "lesson_coaching": "tutor_agent",
@@ -12282,3 +12283,14 @@ def _load_json_file(path) -> list:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
+
+
+@app.route('/api/download-docx/<path:filename>')
+def download_docx_file(filename):
+    import os as _dx
+    from flask import send_file, abort
+    safe = _dx.path.basename(filename)
+    if not safe.endswith('.docx') or '..' in safe: abort(400)
+    path = _dx.path.join('/opt/mammothos/mammoth_intro_ai/generated_docs', safe)
+    if not _dx.path.isfile(path): abort(404)
+    return send_file(path, as_attachment=True, download_name=safe)

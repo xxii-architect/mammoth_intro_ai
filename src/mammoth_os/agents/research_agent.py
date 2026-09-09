@@ -115,6 +115,63 @@ CRITICAL RULES:
 Return ONLY the JSON. No preamble.
 """
 
+
+LONG_FORM_OUTLINE_SYSTEM = """You are a senior research director outlining a comprehensive 5,000-word research document.
+
+You have been given a topic and supporting web sources. Structure this as a thorough, authoritative document with exactly 6 body sections.
+
+Respond with this exact JSON structure:
+{
+  "title": "Sharp, specific document title — not generic",
+  "abstract": "4-5 sentence abstract covering thesis, scope, key findings, and main takeaway",
+  "sections": [
+    {
+      "heading": "Specific, informative section heading",
+      "brief": "2-3 sentences on exactly what this section covers and the central argument it makes"
+    }
+  ],
+  "conclusion_brief": "What the conclusion should synthesize — the so-what and call to action for the reader"
+}
+
+Rules:
+- Create exactly 6 sections — logically ordered so each builds on the last
+- Avoid generic headings like Introduction, Overview, Background, Summary
+- Every heading must be specific to the actual topic being researched
+- Sections should cover distinct angles: landscape, technical depth, data/evidence, implications, risks, future outlook
+- Return ONLY valid JSON. No preamble, no explanation.
+"""
+
+LONG_FORM_SECTION_SYSTEM = """You are an expert research writer producing one section of a comprehensive research document.
+
+Write 650-800 words of polished, flowing prose for this section. Use the provided web sources to ground your analysis.
+
+Rules:
+- Write in flowing paragraphs. No bullet points, no sub-headers, no numbered lists within the section.
+- Cite sources inline as [S1], [S2] where relevant — keep it readable, not academic-heavy.
+- Write for an intelligent business decision-maker: clear, precise, no jargon for its own sake.
+- Every paragraph must advance the argument. No filler or throat-clearing sentences.
+- Open with a strong topic sentence that immediately establishes what this section argues.
+- Close with a bridging sentence that flows naturally toward the next idea.
+- Do NOT include the section heading in your output — just the prose body paragraphs.
+- Target 700 words — comprehensive but tight.
+
+Return ONLY the prose text. No JSON, no labels, no preamble, no heading.
+"""
+
+LONG_FORM_CONCLUSION_SYSTEM = """You are an expert research writer writing the conclusion of a comprehensive research document.
+
+You will receive the document topic, a conclusion brief, and the content of all body sections. Write a powerful 400-500 word conclusion.
+
+Rules:
+- Synthesize core insights across sections — do not just summarize each section in order.
+- Drive toward a clear so-what: what should the reader actually do or think differently after reading this?
+- Acknowledge genuine uncertainty or limitations honestly but briefly.
+- End with a memorable, forward-looking closing statement — the last sentence should land with weight.
+- Flowing prose only. No bullet points, no headers, no numbered lists.
+
+Return ONLY the prose text. No JSON, no labels, no heading, no preamble.
+"""
+
 CURRICULUM_SYSTEM = """You are an elite curriculum research analyst working with True XXII Supply (Boise, Idaho).
 You have been given live web search results about an educational or learning topic.
 
@@ -191,6 +248,8 @@ class ResearchAgent(BaseAgent):
         if not prompt_text:
             return self._error_response("No research topic provided.")
         try:
+            if intent in ("research_long_form", "long_form_research"):
+                return self._run_async(self._long_form_pipeline(prompt_text, context))
             return self._run_async(self._research_pipeline(prompt_text, intent, context))
         except Exception as exc:
             logger.error(f"ResearchAgent run failed: {exc}")
@@ -423,6 +482,111 @@ class ResearchAgent(BaseAgent):
         except Exception as exc:
             return results, f"wikipedia: {exc}"
         return results, None
+
+
+    # -- Long-Form Research Pipeline -----------------------------------------
+
+    async def _generate_section(self, client, topic, source_block, section, idx):
+        heading = section.get("heading", "Section " + str(idx + 1))
+        brief = section.get("brief", "")
+        nl = chr(10)
+        user_msg = (
+            "Document topic: " + topic + nl + nl
+            + "Section " + str(idx + 1) + ": " + heading + nl
+            + "Section brief: " + brief + nl + nl
+            + source_block + nl + nl
+            + "Write the full prose body for this section (650-800 words). "
+            + "Do not include the heading -- just the body paragraphs."
+        )
+        try:
+            prose = await client.generate(user_msg, system_prompt=LONG_FORM_SECTION_SYSTEM, max_tokens=1800, temperature=0.5)
+            return {"heading": heading, "content": prose.strip(), "order": idx}
+        except Exception as exc:
+            logger.warning("Long-form section %d failed: %s", idx, exc)
+            return {"heading": heading, "content": "[Section failed: " + str(exc) + "]", "order": idx}
+
+    async def _long_form_pipeline(self, prompt_text, context):
+        from mammoth_os.llm_client import get_llm_client
+        client = get_llm_client()
+        nl = chr(10)
+        expanded_queries = self._expand_query(prompt_text)
+        loop = asyncio.get_event_loop()
+        all_sources, retrieval_errors = await loop.run_in_executor(None, self._retrieve_sources, expanded_queries)
+        ranked = self._rank_sources(all_sources, prompt_text)
+        top_sources = self._deduplicate(ranked)[:10]
+        source_block = self._format_source_block(top_sources)
+        ctx_block = ""
+        if context:
+            ctx_block = nl + nl + "Operator context:" + nl + json.dumps(context, indent=2)
+        outline_msg = ("Research topic: " + prompt_text + nl + source_block + ctx_block + nl + nl + "Generate a 6-section document outline. Return ONLY valid JSON.")
+        outline_raw = await client.generate(outline_msg, system_prompt=LONG_FORM_OUTLINE_SYSTEM, max_tokens=2048, temperature=0.3, response_format={"type": "json_object"})
+        outline = self._extract_json(outline_raw)
+        title = outline.get("title") or prompt_text
+        abstract = outline.get("abstract") or ""
+        sections_spec = outline.get("sections") or [{"heading": "Section " + str(i + 1), "brief": ""} for i in range(6)]
+        conclusion_brief = outline.get("conclusion_brief") or ""
+        section_tasks = [self._generate_section(client, prompt_text, source_block, sec, idx) for idx, sec in enumerate(sections_spec)]
+        completed_sections = list(await asyncio.gather(*section_tasks))
+        section_digest = (nl + nl).join("## " + s["heading"] + nl + s["content"][:400] + "..." for s in completed_sections)
+        conclusion_msg = ("Document topic: " + prompt_text + nl + nl + "Conclusion brief: " + conclusion_brief + nl + nl + "Section contents:" + nl + section_digest + nl + nl + "Write the conclusion (400-500 words of flowing prose).")
+        try:
+            conclusion = (await client.generate(conclusion_msg, system_prompt=LONG_FORM_CONCLUSION_SYSTEM, max_tokens=1024, temperature=0.4)).strip()
+        except Exception as exc:
+            logger.warning("Conclusion failed: %s", exc); conclusion = ""
+        normalized_sources = self._normalize_sources(top_sources)
+        word_count = len(abstract.split()) + sum(len(s["content"].split()) for s in completed_sections) + len(conclusion.split())
+        docx_filename = None
+        try:
+            docx_filename = self._generate_docx(title, abstract, completed_sections, conclusion, normalized_sources, prompt_text)
+        except Exception as exc:
+            logger.warning("DOCX skipped: %s", exc)
+        return {"artifact_type": "long_form_research", "title": title, "abstract": abstract, "sections": completed_sections, "conclusion": conclusion, "sources": normalized_sources, "word_count": word_count, "docx_filename": docx_filename, "retrieval_errors": retrieval_errors or [], "executive_summary": abstract}
+
+    def _generate_docx(self, title, abstract, sections, conclusion, sources, query):
+        try:
+            from docx import Document
+            from docx.shared import Pt, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            import os as _os
+            from datetime import datetime as _dt
+            doc = Document()
+            ns = doc.styles["Normal"]; ns.font.name = "Calibri"; ns.font.size = Pt(11)
+            h = doc.add_heading(title, level=0); h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in h.runs: run.font.color.rgb = RGBColor(0x1a, 0x1a, 0x2e)
+            meta = doc.add_paragraph(); meta.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            mr = meta.add_run("MammothOS Research  " + chr(0xb7) + "  " + _dt.now().strftime("%B %d, %Y"))
+            mr.font.size = Pt(10); mr.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+            doc.add_paragraph()
+            nl = chr(10)
+            if abstract:
+                doc.add_heading("Abstract", level=2)
+                ap = doc.add_paragraph(abstract)
+                for run in ap.runs: run.font.italic = True
+                doc.add_paragraph()
+            for sec in sorted(sections, key=lambda s: s.get("order", 0)):
+                doc.add_heading(sec["heading"], level=1)
+                for para_text in sec["content"].split(nl + nl):
+                    if para_text.strip(): doc.add_paragraph(para_text.strip())
+                doc.add_paragraph()
+            if conclusion:
+                doc.add_heading("Conclusion", level=1)
+                for para_text in conclusion.split(nl + nl):
+                    if para_text.strip(): doc.add_paragraph(para_text.strip())
+                doc.add_paragraph()
+            if sources:
+                doc.add_heading("Sources & References", level=1)
+                for i, src in enumerate(sources, 1):
+                    src_title = src.get("title") or src.get("label") or "Source " + str(i)
+                    src_url = src.get("url") or src.get("source") or ""
+                    doc.add_paragraph("[S" + str(i) + "] " + src_title + (" -- " + src_url if src_url else ""), style="List Number")
+            safe_title = "".join(c for c in title if c.isalnum() or c in " _-")[:60].strip().replace(" ", "_")
+            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            filename = "mammoth_research_" + safe_title + "_" + ts + ".docx"
+            out_dir = "/opt/mammothos/mammoth_intro_ai/generated_docs"
+            _os.makedirs(out_dir, exist_ok=True); doc.save(_os.path.join(out_dir, filename))
+            logger.info("DOCX saved: %s", filename); return filename
+        except ImportError: logger.warning("python-docx not installed"); return None
+        except Exception as exc: logger.error("DOCX error: %s", exc); return None
 
     def _fetch_duckduckgo(self, query: str) -> Tuple[List[Dict], Optional[str]]:
         """Scrape DuckDuckGo HTML search — no API key, returns real results."""

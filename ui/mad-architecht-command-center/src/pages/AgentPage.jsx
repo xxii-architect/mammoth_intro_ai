@@ -6,6 +6,7 @@ import AutonomousRunPanel from '../components/AutonomousRunPanel'
 import OnboardingGuide from '../components/OnboardingGuide'
 import CodingArtifactPanel from '../components/CodingArtifactPanel'
 import ResearchArtifactPanel from '../components/ResearchArtifactPanel'
+import LongFormResearchPanel from '../components/LongFormResearchPanel'
 import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
 import PlanExecuteResultPanel from '../components/PlanExecuteResultPanel'
 import AgentResultPanel from '../components/AgentResultPanel'
@@ -872,7 +873,7 @@ export default function AgentPage({ setPage }) {
 
           <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 480, overflowY: 'auto' }}>
             {researchArtifact ? (
-              <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />
+              {researchArtifact?.artifact_type === 'long_form_research' ? <LongFormResearchPanel artifact={researchArtifact} rawJson={output} /> : <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />}
             ) : codingArtifact ? (
               <CodingArtifactPanel
                 artifact={codingArtifact}
