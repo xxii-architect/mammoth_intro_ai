@@ -12,9 +12,6 @@ import AgentResultPanel from '../components/AgentResultPanel'
 import MammothEmpty from '../components/MammothEmpty'
 import AgentCommandLibrary from '../components/AgentCommandLibrary'
 
-  }
-  return <ResearchArtifactPanel artifact={artifact} rawJson={output} />
-}
 
 
 const INTENTS = [
