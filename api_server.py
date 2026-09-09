@@ -4694,6 +4694,12 @@ async def run_agent(body: Dict[str, Any]):
                     if coding_intent:
                         payload_for_agent["context"]["coding_intent"] = coding_intent
                         payload_for_agent["intent"] = coding_intent
+            if runtime_agent == "research_agent":
+                if not isinstance(payload_for_agent, dict):
+                    payload_for_agent = {"prompt": str(payload_for_agent or ""), "intent": str(intent or ""), "context": {}}
+                else:
+                    payload_for_agent.setdefault("prompt", prompt_text or "")
+                    payload_for_agent["intent"] = str(intent or "")
             approval_contract = body.get("approval_contract") if isinstance(body.get("approval_contract"), dict) else {}
             if not approval_contract and isinstance(payload_for_agent, dict) and isinstance(payload_for_agent.get("approval_contract"), dict):
                 approval_contract = payload_for_agent.get("approval_contract") or {}
