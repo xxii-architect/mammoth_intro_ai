@@ -12285,12 +12285,13 @@ def _load_json_file(path) -> list:
         return []
 
 
-@app.route('/api/download-docx/<path:filename>')
-def download_docx_file(filename):
+@app.get('/api/download-docx/{filename:path}')
+def download_docx_file(filename: str):
     import os as _dx
-    from flask import send_file, abort
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
     safe = _dx.path.basename(filename)
-    if not safe.endswith('.docx') or '..' in safe: abort(400)
+    if not safe.endswith('.docx') or '..' in safe: raise HTTPException(status_code=400)
     path = _dx.path.join('/opt/mammothos/mammoth_intro_ai/generated_docs', safe)
-    if not _dx.path.isfile(path): abort(404)
-    return send_file(path, as_attachment=True, download_name=safe)
+    if not _dx.path.isfile(path): raise HTTPException(status_code=404)
+    return FileResponse(path, filename=safe, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
