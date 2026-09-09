@@ -31,6 +31,7 @@ const INTENT_TO_AGENT = {
   research_survival:   'research_agent',
   research_plants:     'research_agent',
   compare_gear:        'research_agent',
+  research_long_form:  'research_agent',
   browse_web:          'browser_agent',
   summarize:           'research_agent',
   lesson_curriculum:   'curriculum_agent',
