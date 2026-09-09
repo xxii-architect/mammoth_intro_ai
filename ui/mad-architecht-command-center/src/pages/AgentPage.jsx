@@ -16,7 +16,7 @@ import AgentCommandLibrary from '../components/AgentCommandLibrary'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
-  'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'browse_web', 'summarize',
+  'research_curriculum', 'research_survival', 'research_plants', 'research_long_form', 'compare_gear', 'browse_web', 'summarize',
   'lesson_curriculum', 'lesson_coaching', 'grade_submission',
   'generate_code', 'patch_existing', 'refactor_code', 'analyze_codebase', 'run_tests', 'write_docs',
 ]
