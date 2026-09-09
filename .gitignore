@@ -77,3 +77,4 @@ TEAM_WORKFLOWS_QUICKSTART.md
 # Local Python environments
 venv/
 .venv/
+.mammoth/atlas_state/
