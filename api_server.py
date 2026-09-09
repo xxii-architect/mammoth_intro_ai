@@ -4694,7 +4694,7 @@ async def run_agent(body: Dict[str, Any]):
                     if coding_intent:
                         payload_for_agent["context"]["coding_intent"] = coding_intent
                         payload_for_agent["intent"] = coding_intent
-            if runtime_agent == "research_agent":
+            if runtime_agent in ("research_agent", "research"):
                 if not isinstance(payload_for_agent, dict):
                     payload_for_agent = {"prompt": str(payload_for_agent or ""), "intent": str(intent or ""), "context": {}}
                 else:
