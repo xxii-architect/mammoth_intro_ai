@@ -287,6 +287,16 @@ def load_agent(agent_name: str, router=None):
 
 def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
     if isinstance(payload, dict):
+        # Shell agent: run() takes command:str directly
+        if agent_name in {"shell", "shell_agent"}:
+            if isinstance(payload, dict):
+                cmd = (payload.get("command") or payload.get("prompt") or payload.get("task") or "").strip()
+                return cmd if cmd else str(payload)
+            return str(payload or "")
+        # These agents handle dict payloads natively — pass through unchanged
+        if agent_name in {"auth", "build", "config_manager", "database", "deploy", "executor",
+                           "filesystem", "memory", "scheduler", "snapshot", "ui_builder", "vector_store"}:
+            return dict(payload)
         if agent_name in {"browser", "browser_agent", "task_queue", "task_queue_agent"}:
             normalized = dict(payload)
             if agent_name in {"browser", "browser_agent"} and not normalized.get("url"):
@@ -376,7 +386,6 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "market_intel":    lambda prompt: run_agent("market_intel", prompt),             # type: ignore
     "reflection":      lambda prompt: run_agent("reflection", prompt),               # type: ignore
     "brand_voice":     lambda prompt: run_agent("brand_voice", prompt),              # type: ignore
-    "visual_engine":   lambda prompt: run_agent("visual_engine", prompt),            # type: ignore
     "community_engine":lambda prompt: run_agent("community_engine", prompt),         # type: ignore
     "classifier":      lambda prompt: run_agent("classifier", prompt, router),       # type: ignore
     "orchestrator":    lambda prompt: run_agent("orchestrator", prompt, router),     # type: ignore
@@ -395,6 +404,19 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "mammoth_guide":   lambda prompt: run_agent("mammoth_guide", prompt, router),    # type: ignore
     "planner":         lambda prompt: run_agent("planner",        prompt),           # type: ignore
     "planning":        lambda prompt: run_agent("planner",        prompt),           # type: ignore
+    "auth":            lambda prompt: run_agent("auth",            prompt),          # type: ignore
+    "build":           lambda prompt: run_agent("build",           prompt),          # type: ignore
+    "config_manager":  lambda prompt: run_agent("config_manager",  prompt),          # type: ignore
+    "database":        lambda prompt: run_agent("database",        prompt),          # type: ignore
+    "deploy":          lambda prompt: run_agent("deploy",          prompt),          # type: ignore
+    "executor":        lambda prompt: run_agent("executor",        prompt),          # type: ignore
+    "filesystem":      lambda prompt: run_agent("filesystem",      prompt),          # type: ignore
+    "memory":          lambda prompt: run_agent("memory",          prompt),          # type: ignore
+    "scheduler":       lambda prompt: run_agent("scheduler",       prompt),          # type: ignore
+    "shell":           lambda prompt: run_agent("shell",           prompt),          # type: ignore
+    "snapshot":        lambda prompt: run_agent("snapshot",        prompt),          # type: ignore
+    "ui_builder":      lambda prompt: run_agent("ui_builder",      prompt),          # type: ignore
+    "vector_store":    lambda prompt: run_agent("vector_store",    prompt),          # type: ignore
 }
 
 
