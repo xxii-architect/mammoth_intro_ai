@@ -5110,16 +5110,29 @@ async def run_agent(body: Dict[str, Any]):
                     _auto_text, _auto_title, _auto_type = _auto_out, runtime_agent, "document"
                 else:
                     _auto_text = ""
-                if len(_auto_text) > 500:
+                if len(_auto_text) > 80:
                     try:
-                        from mammoth_os.doc_rag_pipeline import seed_document as _seed_doc
-                        asyncio.create_task(_seed_doc(
-                            title=_auto_title,
-                            content=_auto_text,
-                            artifact_type=_auto_type,
-                        ))
-                    except Exception:
-                        pass
+                        import uuid as _uuid
+                        from datetime import datetime as _adt, timezone as _atz
+                        _auto_payload = {
+                            "id": _uuid.uuid5(_uuid.NAMESPACE_URL, _auto_title).hex,
+                            "title": _auto_title,
+                            "body": _auto_text[:4000],
+                            "artifact_type": _auto_type,
+                            "source_url": "",
+                            "created_at": _adt.now(_atz.utc).isoformat(),
+                        }
+                        _auto_record = _normalize_workspace_artifact_record(_auto_payload)
+                        if _auto_record:
+                            _auto_state = _load_atlas_state()
+                            _auto_arts = _normalize_workspace_artifact_collection(_auto_state.get("workspace_artifacts"))
+                            _auto_arts = [x for x in _auto_arts if x.get("id") != _auto_record["id"]]
+                            _auto_arts.insert(0, _auto_record)
+                            _auto_state["workspace_artifacts"] = _auto_arts[:120]
+                            _auto_state["updated_at"] = _adt.now(_atz.utc).isoformat()
+                            _save_atlas_state(_auto_state)
+                    except Exception as _e:
+                        import logging; logging.getLogger("mammoth").warning("Library auto-save failed: %s", _e)
                 attach_reasoning = runtime_agent == "tutor" and (
                     intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(final_envelope.get("output", raw_result)))
                 )
