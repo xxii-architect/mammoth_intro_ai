@@ -1,6 +1,10 @@
 from .base_agent import BaseAgent
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class OrchestratorAgent(BaseAgent):# type: ignore
     """
     Level 6 orchestrator. Receives high-level goals, delegates to
@@ -24,8 +28,8 @@ class OrchestratorAgent(BaseAgent):# type: ignore
             if s.startswith("{"):
                 try:
                     payload = _json.loads(s)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("OrchestratorAgent payload JSON decode failed: %s", exc)
         if isinstance(payload, dict):
             return {
                 "goal": str(payload.get("goal") or payload.get("prompt") or payload.get("task") or "").strip(),

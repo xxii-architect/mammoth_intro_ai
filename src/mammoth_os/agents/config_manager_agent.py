@@ -5,6 +5,10 @@ from typing import Any, Dict, Optional
 from .base_agent import BaseAgent
 
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 class ConfigManagerAgent(BaseAgent):  # type: ignore
     """
     Manages global and per-agent configuration. Supports hot-reload —
@@ -73,8 +77,8 @@ class ConfigManagerAgent(BaseAgent):  # type: ignore
         router_cfg = {}
         try:
             router_cfg = getattr(self.router, "config", {}) if self.router else {}
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("ConfigManagerAgent router config access failed: %s", exc)
         if isinstance(router_cfg, dict) and router_cfg.get("config_path"):
             return str(router_cfg["config_path"])
         return os.environ.get("MAMMOTH_CONFIG_PATH") or "/etc/mammoth/config.yaml"

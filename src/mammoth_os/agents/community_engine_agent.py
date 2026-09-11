@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 """
 Mammoth OS — CommunityEngineAgent
 Generates community challenges, shared missions, group prompts, and
@@ -125,8 +129,8 @@ class CommunityEngineAgent(BaseAgent):
         _llm_out = {}
         try:
             _llm_out = self._run_async(self._llm_generate(theme, difficulty, mode, audience, team_context, learner_context, engagement_goal))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("CommunityEngineAgent LLM generate failed: %s", exc)
         if _llm_out.get("challenge"):
             challenge = _llm_out["challenge"]
         prompt = _llm_out.get("prompt") or self._generate_prompt(theme, team_context, learner_context)
@@ -232,15 +236,15 @@ class CommunityEngineAgent(BaseAgent):
             parsed = _j.loads(raw) if isinstance(raw, str) else raw
             if isinstance(parsed, dict) and parsed:
                 return parsed
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("CommunityEngineAgent JSON outer parse failed: %s", exc)
         if isinstance(raw, str):
             m = _re.search(r'\{[^{}]*"challenge"[^{}]*\}', raw, _re.DOTALL)
             if m:
                 try:
                     return _j.loads(m.group())
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("CommunityEngineAgent JSON regex parse failed: %s", exc)
             out = {}
             for k in ["challenge", "prompt", "social_callout"]:
                 km = _re.search('"' + k + r'"\s*:\s*"(.*?)(?:"|$)', raw, _re.DOTALL)

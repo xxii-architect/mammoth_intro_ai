@@ -62,6 +62,9 @@ class UIBuilderAgent(BaseAgent):
 
     async def run(self, payload: Any) -> Dict[str, Any]:
         request = payload if isinstance(payload, dict) else {"prompt": str(payload or "")}
+        # Status probe — return readiness without requiring a prompt
+        if str(request.get("action") or "").strip().lower() == "status":
+            return {"status": "ok", "agent": self.name, "message": "UIBuilderAgent ready", "quality_flags": ["ui_generation", "vite_react_scaffold"]}
         prompt_text = str(request.get("prompt") or request.get("task") or request.get("description") or request.get("content") or "").strip()
         approval_mode = bool(request.get("approval_mode") or request.get("preview_only"))
         target_dir = request.get("target_dir") if isinstance(request.get("target_dir"), str) else None

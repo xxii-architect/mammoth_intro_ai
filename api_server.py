@@ -4,6 +4,7 @@ Run: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import ast
+import logging
 import asyncio
 import base64
 from copy import deepcopy
@@ -39,6 +40,8 @@ sys.path.insert(0, str(ROOT / "src"))
 load_dotenv(ROOT / ".env", override=False)
 if (ROOT / ".env.admin").exists():
     load_dotenv(ROOT / ".env.admin", override=False)
+
+logger = logging.getLogger("mammoth_os.api")
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -4061,6 +4064,198 @@ def _summarize_plan_run(step_results: List[Dict[str, Any]], *, objective: str, p
     }
 
 
+
+
+@app.post("/api/plan")
+async def create_plan_endpoint(body: Dict[str, Any]):
+    """
+    Planner → Orchestrator → Task Queue → Executor pipeline.
+
+    Request body
+    ------------
+    goal          : str   – high-level objective (required)
+    constraints   : dict  – optional planner hints (budget, time, agents)
+    execute       : bool  – False = plan-only; True = run tasks immediately
+    approval_mode : bool  – gate each task behind pending_approval status
+    trace_id      : str   – optional caller-supplied trace correlation ID
+
+    Response (plan-only)
+    --------------------
+    { status, plan_id, trace_id, goal, task_count, tasks,
+      total_estimated_minutes }
+
+    Response (execute=true)
+    -----------------------
+    { status, plan_id, trace_id, goal, task_count,
+      total_estimated_minutes, task_results }
+    """
+    goal = str(
+        body.get("goal") or body.get("objective") or body.get("prompt") or ""
+    ).strip()
+    constraints = (
+        body.get("constraints")
+        if isinstance(body.get("constraints"), dict)
+        else {}
+    )
+    execute = bool(body.get("execute", False))
+    approval_mode = bool(body.get("approval_mode", False))
+
+    if not goal:
+        return JSONResponse(
+            status_code=422,
+            content={"status": "error", "error": "goal is required"},
+        )
+
+    trace_id = str(body.get("trace_id") or new_trace_id("plan"))
+    plan_id = f"plan-{uuid.uuid4().hex[:8]}"
+
+    # ── Step 1: Planner decomposes the goal into an ordered task list ──────
+    from mammoth_os.agent_registry import load_agent, run_agent as _run_agent
+
+    planner = load_agent("planner")
+    plan = await planner.create_plan(goal, constraints)
+    tasks = plan.get("tasks") or []
+    total_minutes = plan.get("total_estimated_minutes", 0)
+    # Defensive title synthesis — guard against LLM schema drift
+    for _t in tasks:
+        if not _t.get("title"):
+            _agent_label = str(_t.get("agent") or "task").replace("_", " ").title()
+            _t["title"] = f"{_agent_label}: {goal[:50]}"
+
+    _upsert_task(
+        plan_id,
+        "plan",
+        status="planned",
+        agent_id="planner",
+        description=goal,
+        details={
+            "goal": goal,
+            "task_count": len(tasks),
+            "execute": execute,
+            "approval_mode": approval_mode,
+            "trace_id": trace_id,
+        },
+    )
+    _append_activity(
+        "Plan created",
+        agent_id="planner",
+        task_id=plan_id,
+        kind="plan_created",
+        details={"goal": goal, "task_count": len(tasks), "trace_id": trace_id},
+    )
+
+    # ── Plan-only mode: return the task graph without running anything ─────
+    if not execute:
+        return {
+            "status": "planned",
+            "plan_id": plan_id,
+            "trace_id": trace_id,
+            "goal": goal,
+            "task_count": len(tasks),
+            "tasks": tasks,
+            "total_estimated_minutes": total_minutes,
+        }
+
+    # ── Step 2: Orchestrator coordinates execution order (depends_on graph) ─
+    # ── Step 3: Task queue buffers each unit of work ────────────────────────
+    # ── Step 4: Executor dispatches to the assigned agent ───────────────────
+    completed: Dict[str, Any] = {}
+    task_results = []
+
+    for task in tasks:
+        task_id = str(task.get("task_id") or uuid.uuid4().hex[:8])
+        agent_slug = str(task.get("agent") or "orchestrator")
+        task_input = dict(task.get("input") or {})
+        depends_on = task.get("depends_on") or []
+
+        # Inject upstream task outputs as context for dependent tasks
+        for dep_id in depends_on:
+            if dep_id in completed:
+                task_input.setdefault("context", {})
+                task_input["context"][dep_id] = completed[dep_id]
+
+        if approval_mode:
+            task_results.append(
+                {
+                    "task_id": task_id,
+                    "agent": agent_slug,
+                    "status": "pending_approval",
+                    "title": task.get("title", ""),
+                    "input": task_input,
+                }
+            )
+            continue
+
+        try:
+            result = await asyncio.to_thread(_run_agent, agent_slug, task_input)
+            completed[task_id] = result
+            task_results.append(
+                {
+                    "task_id": task_id,
+                    "agent": agent_slug,
+                    "status": str(result.get("status") or "ok"),
+                    "title": task.get("title", ""),
+                    "result": result,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "api/plan executor: task %s (%s) failed: %s",
+                task_id,
+                agent_slug,
+                exc,
+            )
+            task_results.append(
+                {
+                    "task_id": task_id,
+                    "agent": agent_slug,
+                    "status": "error",
+                    "title": task.get("title", ""),
+                    "error": str(exc),
+                }
+            )
+
+    errored = [r for r in task_results if r.get("status") == "error"]
+    final_status = (
+        "pending_approval"
+        if approval_mode
+        else ("partial" if errored else "ok")
+    )
+
+    _upsert_task(
+        plan_id,
+        "plan",
+        status=final_status,
+        agent_id="orchestrator",
+        description=goal,
+        details={"completed_tasks": len(completed), "errored_tasks": len(errored)},
+    )
+    _append_activity(
+        "Plan executed",
+        agent_id="orchestrator",
+        task_id=plan_id,
+        kind="plan_completed",
+        details={
+            "goal": goal,
+            "status": final_status,
+            "task_count": len(tasks),
+            "errored": len(errored),
+            "trace_id": trace_id,
+        },
+    )
+
+    return {
+        "status": final_status,
+        "plan_id": plan_id,
+        "trace_id": trace_id,
+        "goal": goal,
+        "task_count": len(tasks),
+        "total_estimated_minutes": total_minutes,
+        "task_results": task_results,
+    }
+
+
+
 @app.post("/api/plan-execute")
 async def plan_execute(body: Dict[str, Any]):
     objective = str(body.get("objective", "") or body.get("prompt", "")).strip()
@@ -4897,6 +5092,34 @@ async def run_agent(body: Dict[str, Any]):
                     if isinstance(_p_out, dict) and not _p_out.get("tasks"):
                         _p_plan = (_p_out.get("plan") or {})
                         result["output"] = dict(list(_p_out.items()) + [("tasks", _p_plan.get("tasks") or [])])
+                # Auto-seed: RAG + ATLAS + Library on any substantial text output
+                _auto_out = result.get("output")
+                if isinstance(_auto_out, dict):
+                    _auto_text = "\n\n".join(filter(None, [
+                        str(_auto_out.get("executive_summary") or ""),
+                        str(_auto_out.get("findings") or ""),
+                        str(_auto_out.get("summary") or ""),
+                        str(_auto_out.get("content") or ""),
+                        str(_auto_out.get("document") or ""),
+                        str(_auto_out.get("report") or ""),
+                        str(_auto_out.get("text") or ""),
+                    ]))
+                    _auto_title = str(_auto_out.get("title") or runtime_agent)
+                    _auto_type = str(_auto_out.get("artifact_type") or "document")
+                elif isinstance(_auto_out, str):
+                    _auto_text, _auto_title, _auto_type = _auto_out, runtime_agent, "document"
+                else:
+                    _auto_text = ""
+                if len(_auto_text) > 500:
+                    try:
+                        from mammoth_os.doc_rag_pipeline import seed_document as _seed_doc
+                        asyncio.create_task(_seed_doc(
+                            title=_auto_title,
+                            content=_auto_text,
+                            artifact_type=_auto_type,
+                        ))
+                    except Exception:
+                        pass
                 attach_reasoning = runtime_agent == "tutor" and (
                     intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(final_envelope.get("output", raw_result)))
                 )

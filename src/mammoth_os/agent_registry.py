@@ -278,6 +278,14 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.mammoth_guide_agent import MammothGuideAgent
         return MammothGuideAgent(router)
 
+    if agent_name in {"shell", "shell_agent"}:
+        from mammoth_os.agents.shell_agent import ShellAgent
+        return ShellAgent(router)
+
+    if agent_name in {"ui_builder", "ui_builder_agent"}:
+        from mammoth_os.agents.ui_builder_agent import UIBuilderAgent
+        return UIBuilderAgent(router)
+
     raise ValueError(f"Unknown agent '{agent_name}'")
 
 

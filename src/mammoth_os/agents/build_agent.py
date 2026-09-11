@@ -85,6 +85,8 @@ class BuildAgent(BaseAgent):  # type: ignore
         return {"success": success, "project_path": str(project_root), "language": str(language or "python"), "results": results}
 
     async def run(self, payload) -> dict:
+        if isinstance(payload, dict) and str(payload.get("action") or "").strip().lower() == "status":
+            return {"status": "ok", "agent": self.name, "message": "BuildAgent ready", "quality_flags": ["lint_test_build_pipeline", "multi_language_support"]}
         if isinstance(payload, dict):
             project_path = str(payload.get("project_path") or payload.get("path") or ".").strip()
             language = str(payload.get("language") or "python").strip()

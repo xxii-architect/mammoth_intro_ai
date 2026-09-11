@@ -5,8 +5,9 @@ PLANNER_SYSTEM = """You are MammothOS's execution planner. Break a goal into a p
 Return JSON only — a list of tasks:
 [{"task_id":"t1","agent":"<agent_slug>","title":"<task title>","input":{"goal":"<sub-goal>"},"depends_on":[],"estimated_minutes":<int>}]
 
-Agent slugs: research, curriculum, tutor, coding, brand_voice, community_engine, field_ops, market_intel, reflection, mammoth_guide
-Keep tasks focused, ordered, and DAG-valid (no circular depends_on)."""
+Agent slugs (use ONLY these exact values): research, market_intel, coding, community_engine, field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator
+Keep tasks focused, ordered, and DAG-valid (no circular depends_on).
+NEVER use: tutor, brand_voice, reflection, mammoth_guide — these are not execution agents."""
 
 class PlannerAgent(BaseAgent):# type: ignore
     """
@@ -34,33 +35,91 @@ class PlannerAgent(BaseAgent):# type: ignore
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 return pool.submit(asyncio.run, coro).result()
 
+    @staticmethod
+    def _valid_exec_tasks(tasks: list) -> bool:
+        """Reject any list that doesn't carry the execution task schema.
+
+        A valid execution task must have at minimum: task_id, agent, title,
+        input, depends_on.  Curriculum-lesson payloads (which the LLM
+        sometimes produces when context leaks) lack 'title' and carry
+        lesson/module keys instead — those must be rejected so the prose
+        fallback fires and returns well-formed tasks.
+        """
+        if not (isinstance(tasks, list) and tasks):
+            return False
+        _ALLOWED = frozenset([
+            "research", "market_intel", "coding", "community_engine",
+            "field_ops", "reasoning", "executor", "build", "deploy",
+            "search", "curriculum", "orchestrator",
+        ])
+        for t in tasks:
+            if not isinstance(t, dict):
+                return False
+            if not (t.get("task_id") and t.get("agent") and t.get("title")):
+                return False
+            # Reject agent slugs not in the execution allowlist
+            if t.get("agent") not in _ALLOWED:
+                return False
+            # Reject if it looks like a curriculum lesson
+            if "lesson" in t.get("input", {}) or "module_id" in t:
+                return False
+        return True
+
     async def _llm_decompose(self, goal: str) -> list:
         import json as _j, re as _re, uuid as _uuid
         from mammoth_os.llm_client import get_llm_client
 
         # Few-shot template forces the model to fill JSON directly
+        _REAL_AGENTS = (
+            "research, market_intel, coding, community_engine, "
+            "field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator"
+        )
         template = (
             "Fill the JSON task list below for the GOAL. "
-            "Replace ALL placeholder values. Keep exact keys. Output JSON only, no prose.\n\n"
-            '[{"task_id":"t1","agent":"research","title":"Research the domain","input":{"goal":"understand context"},"depends_on":[],"estimated_minutes":10},'
-            '{"task_id":"t2","agent":"brand_voice","title":"Draft campaign messaging","input":{"goal":"create brand copy"},"depends_on":["t1"],"estimated_minutes":20}]'
+            "Replace ALL placeholder values. Keep exact keys. "
+            f"Use ONLY these agent slugs: {_REAL_AGENTS}. "
+            "Output JSON only, no prose.\n\n"
+            '[{"task_id":"t1","agent":"research","title":"Research the domain",'
+            '"input":{"goal":"understand context"},"depends_on":[],"estimated_minutes":10},'
+            '{"task_id":"t2","agent":"coding","title":"Build technical components",'
+            '"input":{"goal":"implement the solution"},"depends_on":["t1"],"estimated_minutes":30}]'
             "\n\nGOAL: " + goal
         )
         raw = await get_llm_client().generate(
             template,
-            system_prompt="Output ONLY a JSON array of tasks. No prose. No explanation.",
-            max_tokens=900,
+            system_prompt=(
+                "Output ONLY a JSON array of tasks. No prose. No explanation. "
+                "Valid agent slugs: research, market_intel, coding, community_engine, "
+                "field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator. "
+                "NEVER use tutor, brand_voice, reflection, or mammoth_guide."
+            ),
+            max_tokens=2000,
             temperature=0.1,
         )
+        # DEBUG: dump raw LLM output for inspection
 
         # Pass 1: direct JSON parse
         if isinstance(raw, str):
             try:
                 parsed = _j.loads(raw)
-                if isinstance(parsed, list) and parsed:
+                if self._valid_exec_tasks(parsed):
                     return parsed
             except Exception:
                 pass
+
+        # Pass 1.5: truncation recovery — close incomplete JSON array and retry
+        if isinstance(raw, str) and raw.strip().startswith('['):
+            _partial = raw.strip()
+            # Find the last complete object by locating the last '}}'
+            _last_close = _partial.rfind('}')
+            if _last_close != -1:
+                _recovered = _partial[:_last_close + 1] + ']'
+                try:
+                    _rparsed = _j.loads(_recovered)
+                    if self._valid_exec_tasks(_rparsed):
+                        return _rparsed
+                except Exception:
+                    pass
 
         # Pass 2: extract JSON array from prose
         if isinstance(raw, str):
@@ -68,7 +127,7 @@ class PlannerAgent(BaseAgent):# type: ignore
             if m:
                 try:
                     parsed = _j.loads(m.group())
-                    if isinstance(parsed, list) and parsed:
+                    if self._valid_exec_tasks(parsed):
                         return parsed
                 except Exception:
                     pass
@@ -76,27 +135,30 @@ class PlannerAgent(BaseAgent):# type: ignore
         # Pass 3: prose fallback — extract any agent mentions and synthesise tasks
         if isinstance(raw, str) and raw.strip():
             agent_slugs = [
-                "research", "curriculum", "tutor", "coding", "brand_voice",
-                "community_engine", "field_ops", "market_intel", "reflection", "mammoth_guide"
+                "research", "market_intel", "coding", "community_engine",
+                "field_ops", "reasoning", "executor", "build", "deploy",
+                "search", "curriculum", "orchestrator"
             ]
             seen = []
             for slug in agent_slugs:
                 if slug.replace("_", " ") in raw.lower() or slug in raw.lower():
                     seen.append(slug)
             if not seen:
-                seen = ["research", "brand_voice", "community_engine"]
+                seen = ["research", "market_intel", "orchestrator"]
             tasks = []
             titles = {
                 "research": "Research background and context",
-                "brand_voice": "Develop brand voice and messaging",
+                "market_intel": "Gather market intelligence",
+                "coding": "Build technical components",
                 "community_engine": "Engage and grow the community",
                 "field_ops": "Execute field operations",
-                "market_intel": "Gather market intelligence",
+                "reasoning": "Analyse and reason about the problem",
+                "executor": "Execute planned actions",
+                "build": "Build and compile artifacts",
+                "deploy": "Deploy to target environment",
+                "search": "Search for relevant information",
                 "curriculum": "Build educational content",
-                "tutor": "Deliver coaching and guidance",
-                "coding": "Build technical components",
-                "reflection": "Review and iterate on outcomes",
-                "mammoth_guide": "Guide platform experience",
+                "orchestrator": "Orchestrate multi-step workflow",
             }
             for i, slug in enumerate(seen[:6]):
                 tid = f"t{i+1}"
@@ -173,7 +235,7 @@ class PlannerAgent(BaseAgent):# type: ignore
         constraints = dict(constraints)
 
         curriculum = self._normalize_curriculum(constraints)
-        if curriculum is None and "curriculum" not in constraints:
+        if curriculum is None and constraints.get("use_curriculum") is True:
             try:
                 from mammoth_os.agent_registry import load_agent
                 curriculum_agent = load_agent("curriculum", None)
@@ -213,7 +275,7 @@ class PlannerAgent(BaseAgent):# type: ignore
         curriculum = self._normalize_curriculum(constraints)
 
         tasks: list[dict] = []
-        if curriculum and isinstance(curriculum, dict):
+        if curriculum and isinstance(curriculum, dict) and constraints.get("use_curriculum") is True:
             prev_task_id = None
             for module in curriculum.get("modules", []):
                 module_id = module.get("module_id")
@@ -242,7 +304,8 @@ class PlannerAgent(BaseAgent):# type: ignore
         return [
             {
                 "task_id": str(uuid.uuid4()),
-                "agent": "curriculum",
+                "agent": "orchestrator",
+                "title": goal[:80] if goal else "Execute goal",
                 "input": {"goal": goal},
                 "depends_on": [],
                 "estimated_minutes": fallback_minutes,
