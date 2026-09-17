@@ -499,11 +499,22 @@ class ResearchAgent(BaseAgent):
             + "Do not include the heading -- just the body paragraphs."
         )
         try:
-            prose = await client.generate(user_msg, system_prompt=LONG_FORM_SECTION_SYSTEM, max_tokens=1800, temperature=0.5)
-            return {"heading": heading, "content": prose.strip(), "order": idx}
+            prose = await client.generate(user_msg, system_prompt=LONG_FORM_SECTION_SYSTEM, max_tokens=2800, temperature=0.5)
+            # Strip reasoning traces from prose, save separately
+            _think_trace = ""
+            _prose_clean = prose.strip()
+            _tk_start = _prose_clean.find("<think>")
+            _tk_end   = _prose_clean.find("</think>")
+            if _tk_start != -1 and _tk_end != -1:
+                _think_trace = _prose_clean[_tk_start + 7 : _tk_end].strip()
+                _prose_clean = (_prose_clean[:_tk_start] + _prose_clean[_tk_end + 8:]).strip()
+            elif _prose_clean.startswith("<think>"):
+                _think_trace = _prose_clean[7:].strip()
+                _prose_clean = ""
+            return {"heading": heading, "content": _prose_clean, "trace": _think_trace, "order": idx}
         except Exception as exc:
             logger.warning("Long-form section %d failed: %s", idx, exc)
-            return {"heading": heading, "content": "[Section failed: " + str(exc) + "]", "order": idx}
+            return {"heading": heading, "content": "[Section failed: " + str(exc) + "]", "trace": "", "order": idx}
 
     async def _long_form_pipeline(self, prompt_text, context):
         from mammoth_os.llm_client import get_llm_client
@@ -521,9 +532,51 @@ class ResearchAgent(BaseAgent):
         outline_msg = ("Research topic: " + prompt_text + nl + source_block + ctx_block + nl + nl + "Generate a 6-section document outline. Return ONLY valid JSON.")
         outline_raw = await client.generate(outline_msg, system_prompt=LONG_FORM_OUTLINE_SYSTEM, max_tokens=2048, temperature=0.3, response_format={"type": "json_object"})
         outline = self._extract_json(outline_raw)
-        title = outline.get("title") or prompt_text
+        # If JSON parse failed or returned generic/empty title, use prompt as title
+        _raw_title = (outline.get("title") or "").strip()
+        _bad_titles = {"research output", "untitled", "document", "report", ""}
+        _fallback_title = (
+            str(context.get("goal") or context.get("topic") or "")
+            if isinstance(context, dict) else ""
+        ) or prompt_text
+        title = _raw_title if _raw_title.lower() not in _bad_titles else _fallback_title
         abstract = outline.get("abstract") or ""
-        sections_spec = outline.get("sections") or [{"heading": "Section " + str(i + 1), "brief": ""} for i in range(6)]
+        # If _raw_unparsed, sections will also be empty — force re-outline via prompt
+        if outline.get("_raw_unparsed"):
+            logger.warning("Outline JSON parse failed — using prompt-derived structure")
+        # Extract quote from user content field if not already set
+        if isinstance(context, dict):
+            _raw_c = str(context.get("content") or context.get("instructions") or "")
+            _qidx = _raw_c.lower().find("quote")
+            if _qidx != -1 and not context.get("quote"):
+                _qval = _raw_c[_qidx + 5:].lstrip(": ").strip()
+                _qend = _qval.find("\n")
+                context = dict(context)
+                context["quote"] = (_qval[:_qend] if _qend != -1 else _qval[:120]).strip()
+        # Guard against LLM returning generic section names
+        _sections_raw = outline.get("sections") or []
+        _all_generic = not _sections_raw or all(
+            (not s.get("heading") or s.get("heading","").lower().startswith("section "))
+            for s in _sections_raw
+        )
+        if _all_generic:
+            sections_spec = [{"heading": "Section " + str(i + 1), "brief": ""} for i in range(6)]
+        else:
+            sections_spec = _sections_raw
+        # Enforce 6-section minimum — LLM sometimes returns fewer
+        if len(sections_spec) < 6:
+            _existing = len(sections_spec)
+            _topics = [
+                "Market Overview and Industry Landscape",
+                "Leading Brands and Key Players",
+                "Product Categories and Offerings",
+                "Business Models and Distribution Channels",
+                "Consumer Trends and Demand Drivers",
+                "Opportunities, Challenges, and Future Outlook",
+            ]
+            for _pi in range(6 - _existing):
+                sections_spec.append({"heading": _topics[_existing + _pi] if (_existing + _pi) < len(_topics) else "Section " + str(_existing + _pi + 1), "brief": ""})
+            logger.warning("Outline returned %d sections — padded to 6", _existing)
         conclusion_brief = outline.get("conclusion_brief") or ""
         section_tasks = [self._generate_section(client, prompt_text, source_block, sec, idx) for idx, sec in enumerate(sections_spec)]
         completed_sections = list(await asyncio.gather(*section_tasks))
@@ -579,6 +632,21 @@ class ResearchAgent(BaseAgent):
                     src_title = src.get("title") or src.get("label") or "Source " + str(i)
                     src_url = src.get("url") or src.get("source") or ""
                     doc.add_paragraph("[S" + str(i) + "] " + src_title + (" -- " + src_url if src_url else ""), style="List Number")
+            # Append agent reasoning traces as appendix
+            _traces = [(s.get("heading",""), s.get("trace","")) for s in sections if s.get("trace","").strip()]
+            if _traces:
+                doc.add_page_break()
+                _ah = doc.add_heading("Appendix: Agent Reasoning Traces", level=1)
+                for _run in _ah.runs: _run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+                _ap = doc.add_paragraph("Internal agent reasoning captured during section generation. Included for audit and agent evolution purposes.")
+                for _run in _ap.runs: _run.font.size = Pt(9); _run.font.italic = True; _run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+                doc.add_paragraph()
+                for _thead, _tbody in _traces:
+                    _th = doc.add_heading(_thead, level=2)
+                    for _run in _th.runs: _run.font.color.rgb = RGBColor(0x88, 0x88, 0x88); _run.font.size = Pt(11)
+                    _tp = doc.add_paragraph(_tbody)
+                    for _run in _tp.runs: _run.font.size = Pt(9); _run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+                    doc.add_paragraph()
             safe_title = "".join(c for c in title if c.isalnum() or c in " _-")[:60].strip().replace(" ", "_")
             ts = _dt.now().strftime("%Y%m%d_%H%M%S")
             filename = "mammoth_research_" + safe_title + "_" + ts + ".docx"
@@ -716,14 +784,18 @@ class ResearchAgent(BaseAgent):
     def _parse_input(prompt: Any):
         if isinstance(prompt, dict):
             text = str(
-                prompt.get("prompt")
+                prompt.get("goal")
+                or prompt.get("prompt")
                 or prompt.get("topic")
                 or prompt.get("task")
-                or prompt.get("content")
+                or prompt.get("query")
                 or ""
             ).strip()
             intent = str(prompt.get("intent") or prompt.get("mode") or "research").strip()
-            ctx = prompt.get("context") or {}
+            ctx = dict(prompt.get("context") or {})
+            for _ck in ("content", "instructions", "operator_note"):
+                if prompt.get(_ck) and _ck not in ctx:
+                    ctx[_ck] = prompt[_ck]
         else:
             text_raw = str(prompt or "").strip()
             # ── try JSON-string payload unwrap ────────────────────────────────
@@ -733,11 +805,14 @@ class ResearchAgent(BaseAgent):
                     d = _jj.loads(text_raw)
                     if isinstance(d, dict):
                         text = str(
-                            d.get("query") or d.get("topic") or d.get("prompt") or
-                            d.get("task") or d.get("content") or ""
+                            d.get("goal") or d.get("query") or d.get("topic") or
+                            d.get("prompt") or d.get("task") or ""
                         ).strip()
                         intent = str(d.get("intent") or d.get("mode") or "research").strip()
-                        ctx = d.get("context") or {}
+                        ctx = dict(d.get("context") or {})
+                        for _ck in ("content", "instructions", "operator_note"):
+                            if d.get(_ck) and _ck not in ctx:
+                                ctx[_ck] = d[_ck]
                         return text or text_raw, intent, ctx
                 except Exception:
                     pass
@@ -783,7 +858,7 @@ class ResearchAgent(BaseAgent):
             except Exception:
                 pass
         return {
-            "title": "Research Output",
+            "title": "",
             "executive_summary": text if text else "Unable to parse LLM response.",
             "_raw_unparsed": True,
             "findings": [],

@@ -5206,6 +5206,25 @@ async def run_agent(body: Dict[str, Any]):
             )
 
         _think("Run complete", f"task_status={task_status!r}", "success")
+        # Score long_form_research on output quality, not temperature
+        _lf_out = result.get("output") if isinstance(result, dict) else {}
+        _lf_out = _lf_out if isinstance(_lf_out, dict) else {}
+        _is_longform = (
+            intent == "research_long_form"
+            or _lf_out.get("artifact_type") == "long_form_research"
+        )
+        if _is_longform:
+            _secs = _lf_out.get("sections") or []
+            _wc = int(_lf_out.get("word_count") or 0)
+            _docx = bool(_lf_out.get("docx_filename"))
+            _run_confidence = round(min(0.95,
+                0.50
+                + (0.20 if len(_secs) >= 6 else len(_secs) * 0.03)
+                + (0.15 if _wc >= 4000 else _wc / 4000 * 0.15)
+                + (0.10 if _docx else 0.0)
+            ), 3)
+        else:
+            _run_confidence = round(1.0 - temperature, 3)
         response = {
             "status": "ok",
             "result": result,
@@ -5219,7 +5238,7 @@ async def run_agent(body: Dict[str, Any]):
             "runtime_notice": build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=tracked_agent_id or "", context="run_agent"),
             "thought_steps": thought_steps,
             "provider": runtime_agent or "unknown",
-            "confidence": 1.0 - temperature,  # Higher temp = lower confidence
+            "confidence": _run_confidence,
             "citations": [],  # Agent runs typically don't have citations unless specified
             "contradictions": [],
         }

@@ -365,13 +365,18 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
         if agent_name in {"curriculum", "research", "custodial"}:
             # Preserve full dict when a non-default intent must reach the agent
             _long_form_intents = {"research_long_form", "long_form_research"}
-            if isinstance(payload, dict) and payload.get("intent") in _long_form_intents:
-                return payload
-            if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
+            if isinstance(payload, dict) and (
+                payload.get("intent") in _long_form_intents
+                or payload.get("long_form")
+                or payload.get("goal")
+            ):
+                return payload  # let _parse_input dict-branch handle key extraction
+            if isinstance(payload, dict) and isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
                 return payload["prompt"]
-            if isinstance(payload.get("topic"), str) and payload.get("topic").strip():
+            if isinstance(payload, dict) and isinstance(payload.get("topic"), str) and payload.get("topic").strip():
                 return payload["topic"]
-            return json.dumps(payload)
+            if isinstance(payload, dict):
+                return json.dumps(payload)
     if isinstance(payload, str):
         return payload
     if payload is None:
