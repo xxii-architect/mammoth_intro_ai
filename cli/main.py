@@ -52,7 +52,7 @@ def _to_jsonable(value):
     return value
 
 def cmd_version(args):
-    print("🐘 Mammoth OS Version")
+    print("🦣 Mammoth OS Version")
     print(json.dumps({
         "version": __version__,
         "build": "local-dev",
@@ -61,26 +61,26 @@ def cmd_version(args):
 
 
 def cmd_engine_list(args):
-    print("🐘 Mammoth OS Engines")
+    print("🦣 Mammoth OS Engines")
     engines = EngineRegistry.list_engines()
     print(json.dumps(engines, indent=2))
 
 
 def cmd_agent_list(args):
-    print("🐘 Mammoth OS Agents")
+    print("🦣 Mammoth OS Agents")
     agents = asyncio.run(agent_registry.list_agents())
     agents_json = [_to_jsonable(a) for a in agents]
     print(json.dumps(agents_json, indent=2))
 
 
 def cmd_health(args):
-    print("🐘 Mammoth OS Health Check")
+    print("🦣 Mammoth OS Health Check")
     report = run_system_check(test_user=DEFAULT_TEST_USER)
     print(json.dumps(report, indent=2))
 
 
 def cmd_status(args):
-    print("🐘 Mammoth OS Status")
+    print("🦣 Mammoth OS Status")
 
     engines = EngineRegistry.list_engines()
     agents = asyncio.run(agent_registry.list_agents())
@@ -95,7 +95,7 @@ def cmd_status(args):
 
 
 def cmd_diagnostics(args):
-    print("🐘 Mammoth OS Full Diagnostics")
+    print("🦣 Mammoth OS Full Diagnostics")
 
     # System check
     report = run_system_check(test_user=DEFAULT_TEST_USER)
@@ -121,24 +121,24 @@ def cmd_diagnostics(args):
 
 
 def cmd_start(args):
-    print("🐘 Mammoth OS Start")
+    print("🦣 Mammoth OS Start")
     print("Starting Mammoth OS runtime… (placeholder)")
 
 
 def cmd_stop(args):
-    print("🐘 Mammoth OS Stop")
+    print("🦣 Mammoth OS Stop")
     print("Stopping Mammoth OS runtime… (placeholder)")
 
 
 def cmd_check(args):
     report = run_system_check(test_user=DEFAULT_TEST_USER)
-    print("🐘 Mammoth OS System Check")
+    print("🦣 Mammoth OS System Check")
     print(json.dumps(report, indent=2))
 
 
 def cmd_schema_describe(args):
     info = describe_schema(schema="atlas")
-    print("🐘 Mammoth OS Schema (atlas)")
+    print("🦣 Mammoth OS Schema (atlas)")
     print(json.dumps(info, indent=2))
 
 
