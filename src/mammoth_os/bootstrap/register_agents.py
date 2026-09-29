@@ -118,6 +118,32 @@ def build_core_manifests() -> list[AgentManifest]:
             metadata={"description": "Community and engagement design."},
         ),
         AgentManifest(
+            agent_id="classifier",
+            name="ClassifierAgent",
+            version="1.0.0",
+            capabilities=["intent_classification", "routing", "labeling"],
+            status=AgentStatus.ACTIVE,
+            level=3,
+            dependencies=[],
+            endpoint="local://classifier",
+            registered_at=now(),
+            last_heartbeat=now(),
+            metadata={"description": "Intent routing and structured request labeling."},
+        ),
+        AgentManifest(
+            agent_id="orchestrator",
+            name="OrchestratorAgent",
+            version="1.0.0",
+            capabilities=["multi_agent_routing", "plan_validation", "conflict_resolution"],
+            status=AgentStatus.ACTIVE,
+            level=6,
+            dependencies=["planner", "classifier"],
+            endpoint="local://orchestrator",
+            registered_at=now(),
+            last_heartbeat=now(),
+            metadata={"description": "Top-level cognitive coordinator for multi-agent work."},
+        ),
+        AgentManifest(
             agent_id="research",
             name="ResearchAgent",
             version="1.0.0",
@@ -224,4 +250,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

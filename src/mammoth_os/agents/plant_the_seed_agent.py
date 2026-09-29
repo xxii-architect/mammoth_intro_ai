@@ -5,14 +5,25 @@ Generates foundational learning seeds tied to survival mindset and long-game thi
 
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
 
-class PlantTheSeedAgent:
+
+class PlantTheSeedAgent(BaseAgent):
     """
     Generates seed insights for learning modules.
     """
 
-    def __init__(self, user_id: str | None = None):
+    name = "PlantTheSeedAgent"
+
+    def __init__(self, router: Any = None, user_id: str | None = None):
+        if isinstance(router, str) and user_id is None:
+            user_id = router
+            router = None
+        super().__init__(router)
         self.user_id = user_id
+
+    def log(self, level: str, message: str) -> None:
+        print(f"[{self.name}:{level}] {message}")
 
     def run(self, payload: Any) -> Dict[str, Any]:
         """
@@ -322,3 +333,14 @@ class PlantTheSeedAgent:
         if next_focus:
             return f"{anchor} is ready for a focused next step around {next_focus}."
         return f"{anchor} is stable enough to keep compounding with one small daily rep."
+
+    async def emit_event(self, event_type: str, payload: Any) -> None:
+        self.log("INFO", f"Emitting {event_type} without a transport")
+
+    async def process(self, event: "MammothEvent") -> None:  # type: ignore
+        if event.event_type == "PLANT_SEED_REQUEST":
+            result = self.run(event.payload)
+            await self.emit_event("PLANT_SEED_RESULT", result)
+
+    async def shutdown(self) -> None:
+        self.log("INFO", "PlantTheSeedAgent shutting down.")

@@ -136,6 +136,14 @@ def load_agent(agent_name: str, router: Optional[CortexRouter] = None) -> Any:
         from mammoth_os.agents.community_engine_agent import CommunityEngineAgent
         return CommunityEngineAgent()
 
+    if agent_name in {"classifier", "classifier_agent"}:
+        from mammoth_os.agents.classifier_agent import ClassifierAgent
+        return ClassifierAgent(router)
+
+    if agent_name in {"orchestrator", "orchestrator_agent"}:
+        from mammoth_os.agents.orchestrator_agent import OrchestratorAgent
+        return OrchestratorAgent(router)
+
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
         return ResearchAgent(router)
@@ -168,6 +176,8 @@ AGENTS: Dict[str, AgentCallable] = {
     "brand_voice": lambda prompt: load_agent("brand_voice").run(prompt),
     "visual_engine": lambda prompt: load_agent("visual_engine").run(prompt),# type: ignore
     "community_engine": lambda prompt: load_agent("community_engine").run(prompt),
+    "classifier": lambda prompt: load_agent("classifier", router).run(prompt),
+    "orchestrator": lambda prompt: load_agent("orchestrator", router).run(prompt),
     "research": lambda prompt: load_agent("research", router).run(prompt),
     "coding": lambda prompt: load_agent("coding", router).run(prompt),
     "custodial": lambda prompt: load_agent("custodial", router).run(prompt),

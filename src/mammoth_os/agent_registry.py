@@ -162,6 +162,14 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.community_engine_agent import CommunityEngineAgent
         return CommunityEngineAgent()
 
+    if agent_name in {"classifier", "classifier_agent"}:
+        from mammoth_os.agents.classifier_agent import ClassifierAgent
+        return ClassifierAgent(router)
+
+    if agent_name in {"orchestrator", "orchestrator_agent"}:
+        from mammoth_os.agents.orchestrator_agent import OrchestratorAgent
+        return OrchestratorAgent(router)
+
     if agent_name in {"browser", "browser_agent"}:
         from mammoth_os.agents.browser_agent import BrowserAgent
         return BrowserAgent(router)
@@ -230,13 +238,17 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                     else:
                         normalized.setdefault("prompt", prompt_value)
             return normalized
-        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "mammoth_guide"}:
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "mammoth_guide", "classifier", "classifier_agent", "orchestrator", "orchestrator_agent"}:
             normalized = dict(payload)
             prompt_val = str(normalized.get("prompt") or "").strip()
             if agent_name == "tutor" and prompt_val and not normalized.get("topic"):
                 normalized["topic"] = prompt_val
             elif agent_name == "reasoning" and prompt_val and not normalized.get("problem"):
                 normalized["problem"] = prompt_val
+            elif agent_name in {"classifier", "classifier_agent"} and prompt_val and not normalized.get("text"):
+                normalized["text"] = prompt_val
+            elif agent_name in {"orchestrator", "orchestrator_agent"} and prompt_val and not normalized.get("goal"):
+                normalized["goal"] = prompt_val
             elif agent_name == "reflection":
                 # Map plan-execute prompt fields into the reflection agent's expected schema.
                 if prompt_val and not normalized.get("topic"):
@@ -296,6 +308,8 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "brand_voice":     lambda prompt: run_agent("brand_voice", prompt),              # type: ignore
     "visual_engine":   lambda prompt: run_agent("visual_engine", prompt),            # type: ignore
     "community_engine":lambda prompt: run_agent("community_engine", prompt),         # type: ignore
+    "classifier":      lambda prompt: run_agent("classifier", prompt, router),       # type: ignore
+    "orchestrator":    lambda prompt: run_agent("orchestrator", prompt, router),     # type: ignore
     "browser":         lambda prompt: run_agent("browser", prompt),                  # type: ignore
     "task_queue":      lambda prompt: run_agent("task_queue", prompt),               # type: ignore
     "research":        lambda prompt: run_agent("research", prompt),                 # type: ignore
