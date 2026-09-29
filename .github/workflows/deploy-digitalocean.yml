@@ -10,7 +10,42 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install -e .
+          pip install pytest
+
+      - name: Run release guardrail tests
+        shell: bash
+        env:
+          PYTHONPATH: src
+        run: |
+          set -euo pipefail
+          python -m pytest \
+            tests/test_atlas_evals.py \
+            tests/test_production_guardrails.py \
+            tests/test_atlas_fab_sdk.py \
+            src/mammoth_os/test_learner_model.py \
+            tests/test_runtime_resilience.py \
+            -q
+
   deploy:
+    needs: guardrails
     runs-on: ubuntu-latest
     environment: production
     steps:

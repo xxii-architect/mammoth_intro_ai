@@ -14,6 +14,9 @@ import {
   Shield,
   Sparkles,
   Terminal,
+  ClipboardList,
+  ShieldCheck,
+  Users,
 } from 'lucide-react'
 
 const QUICK_STARTS = [
@@ -23,6 +26,63 @@ const QUICK_STARTS = [
   'Use my uploaded materials to summarize today’s chapter',
   '/research official vite deployment guide',
   'Plan and execute a fix for the ATLAS sidebar with minimal edits',
+]
+
+const WORKSPACE_TEMPLATES = [
+  {
+    title: 'Builder sprint template',
+    audience: 'Engineer',
+    summary: 'Repo-aware fix cycle with clear acceptance criteria and verification.',
+    prompt: 'Use Mammoth Mind to run a builder sprint template: 1) summarize the issue, 2) list impacted files, 3) propose smallest safe patch, 4) define validation command, 5) output release notes.',
+  },
+  {
+    title: 'Tutor launch template',
+    audience: 'Student',
+    summary: 'Start a lesson track with pacing, weak-concept recovery, and retention checks.',
+    prompt: 'Set up an ATLAS tutor launch template for this topic with Start → Practice → Check → Reflect → Next and include recap + flashcard checkpoints.',
+  },
+  {
+    title: 'Operator deploy template',
+    audience: 'Operator',
+    summary: 'Plan, approvals, deploy, rollback point, and post-deploy verification.',
+    prompt: 'Create an operator deployment template with approvals, staged checks, rollback snapshot, and final health verification commands.',
+  },
+]
+
+const SHAREABLE_RUNBOOKS = [
+  {
+    title: 'Incident triage runbook',
+    summary: 'Capture symptom, blast radius, reproducibility, containment, and fix ownership.',
+    prompt: 'Generate an incident triage runbook for this issue with ownership, severity, containment steps, and verification checklist.',
+  },
+  {
+    title: 'Release readiness runbook',
+    summary: 'Gate by trust posture, test pass state, provider health, and regression evidence.',
+    prompt: 'Generate a release readiness runbook for this branch with objective pass/fail gates and final go/no-go criteria.',
+  },
+  {
+    title: 'Onboarding runbook',
+    summary: 'First-day setup for new teammates across Mammoth Mind, ATLAS, and Agent workflows.',
+    prompt: 'Generate a teammate onboarding runbook for first-day setup across Mammoth Mind, Lessons, Tutor, Agent, and command workflows.',
+  },
+]
+
+const POLICY_BUNDLES = [
+  {
+    title: 'Safe mutation policy',
+    summary: 'Require explicit approval for high-impact operations and destructive actions.',
+    prompt: 'Draft a safe mutation policy bundle for MammothOS with approval requirements, prohibited actions, and audit logging expectations.',
+  },
+  {
+    title: 'Research quality policy',
+    summary: 'Require evidence breadth, contradiction checks, and confidence disclosure.',
+    prompt: 'Draft a research quality policy bundle requiring citations, contradiction flags, and confidence scoring before release use.',
+  },
+  {
+    title: 'Tenant trust policy',
+    summary: 'Scope private data by tenant, enforce role checks, and prevent anonymous exposure.',
+    prompt: 'Draft a tenant trust policy bundle covering auth checks, role enforcement, data boundaries, and audit trail requirements.',
+  },
 ]
 
 const COMMANDS = [
@@ -541,6 +601,70 @@ export default function CommandLibraryPage() {
               {item}
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="glass-card-solid" style={{ padding: 18, borderRadius: 18, marginBottom: 20 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <Users size={16} color="var(--violet)" />
+          <strong style={{ color: 'var(--txt-pri)', fontSize: '0.9rem' }}>Team adoption kit</strong>
+        </div>
+        <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <ClipboardList size={14} color="var(--photon)" />
+              <strong style={{ color: 'var(--txt-pri)', fontSize: '0.82rem' }}>Workspace templates</strong>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {WORKSPACE_TEMPLATES.map((item) => (
+                <button
+                  key={item.title}
+                  onClick={() => setSearch(item.prompt)}
+                  style={{ textAlign: 'left', padding: '10px 11px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'var(--txt-sec)', fontSize: '0.74rem', cursor: 'pointer' }}
+                >
+                  <div style={{ color: 'var(--txt-pri)', fontWeight: 700, fontSize: '0.76rem', marginBottom: 3 }}>{item.title}</div>
+                  <div style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', marginBottom: 4 }}>{item.audience}</div>
+                  <div>{item.summary}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <FileText size={14} color="var(--cyan)" />
+              <strong style={{ color: 'var(--txt-pri)', fontSize: '0.82rem' }}>Shareable runbooks</strong>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {SHAREABLE_RUNBOOKS.map((item) => (
+                <button
+                  key={item.title}
+                  onClick={() => setSearch(item.prompt)}
+                  style={{ textAlign: 'left', padding: '10px 11px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'var(--txt-sec)', fontSize: '0.74rem', cursor: 'pointer' }}
+                >
+                  <div style={{ color: 'var(--txt-pri)', fontWeight: 700, fontSize: '0.76rem', marginBottom: 3 }}>{item.title}</div>
+                  <div>{item.summary}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <ShieldCheck size={14} color="var(--amber)" />
+              <strong style={{ color: 'var(--txt-pri)', fontSize: '0.82rem' }}>Policy bundles</strong>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {POLICY_BUNDLES.map((item) => (
+                <button
+                  key={item.title}
+                  onClick={() => setSearch(item.prompt)}
+                  style={{ textAlign: 'left', padding: '10px 11px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.02)', color: 'var(--txt-sec)', fontSize: '0.74rem', cursor: 'pointer' }}
+                >
+                  <div style={{ color: 'var(--txt-pri)', fontWeight: 700, fontSize: '0.76rem', marginBottom: 3 }}>{item.title}</div>
+                  <div>{item.summary}</div>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

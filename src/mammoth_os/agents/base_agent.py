@@ -12,7 +12,7 @@ class BaseAgent:
 
     name: str = "BaseAgent"
 
-    def __init__(self, router: Any):
+    def __init__(self, router: Any = None):
         self.router = router
 
     # ---------------------------------------------------------
@@ -85,6 +85,29 @@ class BaseAgent:
             "agent": self.name,
             "message": "handle() not implemented."
         }
+
+    # ---------------------------------------------------------
+    # Observability — run health signal (Sweep 4)
+    # ---------------------------------------------------------
+    def _record_run_health(self, result: Optional[Dict[str, Any]], duration_ms: float = 0.0) -> None:
+        """Post a structured health signal after a run completes. Non-blocking, safe."""
+        try:
+            from mammoth_os.audit_engine import get_audit_engine
+            engine = get_audit_engine()
+            status = "ok"
+            if isinstance(result, dict):
+                if result.get("status") in ("error", "failed"):
+                    status = result["status"]
+            engine.record(
+                event_type="agent_run",
+                agent=self.name,
+                outcome=status,
+                severity="INFO" if status == "ok" else "WARNING",
+                details={"duration_ms": round(duration_ms, 2)},
+                tags=["health"],
+            )
+        except Exception:
+            pass  # never let audit failure propagate
 
     # ---------------------------------------------------------
     # Modern action handler

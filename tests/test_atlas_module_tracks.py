@@ -268,6 +268,48 @@ def test_atlas_library_snapshot_surfaces_persisted_chunks(monkeypatch):
     assert result["modules"][0]["lessons"][1]["persisted"] is False
 
 
+def test_atlas_next_moves_to_next_module_and_updates_progress_state(monkeypatch):
+    state = {
+        "topic": "python fundamentals",
+        "module_id": "module-1",
+        "lesson_id": "lesson-2",
+        "curriculum": {
+            "modules": [
+                {
+                    "module_id": "module-1",
+                    "title": "Module 1",
+                    "lessons": [
+                        {"lesson_id": "lesson-1", "title": "Intro"},
+                        {"lesson_id": "lesson-2", "title": "Variables"},
+                    ],
+                },
+                {
+                    "module_id": "module-2",
+                    "title": "Module 2",
+                    "lessons": [
+                        {"lesson_id": "lesson-3", "title": "Functions"},
+                    ],
+                },
+            ]
+        },
+    }
+
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda updated: None)
+    monkeypatch.setattr(api_server, "_append_lesson_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_sync_resume_packet", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda *args, **kwargs: None)
+
+    result = asyncio.run(api_server.atlas_next())
+
+    assert result["status"] == "ok"
+    assert result["module_id"] == "module-2"
+    assert result["lesson_id"] == "lesson-3"
+    assert state["module_id"] == "module-2"
+    assert state["lesson_id"] == "lesson-3"
+    assert state["active_module"]["id"] == "module-2"
+
+
 def test_atlas_lesson_noncode_track_sanitizes_python_seed_payload(monkeypatch):
     state = {}
 
@@ -348,11 +390,26 @@ def test_atlas_submit_text_submission_scores_topic_specific_response(monkeypatch
     }
 
     saved = {}
+    memory_calls = {"awaited": False, "items": []}
+
+    class FakeMemoryEngine:
+        async def store(self, content, memory_type="semantic", metadata=None):
+            memory_calls["awaited"] = True
+            memory_calls["items"].append(
+                {
+                    "content": content,
+                    "memory_type": memory_type,
+                    "metadata": dict(metadata or {}),
+                }
+            )
+            return "memory-1"
+
     monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
     monkeypatch.setattr(api_server, "_save_atlas_state", lambda updated: saved.setdefault("state", dict(updated)))
     monkeypatch.setattr(api_server, "_sync_resume_packet", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server, "_append_audit_event", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server, "_record_submission_on_history", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_MEMORY_ENGINE", FakeMemoryEngine())
     monkeypatch.setattr(
         api_server,
         "_hydrate_learner_state",
@@ -375,6 +432,18 @@ def test_atlas_submit_text_submission_scores_topic_specific_response(monkeypatch
     assert result["result"]["passed"] is True
     assert result["result"]["score"] >= 0.5
     assert saved["state"]["last_submission"]["submission_mode"] == "text"
+    assert memory_calls["awaited"] is True
+    assert memory_calls["items"][0]["memory_type"] == "atlas_outcome"
+
+
+def test_atlas_regenerate_route_is_registered():
+    routes = [
+        route
+        for route in api_server.app.routes
+        if getattr(route, "path", None) == "/api/atlas/regenerate"
+    ]
+    assert routes
+    assert any("POST" in (getattr(route, "methods", set()) or set()) for route in routes)
 
 
 def test_atlas_plan_steps_include_curriculum_and_tutor_for_lesson_flow():

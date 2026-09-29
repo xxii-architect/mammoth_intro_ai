@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, Suspense, lazy } from 'react'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
-  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare, LogOut, User,
+  Activity, Sparkles, CreditCard, ShieldCheck, MessageSquare, LogOut, User, BarChart3,
 } from 'lucide-react'
 
 import { useAuth, useIsAdminHost } from './lib/authContext'
@@ -10,8 +10,11 @@ import { signOut } from './lib/supabase'
 import { api } from './api/client'
 import RuntimeStatusBanner from './components/RuntimeStatusBanner'
 import NotificationsDropdown from './components/NotificationsDropdown'
+import MammothWelcome from './components/MammothWelcome'
 import GuideStepPanel from './components/GuideStepPanel'
 import LoginPage from './pages/LoginPage'
+import First15MinutesModal from './components/First15MinutesModal'
+import { useOnboardingState } from './lib/onboardingState'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
 const AgentPage = lazy(() => import('./pages/AgentPage'))
@@ -21,6 +24,7 @@ const ManualPage = lazy(() => import('./pages/ManualPage'))
 const NotesPage = lazy(() => import('./pages/NotesPage'))
 const ModulesPage = lazy(() => import('./pages/ModulesPage'))
 const HealthPage = lazy(() => import('./pages/HealthPage'))
+const TelemetryPage = lazy(() => import('./pages/TelemetryPage'))
 const LessonsPage = lazy(() => import('./pages/LessonsPage'))
 const BuildLogPage = lazy(() => import('./pages/BuildLogPage'))
 const LogSalePage = lazy(() => import('./pages/LogSalePage'))
@@ -103,6 +107,7 @@ const NAV = [
   { id: 'taskinbox', label: 'Task Inbox', Icon: ClipboardList, accent: 'var(--photon)' },
   { id: 'modules',  label: 'Modules',     Icon: Package },
   { id: 'health',   label: 'Health',      Icon: HeartPulse },
+  { id: 'telemetry', label: 'Telemetry',  Icon: BarChart3, accent: 'var(--cyan)' },
   { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--cyan)' },
 
   { section: 'Product' },
@@ -134,6 +139,7 @@ const PAGE_COMPONENTS = {
   notes:       NotesPage,
   modules:     ModulesPage,
   health:      HealthPage,
+  telemetry:   TelemetryPage,
   logsale:     LogSalePage,
   lessons:     LessonsPage,
   atlas:       AtlasTutorPage,
@@ -461,26 +467,38 @@ function writeFabHidden(surfaceKey, hidden) {
   }
 }
 
-function persistArtifactRecord(entry) {
+async function persistArtifactRecord(entry) {
   if (!entry || typeof window === 'undefined') return
+  const item = {
+    id: entry.id || `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    created_at: entry.created_at || new Date().toISOString(),
+    title: entry.title || 'Saved artifact',
+    summary: entry.summary || 'Saved from MammothOS workspace.',
+    body: entry.body || '',
+    path: entry.path || '',
+    source: entry.source || 'workspace',
+    format: entry.format || 'txt',
+    meta: entry.meta && typeof entry.meta === 'object' ? entry.meta : {},
+  }
+  if (!item.body) return
   try {
-    const raw = localStorage.getItem('mammoth_artifact_library_v1')
-    const existing = raw ? JSON.parse(raw) : []
-    const next = Array.isArray(existing) ? existing : []
-    const item = {
-      id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      created_at: new Date().toISOString(),
-      title: entry.title || 'Saved artifact',
-      summary: entry.summary || 'Saved from MammothOS workspace.',
-      body: entry.body || '',
-      path: entry.path || '',
-      source: entry.source || 'workspace',
-      format: entry.format || 'txt',
-    }
-    localStorage.setItem('mammoth_artifact_library_v1', JSON.stringify([item, ...next].slice(0, 30)))
+    await api('/workspace/artifacts', {
+      method: 'POST',
+      body: item,
+    })
+    localStorage.removeItem('mammoth_artifact_library_v1')
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[artifact-library] Failed to persist record: ${message}`)
+    console.warn(`[artifact-library] Backend persist failed, using local cache: ${message}`)
+    try {
+      const raw = localStorage.getItem('mammoth_artifact_library_v1')
+      const existing = raw ? JSON.parse(raw) : []
+      const next = Array.isArray(existing) ? existing : []
+      localStorage.setItem('mammoth_artifact_library_v1', JSON.stringify([item, ...next].slice(0, 30)))
+    } catch (storageError) {
+      const storageMessage = storageError instanceof Error ? storageError.message : String(storageError)
+      console.warn(`[artifact-library] Local cache persist failed: ${storageMessage}`)
+    }
   }
 }
 
@@ -585,7 +603,7 @@ function AtlasFAB({ currentPage, isMobile = false }) {
           approval_mode: false,
         },
       })
-      persistArtifactRecord({
+      await persistArtifactRecord({
         title: `${fabLabel} report`,
         summary: `Saved ${ext.toUpperCase()} report from ${currentPage}.`,
         body: message,
@@ -830,6 +848,8 @@ function AtlasFAB({ currentPage, isMobile = false }) {
 
 export default function App() {
   const [page, setPage] = useState('home')
+  const { hasSeenOnboarding, isLoading: onboardingLoading, completeOnboarding } = useOnboardingState()
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false)
   const [theme, setTheme] = useState(() => {
     if (typeof window === 'undefined') return 'dark'
     try {
@@ -844,6 +864,7 @@ export default function App() {
   const [adminAccess, setAdminAccess] = useState(null)
   const [entitlements, setEntitlements] = useState(null)
   const [backendWarning, setBackendWarning] = useState('')
+  const [welcomeDone, setWelcomeDone] = useState(false)
   const { session, user, loading, isGuest } = useAuth()
   const isAdminHost = useIsAdminHost()
   const supabaseConfigured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
@@ -855,6 +876,11 @@ export default function App() {
   const betaTesterAccess = fallbackBetaTesterFromEmail
   const canAccessProjectTools = isAdminHost || adminAccess === true
   const visibleNav = compactNavSections(NAV)
+
+  useEffect(() => {
+    if (onboardingLoading) return
+    setShowOnboardingModal(!hasSeenOnboarding)
+  }, [onboardingLoading, hasSeenOnboarding])
 
   useEffect(() => {
     let alive = true
@@ -955,6 +981,16 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', height: '100dvh', background: 'var(--shell)', color: 'var(--txt-sec)', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
+      <MammothWelcome onDismiss={() => setWelcomeDone(true)} />
+
+      <First15MinutesModal
+        isOpen={showOnboardingModal}
+        onClose={() => setShowOnboardingModal(false)}
+        onSelectRole={(role) => {
+          completeOnboarding(role)
+          setPage(role.primaryAction || 'lessons')
+        }}
+      />
 
       {/* Mobile sidebar overlay backdrop */}
       {isMobile && sidebarOpen && (

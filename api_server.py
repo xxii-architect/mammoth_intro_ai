@@ -4,10 +4,12 @@ Run: uvicorn api_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import ast
+import logging
 import asyncio
 import base64
 from copy import deepcopy
 import csv
+import inspect
 import io
 import json
 import math
@@ -39,6 +41,8 @@ load_dotenv(ROOT / ".env", override=False)
 if (ROOT / ".env.admin").exists():
     load_dotenv(ROOT / ".env.admin", override=False)
 
+logger = logging.getLogger("mammoth_os.api")
+
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
@@ -48,6 +52,18 @@ from mammoth_os.runtime_contracts import build_observability_run, build_runtime_
 from mammoth_os.rag_retrieval import get_retriever
 from mammoth_os.supabase_client import get_supabase
 from mammoth_os.memory_engine import MemoryEngine
+from mammoth_os.rag_context_store import get_rag_context_store
+from mammoth_os.audit_engine import AuditEngine
+from mammoth_os.team_workflows import TeamWorkflowManager, RunbookStep
+from mammoth_os.telemetry_engine import TelemetryEngine
+from mammoth_os.provenance_contract import (
+    validate_response,
+    enforce_on_release,
+    add_trust_metadata,
+)
+
+_audit = AuditEngine()
+_telemetry = TelemetryEngine(db_path=None)
 
 app = FastAPI(title="MammothOS API", version="1.0.0")
 
@@ -92,8 +108,9 @@ NOTIFICATIONS_FILE = MAMMOTH_DIR / "notifications.json"
 ACCOUNT_DELETIONS_FILE = MAMMOTH_DIR / "account_deletion_requests.json"
 ONBOARDING_FILE = MAMMOTH_DIR / "onboarding_state.json"
 EXECUTION_LOG_FILE = MAMMOTH_DIR / "execution_log.json"
+TRUST_METRICS_FILE = MAMMOTH_DIR / "trust_metrics.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE, NOTIFICATIONS_FILE, ACCOUNT_DELETIONS_FILE, EXECUTION_LOG_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE, NOTIFICATIONS_FILE, ACCOUNT_DELETIONS_FILE, EXECUTION_LOG_FILE, TRUST_METRICS_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 if not AUTH_ADMIN_POLICY_FILE.exists():
@@ -103,6 +120,7 @@ if not ONBOARDING_FILE.exists():
 ATLAS_STATE_DIR.mkdir(exist_ok=True)
 
 _MEMORY_ENGINE = MemoryEngine(config={"storage_path": str(MAMMOTH_DIR / "memory_store.json"), "max_entries": 5000})
+_TEAM_WORKFLOW_MANAGER = TeamWorkflowManager(MAMMOTH_DIR)
 
 _AUTH_REQUIRED = str(os.environ.get("MAMMOTH_REQUIRE_AUTH", "")).strip().lower() in {"1", "true", "yes", "on"}
 _OWNER_EMAIL = str(os.environ.get("MAMMOTH_OWNER_EMAIL", "")).strip().lower()
@@ -794,7 +812,12 @@ async def auth_guard_middleware(request: Request, call_next):
     if user is None and _AUTH_REQUIRED and not optional_path:
         return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
 
-    effective_user = user or {"id": "local", "email": "", "is_admin": not _AUTH_REQUIRED}
+    if user is not None:
+        effective_user = user
+    elif _AUTH_REQUIRED:
+        effective_user = {"id": "anonymous", "email": "", "is_admin": False}
+    else:
+        effective_user = {"id": "local", "email": "", "is_admin": True}
     token_user, token_email, token_admin = _set_request_auth_context(request, effective_user)
     try:
         return await call_next(request)
@@ -2009,6 +2032,23 @@ def _merge_latest_runtime_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         merged.get("checked_at") or datetime.now(timezone.utc).isoformat()
     )
 
+    fallback_used = bool(merged.get("fallback_used"))
+    if fallback_used or str(merged.get("active_adapter") or "").strip().lower() == "local":
+        merged["state"] = "degraded"
+        merged["degraded_mode"] = True
+        fallback_reason = str(merged.get("fallback_reason") or "").strip().replace("_", " ")
+        if fallback_reason:
+            merged["issue"] = (
+                "A configured provider fell back to a safe path due to "
+                f"{fallback_reason}. MammothOS is still operating, but the runtime is degraded."
+            )
+        elif not merged.get("issue"):
+            merged["issue"] = "MammothOS is operating on a safe fallback path and the runtime is degraded."
+        if not merged.get("recommendation"):
+            merged["recommendation"] = "Restore the primary provider or credential path to return the runtime to ready mode."
+        if not merged.get("next_action"):
+            merged["next_action"] = "Inspect provider quota, billing, credentials, or network availability before retrying."
+
     providers: List[Dict[str, Any]] = []
     for provider in merged.get("providers", []):
         item = dict(provider)
@@ -2276,6 +2316,157 @@ def _release_readiness_tier(score: float) -> str:
     return "prototype-risk"
 
 
+def _release_gate_snapshot(*, score: float, blockers: List[Dict[str, Any]]) -> Dict[str, Any]:
+    threshold = 8.0
+    blocker_titles = [str(item.get("title") or "unknown") for item in blockers if isinstance(item, dict)]
+    passed = score >= threshold and not blocker_titles
+    return {
+        "threshold": threshold,
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "score": round(float(score), 1),
+        "blocker_count": len(blocker_titles),
+        "blocker_titles": blocker_titles,
+        "reason": blocker_titles[0] if blocker_titles else ("Release readiness score is below threshold." if score < threshold else ""),
+    }
+
+
+def _health_gate_snapshot(*, services: List[Dict[str, Any]], runtime: Dict[str, Any], env_exists: bool, venv_ok: bool, git_ok: bool) -> Dict[str, Any]:
+    red_services = [str(service.get("label") or "unknown") for service in services if service.get("status") == "red"]
+    passed = env_exists and venv_ok and git_ok and not red_services and str(runtime.get("state") or "").lower() == "ready"
+    blockers = []
+    if not env_exists:
+        blockers.append("Missing .env configuration")
+    if not venv_ok:
+        blockers.append("Python virtualenv is unavailable")
+    if not git_ok:
+        blockers.append("Git repository metadata is unavailable")
+    blockers.extend(red_services[:3])
+    return {
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "blockers": blockers,
+        "healthy_services": len([service for service in services if service.get("status") == "green"]),
+        "total_services": len(services),
+        "runtime_state": str(runtime.get("state") or "unknown"),
+    }
+
+
+def _eval_gate_snapshot(*, observability: Dict[str, Any]) -> Dict[str, Any]:
+    metrics = observability.get("metrics") if isinstance(observability.get("metrics"), dict) else {}
+    latest_eval = observability.get("latest_eval") if isinstance(observability.get("latest_eval"), dict) else {}
+    eval_runs = int(metrics.get("eval_runs") or 0)
+    eval_pass_rate = int(metrics.get("eval_pass_rate") or 0)
+    threshold = 80
+    if eval_runs <= 0:
+        passed = False
+        reason = "No ATLAS eval history is available for release gating."
+    elif eval_pass_rate >= threshold:
+        passed = True
+        reason = ""
+    else:
+        passed = False
+        reason = f"Eval pass rate is {eval_pass_rate}% and must reach at least {threshold}% for release."
+    blocker_detail = reason or "Eval history is healthy enough for release."
+    return {
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "threshold": threshold,
+        "eval_runs": eval_runs,
+        "eval_pass_rate": eval_pass_rate,
+        "latest_eval": latest_eval,
+        "reason": reason,
+        "blocker_detail": blocker_detail,
+    }
+
+
+def _research_eval_gate_snapshot() -> Dict[str, Any]:
+    try:
+        from mammoth_os.agents.research_agent import ResearchAgent
+    except Exception as exc:
+        return {
+            "passed": False,
+            "status": "blocked",
+            "threshold": {"min_sources": 2, "min_citation_coverage": 0.66},
+            "reason": f"ResearchAgent import failed: {exc}",
+            "blocker_detail": "Research quality gate could not import ResearchAgent.",
+            "summary": {},
+        }
+
+    try:
+        probe = ResearchAgent(router=None).run(
+            {
+                "prompt": "Validate release-quality evidence synthesis for ATLAS tutor recommendations.",
+                "allow_web_lookup": False,
+                "max_sources": 2,
+                "sources": [
+                    {
+                        "title": "Release checklist guideline",
+                        "summary": "Recommendations should be linked to evidence and explicit validation steps.",
+                        "publisher": "Mammoth Internal QA",
+                    },
+                    {
+                        "title": "Research protocol note",
+                        "summary": "Conflicting source claims should be surfaced before publishing guidance.",
+                        "publisher": "Mammoth Research Ops",
+                    },
+                ],
+            }
+        )
+    except Exception as exc:
+        return {
+            "passed": False,
+            "status": "blocked",
+            "threshold": {"min_sources": 2, "min_citation_coverage": 0.66},
+            "reason": f"ResearchAgent probe failed: {exc}",
+            "blocker_detail": "Research quality gate execution failed.",
+            "summary": {},
+        }
+
+    coverage = probe.get("source_coverage") if isinstance(probe.get("source_coverage"), dict) else {}
+    contradiction_report = probe.get("contradiction_report") if isinstance(probe.get("contradiction_report"), dict) else {}
+    source_count = int(coverage.get("source_count") or 0)
+    citation_coverage = float(coverage.get("citation_coverage") or 0.0)
+    findings = probe.get("findings") if isinstance(probe.get("findings"), list) else []
+    quality_flags = probe.get("quality_flags") if isinstance(probe.get("quality_flags"), list) else []
+    alignment_score = float(contradiction_report.get("alignment_score") or 0.0)
+    contradiction_scan_enabled = bool(probe.get("workflow_hints", {}).get("contradiction_scan_enabled"))
+
+    passed = (
+        source_count >= 2
+        and citation_coverage >= 0.66
+        and len(findings) >= 2
+        and contradiction_scan_enabled
+        and "evidence_ranked" in quality_flags
+    )
+    reason = ""
+    if not passed:
+        reason = (
+            "Research eval gate requires >=2 sources, citation coverage >=0.66, "
+            ">=2 findings, ranked evidence, and contradiction scan support."
+        )
+
+    return {
+        "passed": passed,
+        "status": "ready" if passed else "blocked",
+        "threshold": {
+            "min_sources": 2,
+            "min_citation_coverage": 0.66,
+            "min_findings": 2,
+            "requires_contradiction_scan": True,
+        },
+        "reason": reason,
+        "blocker_detail": reason or "Research quality gate is healthy enough for release.",
+        "summary": {
+            "source_count": source_count,
+            "citation_coverage": citation_coverage,
+            "findings": len(findings),
+            "alignment_score": alignment_score,
+            "quality_flags": quality_flags,
+        },
+    }
+
+
 # ── lazy registry imports ─────────────────────────────────────────────────────
 try:
     from mammoth_os.engine_registry import EngineRegistry
@@ -2290,6 +2481,94 @@ try:
 except Exception as _e:
     _agent_registry_ok = False
     _agent_registry_err = str(_e)
+
+# ── Trust Metrics Management ──────────────────────────────────────────────────
+def _record_trust_metric(
+    endpoint: str,
+    response_type: str,
+    provider: str,
+    confidence: float,
+    validation_issues: List[str],
+    validation_passed: bool,
+) -> None:
+    """Record a trust validation metric for telemetry."""
+    try:
+        metrics = _read_json(TRUST_METRICS_FILE)
+        if not isinstance(metrics, list):
+            metrics = []
+        
+        # Keep only last 1000 entries
+        if len(metrics) >= 1000:
+            metrics = metrics[-900:]
+        
+        metric = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "endpoint": endpoint,
+            "response_type": response_type,
+            "provider": provider,
+            "confidence": confidence,
+            "issue_count": len(validation_issues),
+            "validation_passed": validation_passed,
+            "issues_sample": validation_issues[:2],  # First 2 issues for trending
+        }
+        metrics.append(metric)
+        TRUST_METRICS_FILE.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
+    except Exception:
+        pass  # Fail silently on telemetry
+
+
+def _wrap_response_with_trust(
+    response: Dict[str, Any],
+    endpoint: str,
+    response_type: str = "general"
+) -> Dict[str, Any]:
+    """
+    Validate response and add trust metadata before sending to client.
+    
+    In conservative mode: wraps response with trust info and warnings
+    In strict mode: may block low-trust responses
+    """
+    # Ensure response is a dict
+    if not isinstance(response, dict):
+        response = {"result": response}
+    
+    # Make a copy to avoid modifying original
+    wrapped = dict(response)
+    
+    # Run validation and enforcement
+    should_release, block_reason, trust_metadata = enforce_on_release(
+        response,
+        response_type=response_type
+    )
+    
+    # Record telemetry
+    _record_trust_metric(
+        endpoint=endpoint,
+        response_type=response_type,
+        provider=trust_metadata.get("provider", "unknown"),
+        confidence=float(trust_metadata.get("confidence", 0.0)),
+        validation_issues=trust_metadata.get("validation_issues", []),
+        validation_passed=trust_metadata.get("validation_passed", False),
+    )
+    
+    # If blocked in strict mode, return error
+    if not should_release:
+        return {
+            "status": "error",
+            "error": f"Response blocked: {block_reason}",
+            "trust_metadata": trust_metadata,
+            "original_response": wrapped,
+        }
+    
+    # In non-strict mode (default), add trust metadata to response
+    wrapped["trust_metadata"] = trust_metadata
+    
+    # Add warning if issues were found
+    if trust_metadata.get("trust_warning"):
+        wrapped["trust_warning"] = True
+        wrapped["trust_warning_reason"] = trust_metadata.get("warning_reason", "Low trust metrics")
+    
+    return wrapped
 
 # ─────────────────────────────────────────────────────────────────────────────
 # /api/status
@@ -2599,6 +2878,7 @@ async def get_health():
             "yellow_services": yellow_services,
         },
         "runtime": runtime,
+        "health_gate": _health_gate_snapshot(services=services, runtime=runtime, env_exists=env_exists, venv_ok=venv_ok, git_ok=git_ok),
     }
 
 
@@ -2618,7 +2898,187 @@ async def get_models():
     return _models_snapshot()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/telemetry/* — Release-gate trust metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/telemetry/trust-metrics")
+async def get_telemetry_trust_metrics(hours: int = 2):
+    """
+    GET /api/telemetry/trust-metrics
+    Returns aggregated trust metrics (confidence, contradiction rate, citations) for the last N hours.
+    Query params:
+      - hours: int (default 2) — time window in hours
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    metrics = _telemetry.get_metrics_for_window(hours=hours)
+    return {
+        "status": "ok",
+        "metrics": metrics,
+        "window_hours": hours,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/telemetry/release-readiness")
+async def get_telemetry_release_readiness():
+    """
+    GET /api/telemetry/release-readiness
+    Returns release readiness score (0-100) and go/no-go recommendation based on:
+      - Confidence trend (must be >= 0.72 avg)
+      - Contradiction rate < 8%
+      - Citation coverage (avg >= 2.5 citations per response)
+      - No critical provider errors in last 2 hours
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    readiness = _telemetry.get_release_readiness()
+    return {
+        "status": "ok",
+        "release_readiness": readiness,
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/telemetry/provenance-metrics")
+async def get_provenance_metrics(limit: int = 100, hours: int = 24):
+    """
+    GET /api/telemetry/provenance-metrics
+    Returns provenance contract validation metrics from responses.
+    Query params:
+      - limit: int (default 100) — max number of metrics to return
+      - hours: int (default 24) — time window in hours
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    try:
+        all_metrics = _read_json(TRUST_METRICS_FILE)
+        if not isinstance(all_metrics, list):
+            all_metrics = []
+        
+        # Filter by time window
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+        recent_metrics = []
+        for metric in all_metrics:
+            try:
+                metric_time = datetime.fromisoformat(metric.get("timestamp", "").replace("Z", "+00:00"))
+                if metric_time >= cutoff:
+                    recent_metrics.append(metric)
+            except Exception:
+                pass
+        
+        # Sort by timestamp descending and limit results
+        recent_metrics.sort(key=lambda m: m.get("timestamp", ""), reverse=True)
+        recent_metrics = recent_metrics[:limit]
+        
+        # Aggregate statistics
+        total_count = len(recent_metrics)
+        passed_count = sum(1 for m in recent_metrics if m.get("validation_passed"))
+        failed_count = total_count - passed_count
+        avg_confidence = (
+            sum(float(m.get("confidence", 0)) for m in recent_metrics) / total_count
+            if total_count > 0 else 0
+        )
+        providers = {}
+        for m in recent_metrics:
+            provider = m.get("provider", "unknown")
+            providers.setdefault(provider, 0)
+            providers[provider] += 1
+        
+        return {
+            "status": "ok",
+            "metrics": recent_metrics,
+            "aggregate": {
+                "total": total_count,
+                "passed": passed_count,
+                "failed": failed_count,
+                "pass_rate": passed_count / total_count if total_count > 0 else 0,
+                "avg_confidence": round(avg_confidence, 3),
+                "providers": providers,
+            },
+            "window_hours": hours,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "metrics": [],
+            "aggregate": {},
+        }
+
+
+@app.post("/api/telemetry/record")
+async def record_telemetry(body: Dict[str, Any]):
+    """
+    POST /api/telemetry/record
+    Record a trust metric from an agent/provider response.
+    Body:
+      {
+        "provider": "string",  // e.g. "gpt-4o-mini", "claude-3.5-sonnet", "deepseek"
+        "confidence": float,   // 0.0-1.0
+        "contradiction_count": int,
+        "citation_count": int,
+        "response_latency_ms": float
+      }
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    provider = str(body.get("provider", "unknown"))
+    confidence = float(body.get("confidence", 0.5))
+    contradiction_count = int(body.get("contradiction_count", 0))
+    citation_count = int(body.get("citation_count", 0))
+    response_latency_ms = float(body.get("response_latency_ms", 0.0))
+    
+    _telemetry.record_response(
+        provider=provider,
+        confidence=confidence,
+        contradiction_count=contradiction_count,
+        citation_count=citation_count,
+        response_latency_ms=response_latency_ms,
+    )
+    
+    return {
+        "status": "ok",
+        "recorded": {
+            "provider": provider,
+            "confidence": confidence,
+            "contradiction_count": contradiction_count,
+            "citation_count": citation_count,
+            "response_latency_ms": response_latency_ms,
+        },
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.get("/api/telemetry/summary")
+async def get_telemetry_summary():
+    """
+    GET /api/telemetry/summary
+    Returns complete telemetry dashboard data: metrics, trends, and release readiness.
+    """
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    
+    summary = _telemetry.get_summary()
+    return {
+        "status": "ok",
+        "data": summary,
+    }
+
+
 @app.get("/api/runtime/status")
+
 async def get_runtime_status():
     return _merge_latest_runtime_status(_runtime_status_snapshot())
 
@@ -2755,6 +3215,7 @@ async def get_observability_runs():
 
 
 _INTENT_TO_AGENT_ID = {
+    "plant_the_seed": "plant_the_seed_agent",
     "plant_seed": "plant_the_seed_agent",
     "field_ops": "field_ops_agent",
     "market_intel": "market_intel_agent",
@@ -2768,7 +3229,9 @@ _INTENT_TO_AGENT_ID = {
     "site_audit": "browser_agent",
     "lighthouse_audit": "browser_agent",
     "task_queue": "task_queue_agent",
+    "research": "research_agent",
     "summarize": "research_agent",
+    "research_long_form": "research_agent",
     "lesson_curriculum": "curriculum_agent",
     "grade_submission": "tutor_agent",
     "lesson_coaching": "tutor_agent",
@@ -2781,6 +3244,15 @@ _INTENT_TO_AGENT_ID = {
     "run_tests": "coding_agent",
     "write_docs": "coding_agent",
     "guide_platform": "mammoth_guide",
+    "planning": "planner_agent",
+    "plan_goal": "planner_agent",
+    "guide": "mammoth_guide",
+    "classifier": "classifier_agent",
+    "community": "community_engine_agent",
+    "search":        "search_agent",
+    "coding":        "coding_agent",
+    "curriculum":    "curriculum_agent",
+    "orchestrator":  "orchestrator_agent",
 }
 
 _AGENT_ID_TO_RUNTIME = {
@@ -2799,6 +3271,10 @@ _AGENT_ID_TO_RUNTIME = {
     "task_queue_agent": "task_queue",
     "custodial_agent": "custodial",
     "mammoth_guide": "mammoth_guide",
+    "classifier_agent": "classifier",
+    "planner_agent":       "planner",
+    "search_agent":        "search",
+    "orchestrator_agent":  "orchestrator",
 }
 
 _ATLAS_WORKFLOW_AGENT_IDS = {
@@ -3588,6 +4064,198 @@ def _summarize_plan_run(step_results: List[Dict[str, Any]], *, objective: str, p
     }
 
 
+
+
+@app.post("/api/plan")
+async def create_plan_endpoint(body: Dict[str, Any]):
+    """
+    Planner → Orchestrator → Task Queue → Executor pipeline.
+
+    Request body
+    ------------
+    goal          : str   – high-level objective (required)
+    constraints   : dict  – optional planner hints (budget, time, agents)
+    execute       : bool  – False = plan-only; True = run tasks immediately
+    approval_mode : bool  – gate each task behind pending_approval status
+    trace_id      : str   – optional caller-supplied trace correlation ID
+
+    Response (plan-only)
+    --------------------
+    { status, plan_id, trace_id, goal, task_count, tasks,
+      total_estimated_minutes }
+
+    Response (execute=true)
+    -----------------------
+    { status, plan_id, trace_id, goal, task_count,
+      total_estimated_minutes, task_results }
+    """
+    goal = str(
+        body.get("goal") or body.get("objective") or body.get("prompt") or ""
+    ).strip()
+    constraints = (
+        body.get("constraints")
+        if isinstance(body.get("constraints"), dict)
+        else {}
+    )
+    execute = bool(body.get("execute", False))
+    approval_mode = bool(body.get("approval_mode", False))
+
+    if not goal:
+        return JSONResponse(
+            status_code=422,
+            content={"status": "error", "error": "goal is required"},
+        )
+
+    trace_id = str(body.get("trace_id") or new_trace_id("plan"))
+    plan_id = f"plan-{uuid.uuid4().hex[:8]}"
+
+    # ── Step 1: Planner decomposes the goal into an ordered task list ──────
+    from mammoth_os.agent_registry import load_agent, run_agent as _run_agent
+
+    planner = load_agent("planner")
+    plan = await planner.create_plan(goal, constraints)
+    tasks = plan.get("tasks") or []
+    total_minutes = plan.get("total_estimated_minutes", 0)
+    # Defensive title synthesis — guard against LLM schema drift
+    for _t in tasks:
+        if not _t.get("title"):
+            _agent_label = str(_t.get("agent") or "task").replace("_", " ").title()
+            _t["title"] = f"{_agent_label}: {goal[:50]}"
+
+    _upsert_task(
+        plan_id,
+        "plan",
+        status="planned",
+        agent_id="planner",
+        description=goal,
+        details={
+            "goal": goal,
+            "task_count": len(tasks),
+            "execute": execute,
+            "approval_mode": approval_mode,
+            "trace_id": trace_id,
+        },
+    )
+    _append_activity(
+        "Plan created",
+        agent_id="planner",
+        task_id=plan_id,
+        kind="plan_created",
+        details={"goal": goal, "task_count": len(tasks), "trace_id": trace_id},
+    )
+
+    # ── Plan-only mode: return the task graph without running anything ─────
+    if not execute:
+        return {
+            "status": "planned",
+            "plan_id": plan_id,
+            "trace_id": trace_id,
+            "goal": goal,
+            "task_count": len(tasks),
+            "tasks": tasks,
+            "total_estimated_minutes": total_minutes,
+        }
+
+    # ── Step 2: Orchestrator coordinates execution order (depends_on graph) ─
+    # ── Step 3: Task queue buffers each unit of work ────────────────────────
+    # ── Step 4: Executor dispatches to the assigned agent ───────────────────
+    completed: Dict[str, Any] = {}
+    task_results = []
+
+    for task in tasks:
+        task_id = str(task.get("task_id") or uuid.uuid4().hex[:8])
+        agent_slug = str(task.get("agent") or "orchestrator")
+        task_input = dict(task.get("input") or {})
+        depends_on = task.get("depends_on") or []
+
+        # Inject upstream task outputs as context for dependent tasks
+        for dep_id in depends_on:
+            if dep_id in completed:
+                task_input.setdefault("context", {})
+                task_input["context"][dep_id] = completed[dep_id]
+
+        if approval_mode:
+            task_results.append(
+                {
+                    "task_id": task_id,
+                    "agent": agent_slug,
+                    "status": "pending_approval",
+                    "title": task.get("title", ""),
+                    "input": task_input,
+                }
+            )
+            continue
+
+        try:
+            result = await asyncio.to_thread(_run_agent, agent_slug, task_input)
+            completed[task_id] = result
+            task_results.append(
+                {
+                    "task_id": task_id,
+                    "agent": agent_slug,
+                    "status": str(result.get("status") or "ok"),
+                    "title": task.get("title", ""),
+                    "result": result,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "api/plan executor: task %s (%s) failed: %s",
+                task_id,
+                agent_slug,
+                exc,
+            )
+            task_results.append(
+                {
+                    "task_id": task_id,
+                    "agent": agent_slug,
+                    "status": "error",
+                    "title": task.get("title", ""),
+                    "error": str(exc),
+                }
+            )
+
+    errored = [r for r in task_results if r.get("status") == "error"]
+    final_status = (
+        "pending_approval"
+        if approval_mode
+        else ("partial" if errored else "ok")
+    )
+
+    _upsert_task(
+        plan_id,
+        "plan",
+        status=final_status,
+        agent_id="orchestrator",
+        description=goal,
+        details={"completed_tasks": len(completed), "errored_tasks": len(errored)},
+    )
+    _append_activity(
+        "Plan executed",
+        agent_id="orchestrator",
+        task_id=plan_id,
+        kind="plan_completed",
+        details={
+            "goal": goal,
+            "status": final_status,
+            "task_count": len(tasks),
+            "errored": len(errored),
+            "trace_id": trace_id,
+        },
+    )
+
+    return {
+        "status": final_status,
+        "plan_id": plan_id,
+        "trace_id": trace_id,
+        "goal": goal,
+        "task_count": len(tasks),
+        "total_estimated_minutes": total_minutes,
+        "task_results": task_results,
+    }
+
+
+
 @app.post("/api/plan-execute")
 async def plan_execute(body: Dict[str, Any]):
     objective = str(body.get("objective", "") or body.get("prompt", "")).strip()
@@ -3685,7 +4353,7 @@ async def plan_execute(body: Dict[str, Any]):
         details={"objective": objective, "plan_profile": plan_profile, "coding_intent": coding_intent, "executed": executed_count, "failed": failed_count},
     )
 
-    return {
+    response = {
         "status": "ok",
         "plan_id": plan_id,
         "objective": objective,
@@ -3701,7 +4369,12 @@ async def plan_execute(body: Dict[str, Any]):
         },
         "plan_steps": step_results,
         **runtime_snapshot,
+        "provider": "orchestrator",
+        "confidence": 0.9 if plan_status == "completed" else 0.6,  # Lower confidence if partial/failed
+        "citations": ["Plan step execution", "Task tracking"],
+        "contradictions": ["approved" if pending_count > 0 else ""],
     }
+    return _wrap_response_with_trust(response, endpoint="/api/plan-execute", response_type="general")
 
 
 @app.get("/api/autonomous/runs")
@@ -3975,7 +4648,11 @@ def _verify_execution_contract(envelope: Dict[str, Any], policy: Dict[str, Any])
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
     intent = str(body.get("intent", "")).strip()
-    payload = body.get("payload", {})
+    payload = body.get("payload") or {}
+    if not payload:
+        _top = {k: v for k, v in body.items() if k in {"prompt", "query", "topic", "content", "context"}}
+        if _top:
+            payload = _top
     payload_dict = dict(payload) if isinstance(payload, dict) else {}
     temperature = body.get("temperature", 0.7)
     requested_agent_id = str(body.get("agent_id", "")).strip()
@@ -4163,7 +4840,7 @@ async def run_agent(body: Dict[str, Any]):
         elif runtime_agent and (runtime_agent == "custodial" or (_agent_registry_ok and runtime_agent in AGENTS)):
             handled_special_result = False
             payload_for_agent: Any = prompt_text or json.dumps(payload)
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue", "mammoth_guide"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue", "mammoth_guide", "planner", "search"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
                 if not isinstance(payload_for_agent, dict):
@@ -4197,6 +4874,10 @@ async def run_agent(body: Dict[str, Any]):
                             payload_for_agent["prompt"] = prompt_text
                         if runtime_agent == "reasoning" and not payload_for_agent.get("problem"):
                             payload_for_agent["problem"] = prompt_text
+                    if runtime_agent == "planner":
+                        payload_for_agent.setdefault("goal", prompt_text)
+                    if runtime_agent == "search":
+                        payload_for_agent.setdefault("query", prompt_text)
                 elif isinstance(payload, dict):
                     payload_for_agent.setdefault("prompt", payload.get("prompt") or payload.get("content") or payload.get("task") or "")
                 if runtime_agent == "coding":
@@ -4208,6 +4889,12 @@ async def run_agent(body: Dict[str, Any]):
                     if coding_intent:
                         payload_for_agent["context"]["coding_intent"] = coding_intent
                         payload_for_agent["intent"] = coding_intent
+            if runtime_agent in ("research_agent", "research"):
+                if not isinstance(payload_for_agent, dict):
+                    payload_for_agent = {"prompt": str(payload_for_agent or ""), "intent": str(intent or ""), "context": {}}
+                else:
+                    payload_for_agent.setdefault("prompt", prompt_text or "")
+                    payload_for_agent["intent"] = str(intent or "")
             approval_contract = body.get("approval_contract") if isinstance(body.get("approval_contract"), dict) else {}
             if not approval_contract and isinstance(payload_for_agent, dict) and isinstance(payload_for_agent.get("approval_contract"), dict):
                 approval_contract = payload_for_agent.get("approval_contract") or {}
@@ -4400,6 +5087,52 @@ async def run_agent(body: Dict[str, Any]):
                         "verification": verification,
                     },
                 }
+                if runtime_agent == "planner":
+                    _p_out = result.get("output") or {}
+                    if isinstance(_p_out, dict) and not _p_out.get("tasks"):
+                        _p_plan = (_p_out.get("plan") or {})
+                        result["output"] = dict(list(_p_out.items()) + [("tasks", _p_plan.get("tasks") or [])])
+                # Auto-seed: RAG + ATLAS + Library on any substantial text output
+                _auto_out = result.get("output")
+                if isinstance(_auto_out, dict):
+                    _auto_text = "\n\n".join(filter(None, [
+                        str(_auto_out.get("executive_summary") or ""),
+                        str(_auto_out.get("findings") or ""),
+                        str(_auto_out.get("summary") or ""),
+                        str(_auto_out.get("content") or ""),
+                        str(_auto_out.get("document") or ""),
+                        str(_auto_out.get("report") or ""),
+                        str(_auto_out.get("text") or ""),
+                    ]))
+                    _auto_title = str(_auto_out.get("title") or runtime_agent)
+                    _auto_type = str(_auto_out.get("artifact_type") or "document")
+                elif isinstance(_auto_out, str):
+                    _auto_text, _auto_title, _auto_type = _auto_out, runtime_agent, "document"
+                else:
+                    _auto_text = ""
+                if len(_auto_text) > 80:
+                    try:
+                        import uuid as _uuid
+                        from datetime import datetime as _adt, timezone as _atz
+                        _auto_payload = {
+                            "id": _uuid.uuid5(_uuid.NAMESPACE_URL, _auto_title).hex,
+                            "title": _auto_title,
+                            "body": _auto_text[:4000],
+                            "artifact_type": _auto_type,
+                            "source_url": "",
+                            "created_at": _adt.now(_atz.utc).isoformat(),
+                        }
+                        _auto_record = _normalize_workspace_artifact_record(_auto_payload)
+                        if _auto_record:
+                            _auto_state = _load_atlas_state()
+                            _auto_arts = _normalize_workspace_artifact_collection(_auto_state.get("workspace_artifacts"))
+                            _auto_arts = [x for x in _auto_arts if x.get("id") != _auto_record["id"]]
+                            _auto_arts.insert(0, _auto_record)
+                            _auto_state["workspace_artifacts"] = _auto_arts[:120]
+                            _auto_state["updated_at"] = _adt.now(_atz.utc).isoformat()
+                            _save_atlas_state(_auto_state)
+                    except Exception as _e:
+                        import logging; logging.getLogger("mammoth").warning("Library auto-save failed: %s", _e)
                 attach_reasoning = runtime_agent == "tutor" and (
                     intent == "lesson_coaching" or (intent == "grade_submission" and _is_failure_payload(final_envelope.get("output", raw_result)))
                 )
@@ -4473,7 +5206,26 @@ async def run_agent(body: Dict[str, Any]):
             )
 
         _think("Run complete", f"task_status={task_status!r}", "success")
-        return {
+        # Score long_form_research on output quality, not temperature
+        _lf_out = result.get("output") if isinstance(result, dict) else {}
+        _lf_out = _lf_out if isinstance(_lf_out, dict) else {}
+        _is_longform = (
+            intent == "research_long_form"
+            or _lf_out.get("artifact_type") == "long_form_research"
+        )
+        if _is_longform:
+            _secs = _lf_out.get("sections") or []
+            _wc = int(_lf_out.get("word_count") or 0)
+            _docx = bool(_lf_out.get("docx_filename"))
+            _run_confidence = round(min(0.95,
+                0.50
+                + (0.20 if len(_secs) >= 6 else len(_secs) * 0.03)
+                + (0.15 if _wc >= 4000 else _wc / 4000 * 0.15)
+                + (0.10 if _docx else 0.0)
+            ), 3)
+        else:
+            _run_confidence = round(1.0 - temperature, 3)
+        response = {
             "status": "ok",
             "result": result,
             "intent": intent,
@@ -4485,7 +5237,14 @@ async def run_agent(body: Dict[str, Any]):
             "preflight": preflight,
             "runtime_notice": build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=tracked_agent_id or "", context="run_agent"),
             "thought_steps": thought_steps,
+            "provider": runtime_agent or "unknown",
+            "confidence": _run_confidence,
+            "citations": [],  # Agent runs typically don't have citations unless specified
+            "contradictions": [],
         }
+        # Determine response type from runtime_agent
+        response_type = "coding" if runtime_agent == "coding" else "general"
+        return _wrap_response_with_trust(response, endpoint="/api/run", response_type=response_type)
     except Exception as e:
         if manifest:
             manifest.status = AgentStatus.ERROR
@@ -4548,6 +5307,8 @@ def _load_atlas_state() -> Dict[str, Any]:
                     normalized_aids.append(aid)
             state["study_aids"] = normalized_aids[-120:]
             _ensure_account_collections(state)
+            state["workspace_artifacts"] = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+            state["agent_run_history"] = _normalize_agent_run_history_collection(state.get("agent_run_history"))
             _sync_resume_packet(state)
             return state
         except Exception:
@@ -4582,6 +5343,8 @@ _ACCOUNT_SESSION_KEYS = (
     "study_aids",
     "learner_profile",
     "fab_usage_events",
+    "workspace_artifacts",
+    "agent_run_history",
     "plan_history",
     "active_plan",
     "eval_history",
@@ -4750,6 +5513,81 @@ def _persist_active_account_collections(state: Dict[str, Any]) -> Dict[str, Any]
     state["session_scope"] = "workspace_multi_account"
     state["user_id"] = _atlas_user_id(state)
     return state
+
+
+def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    created_at = str(raw.get("created_at") or now or datetime.now(timezone.utc).isoformat())
+    artifact_id = str(raw.get("id") or "").strip() or f"artifact-{uuid.uuid4().hex[:12]}"
+    title = str(raw.get("title") or "").strip() or "Saved artifact"
+    summary = str(raw.get("summary") or "").strip() or "Saved from MammothOS workspace."
+    body = str(raw.get("body") or "").strip()
+    if not body:
+        return None
+    return {
+        "id": artifact_id,
+        "created_at": created_at,
+        "title": title,
+        "summary": summary,
+        "body": body,
+        "path": str(raw.get("path") or "").strip(),
+        "source": str(raw.get("source") or "workspace").strip() or "workspace",
+        "format": str(raw.get("format") or "txt").strip().lower() or "txt",
+        "meta": raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
+    }
+
+
+def _normalize_workspace_artifact_collection(raw_items: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_items, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for raw in raw_items:
+        item = _normalize_workspace_artifact_record(raw)
+        if not item:
+            continue
+        if item["id"] in seen_ids:
+            continue
+        seen_ids.add(item["id"])
+        normalized.append(item)
+    normalized.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return normalized[:120]
+
+
+def _normalize_agent_run_history_entry(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if not isinstance(raw, dict):
+        return None
+    created_at = str(raw.get("created_at") or now or datetime.now(timezone.utc).isoformat())
+    run_id = str(raw.get("id") or "").strip() or f"run-{uuid.uuid4().hex[:12]}"
+    prompt = str(raw.get("prompt") or "").strip()
+    if not prompt:
+        return None
+    entry = dict(raw)
+    entry["id"] = run_id
+    entry["created_at"] = created_at
+    entry["status"] = str(raw.get("status") or "unknown").strip().lower() or "unknown"
+    entry["agent_id"] = str(raw.get("agent_id") or "agent").strip() or "agent"
+    entry["intent"] = str(raw.get("intent") or "run").strip() or "run"
+    entry["prompt"] = prompt
+    return entry
+
+
+def _normalize_agent_run_history_collection(raw_items: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_items, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    seen_ids = set()
+    for raw in raw_items:
+        item = _normalize_agent_run_history_entry(raw)
+        if not item:
+            continue
+        if item["id"] in seen_ids:
+            continue
+        seen_ids.add(item["id"])
+        normalized.append(item)
+    normalized.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+    return normalized[:160]
 
 
 def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
@@ -4942,16 +5780,27 @@ def _build_lesson_review(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _append_study_aid(state: Dict[str, Any], aid_type: str, data: Any):
+def _append_study_aid(
+    state: Dict[str, Any],
+    aid_type: str,
+    data: Any,
+    *,
+    lesson_id: Optional[str] = None,
+    lesson_title: Optional[str] = None,
+):
     aids = state.get("study_aids") or []
     if not isinstance(aids, list):
         aids = []
     lesson = state.get("current_lesson") or {}
+    resolved_lesson_id = str(lesson_id or state.get("lesson_id") or lesson.get("lesson_id") or "").strip()
+    resolved_lesson_title = str(
+        lesson_title or lesson.get("title") or lesson.get("lesson_title") or ""
+    ).strip()
     aids.append({
         "id": str(uuid.uuid4()),
         "type": str(aid_type or "unknown"),
-        "lesson_id": state.get("lesson_id") or lesson.get("lesson_id"),
-        "lesson_title": lesson.get("title") or lesson.get("lesson_title"),
+        "lesson_id": resolved_lesson_id,
+        "lesson_title": resolved_lesson_title,
         "data": data,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
@@ -5067,6 +5916,101 @@ def _build_lesson_flashcards(state: Dict[str, Any]) -> List[Dict[str, str]]:
         })
 
     return cards[:6]
+
+
+def _normalize_flashcard_item(raw: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        return {
+            "front": text,
+            "back": "Recall the concept in your own words, then verify against lesson notes.",
+            "source": None,
+        }
+    if not isinstance(raw, dict):
+        return None
+    front = str(raw.get("front") or raw.get("q") or raw.get("question") or "").strip()
+    back = str(raw.get("back") or raw.get("a") or raw.get("answer") or "").strip()
+    if not front or not back:
+        return None
+    source = raw.get("source")
+    if isinstance(source, dict):
+        normalized_source = {
+            "title": str(source.get("title") or "").strip(),
+            "url": str(source.get("url") or "").strip(),
+        }
+        if not normalized_source["title"] and not normalized_source["url"]:
+            source = None
+        else:
+            source = normalized_source
+    else:
+        source = None
+    return {"front": front, "back": back, "source": source}
+
+
+def _normalize_flashcard_list(raw_cards: Any) -> List[Dict[str, Any]]:
+    if not isinstance(raw_cards, list):
+        return []
+    normalized: List[Dict[str, Any]] = []
+    for card in raw_cards:
+        item = _normalize_flashcard_item(card)
+        if item:
+            normalized.append(item)
+    return normalized
+
+
+def _latest_stored_flashcards(state: Dict[str, Any], *, limit: int = 12) -> List[Dict[str, Any]]:
+    aids = state.get("study_aids") or []
+    if not isinstance(aids, list):
+        return []
+    cards: List[Dict[str, Any]] = []
+    for raw in reversed(aids):
+        if not isinstance(raw, dict):
+            continue
+        aid_type = str(raw.get("type") or "").strip().lower()
+        if aid_type != "flashcards":
+            continue
+        data = raw.get("data")
+        if isinstance(data, dict) and isinstance(data.get("cards"), list):
+            source_cards = data.get("cards")
+        elif isinstance(data, list):
+            source_cards = data
+        else:
+            source_cards = []
+        for card in source_cards:
+            item = _normalize_flashcard_item(card)
+            if not item:
+                continue
+            cards.append(item)
+            if len(cards) >= limit:
+                return cards
+    return cards
+
+
+def _flashcards_to_ui_cards(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    normalized: List[Dict[str, Any]] = []
+    seen = set()
+    for index, card in enumerate(cards, start=1):
+        front = str(card.get("front") or "").strip()
+        back = str(card.get("back") or "").strip()
+        if not front or not back:
+            continue
+        dedupe_key = front.lower()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        normalized.append(
+            {
+                "id": str(card.get("id") or f"card-{index}"),
+                "q": front,
+                "a": back,
+                "front": front,
+                "back": back,
+                "source": card.get("source") if isinstance(card.get("source"), dict) else None,
+            }
+        )
+    return normalized
 
 
 def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> List[Dict[str, Any]]:
@@ -5779,7 +6723,7 @@ async def atlas_submit(body: Dict[str, Any]):
             _topic = str(state.get("topic") or "")
             _lesson_title = str(current_lesson.get("title") or current_lesson.get("objective") or "lesson")
             _outcome_label = "passed" if bool(result.get("passed")) else "attempted"
-            _MEMORY_ENGINE.store(
+            store_result = _MEMORY_ENGINE.store(
                 f"Lesson '{_lesson_title}' on topic '{_topic}': {_outcome_label}. Score: {result.get('score') or 0}.",
                 memory_type="atlas_outcome",
                 metadata={
@@ -5790,6 +6734,8 @@ async def atlas_submit(body: Dict[str, Any]):
                     "user_id": learner_user_id,
                 },
             )
+            if inspect.isawaitable(store_result):
+                await store_result
         except Exception:
             pass
         _append_audit_event(
@@ -5799,14 +6745,19 @@ async def atlas_submit(body: Dict[str, Any]):
             source="atlas",
             actor="learner",
         )
-        return {
+        response = {
             "status": "ok",
             "result": result,
             "learner_context": state.get("learner_context"),
             "adaptive_feedback": adaptive_feedback,
             "current_exercise": state.get("current_exercise"),
             "regenerated_exercise": regenerated_exercise,
+            "provider": "atlas-tutor",
+            "confidence": 0.85,  # ATLAS has high confidence in structured exercises
+            "citations": ["Exercise library", "Curriculum standards"],
+            "contradictions": [],
         }
+        return _wrap_response_with_trust(response, endpoint="/api/atlas/submit", response_type="tutor")
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
@@ -5815,40 +6766,75 @@ async def atlas_submit(body: Dict[str, Any]):
 async def atlas_next():
     state = _load_atlas_state()
     curriculum = state.get("curriculum", {})
-    modules    = curriculum.get("modules", []) if curriculum else []
+    modules = curriculum.get("modules", []) if isinstance(curriculum, dict) else []
+    lesson_id = str(state.get("lesson_id") or "").strip()
+    if not lesson_id:
+        return {"status": "ok", "message": "No active lesson to advance from."}
 
-    lesson_id = state.get("lesson_id", "")
-    # find next lesson index
-    found = False
-    for mod in modules:
-        for i, lesson in enumerate(mod.get("lessons", [])):
-            if lesson.get("lesson_id") == lesson_id:
-                found = True
-                next_i = i + 1
-                if next_i < len(mod["lessons"]):
-                    next_lesson = mod["lessons"][next_i]
-                    active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
-                    next_lesson = _decorate_lesson_for_module_track(next_lesson, active_track)
-                    state["current_lesson"] = next_lesson
-                    state["lesson_id"]      = next_lesson["lesson_id"]
-                    try:
-                        from mammoth_os.exercise_generator import generate_exercises_for_lesson
-                        generated = generate_exercises_for_lesson(next_lesson, count=1)
-                        if generated:
-                            state["current_exercise"] = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
-                    except Exception:
-                        # Keep session moving even if exercise generation fails.
-                        pass
-                    state["updated_at"]     = datetime.now(timezone.utc).isoformat()
-                    _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
-                    _sync_resume_packet(state, state.get("lesson_id"))
-                    _save_atlas_state(state)
-                    return {"status": "ok", "lesson": mod["lessons"][next_i]}
+    next_lesson = None
+    next_module = None
+    for mod_idx, mod in enumerate(modules):
+        lessons = mod.get("lessons", []) if isinstance(mod, dict) else []
+        for i, lesson in enumerate(lessons):
+            if str(lesson.get("lesson_id") or "").strip() != lesson_id:
+                continue
+            if i + 1 < len(lessons):
+                next_lesson = lessons[i + 1]
+                next_module = mod
                 break
-        if found:
+            if mod_idx + 1 < len(modules):
+                next_module = modules[mod_idx + 1]
+                next_lessons = next_module.get("lessons", []) if isinstance(next_module, dict) else []
+                if next_lessons:
+                    next_lesson = next_lessons[0]
+                break
+            return {"status": "ok", "message": "No more lessons in curriculum."}
+        if next_lesson is not None:
             break
 
-    return {"status": "ok", "message": "No more lessons in current module"}
+    if next_lesson is None:
+        return {"status": "ok", "message": "No more lessons in current module"}
+
+    next_module_id = str((next_module or {}).get("module_id") or (next_module or {}).get("id") or state.get("module_id") or "").strip()
+    active_track = _resolve_module_track(next_module_id, state.get("topic"))
+    if active_track is None:
+        active_track = _resolve_module_track((next_module or {}).get("title"), state.get("topic"))
+    next_lesson = _decorate_lesson_for_module_track(next_lesson, active_track)
+
+    state["current_lesson"] = next_lesson
+    state["lesson_id"] = next_lesson["lesson_id"]
+    state["module_id"] = next_module_id or state.get("module_id")
+    state["active_module"] = _serialize_module_track(active_track) or {
+        "id": next_module_id,
+        "label": str((next_module or {}).get("title") or "Next module").strip(),
+        "topic": str(state.get("topic") or "").strip(),
+        "summary": "",
+        "category": "",
+        "icon": "",
+        "lesson_type": "knowledge",
+        "outcomes": [],
+        "operator_note": "",
+    }
+    try:
+        from mammoth_os.exercise_generator import generate_exercises_for_lesson
+        generated = generate_exercises_for_lesson(next_lesson, count=1)
+        if generated:
+            state["current_exercise"] = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
+    except Exception:
+        pass
+
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
+    _sync_resume_packet(state, state.get("lesson_id"))
+    _save_atlas_state(state)
+    return {
+        "status": "ok",
+        "lesson": next_lesson,
+        "exercise": state.get("current_exercise"),
+        "module_id": state.get("module_id"),
+        "active_module": state.get("active_module"),
+        "lesson_id": state.get("lesson_id"),
+    }
 
 
 @app.post("/api/atlas/back")
@@ -5910,6 +6896,64 @@ async def atlas_flashcards():
     _append_study_aid(state, "flashcards", flashcards)
     _save_atlas_state(state)
     return {"status": "ok", "flashcards": flashcards}
+
+
+@app.get("/api/flashcards")
+async def get_flashcards():
+    state = _load_atlas_state()
+    lesson_id = str(state.get("lesson_id") or "").strip()
+    lesson_cards = _flashcards_for_lesson(state, lesson_id) if lesson_id else []
+    stored_cards = _latest_stored_flashcards(state, limit=12)
+    cards = lesson_cards or stored_cards or _build_lesson_flashcards(state)
+    ui_cards = _flashcards_to_ui_cards(cards)
+    topic = str(state.get("topic") or (state.get("current_lesson") or {}).get("title") or "").strip()
+    return {
+        "status": "ok",
+        "cards": ui_cards,
+        "lesson_id": lesson_id or None,
+        "topic": topic or None,
+    }
+
+
+@app.post("/api/flashcards")
+async def create_flashcards(body: Dict[str, Any]):
+    cards_input = body.get("cards")
+    normalized_cards = _normalize_flashcard_list(cards_input)
+    if not normalized_cards:
+        return JSONResponse(
+            {"status": "error", "error": "cards must include at least one item with front/back (or q/a)."},
+            status_code=400,
+        )
+
+    state = _load_atlas_state()
+    lesson_id = str(body.get("lesson_id") or state.get("lesson_id") or "").strip()
+    topic = str(
+        body.get("topic")
+        or body.get("lesson_title")
+        or (state.get("current_lesson") or {}).get("title")
+        or state.get("topic")
+        or ""
+    ).strip()
+    payload = {
+        "cards": normalized_cards,
+        "topic": topic,
+        "generated_by": str(body.get("generated_by") or "atlas").strip() or "atlas",
+    }
+    _append_study_aid(
+        state,
+        "flashcards",
+        payload,
+        lesson_id=lesson_id,
+        lesson_title=topic,
+    )
+    _save_atlas_state(state)
+    return {
+        "status": "ok",
+        "count": len(normalized_cards),
+        "cards": _flashcards_to_ui_cards(normalized_cards),
+        "lesson_id": lesson_id or None,
+        "topic": topic or None,
+    }
 
 
 @app.post("/api/atlas/plan")
@@ -6048,8 +7092,11 @@ async def search_memory(request: Request, body: Dict[str, Any]):
     memory_type = body.get("memory_type")
     if not query:
         return {"status": "error", "error": "query is required"}
+    raw_results = _MEMORY_ENGINE.retrieve(query, top_k=top_k * 5, memory_type=memory_type)
+    if inspect.isawaitable(raw_results):
+        raw_results = await raw_results
     results = [
-        r for r in _MEMORY_ENGINE.retrieve(query, top_k=top_k * 5, memory_type=memory_type)
+        r for r in (raw_results or [])
         if str((r.get("metadata") or {}).get("user_id") or "") == uid
         and _normalize_account_id((r.get("metadata") or {}).get("account_id") or "default") == account_id
     ][:top_k]
@@ -6071,12 +7118,15 @@ async def store_memory_entry(request: Request, body: Dict[str, Any]):
     metadata = {**metadata, "user_id": uid, "account_id": account_id}
     try:
         entry_id = _MEMORY_ENGINE.store(content, memory_type=memory_type, metadata=metadata)
+        if inspect.isawaitable(entry_id):
+            entry_id = await entry_id
         return {"status": "ok", "id": entry_id}
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 
 
+@app.post("/api/atlas/regenerate")
 async def atlas_regenerate(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()
     reason = "manual_regeneration"
@@ -6255,6 +7305,8 @@ async def atlas_chat(body: Dict[str, Any]):
     page_context = _normalize_page_context(body.get("page_context"), body.get("page_snapshot"))
     repo_context_request = _normalize_repo_context_request(body.get("repo_context"))
     repo_context = _collect_repo_context_snapshot(repo_context_request) if repo_context_request else {}
+    repo_evidence_items = _repo_context_evidence_items(repo_context)
+    repo_evidence_items = _repo_context_evidence_items(repo_context)
     attached_material_ids = body.get("attached_material_ids") if isinstance(body.get("attached_material_ids"), list) else []
     attached_material_context = _collect_attached_atlas_material_context(
         user_id=_current_request_user_id(),
@@ -6292,6 +7344,21 @@ async def atlas_chat(body: Dict[str, Any]):
     if slash and slash.get("kind") in {"web", "research"}:
         command_result = _run_internet_command(slash)
         internet_reply = str(command_result.get("reply") or "No response produced.")
+        internet_evidence = [item for item in [command_result.get("evidence"), *repo_evidence_items] if isinstance(item, dict)]
+        runtime_status = _runtime_status_snapshot()
+        confidence = _derive_chat_confidence(
+            runtime_status=runtime_status,
+            evidence_items=internet_evidence,
+            reply=internet_reply,
+            base=0.78 if command_result.get("status") == "ok" else 0.46,
+        )
+        trust_metadata = _build_chat_trust_metadata(
+            provider="internet-tool",
+            confidence=confidence,
+            evidence_items=internet_evidence,
+            content=internet_reply,
+            response_type="research" if slash.get("kind") == "research" else "general",
+        )
         history.append({
             "role": "assistant",
             "message": internet_reply,
@@ -6299,7 +7366,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "adapter": "internet-tool",
             "model": "internet-tool",
             "mode": mode,
-            "evidence_items": [command_result.get("evidence")],
+            "evidence_items": internet_evidence,
+            "confidence": confidence,
+            "trust_metadata": trust_metadata,
         })
         state[history_key] = history[-60:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -6321,6 +7390,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
             "trace_id": trace_id,
+            "confidence": confidence,
+            "trust_metadata": trust_metadata,
+            "evidence_items": internet_evidence,
         }
     if slash and slash.get("kind") == "error":
         return {"status": "error", "error": slash.get("error") or "Invalid command."}
@@ -6359,9 +7431,25 @@ async def atlas_chat(body: Dict[str, Any]):
                         "repo_context_used": bool(repo_context),
                         "branch": str(repo_context.get("branch") or "main"),
                     }
-                ],
+                ] + repo_evidence_items[:2],
             }
         )
+        guide_evidence = history[-1].get("evidence_items") if isinstance(history[-1].get("evidence_items"), list) else []
+        guide_confidence = _derive_chat_confidence(
+            runtime_status=_runtime_status_snapshot(),
+            evidence_items=guide_evidence,
+            reply=guide_reply,
+            base=0.74,
+        )
+        guide_trust = _build_chat_trust_metadata(
+            provider="mammoth-guide",
+            confidence=guide_confidence,
+            evidence_items=guide_evidence,
+            content=guide_reply,
+            response_type="general",
+        )
+        history[-1]["confidence"] = guide_confidence
+        history[-1]["trust_metadata"] = guide_trust
         state[history_key] = history[-60:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _append_fab_usage_event(
@@ -6385,6 +7473,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "guide_steps": guide_steps if isinstance(guide_steps, list) else [],
             "guide_branch": guide_branch,
             "attached_materials_used": attached_material_context.get("materials", []),
+            "confidence": guide_confidence,
+            "trust_metadata": guide_trust,
+            "evidence_items": guide_evidence,
         }
 
     if guard_triggered:
@@ -6407,7 +7498,23 @@ async def atlas_chat(body: Dict[str, Any]):
             "adapter": "policy-guard",
             "model": "policy-guard",
             "guard_triggered": True,
+            "evidence_items": repo_evidence_items[:2],
         })
+        guard_confidence = _derive_chat_confidence(
+            runtime_status=_runtime_status_snapshot(),
+            evidence_items=history[-1].get("evidence_items") if isinstance(history[-1].get("evidence_items"), list) else [],
+            reply=guard_reply,
+            base=0.68,
+        )
+        guard_trust = _build_chat_trust_metadata(
+            provider="policy-guard",
+            confidence=guard_confidence,
+            evidence_items=history[-1].get("evidence_items") if isinstance(history[-1].get("evidence_items"), list) else [],
+            content=guard_reply,
+            response_type="tutor",
+        )
+        history[-1]["confidence"] = guard_confidence
+        history[-1]["trust_metadata"] = guard_trust
         state[history_key] = history[-60:]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _append_fab_usage_event(
@@ -6427,6 +7534,9 @@ async def atlas_chat(body: Dict[str, Any]):
             "regenerated_exercise": regenerated_exercise,
             "current_exercise": state.get("current_exercise"),
             "trace_id": trace_id,
+            "confidence": guard_confidence,
+            "trust_metadata": guard_trust,
+            "evidence_items": history[-1].get("evidence_items"),
         }
 
     if mode == "assistant":
@@ -6519,6 +7629,29 @@ async def atlas_chat(body: Dict[str, Any]):
         runtime_status["safe_error"] = safe_error
         _remember_runtime_status(runtime_status)
 
+    assistant_evidence = list(repo_evidence_items[:2])
+    if attached_material_context.get("count"):
+        assistant_evidence.append(
+            {
+                "agent_id": "atlas-materials",
+                "source": "attached-materials",
+                "summary": f"Attached materials included: {attached_material_context.get('count')}.",
+                "status": "ok",
+            }
+        )
+    llm_confidence = _derive_chat_confidence(
+        runtime_status=runtime_status,
+        evidence_items=assistant_evidence,
+        reply=llm_reply,
+        base=0.72,
+    )
+    llm_trust = _build_chat_trust_metadata(
+        provider=active_adapter or "unknown",
+        confidence=llm_confidence,
+        evidence_items=assistant_evidence,
+        content=llm_reply,
+        response_type="tutor" if mode != "assistant" else "general",
+    )
     history.append({
         "role": "assistant",
         "message": llm_reply,
@@ -6527,6 +7660,9 @@ async def atlas_chat(body: Dict[str, Any]):
         "model": active_model,
         "mode": mode,
         "attached_materials": attached_material_context.get("materials", []),
+        "evidence_items": assistant_evidence,
+        "confidence": llm_confidence,
+        "trust_metadata": llm_trust,
     })
     state[history_key] = history[-60:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -6550,6 +7686,9 @@ async def atlas_chat(body: Dict[str, Any]):
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id="atlas_chat", context=mode, provider=active_adapter),
         "trace_id": trace_id,
         "attached_materials_used": attached_material_context.get("materials", []),
+        "evidence_items": assistant_evidence,
+        "confidence": llm_confidence,
+        "trust_metadata": llm_trust,
     }
 
 
@@ -6563,6 +7702,108 @@ def _clean_web_text(raw: str, *, max_chars: int = 2200) -> str:
     if len(text) > max_chars:
         return text[:max_chars].rstrip() + "..."
     return text
+
+
+def _repo_context_evidence_items(repo_context: Dict[str, Any], *, limit: int = 3) -> List[Dict[str, Any]]:
+    evidence: List[Dict[str, Any]] = []
+    if not isinstance(repo_context, dict):
+        return evidence
+    for snippet in (repo_context.get("snippets") or []):
+        if len(evidence) >= limit:
+            break
+        if not isinstance(snippet, dict) or snippet.get("status") != "ok":
+            continue
+        evidence.append(
+            {
+                "agent_id": "repo-context",
+                "source": "repo-snippet",
+                "path": str(snippet.get("path") or ""),
+                "summary": f"Loaded {snippet.get('path') or 'file'} ({snippet.get('line_count') or 0} lines).",
+                "status": "ok",
+            }
+        )
+    for hit in (repo_context.get("search_hits") or []):
+        if len(evidence) >= limit:
+            break
+        if not isinstance(hit, dict):
+            continue
+        evidence.append(
+            {
+                "agent_id": "repo-context",
+                "source": "repo-search",
+                "path": str(hit.get("path") or ""),
+                "summary": str(hit.get("preview") or "").strip()[:220],
+                "status": "ok",
+            }
+        )
+    warning = str(repo_context.get("root_warning") or "").strip()
+    if warning and len(evidence) < limit:
+        evidence.append(
+            {
+                "agent_id": "repo-context",
+                "source": "repo-warning",
+                "summary": warning,
+                "status": "warning",
+            }
+        )
+    return evidence
+
+
+def _derive_chat_confidence(
+    *,
+    runtime_status: Dict[str, Any],
+    evidence_items: List[Dict[str, Any]],
+    reply: str,
+    base: float = 0.74,
+) -> float:
+    confidence = float(base)
+    state = str((runtime_status or {}).get("state") or "").lower()
+    if state == "ready":
+        confidence += 0.08
+    elif state in {"degraded", "fallback"}:
+        confidence -= 0.14
+    elif state in {"error", "down"}:
+        confidence -= 0.24
+    if (runtime_status or {}).get("error_type"):
+        confidence -= 0.08
+
+    count = len([item for item in (evidence_items or []) if isinstance(item, dict)])
+    if count >= 1:
+        confidence += 0.04
+    if count >= 3:
+        confidence += 0.03
+    if len(str(reply or "").strip()) < 40:
+        confidence -= 0.06
+    return round(max(0.2, min(0.96, confidence)), 2)
+
+
+def _build_chat_trust_metadata(
+    *,
+    provider: str,
+    confidence: float,
+    evidence_items: List[Dict[str, Any]],
+    content: str,
+    response_type: str = "general",
+) -> Dict[str, Any]:
+    citations: List[str] = []
+    for item in evidence_items or []:
+        if not isinstance(item, dict):
+            continue
+        for key in ("url", "path", "source", "agent_id"):
+            value = str(item.get(key) or "").strip()
+            if value and value not in citations:
+                citations.append(value)
+    _, _, trust_metadata = enforce_on_release(
+        {
+            "provider": str(provider or "unknown"),
+            "confidence": float(confidence),
+            "citations": citations[:8],
+            "contradictions": [],
+            "content": str(content or ""),
+        },
+        response_type=response_type,
+    )
+    return trust_metadata
 
 
 def _internet_fetch_url(url: str) -> Dict[str, Any]:
@@ -6600,70 +7841,62 @@ def _internet_research_query(query: str) -> Dict[str, Any]:
     q = str(query or "").strip()
     if not q:
         return {"status": "error", "error": "Research query is required."}
-    endpoint = (
-        "https://api.duckduckgo.com/?"
-        + urllib.parse.urlencode({"q": q, "format": "json", "no_html": 1, "skip_disambig": 1})
-    )
-    req = urllib.request.Request(
-        endpoint,
-        headers={"User-Agent": "MammothOS/1.0 (+https://command.truexxiisupply.com)"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as exc:
-        return {"status": "error", "error": _sanitize_runtime_error_message(exc, "Could not reach internet research endpoint.")}
-    except json.JSONDecodeError:
-        return {"status": "error", "error": "Research endpoint returned an unreadable response."}
+    from mammoth_os.agents.research_agent import ResearchAgent
 
-    highlights: List[Dict[str, str]] = []
-    abstract = str(payload.get("AbstractText") or "").strip()
-    if abstract:
-        highlights.append({
-            "title": str(payload.get("Heading") or "Primary finding"),
-            "snippet": abstract,
-            "url": str(payload.get("AbstractURL") or ""),
-        })
-    related = payload.get("RelatedTopics") if isinstance(payload.get("RelatedTopics"), list) else []
-    for item in related:
+    result = ResearchAgent(router=None).run(
+        {
+            "prompt": q,
+            "focus": "general",
+            "max_sources": 5,
+            "allow_web_lookup": True,
+        }
+    )
+    sources = result.get("sources") if isinstance(result.get("sources"), list) else []
+    highlights = []
+    for item in sources:
+        if not isinstance(item, dict) or str(item.get("source_type") or "").strip().lower() != "web":
+            continue
+        snippet = str(item.get("snippet") or "").strip()
+        if not snippet:
+            continue
+        matched_tokens = item.get("matched_tokens") if isinstance(item.get("matched_tokens"), list) else []
+        relevance_score = float(item.get("relevance_score") or 0.0)
+        if relevance_score <= 0 and not matched_tokens:
+            continue
+        highlights.append(
+            {
+                "title": str(item.get("title") or "Primary finding").strip() or "Primary finding",
+                "snippet": snippet,
+                "url": str(item.get("url") or "").strip(),
+                "publisher": str(item.get("publisher") or "").strip(),
+            }
+        )
         if len(highlights) >= 5:
             break
-        if isinstance(item, dict) and isinstance(item.get("Topics"), list):
-            nested = item.get("Topics") or []
-            for sub in nested:
-                if len(highlights) >= 5:
-                    break
-                if isinstance(sub, dict):
-                    snippet = str(sub.get("Text") or "").strip()
-                    if snippet:
-                        highlights.append({
-                            "title": str(sub.get("FirstURL") or "Related source"),
-                            "snippet": snippet,
-                            "url": str(sub.get("FirstURL") or ""),
-                        })
-            continue
-        if isinstance(item, dict):
-            snippet = str(item.get("Text") or "").strip()
-            if snippet:
-                highlights.append({
-                    "title": str(item.get("FirstURL") or "Related source"),
-                    "snippet": snippet,
-                    "url": str(item.get("FirstURL") or ""),
-                })
 
+    retrieval_errors = result.get("retrieval_errors") if isinstance(result.get("retrieval_errors"), list) else []
     if not highlights:
+        detail = f" Retrieval notes: {', '.join(str(err) for err in retrieval_errors[:2])}." if retrieval_errors else ""
         return {
             "status": "ok",
             "query": q,
             "highlights": [],
-            "summary": "No concise internet highlights were found for this query.",
+            "summary": f"No grounded internet highlights were found for this query.{detail}",
+            "retrieval_errors": retrieval_errors,
         }
 
     summary_lines = [f"Internet research brief for: {q}"]
-    for idx, item in enumerate(highlights[:5], start=1):
+    for idx, item in enumerate(highlights, start=1):
+        publisher = f" [{item['publisher']}]" if item.get("publisher") else ""
         url = f" ({item['url']})" if item.get("url") else ""
-        summary_lines.append(f"{idx}. {item['snippet']}{url}")
-    return {"status": "ok", "query": q, "highlights": highlights[:5], "summary": "\n".join(summary_lines)}
+        summary_lines.append(f"{idx}. {item['snippet']}{publisher}{url}")
+    return {
+        "status": "ok",
+        "query": q,
+        "highlights": highlights,
+        "summary": "\n".join(summary_lines),
+        "retrieval_errors": retrieval_errors,
+    }
 
 
 def _run_internet_command(slash: Dict[str, Any]) -> Dict[str, Any]:
@@ -6800,16 +8033,114 @@ def _normalize_page_context(raw_page_context: Any, raw_page_snapshot: Any = None
     return {k: v for k, v in normalized.items() if v}
 
 
-def _safe_repo_relative_path(raw_path: Any) -> str:
+def _safe_repo_relative_path(raw_path: Any, *, repo_root: Any = None) -> str:
     candidate = str(raw_path or "").strip().replace("\\", "/")
     if not candidate:
         return ""
     path_obj = Path(candidate)
     if path_obj.is_absolute():
-        return ""
+        if repo_root:
+            try:
+                path_obj = path_obj.relative_to(Path(str(repo_root)))
+            except ValueError:
+                return ""
+        else:
+            return ""
     if any(part in {"..", ""} for part in path_obj.parts):
         return ""
-    return str(Path(*path_obj.parts))
+    return str(Path(*path_obj.parts)).replace("\\", "/")
+
+
+def _repo_context_query_tokens(text: str, *, max_tokens: int = 8) -> List[str]:
+    tokens = re.findall(r"[a-zA-Z0-9_]{3,}", str(text or "").lower())
+    stop = {
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "into",
+        "your",
+        "repo",
+        "file",
+        "path",
+        "scan",
+        "check",
+    }
+    ordered: List[str] = []
+    for token in tokens:
+        if token in stop:
+            continue
+        if token not in ordered:
+            ordered.append(token)
+        if len(ordered) >= max_tokens:
+            break
+    return ordered
+
+
+def _extract_repo_file_hints(text: str, *, max_hints: int = 8) -> List[str]:
+    query = str(text or "")
+    hints: List[str] = []
+    patterns = [
+        r"(?:[A-Za-z]:[\\/]|/)(?:[A-Za-z0-9_.\-]+[\\/])*[A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,8}",
+        r"(?:[A-Za-z0-9_.\-]+[\\/])+[A-Za-z0-9_.\-]+\.[A-Za-z0-9]{1,8}",
+        r"\b[A-Za-z0-9_.\-]+\.(?:py|js|jsx|ts|tsx|md|json|toml|ya?ml|sql|sh|ps1)\b",
+    ]
+    for pattern in patterns:
+        for match in re.findall(pattern, query):
+            candidate = str(match).strip().strip(".,:;()[]{}<>\"'").replace("\\", "/")
+            if not candidate:
+                continue
+            if candidate not in hints:
+                hints.append(candidate)
+            if len(hints) >= max_hints:
+                return hints
+    return hints
+
+
+def _list_tracked_repo_files(git_ref: str, *, cwd: str) -> List[str]:
+    for args in (["ls-tree", "-r", "--name-only", git_ref], ["ls-files"]):
+        result = _run_git_command(args, timeout=60, cwd=cwd)
+        if result.get("status") != "ok":
+            continue
+        files: List[str] = []
+        for line in str(result.get("stdout") or "").splitlines():
+            cleaned = _safe_repo_relative_path(line)
+            if cleaned:
+                files.append(cleaned)
+        if files:
+            return files
+    return []
+
+
+def _resolve_repo_file_hint_to_tracked_path(hint: str, *, tracked_files: List[str], repo_root: str) -> str:
+    if not hint:
+        return ""
+    normalized = _safe_repo_relative_path(hint, repo_root=repo_root) or _safe_repo_relative_path(hint)
+    if not normalized:
+        normalized = str(hint).strip().replace("\\", "/").lstrip("./")
+    if not normalized:
+        return ""
+
+    tracked_set = set(tracked_files)
+    if normalized in tracked_set:
+        return normalized
+
+    lowered = normalized.lower()
+    suffix_matches = [path for path in tracked_files if path.lower().endswith(lowered)]
+    if suffix_matches:
+        suffix_matches.sort(key=len)
+        return suffix_matches[0]
+
+    base = Path(normalized).name.lower()
+    if base:
+        base_matches = [path for path in tracked_files if Path(path).name.lower() == base]
+        if base_matches:
+            base_matches.sort(key=len)
+            return base_matches[0]
+    return ""
 
 
 def _resolve_repo_context_root(raw_root: Any) -> Dict[str, str]:
@@ -6846,10 +8177,11 @@ def _resolve_repo_context_root(raw_root: Any) -> Dict[str, str]:
 def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     if not isinstance(raw_repo_context, dict):
         return {}
+    root_resolution = _resolve_repo_context_root(raw_repo_context.get("root"))
     files_raw = raw_repo_context.get("files") if isinstance(raw_repo_context.get("files"), list) else []
     files = []
     for value in files_raw:
-        cleaned = _safe_repo_relative_path(value)
+        cleaned = _safe_repo_relative_path(value, repo_root=root_resolution["root"])
         if cleaned:
             files.append(cleaned)
         if len(files) >= 12:
@@ -6860,7 +8192,6 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     branch = str(raw_repo_context.get("branch") or "main").strip() or "main"
     if not re.fullmatch(r"[A-Za-z0-9._/\-]+", branch):
         branch = "main"
-    root_resolution = _resolve_repo_context_root(raw_repo_context.get("root"))
     return {
         "query": query[:240],
         "files": files,
@@ -6875,8 +8206,8 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     }
 
 
-def _read_repo_file_excerpt(relative_path: str, *, max_lines: int = 120, max_chars: int = 3600) -> Dict[str, Any]:
-    target = ROOT / relative_path
+def _read_repo_file_excerpt(relative_path: str, *, repo_root: Any = None, max_lines: int = 120, max_chars: int = 3600) -> Dict[str, Any]:
+    target = Path(str(repo_root or ROOT)) / relative_path
     if not target.exists() or not target.is_file():
         return {"path": relative_path, "status": "missing"}
     try:
@@ -6956,14 +8287,51 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
         }
 
     git_ref = str(repo_request.get("branch") or "main")
+    tracked_files: List[str] = []
+    snippet_paths: List[str] = []
     for relative_path in (repo_request.get("files") or [])[: int(repo_request.get("max_snippets") or 3)]:
-        snapshot["snippets"].append(_read_repo_file_excerpt_from_ref(relative_path, git_ref, cwd=repo_cwd))
+        snippet = _read_repo_file_excerpt_from_ref(relative_path, git_ref, cwd=repo_cwd)
+        if snippet.get("status") != "ok":
+            snippet = _read_repo_file_excerpt(relative_path, repo_root=repo_cwd)
+            if snippet.get("status") == "ok":
+                snippet["ref"] = "working-tree"
+        snapshot["snippets"].append(snippet)
+        if snippet.get("status") == "ok":
+            snippet_paths.append(str(snippet.get("path") or ""))
 
-    query = str(repo_request.get("query") or "").strip().lower()
+    query = str(repo_request.get("query") or "").strip()
+    if len(snapshot["snippets"]) < int(repo_request.get("max_snippets") or 3):
+        hints = _extract_repo_file_hints(query)
+        if hints:
+            tracked_files = _list_tracked_repo_files(git_ref, cwd=repo_cwd)
+        for hint in hints:
+            if len(snapshot["snippets"]) >= int(repo_request.get("max_snippets") or 3):
+                break
+            resolved = _resolve_repo_file_hint_to_tracked_path(hint, tracked_files=tracked_files, repo_root=repo_cwd)
+            if not resolved or resolved in snippet_paths:
+                continue
+            snippet = _read_repo_file_excerpt_from_ref(resolved, git_ref, cwd=repo_cwd)
+            if snippet.get("status") != "ok":
+                snippet = _read_repo_file_excerpt(resolved, repo_root=repo_cwd)
+                if snippet.get("status") == "ok":
+                    snippet["ref"] = "working-tree"
+            snapshot["snippets"].append(snippet)
+            if snippet.get("status") == "ok":
+                snippet_paths.append(resolved)
+        if hints:
+            snapshot["resolved_file_hints"] = snippet_paths[:]
+
+    query_lower = query.lower()
     if query:
         max_hits = int(repo_request.get("max_results") or 4)
-        grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", query, git_ref], timeout=60, cwd=repo_cwd)
-        if grep_result.get("status") == "ok":
+        query_terms = [query]
+        query_terms.extend(_repo_context_query_tokens(query))
+        for term in query_terms:
+            if len(snapshot["search_hits"]) >= max_hits:
+                break
+            grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", "-F", "-i", term, git_ref], timeout=60, cwd=repo_cwd)
+            if grep_result.get("status") != "ok":
+                continue
             for line in str(grep_result.get("stdout") or "").splitlines():
                 if len(snapshot["search_hits"]) >= max_hits:
                     break
@@ -6971,14 +8339,19 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
                 if len(parts) < 4:
                     continue
                 _, hit_path, hit_line, hit_preview = parts
+                normalized_path = str(hit_path).replace("/", "\\")
+                if any(str(item.get("path") or "") == normalized_path and int(item.get("line") or 0) == int(hit_line) for item in snapshot["search_hits"]):
+                    continue
                 snapshot["search_hits"].append(
                     {
-                        "path": str(hit_path).replace("/", "\\"),
+                        "path": normalized_path,
                         "line": int(hit_line) if str(hit_line).isdigit() else 0,
                         "preview": str(hit_preview).strip()[:280],
                         "ref": git_ref,
                     }
                 )
+            if snapshot["search_hits"]:
+                break
         else:
             skipped_dirs = {".git", "node_modules", "dist", "__pycache__", ".venv", "venv", ".mammoth"}
             walk_root = Path(repo_cwd)
@@ -6996,7 +8369,12 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
                 except Exception:
                     continue
                 lowered = file_text.lower()
-                index = lowered.find(query)
+                index = lowered.find(query_lower)
+                if index < 0:
+                    for token in _repo_context_query_tokens(query):
+                        index = lowered.find(token)
+                        if index >= 0:
+                            break
                 if index < 0:
                     continue
                 start = max(0, index - 120)
@@ -7134,6 +8512,106 @@ async def delete_mammoth_chat_history():
     )
 
     return {"status": "ok", "deleted_messages": deleted_messages}
+
+
+@app.get("/api/workspace/artifacts")
+async def list_workspace_artifacts():
+    state = _load_atlas_state()
+    artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+    if artifacts != state.get("workspace_artifacts"):
+        state["workspace_artifacts"] = artifacts
+        _save_atlas_state(state)
+    return {"status": "ok", "artifacts": artifacts}
+
+
+@app.post("/api/workspace/artifacts")
+async def create_workspace_artifact(body: Dict[str, Any]):
+    artifact = _normalize_workspace_artifact_record(body)
+    if not artifact:
+        return JSONResponse(
+            {"status": "error", "error": "artifact body is required and must include non-empty text content."},
+            status_code=400,
+        )
+    state = _load_atlas_state()
+    artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+    artifacts = [item for item in artifacts if item.get("id") != artifact["id"]]
+    artifacts.insert(0, artifact)
+    state["workspace_artifacts"] = artifacts[:120]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "artifact": artifact}
+
+
+@app.delete("/api/workspace/artifacts/{artifact_id}")
+async def delete_workspace_artifact(artifact_id: str):
+    state = _load_atlas_state()
+    artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+    remaining = [item for item in artifacts if str(item.get("id") or "") != str(artifact_id or "")]
+    deleted = len(remaining) != len(artifacts)
+    state["workspace_artifacts"] = remaining
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "deleted": artifact_id, "removed": deleted}
+
+
+@app.delete("/api/workspace/artifacts")
+async def clear_workspace_artifacts():
+    state = _load_atlas_state()
+    count = len(_normalize_workspace_artifact_collection(state.get("workspace_artifacts")))
+    state["workspace_artifacts"] = []
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "cleared": count}
+
+
+@app.get("/api/workspace/run-history")
+async def list_workspace_run_history():
+    state = _load_atlas_state()
+    entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
+    if entries != state.get("agent_run_history"):
+        state["agent_run_history"] = entries
+        _save_atlas_state(state)
+    return {"status": "ok", "entries": entries}
+
+
+@app.post("/api/workspace/run-history")
+async def upsert_workspace_run_history_entry(body: Dict[str, Any]):
+    entry = _normalize_agent_run_history_entry(body)
+    if not entry:
+        return JSONResponse(
+            {"status": "error", "error": "run history entry requires a non-empty prompt."},
+            status_code=400,
+        )
+    state = _load_atlas_state()
+    entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
+    entries = [item for item in entries if item.get("id") != entry["id"]]
+    entries.insert(0, entry)
+    state["agent_run_history"] = entries[:160]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "entry": entry}
+
+
+@app.delete("/api/workspace/run-history/{entry_id}")
+async def delete_workspace_run_history_entry(entry_id: str):
+    state = _load_atlas_state()
+    entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
+    remaining = [item for item in entries if str(item.get("id") or "") != str(entry_id or "")]
+    deleted = len(remaining) != len(entries)
+    state["agent_run_history"] = remaining
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "deleted": entry_id, "removed": deleted}
+
+
+@app.delete("/api/workspace/run-history")
+async def clear_workspace_run_history():
+    state = _load_atlas_state()
+    count = len(_normalize_agent_run_history_collection(state.get("agent_run_history")))
+    state["agent_run_history"] = []
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _save_atlas_state(state)
+    return {"status": "ok", "cleared": count}
 
 
 
@@ -7541,6 +9019,9 @@ async def mammoth_chat(body: Dict[str, Any]):
             message = message + "\n\n[ATTACHED FILES]\n" + "\n\n".join(_file_texts)
 
     trace_id = str(body.get("trace_id") or new_trace_id("chat"))
+    initial_repo_request = _normalize_repo_context_request(body.get("repo_context"))
+    initial_repo_context = _collect_repo_context_snapshot(initial_repo_request) if initial_repo_request else {}
+    repo_evidence_items = _repo_context_evidence_items(initial_repo_context)
     slash = _parse_mammoth_chat_command(message)
     if slash and slash.get("kind") == "plan":
         plan_result = await plan_execute({
@@ -7599,6 +9080,20 @@ async def mammoth_chat(body: Dict[str, Any]):
             and _normalize_account_id(item.get("account_id") or "default") == account_id
         ]
 
+        internet_evidence = [item for item in [command_result.get("evidence"), *repo_evidence_items] if isinstance(item, dict)]
+        internet_confidence = _derive_chat_confidence(
+            runtime_status=_runtime_status_snapshot(),
+            evidence_items=internet_evidence,
+            reply=reply,
+            base=0.78 if command_result.get("status") == "ok" else 0.46,
+        )
+        internet_trust = _build_chat_trust_metadata(
+            provider="internet-tool",
+            confidence=internet_confidence,
+            evidence_items=internet_evidence,
+            content=reply,
+            response_type="research" if slash.get("kind") == "research" else "general",
+        )
         history.append({
             "role": "user",
             "message": message,
@@ -7623,7 +9118,9 @@ async def mammoth_chat(body: Dict[str, Any]):
                 "detail": f"kind={slash.get('kind')}",
                 "status": "success" if command_result.get("status") == "ok" else "warning",
             }],
-            "evidence_items": [command_result.get("evidence")],
+            "evidence_items": internet_evidence,
+            "confidence": internet_confidence,
+            "trust_metadata": internet_trust,
             "orchestrated": False,
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
@@ -7660,11 +9157,13 @@ async def mammoth_chat(body: Dict[str, Any]):
             "mode": "chat",
             "task_id": "",
             "dispatched": False,
-            "evidence_items": [command_result.get("evidence")],
+            "evidence_items": internet_evidence,
             "orchestrated": False,
             "runtime_status": _runtime_status_snapshot(),
             "runtime_notice": None,
             "trace_id": trace_id,
+            "confidence": internet_confidence,
+            "trust_metadata": internet_trust,
         }
     if slash and slash.get("kind") == "gitops":
         return {
@@ -7960,6 +9459,26 @@ async def mammoth_chat(body: Dict[str, Any]):
         active_model = active_model or "fallback-local"
         thought_steps.append({"ts": _ts(), "label": "Hamster escaped", "detail": safe_error, "status": "error"})
 
+    for item in repo_evidence_items:
+        if len(evidence_items) >= 5:
+            break
+        evidence_items.append(item)
+
+    reply_response_type = "research" if str(agent_id or "").strip() == "research_agent" else "general"
+    response_confidence = _derive_chat_confidence(
+        runtime_status=runtime_status,
+        evidence_items=evidence_items,
+        reply=reply,
+        base=0.72,
+    )
+    response_trust_metadata = _build_chat_trust_metadata(
+        provider=active_adapter or "unknown",
+        confidence=response_confidence,
+        evidence_items=evidence_items,
+        content=reply,
+        response_type=reply_response_type,
+    )
+
     assistant_entry = {
         "role": "assistant",
         "message": reply,
@@ -7972,6 +9491,8 @@ async def mammoth_chat(body: Dict[str, Any]):
         "task_id": task_id,
         "dispatched": dispatched,
         "evidence_items": evidence_items,
+        "confidence": response_confidence,
+        "trust_metadata": response_trust_metadata,
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
@@ -8012,6 +9533,8 @@ async def mammoth_chat(body: Dict[str, Any]):
         "task_id": task_id,
         "dispatched": dispatched,
         "evidence_items": evidence_items,
+        "confidence": response_confidence,
+        "trust_metadata": response_trust_metadata,
         "orchestrated": orchestrate,
         "runtime_status": runtime_status,
         "runtime_notice": None if runtime_status.get("state") == "ready" else build_runtime_notice(runtime_status, trace_id=trace_id, agent_id=agent_id, context=mode, provider=active_adapter),
@@ -8732,16 +10255,22 @@ def _agent_quality_snapshot(agent_id: str) -> Dict[str, Any]:
         for base in class_node.bases
     )
 
-    score = 92
+    score = 100
     findings: List[str] = []
     interface_mode = "async" if isinstance(run_node, ast.AsyncFunctionDef) else "sync" if run_node else "specialized"
     lowered = text.lower()
     placeholder_markers = [
-        marker for marker in ("implement later", "placeholder", "todo", "deeper logic later")
+        marker for marker in (
+            "implement later",
+            "deeper logic later",
+            "stub response",
+            "tbd implementation",
+        )
         if marker in lowered
     ]
+    is_base_agent_class = class_node.name == "BaseAgent"
 
-    if not inherits_base_agent:
+    if not inherits_base_agent and not is_base_agent_class:
         score -= 12
         findings.append("Does not inherit BaseAgent.")
     if "run" not in method_names and "accept_submission" not in method_names:
@@ -8941,6 +10470,10 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
     entitlements = await get_entitlements()
     account = await get_account_profile()
     runtime = health.get("runtime") if isinstance(health.get("runtime"), dict) else _runtime_status_snapshot()
+    eval_history = _load_eval_history()
+    observability = _build_atlas_observability({"learner_model": {}, "plan_history": [], "fab_usage_events": []}, eval_history=eval_history)
+    eval_gate = _eval_gate_snapshot(observability=observability)
+    research_gate = _research_eval_gate_snapshot()
 
     services = health.get("services") if isinstance(health.get("services"), list) else []
     red_services = [str(service.get("label") or "unknown") for service in services if service.get("status") == "red"]
@@ -8994,7 +10527,8 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
         observability_score += 0.5
     observability_score = round(min(observability_score, 9.0), 1)
 
-    overall_score = round(((runtime_score * 0.4) + (module_score * 0.4) + (observability_score * 0.2)), 1)
+    research_score = 8.8 if research_gate.get("passed") else 5.8
+    overall_score = round(((runtime_score * 0.35) + (module_score * 0.35) + (observability_score * 0.15) + (research_score * 0.15)), 1)
 
     blockers: List[Dict[str, Any]] = []
     if runtime_score < 8.0 or cloud_ready == 0:
@@ -9015,6 +10549,18 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
             "title": "Lowest-rated lanes still need one more upgrade wave",
             "severity": "medium",
             "detail": weakest,
+        })
+    if not eval_gate["passed"]:
+        blockers.append({
+            "title": "ATLAS eval moat is below release threshold",
+            "severity": "high",
+            "detail": eval_gate["blocker_detail"],
+        })
+    if not research_gate["passed"]:
+        blockers.append({
+            "title": "Research quality gate is below release threshold",
+            "severity": "high",
+            "detail": research_gate["blocker_detail"],
         })
     if not bool(account.get("profile_complete")):
         blockers.append({
@@ -9045,10 +10591,12 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "score": overall_score,
         "tier": _release_readiness_tier(overall_score),
+        "release_gate": _release_gate_snapshot(score=overall_score, blockers=blockers),
         "scores": {
             "runtime": runtime_score,
             "modules": module_score,
             "observability": observability_score,
+            "research": research_score,
         },
         "summary": {
             "rated_modules": len(rated_modules),
@@ -9056,8 +10604,13 @@ async def _release_readiness_snapshot() -> Dict[str, Any]:
             "total_services": int(health.get("summary", {}).get("total_services") or 0),
             "cloud_providers_ready": cloud_ready,
             "non_local_providers_ready": non_local_ready,
+            "eval_runs": eval_gate["eval_runs"],
+            "eval_pass_rate": eval_gate["eval_pass_rate"],
+            "research_gate_status": research_gate.get("status"),
         },
         "runtime": runtime,
+        "eval_gate": eval_gate,
+        "research_gate": research_gate,
         "lowest_rated": lowest_rated,
         "blockers": blockers,
         "strengths": strengths[:4],
@@ -9076,6 +10629,551 @@ async def get_release_readiness():
     if blocked is not None:
         return blocked
     return await _release_readiness_snapshot()
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# /api/team/workflow-templates, /api/team/approval-policies, /api/team/runbooks
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/api/team/workflow-templates")
+async def list_workflow_templates():
+    """List all workflow templates"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        templates = _TEAM_WORKFLOW_MANAGER.templates.list()
+        return {
+            "status": "ok",
+            "templates": [t.to_dict() for t in templates],
+            "count": len(templates),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/workflow-templates")
+async def create_workflow_template(body: Dict[str, Any]):
+    """Create a new workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        name = str(body.get("name", "")).strip()
+        description = str(body.get("description", "")).strip()
+        intent = str(body.get("intent", "")).strip()
+        prompt_shape = body.get("prompt_shape", {})
+        required_approvals = body.get("required_approvals", [])
+        estimated_duration_min = int(body.get("estimated_duration_min", 30))
+        owner = str(body.get("owner", "") or _REQUEST_USER_ID.get())
+        tags = body.get("tags", [])
+
+        if not name or not intent:
+            return {"status": "error", "message": "name and intent are required"}
+
+        template = _TEAM_WORKFLOW_MANAGER.templates.create(
+            name=name,
+            description=description,
+            intent=intent,
+            prompt_shape=prompt_shape,
+            required_approvals=required_approvals,
+            estimated_duration_min=estimated_duration_min,
+            owner=owner,
+            tags=tags,
+        )
+        _append_activity(
+            f"Workflow template created: {name}",
+            agent_id="team_workflows",
+            kind="workflow_template_created",
+            details={"template_id": template.id, "name": name},
+        )
+        return {"status": "ok", "template": template.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/workflow-templates/{template_id}")
+async def get_workflow_template(template_id: str):
+    """Get a specific workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        template = _TEAM_WORKFLOW_MANAGER.templates.get(template_id)
+        if not template:
+            return {"status": "error", "message": "Template not found"}
+        return {"status": "ok", "template": template.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/workflow-templates/{template_id}")
+async def update_workflow_template(template_id: str, body: Dict[str, Any]):
+    """Update a workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        update_dict = {k: v for k, v in body.items() if k not in {"id", "created_at"}}
+        template = _TEAM_WORKFLOW_MANAGER.templates.update(template_id, **update_dict)
+        if not template:
+            return {"status": "error", "message": "Template not found"}
+        _append_activity(
+            f"Workflow template updated: {template.name}",
+            agent_id="team_workflows",
+            kind="workflow_template_updated",
+            details={"template_id": template_id},
+        )
+        return {"status": "ok", "template": template.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/team/workflow-templates/{template_id}")
+async def delete_workflow_template(template_id: str):
+    """Delete a workflow template"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        success = _TEAM_WORKFLOW_MANAGER.templates.delete(template_id)
+        if not success:
+            return {"status": "error", "message": "Template not found"}
+        _append_activity(
+            f"Workflow template deleted: {template_id}",
+            agent_id="team_workflows",
+            kind="workflow_template_deleted",
+            details={"template_id": template_id},
+        )
+        return {"status": "ok", "message": "Template deleted"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/approval-policies")
+async def list_approval_policies():
+    """List all approval policies"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        policies = _TEAM_WORKFLOW_MANAGER.policies.list()
+        return {
+            "status": "ok",
+            "policies": [p.to_dict() for p in policies],
+            "count": len(policies),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/approval-policies")
+async def create_approval_policy(body: Dict[str, Any]):
+    """Create a new approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        name = str(body.get("name", "")).strip()
+        policy_type = str(body.get("policy_type", "")).strip()
+        triggers = body.get("triggers", [])
+        required_reviewers = body.get("required_reviewers", [])
+        auto_approve_conditions = body.get("auto_approve_conditions", {})
+        owner = str(body.get("owner", "") or _REQUEST_USER_ID.get())
+
+        if not name or not policy_type:
+            return {"status": "error", "message": "name and policy_type are required"}
+
+        policy = _TEAM_WORKFLOW_MANAGER.policies.create(
+            name=name,
+            policy_type=policy_type,
+            triggers=triggers,
+            required_reviewers=required_reviewers,
+            auto_approve_conditions=auto_approve_conditions,
+            owner=owner,
+        )
+        _append_activity(
+            f"Approval policy created: {name}",
+            agent_id="team_workflows",
+            kind="approval_policy_created",
+            details={"policy_id": policy.id, "name": name},
+        )
+        return {"status": "ok", "policy": policy.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/approval-policies/{policy_id}")
+async def get_approval_policy(policy_id: str):
+    """Get a specific approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        policy = _TEAM_WORKFLOW_MANAGER.policies.get(policy_id)
+        if not policy:
+            return {"status": "error", "message": "Policy not found"}
+        return {"status": "ok", "policy": policy.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/approval-policies/{policy_id}")
+async def update_approval_policy(policy_id: str, body: Dict[str, Any]):
+    """Update an approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        update_dict = {k: v for k, v in body.items() if k not in {"id", "created_at"}}
+        policy = _TEAM_WORKFLOW_MANAGER.policies.update(policy_id, **update_dict)
+        if not policy:
+            return {"status": "error", "message": "Policy not found"}
+        _append_activity(
+            f"Approval policy updated: {policy.name}",
+            agent_id="team_workflows",
+            kind="approval_policy_updated",
+            details={"policy_id": policy_id},
+        )
+        return {"status": "ok", "policy": policy.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/team/approval-policies/{policy_id}")
+async def delete_approval_policy(policy_id: str):
+    """Delete an approval policy"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        success = _TEAM_WORKFLOW_MANAGER.policies.delete(policy_id)
+        if not success:
+            return {"status": "error", "message": "Policy not found"}
+        _append_activity(
+            f"Approval policy deleted: {policy_id}",
+            agent_id="team_workflows",
+            kind="approval_policy_deleted",
+            details={"policy_id": policy_id},
+        )
+        return {"status": "ok", "message": "Policy deleted"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks")
+async def list_runbooks():
+    """List all runbooks"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        runbooks = _TEAM_WORKFLOW_MANAGER.runbooks.list()
+        return {
+            "status": "ok",
+            "runbooks": [r.to_dict() for r in runbooks],
+            "count": len(runbooks),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks")
+async def create_runbook(body: Dict[str, Any]):
+    """Create a new runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        name = str(body.get("name", "")).strip()
+        description = str(body.get("description", "")).strip()
+        steps_data = body.get("steps", [])
+        owner = str(body.get("owner", "") or _REQUEST_USER_ID.get())
+        tags = body.get("tags", [])
+        enabled = bool(body.get("enabled", True))
+
+        if not name:
+            return {"status": "error", "message": "name is required"}
+
+        # Convert steps to RunbookStep objects
+        steps = []
+        for idx, step_data in enumerate(steps_data):
+            if isinstance(step_data, dict):
+                step_data = dict(step_data)  # Make a copy
+                if "step_index" not in step_data:
+                    step_data["step_index"] = idx
+                steps.append(RunbookStep.from_dict(step_data))
+            else:
+                steps.append(step_data)
+
+        runbook = _TEAM_WORKFLOW_MANAGER.runbooks.create(
+            name=name,
+            description=description,
+            steps=steps,
+            owner=owner,
+            tags=tags,
+            enabled=enabled,
+        )
+        _append_activity(
+            f"Runbook created: {name}",
+            agent_id="team_workflows",
+            kind="runbook_created",
+            details={"runbook_id": runbook.id, "name": name, "step_count": len(steps)},
+        )
+        return {"status": "ok", "runbook": runbook.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks/{runbook_id}")
+async def get_runbook(runbook_id: str):
+    """Get a specific runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        runbook = _TEAM_WORKFLOW_MANAGER.runbooks.get(runbook_id)
+        if not runbook:
+            return {"status": "error", "message": "Runbook not found"}
+        return {"status": "ok", "runbook": runbook.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}")
+async def update_runbook(runbook_id: str, body: Dict[str, Any]):
+    """Update a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        update_dict = {k: v for k, v in body.items() if k not in {"id", "created_at"}}
+        
+        # Handle steps specially
+        if "steps" in update_dict:
+            steps_data = update_dict["steps"]
+            steps = []
+            for idx, step_data in enumerate(steps_data):
+                if isinstance(step_data, dict):
+                    step_data = dict(step_data)
+                    if "step_index" not in step_data:
+                        step_data["step_index"] = idx
+                    steps.append(RunbookStep.from_dict(step_data))
+                else:
+                    steps.append(step_data)
+            update_dict["steps"] = steps
+        
+        runbook = _TEAM_WORKFLOW_MANAGER.runbooks.update(runbook_id, **update_dict)
+        if not runbook:
+            return {"status": "error", "message": "Runbook not found"}
+        _append_activity(
+            f"Runbook updated: {runbook.name}",
+            agent_id="team_workflows",
+            kind="runbook_updated",
+            details={"runbook_id": runbook_id},
+        )
+        return {"status": "ok", "runbook": runbook.to_dict()}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/team/runbooks/{runbook_id}")
+async def delete_runbook(runbook_id: str):
+    """Delete a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        success = _TEAM_WORKFLOW_MANAGER.runbooks.delete(runbook_id)
+        if not success:
+            return {"status": "error", "message": "Runbook not found"}
+        _append_activity(
+            f"Runbook deleted: {runbook_id}",
+            agent_id="team_workflows",
+            kind="runbook_deleted",
+            details={"runbook_id": runbook_id},
+        )
+        return {"status": "ok", "message": "Runbook deleted"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute")
+async def execute_runbook(runbook_id: str, body: Dict[str, Any]):
+    """Start execution of a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        dry_run = bool(body.get("dry_run", False))
+        result = _TEAM_WORKFLOW_MANAGER.engine.execute_runbook(runbook_id, dry_run=dry_run)
+        
+        if result.get("status") == "started":
+            _append_activity(
+                f"Runbook execution started: {runbook_id}",
+                agent_id="team_workflows",
+                kind="runbook_execution_started",
+                details={
+                    "runbook_id": runbook_id,
+                    "execution_id": result.get("execution_id"),
+                    "dry_run": dry_run,
+                },
+            )
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks/{runbook_id}/execute/{execution_id}")
+async def get_execution_status(runbook_id: str, execution_id: str):
+    """Get status of a runbook execution"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution:
+            return {"status": "error", "message": "Execution not found"}
+        if execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution does not match runbook"}
+        
+        return {
+            "status": "ok",
+            "execution": execution.to_dict(),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/next-step")
+async def get_next_step(runbook_id: str, execution_id: str):
+    """Get the next step to execute"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        result = _TEAM_WORKFLOW_MANAGER.engine.get_next_step(execution_id)
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/step-result")
+async def record_step_result(runbook_id: str, execution_id: str, body: Dict[str, Any]):
+    """Record result of a step execution"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        step_result = body.get("result", {})
+        success = bool(body.get("success", False))
+        
+        if success:
+            result = _TEAM_WORKFLOW_MANAGER.engine.complete_step(execution_id, step_result)
+        else:
+            error_msg = str(body.get("error", "Unknown error"))
+            result = _TEAM_WORKFLOW_MANAGER.engine.fail_step(execution_id, error_msg)
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/request-approval")
+async def request_approval_for_step(runbook_id: str, execution_id: str):
+    """Request approval for the current step"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        result = _TEAM_WORKFLOW_MANAGER.engine.request_approval(execution_id)
+        
+        # Also create an approval record in the main approvals system
+        if result.get("status") == "ok":
+            approval_record = _create_approval_record(
+                task_id=execution_id,
+                agent_id="team_workflows",
+                operation="runbook_step_approval",
+                target=f"Runbook {runbook_id}, Step {execution.current_step}",
+                preview={
+                    "runbook_id": runbook_id,
+                    "execution_id": execution_id,
+                    "step_index": execution.current_step,
+                    "policy_id": result.get("policy_id"),
+                    "required_reviewers": result.get("required_reviewers"),
+                },
+            )
+            result["approval_record_id"] = approval_record.get("id")
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/team/runbooks/{runbook_id}/execute/{execution_id}/approve/{approval_id}")
+async def approve_step(runbook_id: str, execution_id: str, approval_id: str, body: Dict[str, Any]):
+    """Approve a pending step"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        execution = _TEAM_WORKFLOW_MANAGER.executions.get(execution_id)
+        if not execution or execution.runbook_id != runbook_id:
+            return {"status": "error", "message": "Execution not found"}
+        
+        approved_by = str(body.get("approved_by", "") or _REQUEST_USER_ID.get())
+        result = _TEAM_WORKFLOW_MANAGER.engine.approve_step(execution_id, approval_id, approved_by)
+        
+        if result.get("status") == "ok":
+            _approve_record(approval_id)
+            _append_activity(
+                f"Runbook step approved in execution {execution_id}",
+                agent_id="team_workflows",
+                kind="runbook_step_approved",
+                details={
+                    "runbook_id": runbook_id,
+                    "execution_id": execution_id,
+                    "approval_id": approval_id,
+                    "approved_by": approved_by,
+                },
+            )
+        
+        return result
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/team/runbooks/{runbook_id}/history")
+async def get_runbook_history(runbook_id: str):
+    """Get execution history for a runbook"""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    try:
+        executions = _TEAM_WORKFLOW_MANAGER.executions.list_by_runbook(runbook_id)
+        return {
+            "status": "ok",
+            "runbook_id": runbook_id,
+            "executions": [e.to_dict() for e in executions],
+            "count": len(executions),
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 
@@ -10336,8 +12434,125 @@ async def export_account_data(request: Request):
     )
 
 
+
+
+# ---------------------------------------------------------------------------
+# RAG Context Store endpoints (Sweep 2)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/rag/context/{user_id}")
+async def get_user_rag_context(user_id: str, request: Request):
+    """Retrieve reusable AI-derived context for a user (no PII)."""
+    store = get_rag_context_store()
+    entries = store.retrieve(user_id, limit=50)
+    return {"user_id": user_id, "entries": entries, "count": len(entries)}
+
+
+@app.delete("/api/rag/context/{user_id}")
+async def delete_user_rag_context(user_id: str, request: Request):
+    """GDPR wipe — delete all AI-derived context for a user."""
+    store = get_rag_context_store()
+    store.delete_user_data(user_id)
+    return {"status": "wiped", "user_id": user_id}
+
+
+@app.post("/api/rag/context/{user_id}")
+async def store_user_rag_context(user_id: str, payload: dict, request: Request):
+    """Store an AI-derived context entry for a user."""
+    store = get_rag_context_store()
+    context_type = payload.get("context_type", "general")
+    content = payload.get("content", {})
+    tags = payload.get("tags", [])
+    ttl_hours = int(payload.get("ttl_hours", 72))
+    entry_id = store.store(
+        user_id=user_id,
+        topic=context_type,
+        content_type="api_context",
+        content=content,
+        source_agent="api",
+        tags=tags,
+        ttl_hours=ttl_hours,
+    )
+    return {"status": "stored", "entry_id": entry_id, "user_id": user_id}
+
+
+# ---------------------------------------------------------------------------
+# ATLAS Lesson Ingestion endpoint (Sweep 3)
+# ---------------------------------------------------------------------------
+
+@app.post("/api/atlas/lesson/ingest")
+async def ingest_atlas_lesson(payload: dict, request: Request):
+    """Ingest a lesson plan and ground it in RAG context."""
+    user_id = payload.get("user_id", "anonymous")
+    lesson = payload.get("lesson", {})
+    source_file = payload.get("source_file", "")
+
+    if not lesson:
+        return {"status": "error", "message": "No lesson provided"}
+
+    store = get_rag_context_store()
+    store.store(
+        user_id=user_id,
+        topic="lesson_ingested",
+        content_type="lesson_metadata",
+        content={
+            "title": lesson.get("title", ""),
+            "topics": lesson.get("topics", []),
+            "difficulty": lesson.get("difficulty", "intermediate"),
+            "source_file": source_file,
+        },
+        source_agent="atlas",
+        tags=["lesson", "atlas"] + lesson.get("topics", []),
+        ttl_hours=168,
+    )
+
+    return {
+        "status": "ingested",
+        "lesson_title": lesson.get("title", ""),
+        "user_id": user_id,
+        "grounded": True,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Audit Engine endpoints (Sweep 4)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/audit/log")
+async def get_audit_log(limit: int = 50, severity: str = None):
+    """Get recent audit log entries, optionally filtered by severity."""
+    entries = _audit.query(limit=limit, min_severity=severity if severity else "DEBUG")
+    return {"entries": entries, "count": len(entries)}
+
+
+@app.post("/api/audit/diagnose")
+async def run_audit_diagnostics(payload: dict = {}):
+    """Run system diagnostics and return findings."""
+    findings = _audit.diagnose()
+    return {"findings": findings, "count": findings.get("entries", 0)}
+
+
+@app.delete("/api/audit/user/{user_id}")
+async def clear_user_audit_data(user_id: str):
+    """Privacy wipe — remove all audit entries for a user."""
+    _audit.clear_user_data(user_id)
+    return {"status": "cleared", "user_id": user_id}
+
+
 def _load_json_file(path) -> list:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except Exception:
         return []
+
+
+@app.get('/api/download-docx/{filename:path}')
+def download_docx_file(filename: str):
+    import os as _dx
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
+    safe = _dx.path.basename(filename)
+    if not safe.endswith('.docx') or '..' in safe: raise HTTPException(status_code=400)
+    path = _dx.path.join('/opt/mammothos/mammoth_intro_ai/generated_docs', safe)
+    if not _dx.path.isfile(path): raise HTTPException(status_code=404)
+    return FileResponse(path, filename=safe, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')

@@ -273,6 +273,44 @@ def test_atlas_chat_research_command_uses_internet_tool(monkeypatch):
     assert response['chat_history'][-1]['adapter'] == 'internet-tool'
 
 
+def test_internet_research_query_uses_grounded_web_sources(monkeypatch):
+    class _FakeResearchAgent:
+        def __init__(self, router):
+            self.router = router
+
+        def run(self, prompt):
+            return {
+                'status': 'ok',
+                'sources': [
+                    {
+                        'title': 'Adaptive learning',
+                        'snippet': 'Adaptive learning systems personalize instruction using learner performance signals.',
+                        'url': 'https://en.wikipedia.org/wiki/Adaptive_learning',
+                        'publisher': 'Wikipedia',
+                        'source_type': 'web',
+                        'relevance_score': 0.5,
+                        'matched_tokens': ['learning'],
+                    },
+                    {
+                        'title': 'Prompt objective',
+                        'snippet': 'MammothOS ATLAS tutoring engine',
+                        'url': '',
+                        'publisher': 'mammoth_runtime',
+                        'source_type': 'prompt',
+                    },
+                ],
+                'retrieval_errors': ['duckduckgo_empty_abstract'],
+            }
+
+    monkeypatch.setattr('mammoth_os.agents.research_agent.ResearchAgent', _FakeResearchAgent)
+    result = api_server._internet_research_query('MammothOS ATLAS tutoring engine')
+
+    assert result['status'] == 'ok'
+    assert len(result['highlights']) == 1
+    assert result['highlights'][0]['publisher'] == 'Wikipedia'
+    assert 'Adaptive learning systems personalize instruction' in result['summary']
+
+
 def test_mammoth_chat_gitops_is_disabled_when_auth_enabled(monkeypatch):
     monkeypatch.setattr(api_server, '_AUTH_REQUIRED', True)
 
@@ -355,3 +393,88 @@ def test_normalize_repo_context_missing_root_falls_back_to_default():
     assert normalized["requested_root"] == "C:/missing/repo/path"
     assert normalized["root"] == str(api_server.ROOT)
     assert "not found on the backend host" in normalized["root_warning"]
+
+
+def test_normalize_repo_context_accepts_absolute_file_inside_root(tmp_path):
+    repo_root = tmp_path / "repo"
+    src_dir = repo_root / "src"
+    src_dir.mkdir(parents=True)
+    target = src_dir / "sample.py"
+    target.write_text("print('ok')\n", encoding="utf-8")
+
+    normalized = api_server._normalize_repo_context_request(
+        {
+            "query": "sample",
+            "root": str(repo_root),
+            "files": [str(target)],
+        }
+    )
+
+    assert normalized["files"] == ["src/sample.py"]
+
+
+def test_collect_repo_context_resolves_file_hint_when_no_explicit_files(monkeypatch):
+    def fake_git(args, timeout=45, cwd=""):
+        if args[:4] == ["ls-tree", "-r", "--name-only", "main"]:
+            return {"status": "ok", "stdout": "src/mammoth_os/atlas_session.py\n", "stderr": ""}
+        if args[:1] == ["show"]:
+            return {
+                "status": "ok",
+                "stdout": "def start_lesson():\n    return True\n",
+                "stderr": "",
+            }
+        if args[:1] == ["grep"]:
+            return {"status": "error", "stdout": "", "stderr": "no match"}
+        return {"status": "ok", "stdout": "", "stderr": ""}
+
+    monkeypatch.setattr(api_server, "_run_git_command", fake_git)
+
+    snapshot = api_server._collect_repo_context_snapshot(
+        {
+            "query": "scan src/mammoth_os/atlas_session.py for lesson bugs",
+            "files": [],
+            "symbols": [],
+            "branch": "main",
+            "root": str(api_server.ROOT),
+            "requested_root": "",
+            "root_warning": "",
+            "include_git_status": False,
+            "max_results": 4,
+            "max_snippets": 3,
+        }
+    )
+
+    assert snapshot["snippets"]
+    assert snapshot["snippets"][0]["status"] == "ok"
+    assert snapshot["snippets"][0]["path"] == "src/mammoth_os/atlas_session.py"
+
+
+def test_mammoth_chat_response_includes_dynamic_trust_metadata(monkeypatch):
+    prompt_log = []
+    state = {}
+
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    monkeypatch.setattr(llm_client_mod, "get_llm_client", lambda config=None: DummyClient(prompt_log))
+    monkeypatch.setattr(
+        api_server,
+        "_collect_repo_context_snapshot",
+        lambda req: {"snippets": [{"path": "api_server.py", "status": "ok", "line_count": 10}], "search_hits": []},
+    )
+
+    response = asyncio.run(
+        api_server.mammoth_chat(
+            {
+                "message": "Give me a quick architecture summary.",
+                "agent_id": "assistant",
+                "mode": "chat",
+                "repo_context": {"query": "atlas session"},
+            }
+        )
+    )
+
+    assert response["status"] == "ok"
+    assert isinstance(response.get("confidence"), float)
+    assert response["confidence"] > 0
+    assert isinstance(response.get("trust_metadata"), dict)
+    assert isinstance(response["chat_history"][-1].get("trust_metadata"), dict)

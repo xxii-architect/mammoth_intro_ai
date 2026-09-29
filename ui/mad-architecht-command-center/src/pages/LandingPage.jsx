@@ -87,6 +87,30 @@ const CURRENT_HIGHLIGHTS = [
   'Learning materials and generated artifacts now have cleaner homes inside the app.',
 ]
 
+const ROLE_PATHS = [
+  {
+    title: 'For learners',
+    subtitle: 'Start with a real lesson loop, not a blank prompt.',
+    page: 'lessons',
+    accent: 'var(--cyan)',
+    action: 'Open Lessons',
+  },
+  {
+    title: 'For builders',
+    subtitle: 'Ground your work in repo context and execution flow.',
+    page: 'chat',
+    accent: 'var(--photon)',
+    action: 'Open Mammoth Mind',
+  },
+  {
+    title: 'For operators',
+    subtitle: 'Stay audit-ready with status, approvals, and artifacts.',
+    page: 'agent',
+    accent: 'var(--violet)',
+    action: 'Open Agent',
+  },
+]
+
 const JOURNEYS = [
   {
     audience: 'For learners',
@@ -306,6 +330,44 @@ export default function LandingPage({ setPage }) {
                 <span style={{ color: 'var(--cyan)' }}>✓</span>
                 <span>{line}</span>
               </div>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 26 }}>
+          <div style={{ textAlign: 'center', marginBottom: 18 }}>
+            <p style={{ fontSize: '0.72rem', letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
+              Start in the right lane
+            </p>
+            <h2 style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>
+              Pick the path that matches the work in front of you.
+            </h2>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+            {ROLE_PATHS.map((role) => (
+              <button
+                key={role.title}
+                onClick={() => setPage(role.page)}
+                style={{
+                  textAlign: 'left',
+                  borderRadius: 18,
+                  padding: '18px 18px 16px',
+                  border: `1px solid ${role.accent}33`,
+                  background: 'rgba(255,255,255,0.02)',
+                  cursor: 'pointer',
+                  color: 'var(--txt-pri)',
+                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.03)',
+                }}
+              >
+                <div style={{ color: role.accent, fontSize: '0.7rem', letterSpacing: '0.14em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>
+                  {role.title}
+                </div>
+                <div style={{ fontSize: '0.96rem', fontWeight: 700, marginBottom: 8 }}>{role.subtitle}</div>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, color: 'var(--txt-sec)', fontSize: '0.76rem', fontWeight: 700 }}>
+                  {role.action}
+                  <span aria-hidden="true">→</span>
+                </div>
+              </button>
             ))}
           </div>
         </div>

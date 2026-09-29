@@ -128,6 +128,8 @@ def test_merge_latest_runtime_status_prefers_last_used_provider():
     )
 
     assert merged['active_provider'] == 'local'
+    assert merged['state'] == 'degraded'
+    assert merged['degraded_mode'] is True
     assert merged['fallback_used'] is True
     assert merged['providers'][0]['selected'] is True
     assert merged['providers'][0]['active'] is False

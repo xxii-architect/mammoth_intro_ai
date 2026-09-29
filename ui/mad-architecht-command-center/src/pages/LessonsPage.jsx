@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
-import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, CheckCircle2, Circle, ChevronDown, ChevronUp, Sparkles, Wand2, Code2, AlignLeft, List, Map, Radio, HeartPulse, Dumbbell, DollarSign, Mic2, Wrench, Leaf, Brain, Camera, ChefHat, Scale, Globe2, Music2, Zap, ToggleRight } from 'lucide-react'
+import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, CheckCircle2, Circle, ChevronDown, ChevronUp, Sparkles, Wand2, Code2, AlignLeft, List, Map, Radio, HeartPulse, Dumbbell, DollarSign, Mic2, Wrench, Leaf, Brain, Camera, ChefHat, Scale, Globe2, Music2, Zap, ToggleRight, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
+import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 
 // ─── Expanded module catalog ──────────────────────────────────────────────────
 const FALLBACK_MODULE_TRACKS = [
@@ -68,6 +69,21 @@ const FEATURED_MODULE_IDS = [
 
 const LESSON_TYPE_FILTERS = ['all', 'knowledge', 'checklist', 'scenario', 'writing', 'code']
 
+function getBillingWarningState(billingUsage = null) {
+  const warningLevel = String(billingUsage?.warning_level || 'normal')
+  const percentUsed = Number.isFinite(Number(billingUsage?.usage?.percent_used))
+    ? Math.round(Number(billingUsage.usage.percent_used))
+    : 0
+  const show = ['elevated', 'critical', 'blocked'].includes(warningLevel)
+  const color = warningLevel === 'blocked'
+    ? '#ef4444'
+    : warningLevel === 'critical'
+      ? '#f97316'
+      : '#f59e0b'
+  const text = String(billingUsage?.warning_message || '').trim() || 'Usage is trending high for your current plan.'
+  return { warningLevel, show, color, text, percentUsed }
+}
+
 // ─── Lesson type → adaptive UI config ────────────────────────────────────────
 const LESSON_TYPE_CONFIG = {
   code:      { label: 'Code Editor',     icon: '💻', color: '#4ade80', hint: 'Write your solution in the editor below.' },
@@ -121,10 +137,6 @@ export default function LessonsPage({ setPage }) {
   const [code, setCode]             = useState('')
   const [result, setResult]         = useState(null)
   const [loading, setLoading]       = useState(false)
-  const [chatInput, setChatInput]   = useState('')
-  const [chatBusy, setChatBusy]     = useState(false)
-  const [models, setModels]         = useState(null)
-  const [chatModel, setChatModel]   = useState('')
   const [moduleCatalog, setModuleCatalog] = useState(FALLBACK_MODULE_TRACKS)
   const [moduleSearch, setModuleSearch] = useState('')
   const [lessonTypeFilter, setLessonTypeFilter] = useState('all')
@@ -137,16 +149,38 @@ export default function LessonsPage({ setPage }) {
   const [checklistState, setChecklistState] = useState({})
   const [categoryFilter, setCategoryFilter] = useState(null)
   const [atlasLibrary, setAtlasLibrary] = useState(null)
+  const [billingUsage, setBillingUsage] = useState(null)
+  const [journeyStageOverride, setJourneyStageOverride] = useState(null)
+  const [showTopOverview, setShowTopOverview] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.lesson.showTopOverview')
+      return stored === 'true'
+    } catch {
+      return false
+    }
+  })
+  const [showAdvancedTools, setShowAdvancedTools] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.lesson.showAdvancedTools')
+      return stored === null ? false : stored === 'true'
+    } catch {
+      return false
+    }
+  })
   useEffect(() => {
     try {
       const storedTopic = window.localStorage.getItem('atlas.lesson.topic')
       const storedModuleSearch = window.localStorage.getItem('atlas.lesson.moduleSearch')
       const storedLessonType = window.localStorage.getItem('atlas.lesson.lessonTypeFilter')
       const storedLastModule = window.localStorage.getItem('atlas.lesson.lastModuleId')
+      const storedAdvancedTools = window.localStorage.getItem('atlas.lesson.showAdvancedTools')
+      const storedTopOverview = window.localStorage.getItem('atlas.lesson.showTopOverview')
       if (storedTopic) setTopic(storedTopic)
       if (storedModuleSearch) setModuleSearch(storedModuleSearch)
       if (storedLessonType && LESSON_TYPE_FILTERS.includes(storedLessonType)) setLessonTypeFilter(storedLessonType)
       if (storedLastModule) setLastSelectedModuleId(storedLastModule)
+      if (storedAdvancedTools !== null) setShowAdvancedTools(storedAdvancedTools === 'true')
+      if (storedTopOverview !== null) setShowTopOverview(storedTopOverview === 'true')
     } catch (_) {}
   }, [])
   useEffect(() => {
@@ -164,6 +198,16 @@ export default function LessonsPage({ setPage }) {
       window.localStorage.setItem('atlas.lesson.lessonTypeFilter', lessonTypeFilter)
     } catch (_) {}
   }, [lessonTypeFilter])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.lesson.showAdvancedTools', String(showAdvancedTools))
+    } catch (_) {}
+  }, [showAdvancedTools])
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.lesson.showTopOverview', String(showTopOverview))
+    } catch (_) {}
+  }, [showTopOverview])
   useEffect(() => {
     if (!activeTrack?.id) return
     setLastSelectedModuleId(activeTrack.id)
@@ -200,6 +244,7 @@ export default function LessonsPage({ setPage }) {
   useEffect(() => {
     loadState()
     loadLibrary()
+    api('/billing/usage/current').then(setBillingUsage).catch(() => {})
   }, [])
   useEffect(() => {
     const onResize = () => {
@@ -220,13 +265,6 @@ export default function LessonsPage({ setPage }) {
       }
     }).catch(() => {})
   }, [])
-  useEffect(() => {
-    api('/models').then((m) => {
-      setModels(m)
-      if (m?.active_model) setChatModel(m.active_model)
-    }).catch(() => {})
-  }, [])
-
   const startLesson = async (overrideTopic, moduleTrack = null) => {
     const requestedTopic = (overrideTopic || topic).trim()
     if (!requestedTopic) return
@@ -281,36 +319,12 @@ export default function LessonsPage({ setPage }) {
     setLoading(false)
   }
 
-  const sendTutorChat = async () => {
-    if (!chatInput.trim()) return
-    setChatBusy(true)
-    try {
-      const res = await api('/atlas/chat', {
-        method: 'POST',
-        body: { message: chatInput, model: chatModel || undefined },
-      })
-      setChatInput('')
-      if (res.chat_history) {
-        setAtlasState((prev) => ({ ...(prev || {}), chat_history: res.chat_history }))
-      }
-    } catch (e) {
-      setAtlasState((prev) => ({
-        ...(prev || {}),
-        chat_history: [
-          ...((prev && Array.isArray(prev.chat_history)) ? prev.chat_history : []),
-          { role: 'assistant', message: `Tutor chat error: ${e.message}` },
-        ],
-      }))
-    } finally {
-      setChatBusy(false)
-    }
-  }
-
   const exercise        = atlasState?.current_exercise
   const curriculum      = atlasState?.curriculum
   const modules         = curriculum?.modules || []
   const currentLessonId = atlasState?.lesson_id
-  const chatHistory     = Array.isArray(atlasState?.chat_history) ? atlasState.chat_history : []
+  const lessonHistory   = Array.isArray(atlasState?.lesson_history) ? atlasState.lesson_history : []
+  const totalLessons    = modules.reduce((sum, mod) => sum + (Array.isArray(mod?.lessons) ? mod.lessons.length : 0), 0)
   const lessonOverview = atlasState?.current_lesson?.summary || exercise?.lesson_summary || activeTrack?.summary || ''
   const lessonTeachingPoints = Array.isArray(atlasState?.current_lesson?.teaching_points) ? atlasState.current_lesson.teaching_points : (Array.isArray(exercise?.teaching_points) ? exercise.teaching_points : [])
   const lessonBody = atlasState?.current_lesson?.content || exercise?.lesson_body || ''
@@ -370,8 +384,43 @@ export default function LessonsPage({ setPage }) {
     () => moduleCatalog.filter(track => FEATURED_MODULE_IDS.includes(track.id)).slice(0, 4),
     [moduleCatalog]
   )
+  const featuredShortcut = activeTrack || featuredTracks[0] || null
   const moduleDiscoveryCount = moduleCatalog.length
   const filteredDiscoveryCount = filteredCatalog.length
+  const billingWarning = getBillingWarningState(billingUsage)
+  const outcomeSummary = useMemo(() => {
+    const feedback = result?.adaptive_feedback || atlasState?.learner_context || {}
+    const mastery = Number.isFinite(Number(feedback.mastery))
+      ? Number(feedback.mastery)
+      : Number.isFinite(Number(feedback.score))
+        ? Number(feedback.score)
+        : Number.isFinite(Number(feedback.progress))
+          ? Number(feedback.progress)
+          : 0
+    const recommendedDifficulty = feedback.recommended_difficulty || atlasState?.learner_context?.recommended_difficulty || 'steady'
+    const focusAreas = Array.isArray(feedback.focus_areas)
+      ? feedback.focus_areas
+      : Array.isArray(atlasState?.learner_context?.weakest_concepts)
+        ? atlasState.learner_context.weakest_concepts.slice(0, 3).map(item => item.concept || item.name || item.label).filter(Boolean)
+        : []
+    return { mastery, recommendedDifficulty, focusAreas }
+  }, [result, atlasState?.learner_context])
+
+  const inferredJourneyStage = useMemo(() => {
+    if (!exercise) return 'start'
+    if (result?.passed || result?.adaptive_feedback) return 'check'
+    if (String(code || '').trim()) return 'practice'
+    return 'start'
+  }, [exercise, result?.passed, result?.adaptive_feedback, code])
+
+  const currentJourneyStage = journeyStageOverride || inferredJourneyStage
+  const journeyProgress = {
+    start: 0.2,
+    practice: 0.45,
+    check: 0.72,
+    reflect: 0.88,
+    next: 1,
+  }[currentJourneyStage] || 0.2
 
   const toggleModule = (id) => setExpandedModules(prev => ({ ...prev, [id]: !prev[id] }))
   const moduleProgress = (mod) => {
@@ -394,7 +443,7 @@ export default function LessonsPage({ setPage }) {
   }, [exercise?.prompt])
 
   return (
-    <div className="page-enter" style={{ padding: 24, display: 'flex', flexDirection: 'column', height: 'calc(100vh - 64px)', overflow: 'hidden' }}>
+    <div className="page-enter" style={{ padding: 24, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {/* Hero header */}
       <div style={{ marginBottom: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
@@ -444,6 +493,128 @@ export default function LessonsPage({ setPage }) {
         </div>
       </div>
 
+      {billingWarning.show && (
+        <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 14, border: `1px solid ${billingWarning.color}55`, background: `${billingWarning.color}14` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={15} color={billingWarning.color} />
+              <span style={{ fontSize: '0.76rem', color: billingWarning.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Usage warning
+              </span>
+            </div>
+            <span style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
+              {billingWarning.percentUsed}% used
+            </span>
+          </div>
+          <p style={{ margin: '8px 0 0', color: 'var(--txt-pri)', fontSize: '0.78rem', lineHeight: 1.45 }}>
+            {billingWarning.text}
+          </p>
+        </div>
+      )}
+
+      {(result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
+        <div className="glass-card-solid" style={{ padding: 14, marginBottom: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(0,245,212,0.8)' }}>
+          {result?.error ? (
+            <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>Lesson action failed: {result.error}</div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)' }}>Learning outcome</div>
+                <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>
+                  {Math.round(outcomeSummary.mastery || 0)}% mastery signal · {outcomeSummary.recommendedDifficulty} pace
+                </div>
+              </div>
+              {outcomeSummary.focusAreas.length > 0 && (
+                <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)' }}>
+                  Focus next: {outcomeSummary.focusAreas.slice(0, 2).join(' · ')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="glass-card-solid" style={{ padding: 10, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            onClick={() => setShowTopOverview(v => !v)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 9px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer' }}
+            title={showTopOverview ? 'Hide overview banners' : 'Show overview banners'}
+          >
+            {showTopOverview ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            {showTopOverview ? 'Hide overview' : 'Show overview'}
+          </button>
+          <span style={{ fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
+            Lesson workspace is {showTopOverview ? 'expanded with context' : 'prioritized'}
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(77,166,255,0.25)', color: 'var(--photon)', fontSize: '0.68rem' }}>
+            Ready {featuredTracks.length || '0'}
+          </span>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(168,85,247,0.25)', color: 'var(--violet)', fontSize: '0.68rem' }}>
+            Mode {typeConfig.label}
+          </span>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(0,245,212,0.25)', color: 'var(--cyan)', fontSize: '0.68rem' }}>
+            Next {activeTrack ? 'Continue' : 'Choose'}
+          </span>
+        </div>
+      </div>
+
+      {showTopOverview && (
+      <>
+      <div className="glass-card-solid" style={{ padding: 16, marginBottom: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ maxWidth: 620 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, color: 'var(--photon)', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase' }}>
+            <Sparkles size={12} /> Learning Stride
+          </div>
+          <h2 style={{ margin: 0, fontSize: '1.12rem', lineHeight: 1.2, letterSpacing: '-0.02em' }}>Build a steady, elevated learning rhythm.</h2>
+          <p style={{ margin: '6px 0 0', color: 'var(--txt-sec)', lineHeight: 1.6, fontSize: '0.8rem' }}>
+            Pick a module, follow the ATLAS flow, and keep each lesson focused on one tangible win instead of broad content churn.
+          </p>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10, minWidth: 280, flex: 1 }}>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(77,166,255,0.18)', background: 'rgba(77,166,255,0.06)' }}>
+            <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Ready</div>
+            <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{featuredTracks.length || '0'} picks</div>
+          </div>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(168,85,247,0.18)', background: 'rgba(168,85,247,0.06)' }}>
+            <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Mode</div>
+            <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{typeConfig.label}</div>
+          </div>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(0,245,212,0.18)', background: 'rgba(0,245,212,0.06)' }}>
+            <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Next step</div>
+            <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{activeTrack ? 'Continue' : 'Choose a track'}</div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginBottom: 14 }}>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Sprint focus</div>
+          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{featuredShortcut ? featuredShortcut.label : 'Pick a module'}</div>
+          <div style={{ marginTop: 6, color: 'var(--txt-sec)', fontSize: '0.75rem', lineHeight: 1.5 }}>
+            {featuredShortcut ? (featuredShortcut.summary || 'A deep, focused learning loop is the best way to keep momentum high.') : 'Start with a module that matches your current learning goal and lock in one win.'}
+          </div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>Operator cue</div>
+          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{activeTrack ? 'Continue the current path' : 'Choose your track'}</div>
+          <div style={{ marginTop: 6, color: 'var(--txt-sec)', fontSize: '0.75rem', lineHeight: 1.5 }}>
+            {activeTrack ? `${activeTrack.icon || '✨'} ${activeTrack.summary || 'Keep the lesson moving and close the next loop.'}` : 'The fastest path is a small, deliberate learning loop rather than a broad browse.'}
+          </div>
+        </div>
+        <div className="glass-card-solid" style={{ padding: 16 }}>
+          <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>High-trust motion</div>
+          <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{moduleDiscoveryCount} catalog tracks</div>
+          <div style={{ marginTop: 6, color: 'var(--txt-sec)', fontSize: '0.75rem', lineHeight: 1.5 }}>
+            Follow one high-signal module and turn the lesson output into a repeatable learning ritual.
+          </div>
+        </div>
+      </div>
+      </>
+      )}
+
       <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
         {/* Mobile: floating module button when sidebar is collapsed */}
         {isMobile && sidebarCollapsed && (
@@ -484,26 +655,40 @@ export default function LessonsPage({ setPage }) {
                     placeholder="Search module tracks"
                     style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', fontSize: '0.76rem', outline: 'none', boxSizing: 'border-box' }}
                   />
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {LESSON_TYPE_FILTERS.map(type => (
-                      <button
-                        key={type}
-                        onClick={() => setLessonTypeFilter(type)}
-                        style={{
-                          padding: '3px 8px',
-                          borderRadius: 999,
-                          border: `1px solid ${lessonTypeFilter === type ? 'var(--photon)' : 'var(--border)'}`,
-                          background: lessonTypeFilter === type ? 'rgba(0,245,212,0.1)' : 'transparent',
-                          color: lessonTypeFilter === type ? 'var(--photon)' : 'var(--txt-mut)',
-                          fontSize: '0.63rem',
-                          fontWeight: 600,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        {type === 'all' ? 'All types' : type}
-                      </button>
-                    ))}
-                  </div>
+                  <button
+                    onClick={() => setShowAdvancedTools(v => !v)}
+                    style={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%',
+                      padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)',
+                      background: 'rgba(255,255,255,0.02)', color: 'var(--txt-sec)', fontSize: '0.68rem', fontWeight: 700,
+                      cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em'
+                    }}
+                  >
+                    <span>Advanced filters</span>
+                    <span>{showAdvancedTools ? 'Hide' : 'Show'}</span>
+                  </button>
+                  {showAdvancedTools && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {LESSON_TYPE_FILTERS.map(type => (
+                        <button
+                          key={type}
+                          onClick={() => setLessonTypeFilter(type)}
+                          style={{
+                            padding: '3px 8px',
+                            borderRadius: 999,
+                            border: `1px solid ${lessonTypeFilter === type ? 'var(--photon)' : 'var(--border)'}`,
+                            background: lessonTypeFilter === type ? 'rgba(0,245,212,0.1)' : 'transparent',
+                            color: lessonTypeFilter === type ? 'var(--photon)' : 'var(--txt-mut)',
+                            fontSize: '0.63rem',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {type === 'all' ? 'All types' : type}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -699,6 +884,21 @@ export default function LessonsPage({ setPage }) {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflowY: 'auto' }}>
           {exercise ? (
             <>
+              <TutorJourneyRail
+                currentStage={currentJourneyStage}
+                progress={journeyProgress}
+                onStageChange={setJourneyStageOverride}
+              />
+
+              <OutcomesCard
+                masteryTrend={Math.max(0, Math.min(1, outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery))}
+                timeToCompetency={Math.max(10, Math.round((lessonHistory.length + 1) * 12))}
+                retentionSignal={Math.max(0.4, Math.min(0.98, (outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery) || 0.55))}
+                lessonsCompleted={lessonHistory.length}
+                totalLessons={Math.max(totalLessons, lessonHistory.length + 1)}
+                nextMilestone={outcomeSummary.focusAreas.length ? `Focus next: ${outcomeSummary.focusAreas.slice(0, 2).join(' · ')}` : `Continue with ${outcomeSummary.recommendedDifficulty} pacing.`}
+              />
+
               {(lessonOverview || lessonTeachingPoints.length || lessonBody || lessonExamples.length) && (
                 <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -894,53 +1094,6 @@ export default function LessonsPage({ setPage }) {
                 </div>
               )}
 
-              {/* Tutor chat */}
-              <div className="glass-card-solid" style={{ padding: 16, flexShrink: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                  <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <Sparkles size={13} color="var(--violet)" /> ATLAS Tutor Chat
-                  </p>
-                  <select
-                    value={chatModel}
-                    onChange={(e) => setChatModel(e.target.value)}
-                    className="filter-select"
-                    style={{ fontSize: '0.74rem', padding: '4px 8px' }}
-                  >
-                    {(models?.models || []).map((m) => (
-                      <option key={m.id} value={m.id}>{m.id}{m.installed === false ? ' (not installed)' : ''}</option>
-                    ))}
-                    {!models?.models?.length && <option value="">default model</option>}
-                  </select>
-                </div>
-                <div style={{ maxHeight: 200, overflowY: 'auto', padding: 10, background: 'rgba(0,0,0,0.25)', borderRadius: 8, border: '1px solid var(--border)', marginBottom: 10 }}>
-                  {chatHistory.length ? chatHistory.slice(-20).map((msg, idx) => (
-                    <div key={idx} style={{ marginBottom: 10 }}>
-                      <p style={{ fontSize: '0.68rem', color: msg.role === 'user' ? 'var(--photon)' : 'var(--cyan)', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 700 }}>
-                        {msg.role === 'user' ? 'You' : 'ATLAS Tutor'}
-                      </p>
-                      <p style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.6, margin: 0 }}>{msg.message}</p>
-                    </div>
-                  )) : (
-                    <p style={{ color: 'var(--txt-mut)', fontSize: '0.82rem', margin: 0 }}>Ask ATLAS for hints, debugging help, or explanations.</p>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input
-                    value={chatInput}
-                    onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Ask ATLAS Tutor…"
-                    style={{ flex: 1, padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem', outline: 'none' }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendTutorChat() } }}
-                  />
-                  <button
-                    onClick={sendTutorChat}
-                    disabled={chatBusy}
-                    style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--violet), var(--photon))', color: '#050608', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', opacity: chatBusy ? 0.7 : 1 }}
-                  >
-                    {chatBusy ? '…' : 'Send'}
-                  </button>
-                </div>
-              </div>
             </>
           ) : (
             <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 16 }}>

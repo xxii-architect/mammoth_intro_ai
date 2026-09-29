@@ -1,5 +1,7 @@
 from typing import Any, Dict, List
 
+from .base_agent import BaseAgent
+
 GUIDE_SYSTEM_PROMPT = """
 You are the MammothOS Guide — a documentation and architecture expert.
 Your job is to explain MammothOS clearly, accurately, and helpfully.
@@ -43,9 +45,9 @@ def _score_relevance(message: str, keys: List[str]) -> List[str]:
     msg_lower = message.lower()
     return [k for k in keys if k in msg_lower or k.replace("_", " ") in msg_lower]
 
-class MammothGuideAgent:
+class MammothGuideAgent(BaseAgent):
     def __init__(self, router=None):
-        self.router = router
+        super().__init__(router)
 
     def run(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         repo_context = payload.get("repo_context", {})
@@ -53,7 +55,10 @@ class MammothGuideAgent:
         branch = str(repo_context.get("branch") or "main")
 
         steps = self._build_steps(message, repo_context)
-        summary_text = self._build_summary(message, repo_context, steps)
+        try:
+            summary_text = self._run_async(self._llm_guide(message, repo_context, steps))
+        except Exception:
+            summary_text = self._build_summary(message, repo_context, steps)
 
         return {
             "role": "assistant",
@@ -63,6 +68,34 @@ class MammothGuideAgent:
             "repo_context_used": bool(repo_context),
             "adapter": "mammoth-guide",
         }
+
+
+    @staticmethod
+    def _run_async(coro):
+        """Safe sync->async bridge."""
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+
+    async def _llm_guide(self, message: str, repo_context: dict, steps: list) -> str:
+        """Generate guide response via LLM using GUIDE_SYSTEM_PROMPT."""
+        import json as _j
+        from mammoth_os.llm_client import get_llm_client
+        step_titles = [s.get("title", "") for s in steps if isinstance(s, dict)]
+        user_msg = f"User question: {message}\nDetected topics: {', '.join(step_titles) or 'general'}\nRepo branch: {repo_context.get('branch','main')}"
+        raw = await get_llm_client().generate(
+            user_msg,
+            system_prompt=GUIDE_SYSTEM_PROMPT,
+            max_tokens=800,
+            temperature=0.3,
+        )
+        return raw if isinstance(raw, str) else str(raw)
 
     def _build_steps(self, message: str, repo_context: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Build structured steps from message intent + repo context."""

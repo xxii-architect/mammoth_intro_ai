@@ -1,7 +1,59 @@
 import { useEffect, useState } from 'react'
-import { Brain, RefreshCw, UserCircle2, Zap } from 'lucide-react'
+import { Brain, RefreshCw, UserCircle2, Zap, History, GitBranch } from 'lucide-react'
 import { api } from '../api/client'
 
+// Read last-session context from localStorage (written by ChatPage)
+function readSessionContext() {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem('mammoth_session_context_v1')
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function SessionContextPanel() {
+  const ctx = readSessionContext()
+  if (!ctx) return null
+  const agents = Array.isArray(ctx.agents) ? ctx.agents.slice(0, 3) : []
+  const topics = Array.isArray(ctx.topics) ? ctx.topics.slice(0, 3) : []
+  const ts = ctx.updated_at ? new Date(ctx.updated_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null
+
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <History size={11} color="var(--photon)" /> Last session context
+        {ts && <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono,monospace' }}>{ts}</span>}
+      </div>
+
+      {topics.length > 0 && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+          {topics.map(t => (
+            <span key={t} style={{ padding: '3px 8px', borderRadius: 999, background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.2)', color: 'var(--photon)', fontSize: '0.65rem', fontWeight: 600 }}>
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {agents.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <GitBranch size={11} color="var(--txt-mut)" />
+          <span style={{ fontSize: '0.68rem', color: 'var(--txt-sec)' }}>
+            {agents.join(' → ')}
+          </span>
+        </div>
+      )}
+
+      {ctx.last_summary && (
+        <div style={{ padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', fontSize: '0.73rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>
+          {String(ctx.last_summary).slice(0, 200)}
+        </div>
+      )}
+    </div>
+  )
+}
 function Pill({ children, tone = 'neutral' }) {
   const styles = {
     neutral: { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', color: 'var(--txt-sec)' },
@@ -193,6 +245,8 @@ export default function WorkspaceMemoryPanel() {
             </div>
           )}
 
+          <SessionContextPanel />
+
           {!workspace && !learner && (
             <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(180,124,255,0.15)', background: 'rgba(180,124,255,0.04)', fontSize: '0.75rem', color: 'var(--txt-sec)' }}>
               Memory will hydrate once the backend responds. Sessions are still being remembered.
@@ -203,3 +257,4 @@ export default function WorkspaceMemoryPanel() {
     </div>
   )
 }
+

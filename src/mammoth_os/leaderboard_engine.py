@@ -7,7 +7,7 @@ for the atlas.leaderboard table in Supabase.
 """
 
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from mammoth_os.supabase_client import get_supabase
 
@@ -93,7 +93,7 @@ def add_xp(user_id: str, amount: int) -> int:
         "user_id": user_id,
         "xp": new_xp,
         "rank": new_rank,
-        "last_active": datetime.utcnow().isoformat(),
+        "last_active": datetime.now(timezone.utc).isoformat(),
     }
 
     _require_supabase().schema("atlas").from_("leaderboard").upsert(payload).execute()  # type: ignore
@@ -128,7 +128,7 @@ def sync_streak_and_xp(user_id: str) -> Dict[str, Any]:
             "rank": calculate_rank(xp_gain),
             "streak": streak_value,
             "lessons_completed": 0,
-            "last_active": datetime.utcnow().isoformat(),
+            "last_active": datetime.now(timezone.utc).isoformat(),
         }
         _require_supabase().schema("atlas").from_("leaderboard").insert(new_record).execute()  # type: ignore
         return new_record
@@ -141,7 +141,7 @@ def sync_streak_and_xp(user_id: str) -> Dict[str, Any]:
         "rank": calculate_rank(updated_xp),
         "streak": streak_value,
         "lessons_completed": record.get("lessons_completed", 0),
-        "last_active": datetime.utcnow().isoformat(),
+        "last_active": datetime.now(timezone.utc).isoformat(),
     }
 
     _require_supabase().schema("atlas").from_("leaderboard").update(updated_record).eq("user_id", user_id).execute()  # type: ignore

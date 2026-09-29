@@ -36,6 +36,12 @@ def test_update_learner_model_tracks_success_and_failure(tmp_path):
     assert context["weakest_concepts"]
     assert context["latest_mastery_delta"] is not None
     assert context["latest_confidence_delta"] is not None
+    assert context["outcome_summary"]["recent_attempts"] == 2
+    assert context["outcome_summary"]["recent_passes"] == 1
+    assert context["outcome_summary"]["recent_failures"] == 1
+    assert context["outcome_summary"]["pass_rate"] == 50
+    assert context["outcome_summary"]["progress_score"] >= 0
+    assert context["learning_signal"] in {"starting", "needs_support", "mixed", "on_track"}
     assert context["adaptive_coaching"]["hint_depth"] in {"foundational", "guided", "strategic"}
     assert context["adaptive_coaching"]["challenge_level"] in {"support", "balanced", "stretch"}
 
@@ -44,3 +50,10 @@ def test_load_learner_model_returns_default_shape(tmp_path):
     model = load_learner_model("student-2", storage_path=str(tmp_path))
     assert model["mastery"] == {}
     assert model["attempts"] == 0
+
+
+def test_build_learner_context_flags_no_attempts_as_starting_point():
+    context = build_learner_context({"user_id": "student-3"})
+    assert context["outcome_summary"]["recent_attempts"] == 0
+    assert context["outcome_summary"]["progress_score"] == 0.0
+    assert context["learning_signal"] == "starting"

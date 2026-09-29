@@ -1,7 +1,10 @@
 from .base_agent import BaseAgent
 
+import logging
 
-class OrchestratorAgent(BaseAgent):# type: ignore
+logger = logging.getLogger(__name__)
+
+class OrchestratorAgent(BaseAgent):  # type: ignore
     """
     Level 6 orchestrator. Receives high-level goals, delegates to
     PlannerAgent, dispatches tasks to appropriate agents, monitors
@@ -10,28 +13,32 @@ class OrchestratorAgent(BaseAgent):# type: ignore
 
     name = "OrchestratorAgent"
 
+    def __init__(self, router=None):
+        super().__init__(router)
+
     def log(self, level: str, message: str) -> None:
         print(f"[{self.name}:{level}] {message}")
 
     def _normalize_payload(self, payload):  # type: ignore
+        import json as _json
+
+        if isinstance(payload, str):
+            value = payload.strip()
+            if value.startswith("{"):
+                try:
+                    payload = _json.loads(value)
+                except Exception as exc:
+                    logger.warning("OrchestratorAgent payload JSON decode failed: %s", exc)
         if isinstance(payload, dict):
             return {
-                "goal": str(payload.get("goal") or payload.get("prompt") or "").strip(),
+                "goal": str(payload.get("goal") or payload.get("prompt") or payload.get("task") or "").strip(),
                 "user_id": str(payload.get("user_id") or "").strip() or None,
                 "constraints": payload.get("constraints") if isinstance(payload.get("constraints"), dict) else {},
             }
         return {"goal": str(payload or "").strip(), "user_id": None, "constraints": {}}
 
-    async def orchestrate(self, goal: str, user_id: str = None, constraints: dict | None = None) -> dict:# type: ignore
-        """
-        End-to-end orchestration of a complex multi-agent goal.
-
-        Current implementation:
-        - Generate plan via PlannerAgent
-        - Validate plan via PlannerAgent.validate_plan
-        - Attempt lightweight healing for diagnostics (register missing manifests)
-        - Re-validate and return comprehensive result including diagnostics and actions taken
-        """
+    async def orchestrate(self, goal: str, user_id: str | None = None, constraints: dict | None = None) -> dict:  # type: ignore
+        """Create and validate a plan, then return diagnostics and recovery actions."""
         from mammoth_os.agents.planner_agent import PlannerAgent
         from mammoth_os.agent_registry import agent_registry, AgentManifest, AgentStatus
 
@@ -64,17 +71,33 @@ class OrchestratorAgent(BaseAgent):# type: ignore
                         diagnostics.append(f"Failed to register fallback manifest '{agent_name}': {exc}")
             valid, diagnostics = await planner.validate_plan(plan)
 
+        curriculum_grounded = any(
+            isinstance(task.get("input"), dict) and "lesson" in task.get("input", {})
+            for task in plan.get("tasks", [])
+        )
         result = {
             "plan": plan,
             "valid": valid,
             "diagnostics": diagnostics,
             "actions_taken": actions_taken,
+            "curriculum_grounded": curriculum_grounded,
         }
         await self.emit_event("ORCHESTRATE_RESULT", result)
         return result
 
+    @staticmethod
+    def _quality_flags_for_result(result: dict) -> list[str]:
+        quality_flags: list[str] = ["validated_plan"] if result.get("valid") else ["needs_agent_repair"]
+        if result.get("diagnostics"):
+            quality_flags.append("has_diagnostics")
+        if result.get("curriculum_grounded"):
+            quality_flags.append("curriculum_grounded")
+        return quality_flags
+
     def _build_summary(self, result: dict) -> str:
-        plan = result.get("plan") if isinstance(result.get("plan"), dict) else {}
+        plan = result.get("plan")
+        if not isinstance(plan, dict):
+            plan = {}
         task_count = len(plan.get("tasks", []) or [])
         if result.get("valid"):
             return f"Orchestration produced a valid plan with {task_count} tasks."
@@ -94,10 +117,7 @@ class OrchestratorAgent(BaseAgent):# type: ignore
                 "plan": {"tasks": []},
             }
         result = await self.orchestrate(goal, normalized.get("user_id"), normalized.get("constraints"))
-        diagnostics = result.get("diagnostics", []) if isinstance(result.get("diagnostics"), list) else []
-        quality_flags = ["validated_plan"] if result.get("valid") else ["needs_agent_repair"]
-        if diagnostics:
-            quality_flags.append("has_diagnostics")
+        quality_flags = self._quality_flags_for_result(result)
         return {
             "status": "ok" if result.get("valid") else "warning",
             "agent": self.name,
@@ -117,7 +137,7 @@ class OrchestratorAgent(BaseAgent):# type: ignore
         outputs_sorted = sorted(outputs, key=lambda item: item.get("confidence", 0), reverse=True)
         return {"winner": outputs_sorted[0], "reason": "highest confidence"}
 
-    async def process(self, event: "MammothEvent") -> None:# type: ignore
+    async def process(self, event: "MammothEvent") -> None:  # type: ignore
         if event.event_type == "ORCHESTRATE_REQUEST":
             await self.orchestrate(event.payload["goal"], event.payload.get("user_id"))
 

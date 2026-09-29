@@ -38,6 +38,17 @@ def test_brand_voice_summary_has_explicit_structure():
     assert "Guardrails" in result["output"]
 
 
+def test_coding_run_rejects_placeholder_target_without_source():
+    result = CodingAgent().run({
+        "prompt": "Generate a utility for parsing names",
+        "target": "unknown",
+        "context": {"source": ""},
+        "files": [],
+    })
+    assert result["status"] == "needs_context"
+    assert "real target" in result["summary"].lower()
+
+
 def test_field_ops_runtime_payload_keeps_structure():
     payload = {
         "topic": "navigation",

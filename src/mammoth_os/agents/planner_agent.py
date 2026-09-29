@@ -1,11 +1,218 @@
 from .base_agent import BaseAgent
 
+PLANNER_SYSTEM = """You are MammothOS's execution planner. Break a goal into a precise task list.
+
+Return JSON only — a list of tasks:
+[{"task_id":"t1","agent":"<agent_slug>","title":"<task title>","input":{"goal":"<sub-goal>"},"depends_on":[],"estimated_minutes":<int>}]
+
+Agent slugs (use ONLY these exact values): research, market_intel, coding, community_engine, field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator
+Keep tasks focused, ordered, and DAG-valid (no circular depends_on).
+NEVER use: tutor, brand_voice, reflection, mammoth_guide — these are not execution agents."""
+
 class PlannerAgent(BaseAgent):# type: ignore
     """
     Converts high-level goals into structured execution plans represented
     as directed acyclic graphs (DAGs). Each node is a discrete task
     assigned to a specific agent. Plans are validated before execution.
     """
+
+    name = "PlannerAgent"
+
+    def __init__(self, router=None):
+        super().__init__(router)
+
+    def log(self, level: str, message: str) -> None:
+        print(f"[PlannerAgent:{level}] {message}")
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+
+    @staticmethod
+    def _valid_exec_tasks(tasks: list) -> bool:
+        """Reject any list that doesn't carry the execution task schema.
+
+        A valid execution task must have at minimum: task_id, agent, title,
+        input, depends_on.  Curriculum-lesson payloads (which the LLM
+        sometimes produces when context leaks) lack 'title' and carry
+        lesson/module keys instead — those must be rejected so the prose
+        fallback fires and returns well-formed tasks.
+        """
+        if not (isinstance(tasks, list) and tasks):
+            return False
+        _ALLOWED = frozenset([
+            "research", "market_intel", "coding", "community_engine",
+            "field_ops", "reasoning", "executor", "build", "deploy",
+            "search", "curriculum", "orchestrator",
+        ])
+        for t in tasks:
+            if not isinstance(t, dict):
+                return False
+            if not (t.get("task_id") and t.get("agent") and t.get("title")):
+                return False
+            # Reject agent slugs not in the execution allowlist
+            if t.get("agent") not in _ALLOWED:
+                return False
+            # Reject if it looks like a curriculum lesson
+            if "lesson" in t.get("input", {}) or "module_id" in t:
+                return False
+        return True
+
+    async def _llm_decompose(self, goal: str) -> list:
+        import json as _j, re as _re, uuid as _uuid
+        from mammoth_os.llm_client import get_llm_client
+
+        # Few-shot template forces the model to fill JSON directly
+        _REAL_AGENTS = (
+            "research, market_intel, coding, community_engine, "
+            "field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator"
+        )
+        template = (
+            "Fill the JSON task list below for the GOAL. "
+            "Replace ALL placeholder values. Keep exact keys. "
+            f"Use ONLY these agent slugs: {_REAL_AGENTS}. "
+            "Output JSON only, no prose.\n\n"
+            '[{"task_id":"t1","agent":"research","title":"Research the domain",'
+            '"input":{"goal":"understand context"},"depends_on":[],"estimated_minutes":10},'
+            '{"task_id":"t2","agent":"coding","title":"Build technical components",'
+            '"input":{"goal":"implement the solution"},"depends_on":["t1"],"estimated_minutes":30}]'
+            "\n\nGOAL: " + goal
+        )
+        raw = await get_llm_client().generate(
+            template,
+            system_prompt=(
+                "Output ONLY a JSON array of tasks. No prose. No explanation. "
+                "Valid agent slugs: research, market_intel, coding, community_engine, "
+                "field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator. "
+                "NEVER use tutor, brand_voice, reflection, or mammoth_guide."
+            ),
+            max_tokens=2000,
+            temperature=0.1,
+        )
+        # DEBUG: dump raw LLM output for inspection
+
+        # Pass 1: direct JSON parse
+        if isinstance(raw, str):
+            try:
+                parsed = _j.loads(raw)
+                if self._valid_exec_tasks(parsed):
+                    return parsed
+            except Exception:
+                pass
+
+        # Pass 1.5: truncation recovery — close incomplete JSON array and retry
+        if isinstance(raw, str) and raw.strip().startswith('['):
+            _partial = raw.strip()
+            # Find the last complete object by locating the last '}}'
+            _last_close = _partial.rfind('}')
+            if _last_close != -1:
+                _recovered = _partial[:_last_close + 1] + ']'
+                try:
+                    _rparsed = _j.loads(_recovered)
+                    if self._valid_exec_tasks(_rparsed):
+                        return _rparsed
+                except Exception:
+                    pass
+
+        # Pass 2: extract JSON array from prose
+        if isinstance(raw, str):
+            m = _re.search(r'\[\s*\{[\s\S]*?\}\s*\]', raw)
+            if m:
+                try:
+                    parsed = _j.loads(m.group())
+                    if self._valid_exec_tasks(parsed):
+                        return parsed
+                except Exception:
+                    pass
+
+        # Pass 3: prose fallback — extract any agent mentions and synthesise tasks
+        if isinstance(raw, str) and raw.strip():
+            agent_slugs = [
+                "research", "market_intel", "coding", "community_engine",
+                "field_ops", "reasoning", "executor", "build", "deploy",
+                "search", "curriculum", "orchestrator"
+            ]
+            seen = []
+            for slug in agent_slugs:
+                if slug.replace("_", " ") in raw.lower() or slug in raw.lower():
+                    seen.append(slug)
+            if not seen:
+                seen = ["research", "market_intel", "orchestrator"]
+            tasks = []
+            titles = {
+                "research": "Research background and context",
+                "market_intel": "Gather market intelligence",
+                "coding": "Build technical components",
+                "community_engine": "Engage and grow the community",
+                "field_ops": "Execute field operations",
+                "reasoning": "Analyse and reason about the problem",
+                "executor": "Execute planned actions",
+                "build": "Build and compile artifacts",
+                "deploy": "Deploy to target environment",
+                "search": "Search for relevant information",
+                "curriculum": "Build educational content",
+                "orchestrator": "Orchestrate multi-step workflow",
+            }
+            for i, slug in enumerate(seen[:6]):
+                tid = f"t{i+1}"
+                dep = [f"t{i}"] if i > 0 else []
+                tasks.append({
+                    "task_id": tid,
+                    "agent": slug,
+                    "title": titles.get(slug, slug.replace("_", " ").title()),
+                    "input": {"goal": goal},
+                    "depends_on": dep,
+                    "estimated_minutes": 15,
+                })
+            return tasks
+
+        return []
+
+
+
+    async def emit_event(self, event_type: str, payload) -> None:
+        self.log("INFO", f"Emitting {event_type}")
+
+    @staticmethod
+    def _coerce_duration_minutes(value, *, fallback: int = 20) -> int:
+        if isinstance(value, bool):
+            return fallback
+        if isinstance(value, (int, float)):
+            value = int(value)
+            return value if value > 0 else fallback
+        if isinstance(value, str):
+            try:
+                parsed = int(float(value))
+                return parsed if parsed > 0 else fallback
+            except ValueError:
+                return fallback
+        return fallback
+
+    def _duration_from_lesson(self, lesson: dict, *, fallback: int = 20) -> int:
+        minutes = self._coerce_duration_minutes(lesson.get("estimated_minutes"), fallback=fallback)
+        content = str(lesson.get("content") or "").strip()
+        if content:
+            minutes = max(minutes, min(180, max(10, (len(content) // 70) + 10)))
+        return int(minutes)
+
+    @staticmethod
+    def _normalize_curriculum(constraints: dict | None) -> dict | None:
+        if not isinstance(constraints, dict):
+            return None
+        curriculum = constraints.get("curriculum")
+        if isinstance(curriculum, dict):
+            if isinstance(curriculum.get("curriculum"), dict):
+                return curriculum.get("curriculum")
+            if isinstance(curriculum.get("modules"), list):
+                return curriculum
+        return None
 
     async def create_plan(self, goal: str, constraints: dict = None) -> dict:# type: ignore
         """
@@ -23,29 +230,37 @@ class PlannerAgent(BaseAgent):# type: ignore
             }
         """
         import uuid
-        # Ensure constraints is a dict to mutate
         if constraints is None:
             constraints = {}
+        constraints = dict(constraints)
 
-        # Best-effort: if no curriculum provided, try to generate one using CurriculumAgent
-        if "curriculum" not in constraints:
+        curriculum = self._normalize_curriculum(constraints)
+        if curriculum is None and constraints.get("use_curriculum") is True:
             try:
                 from mammoth_os.agent_registry import load_agent
                 curriculum_agent = load_agent("curriculum", None)
-                # CurriculumAgent.run is synchronous and returns a dict
                 cur_res = curriculum_agent.run(goal)
                 if isinstance(cur_res, dict) and cur_res.get("status") == "ok":
                     constraints["curriculum"] = cur_res.get("curriculum")
             except Exception:
-                # Fail silently — planner can still produce fallback plan
                 pass
 
-        tasks = await self._decompose_to_tasks(goal, constraints)
+        curriculum = self._normalize_curriculum(constraints)
+        tasks = await self._decompose_to_tasks(goal, {**constraints, "curriculum": curriculum} if curriculum else constraints)
+        estimated_minutes = 0
+        for task in tasks:
+            value = self._coerce_duration_minutes(task.get("estimated_minutes"), fallback=max(15, len(goal.split()) // 10 + 10))
+            task["estimated_minutes"] = value
+            estimated_minutes += value
+        if estimated_minutes <= 0:
+            estimated_minutes = max(len(tasks) * 10, 30)
+
         return {
             "plan_id": str(uuid.uuid4()),
             "goal": goal,
             "tasks": tasks,
-            "estimated_duration_sec": len(tasks) * 10,
+            "estimated_duration_sec": estimated_minutes * 60,
+            "quality_flags": ["structured_plan", "dag_validated", "duration_normalized"] if tasks else ["structured_plan", "duration_normalized"],
         }
 
     async def _decompose_to_tasks(self, goal: str, constraints: dict) -> list[dict]:
@@ -57,38 +272,43 @@ class PlannerAgent(BaseAgent):# type: ignore
         """
         import uuid
 
-        curriculum = None
-        if constraints and isinstance(constraints, dict):
-            curriculum = constraints.get("curriculum")
-
-        # Support both raw curriculum dict and wrapper {"status":..., "curriculum": {...}}
-        if isinstance(curriculum, dict) and "curriculum" in curriculum and isinstance(curriculum.get("curriculum"), dict):
-            curriculum = curriculum.get("curriculum")
+        curriculum = self._normalize_curriculum(constraints)
 
         tasks: list[dict] = []
         if curriculum and isinstance(curriculum, dict):
             prev_task_id = None
             for module in curriculum.get("modules", []):
                 module_id = module.get("module_id")
+                module_title = module.get("title") or "Module"
                 for lesson in module.get("lessons", []):
                     task_id = lesson.get("lesson_id") or str(uuid.uuid4())
+                    estimated_minutes = self._duration_from_lesson(lesson, fallback=20)
                     task = {
                         "task_id": task_id,
-                        "agent": "tutor",  # suggested consumer agent
-                        "input": {"module_id": module_id, "lesson": lesson},
+                        "agent": "tutor",
+                        "input": {"module_id": module_id, "module_title": module_title, "lesson": lesson},
                         "depends_on": [prev_task_id] if prev_task_id else [],
+                        "estimated_minutes": int(estimated_minutes),
                     }
                     tasks.append(task)
                     prev_task_id = task_id
-            return tasks
+            if tasks:
+                return tasks
 
-        # Fallback: single high-level task
+        # LLM DAG decomposition
+        _llm_tasks = self._run_async(self._llm_decompose(goal))
+        if _llm_tasks and isinstance(_llm_tasks, list):
+            print("  [PlannerAgent] LLM DAG active")
+            return _llm_tasks
+        fallback_minutes = max(15, min(90, len(goal.split()) // 4 + 15))
         return [
             {
                 "task_id": str(uuid.uuid4()),
-                "agent": "curriculum",
+                "agent": "orchestrator",
+                "title": goal[:80] if goal else "Execute goal",
                 "input": {"goal": goal},
                 "depends_on": [],
+                "estimated_minutes": fallback_minutes,
             }
         ]
 
@@ -169,6 +389,27 @@ class PlannerAgent(BaseAgent):# type: ignore
 
         is_valid = len(diagnostics) == 0 and not cycle_found
         return is_valid, diagnostics
+
+    async def run(self, payload) -> dict:
+        if isinstance(payload, dict):
+            goal = str(payload.get("goal") or payload.get("prompt") or "").strip()
+            constraints = payload.get("constraints") or {}
+        else:
+            goal = str(payload or "").strip()
+            constraints = {}
+        if not goal:
+            return {"status": "needs_context", "agent": "PlannerAgent", "summary": "Provide a goal to plan."}
+        plan = await self.create_plan(goal, constraints)
+        is_valid, diagnostics = await self.validate_plan(plan)
+        return {
+            "status": "ok",
+            "agent": "PlannerAgent",
+            "plan": plan,
+            "valid": is_valid,
+            "diagnostics": diagnostics,
+            "summary": f"Plan created with {len(plan.get('tasks', []))} task(s). Valid={is_valid}.",
+            "quality_flags": ["structured_plan", "dag_validated"],
+        }
 
     async def process(self, event: "MammothEvent") -> None:# type: ignore
         if event.event_type == "PLAN_REQUEST":

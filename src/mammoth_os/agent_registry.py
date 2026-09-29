@@ -178,6 +178,66 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.task_queue_agent import TaskQueueAgent
         return TaskQueueAgent(router)
 
+    if agent_name in {"cache", "cache_agent"}:
+        from mammoth_os.agents.cache_agent import CacheAgent
+        return CacheAgent(router)
+
+    if agent_name in {"planner", "planner_agent"}:
+        from mammoth_os.agents.planner_agent import PlannerAgent
+        return PlannerAgent(router)
+
+    if agent_name in {"auth", "auth_agent"}:
+        from mammoth_os.agents.auth_agent import AuthAgent
+        return AuthAgent(router)
+
+    if agent_name in {"build", "build_agent"}:
+        from mammoth_os.agents.build_agent import BuildAgent
+        return BuildAgent(router)
+
+    if agent_name in {"executor", "executor_agent"}:
+        from mammoth_os.agents.executor_agent import ExecutorAgent
+        return ExecutorAgent(router)
+
+    if agent_name in {"filesystem", "filesystem_agent"}:
+        from mammoth_os.agents.filesystem_agent import FileSystemAgent
+        return FileSystemAgent(router)
+
+    if agent_name in {"deploy", "deploy_agent"}:
+        from mammoth_os.agents.deploy_agent import DeployAgent
+        return DeployAgent(router)
+
+    if agent_name in {"database", "database_agent"}:
+        from mammoth_os.agents.database_agent import DatabaseAgent
+        return DatabaseAgent(router)
+
+    if agent_name in {"vector_store", "vector_store_agent"}:
+        from mammoth_os.agents.vector_store_agent import VectorStoreAgent
+        return VectorStoreAgent(router)
+
+    if agent_name in {"scheduler", "scheduler_agent"}:
+        from mammoth_os.agents.scheduler_agent import SchedulerAgent
+        return SchedulerAgent(router)
+
+    if agent_name in {"snapshot", "snapshot_agent"}:
+        from mammoth_os.agents.snapshot_agent import SnapshotAgent
+        return SnapshotAgent(router)
+
+    if agent_name in {"config_manager", "config_manager_agent"}:
+        from mammoth_os.agents.config_manager_agent import ConfigManagerAgent
+        return ConfigManagerAgent(router)
+
+    if agent_name in {"search", "search_agent"}:
+        from mammoth_os.agents.search_agent import SearchAgent
+        return SearchAgent(router)
+
+    if agent_name in {"self_heal", "self_heal_agent"}:
+        from mammoth_os.agents.self_heal_agent import SelfHealAgent
+        return SelfHealAgent(router)
+
+    if agent_name in {"evolution", "evolution_agent"}:
+        from mammoth_os.agents.evolution_agent import EvolutionAgent
+        return EvolutionAgent(router)
+
     if agent_name == "research":
         from mammoth_os.agents.research_agent import ResearchAgent
         return ResearchAgent(router)  # type: ignore
@@ -218,6 +278,14 @@ def load_agent(agent_name: str, router=None):
         from mammoth_os.agents.mammoth_guide_agent import MammothGuideAgent
         return MammothGuideAgent(router)
 
+    if agent_name in {"shell", "shell_agent"}:
+        from mammoth_os.agents.shell_agent import ShellAgent
+        return ShellAgent(router)
+
+    if agent_name in {"ui_builder", "ui_builder_agent"}:
+        from mammoth_os.agents.ui_builder_agent import UIBuilderAgent
+        return UIBuilderAgent(router)
+
     raise ValueError(f"Unknown agent '{agent_name}'")
 
 
@@ -227,6 +295,16 @@ def load_agent(agent_name: str, router=None):
 
 def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
     if isinstance(payload, dict):
+        # Shell agent: run() takes command:str directly
+        if agent_name in {"shell", "shell_agent"}:
+            if isinstance(payload, dict):
+                cmd = (payload.get("command") or payload.get("prompt") or payload.get("task") or "").strip()
+                return cmd if cmd else str(payload)
+            return str(payload or "")
+        # These agents handle dict payloads natively — pass through unchanged
+        if agent_name in {"auth", "build", "config_manager", "database", "deploy", "executor",
+                           "filesystem", "memory", "scheduler", "snapshot", "ui_builder", "vector_store"}:
+            return dict(payload)
         if agent_name in {"browser", "browser_agent", "task_queue", "task_queue_agent"}:
             normalized = dict(payload)
             if agent_name in {"browser", "browser_agent"} and not normalized.get("url"):
@@ -238,13 +316,19 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                     else:
                         normalized.setdefault("prompt", prompt_value)
             return normalized
-        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "mammoth_guide", "classifier", "classifier_agent", "orchestrator", "orchestrator_agent"}:
+        if agent_name in {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "field_ops", "mammoth_guide", "classifier", "classifier_agent", "orchestrator", "orchestrator_agent", "cache", "cache_agent", "search", "search_agent", "self_heal", "self_heal_agent", "evolution", "evolution_agent"}:
             normalized = dict(payload)
             prompt_val = str(normalized.get("prompt") or "").strip()
             if agent_name == "tutor" and prompt_val and not normalized.get("topic"):
                 normalized["topic"] = prompt_val
             elif agent_name == "reasoning" and prompt_val and not normalized.get("problem"):
                 normalized["problem"] = prompt_val
+            elif agent_name in {"cache", "cache_agent"} and prompt_val and not normalized.get("key"):
+                normalized["key"] = prompt_val
+            elif agent_name in {"search", "search_agent"} and prompt_val and not normalized.get("query"):
+                normalized["query"] = prompt_val
+            elif agent_name in {"self_heal", "self_heal_agent", "evolution", "evolution_agent"} and prompt_val and not normalized.get("action"):
+                normalized["action"] = prompt_val
             elif agent_name in {"classifier", "classifier_agent"} and prompt_val and not normalized.get("text"):
                 normalized["text"] = prompt_val
             elif agent_name in {"orchestrator", "orchestrator_agent"} and prompt_val and not normalized.get("goal"):
@@ -256,7 +340,9 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                 if not normalized.get("lesson_title") and prompt_val:
                     normalized["lesson_title"] = prompt_val[:80]
                 # Pull difficulty/progress from nested context if available.
-                ctx = normalized.get("context") if isinstance(normalized.get("context"), dict) else {}
+                ctx = normalized.get("context")
+                if not isinstance(ctx, dict):
+                    ctx = {}
                 if not normalized.get("difficulty"):
                     normalized.setdefault("difficulty", ctx.get("difficulty") or "medium")
                 if not normalized.get("progress_score"):
@@ -279,11 +365,23 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                     normalized["repo_context"] = {}
             return normalized
         if agent_name in {"curriculum", "research", "custodial"}:
-            if isinstance(payload.get("prompt"), str) and payload.get("prompt").strip():
-                return payload["prompt"]
-            if isinstance(payload.get("topic"), str) and payload.get("topic").strip():
-                return payload["topic"]
-            return json.dumps(payload)
+            # Preserve full dict when a non-default intent must reach the agent
+            _long_form_intents = {"research_long_form", "long_form_research"}
+            if isinstance(payload, dict) and (
+                payload.get("intent") in _long_form_intents
+                or payload.get("long_form")
+                or payload.get("goal")
+            ):
+                return payload  # let _parse_input dict-branch handle key extraction
+            if isinstance(payload, dict):
+                prompt = payload.get("prompt")
+                if isinstance(prompt, str) and prompt.strip():
+                    return prompt
+                topic = payload.get("topic")
+                if isinstance(topic, str) and topic.strip():
+                    return topic
+            if isinstance(payload, dict):
+                return json.dumps(payload)
     if isinstance(payload, str):
         return payload
     if payload is None:
@@ -306,10 +404,13 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "market_intel":    lambda prompt: run_agent("market_intel", prompt),             # type: ignore
     "reflection":      lambda prompt: run_agent("reflection", prompt),               # type: ignore
     "brand_voice":     lambda prompt: run_agent("brand_voice", prompt),              # type: ignore
-    "visual_engine":   lambda prompt: run_agent("visual_engine", prompt),            # type: ignore
     "community_engine":lambda prompt: run_agent("community_engine", prompt),         # type: ignore
     "classifier":      lambda prompt: run_agent("classifier", prompt, router),       # type: ignore
     "orchestrator":    lambda prompt: run_agent("orchestrator", prompt, router),     # type: ignore
+    "cache":           lambda prompt: run_agent("cache", prompt, router),            # type: ignore
+    "search":          lambda prompt: run_agent("search", prompt, router),           # type: ignore
+    "self_heal":       lambda prompt: run_agent("self_heal", prompt, router),        # type: ignore
+    "evolution":       lambda prompt: run_agent("evolution", prompt, router),        # type: ignore
     "browser":         lambda prompt: run_agent("browser", prompt),                  # type: ignore
     "task_queue":      lambda prompt: run_agent("task_queue", prompt),               # type: ignore
     "research":        lambda prompt: run_agent("research", prompt),                 # type: ignore
@@ -319,6 +420,21 @@ AGENTS: Dict[str, Callable[[Any], Any]] = {
     "coding":          lambda prompt: run_agent("coding", prompt, router),           # type: ignore
     "custodial":       lambda prompt: run_agent("custodial", prompt, router),        # type: ignore
     "mammoth_guide":   lambda prompt: run_agent("mammoth_guide", prompt, router),    # type: ignore
+    "planner":         lambda prompt: run_agent("planner",        prompt),           # type: ignore
+    "planning":        lambda prompt: run_agent("planner",        prompt),           # type: ignore
+    "auth":            lambda prompt: run_agent("auth",            prompt),          # type: ignore
+    "build":           lambda prompt: run_agent("build",           prompt),          # type: ignore
+    "config_manager":  lambda prompt: run_agent("config_manager",  prompt),          # type: ignore
+    "database":        lambda prompt: run_agent("database",        prompt),          # type: ignore
+    "deploy":          lambda prompt: run_agent("deploy",          prompt),          # type: ignore
+    "executor":        lambda prompt: run_agent("executor",        prompt),          # type: ignore
+    "filesystem":      lambda prompt: run_agent("filesystem",      prompt),          # type: ignore
+    "memory":          lambda prompt: run_agent("memory",          prompt),          # type: ignore
+    "scheduler":       lambda prompt: run_agent("scheduler",       prompt),          # type: ignore
+    "shell":           lambda prompt: run_agent("shell",           prompt),          # type: ignore
+    "snapshot":        lambda prompt: run_agent("snapshot",        prompt),          # type: ignore
+    "ui_builder":      lambda prompt: run_agent("ui_builder",      prompt),          # type: ignore
+    "vector_store":    lambda prompt: run_agent("vector_store",    prompt),          # type: ignore
 }
 
 

@@ -12,6 +12,7 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Run History replay keeps task metadata (`task_id`, `trace_id`) and runtime adapter/model context
   - Coding patch apply status is reflected in both artifact detail and run history markers
   - Internet command runs (`/research`, `/web`) are persisted as structured chat events with evidence metadata
+  - Chat trust surfaces now consume dynamic backend metadata (`confidence`, `trust_metadata`, `evidence_items`) rather than static UI defaults.
 - UX consistency updates now live:
   - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
   - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
@@ -20,6 +21,23 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
 ## MCP Browser Bridge + Repo Access
 
 MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.
+
+## Repo-context quick prompting (Mammoth Mind + ATLAS)
+
+If you want the chat assistant to read file contents (not just repo names), include at least one of:
+
+- a filename (`api_server.py`, `DiagnosticsPage.jsx`)
+- a relative path (`src/mammoth_os/atlas_session.py`)
+- an absolute path that exists on the backend host (`/opt/mammothos/mammoth_intro_ai/...`)
+
+What now happens automatically:
+
+- absolute paths under the configured repo root are normalized to tracked repo paths
+- filename/path hints in natural language are resolved to real tracked files when possible
+- repo context falls back to token-based search when full-query grep returns no hits
+- chat evidence now includes repo snippet/search signals so trust badges can reflect real context use
+
+Tip for hosted deployments: if you prompt from a Windows workstation but the backend runs on Linux, prefer relative paths or `/opt/...` server paths.
 
 ### Quick start
 
@@ -66,6 +84,15 @@ All four phases of the 8 → 9 pass are now done:
 3. **Agent memory + evals ✓** — durable `MemoryEngine` records ATLAS lesson outcomes; `/api/memory` and `/api/atlas/evals` expose history; eval observability is wired.
 4. **UI / manual / docs refresh ✓** — `ATLAS_MANUAL.md`, the in-app Manual page, `LandingPage` doc links, and this README are now in sync.
 
+## 9.5 hardening pass (completed)
+
+- Runtime reliability is now fail-closed for fallback conditions so degraded provider states are explicit.
+- `/api/health` now emits a `health_gate` snapshot that combines runtime, env, venv, and repo readiness.
+- `/api/release-readiness` now emits both `release_gate` and `eval_gate` snapshots and blocks release readiness when eval history is absent or below threshold.
+- ATLAS learner context now includes `outcome_summary`, `learning_signal`, and `progress_score` for measurable tutoring outcomes.
+- `AtlasFAB.snapshot()` now includes explicit `contract_version`, `product_surface`, tenant binding state, and usage policy metadata.
+- Billing warning behavior is available through `GET /api/billing/usage/current` with preview-safe metering labels and warning levels.
+
 ## Product docs
 
 - `docs\atlas_fab_product_guide.md` - ATLAS FAB positioning, workflow diagram, and pricing skeleton
@@ -77,6 +104,18 @@ All four phases of the 8 → 9 pass are now done:
 
 This repo now includes `.github/workflows/deploy-digitalocean.yml` for push-to-`main` and manual deploys.
 Every push to `main` auto-deploys to the live server at `165.227.80.86`.
+The deploy workflow now runs release guardrail tests first and only deploys when they pass.
+
+### Mandatory release gate workflow
+
+`.github/workflows/release-guardrails.yml` enforces the reliability/eval/tutor/SDK gate suite on:
+- pull requests targeting `main`
+- pushes to `main`
+- manual workflow dispatch
+
+Recommended branch protection policy:
+- require `Release Guardrails / guardrails` to pass before merge
+- require `CI / tests` to pass before merge
 
 ### GitHub repository secrets (set once under Settings → Environments → production)
 
@@ -189,11 +228,11 @@ The Python package is now closer to a sellable SDK than a repo-only prototype:
 - public imports are centralized in `src\mammoth_os\__init__.py`
 
 Highest-value next commercial upgrades after this:
-1. hosted API keys / tenant auth
-2. usage metering endpoint (`/api/billing/usage` or equivalent)
-3. Stripe or billing-provider integration
-4. plan enforcement and entitlement middleware
-5. SDK docs site + integration recipes for React, FastAPI, and internal tools
+1. Stripe or billing-provider integration
+2. plan enforcement and entitlement middleware
+3. hosted onboarding + tenant self-serve provisioning
+4. SDK docs site + integration recipes for React, FastAPI, and internal tools
+5. release-gate policy rollout in CI/CD for mandatory pre-merge checks
 
 ### What I meant by a billing / usage API
 
@@ -317,36 +356,21 @@ This is the difference between “cool software” and “legitimately monetizab
 
 ## Current production-readiness snapshot
 
-This build is materially stronger than the original prototype. The highest-value workstreams are now in place: native chat orchestration, runtime guardrails, structured agent contracts, source-aware research outputs, diagnostics/export surfaces, and broader operator health/entitlement visibility.
+This build now includes the completed reliability, eval, tutor-outcome, and SDK contract hardening pass. The core platform has moved from "strong prototype" into "controlled production candidate" status.
 
-### Overall scorecard
+### What is now enforced
 
-- System overall: 8.2 / 10
-- Most production-ready lanes:
-  - CodingAgent: 8.7 (upgraded: asyncio safety, structured logging, exception handling)
-  - TutorAgent: 8.2
-  - ShellAgent: 8.0
-  - Operator Health / Finance Backend: 8.0
-  - MammothOS Chat: 8.4
-- Most important remaining gaps:
-  - LLM Runtime / Provider Chain: 5.5
-  - UI / Command Center: 7.5
-  - API Server / Orchestration Layer: 7.8
+- Runtime fallback states are explicitly degraded instead of silently treated as ready.
+- Health/readiness surfaces fail closed when core dependencies are not healthy.
+- Release readiness includes an ATLAS eval gate so weak or missing eval history blocks green release status.
+- Tutor outcomes are measurable through explicit learner signals (`learning_signal`, `progress_score`, `outcome_summary`).
+- SDK snapshots expose stable contract and tenant/usage metadata for embedders.
 
-### What is already solid
+### Remaining gap is execution polish, not core wiring
 
-- Native chat page with operator workflow surfaces and right-rail context panels
-- Provider fallback guidance with graceful degradation instead of dead-end failures
-- Source-aware outputs for research/market/reflection flows
-- Approval gates and rollback-friendly workflow posture
-- Health, diagnostics, and export paths for operator validation
-- Lessons page now supports an expanded multi-domain track catalog plus an adaptive exercise UI toggle for future non-code lesson surfaces
-
-### What still needs attention before “production grade”
-
-- Runtime/provider UX still leaks raw exceptions when cloud providers are unavailable or keys are missing
-- Chat/agent progress surfaces still need more consistent streaming and thought-step visibility across all lanes
-- Some UI surfaces are still functionally strong but not yet fully polished for a broad non-technical operator experience
+- CI enforcement for release-gate policy should be mandatory on every merge path.
+- UI polish on lower-traffic pages still needs one final visual pass.
+- Hosted billing provider integration is still pending (current usage endpoint is intentionally preview-safe).
 
 ## Start the stack
 

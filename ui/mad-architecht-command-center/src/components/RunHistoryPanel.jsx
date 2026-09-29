@@ -1,5 +1,6 @@
 import React from 'react'
-import { Clock, RotateCcw, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { Clock, RotateCcw } from 'lucide-react'
+import MammothEmpty from './MammothEmpty'
 
 function StatusDot({ status }) {
   const tone = status === 'ok' || status === 'pass' || status === 'completed'
@@ -39,7 +40,7 @@ export default function RunHistoryPanel({ entries, onReplay, onClear }) {
       </div>
 
       {list.length === 0 ? (
-        <div style={{ color: 'var(--txt-mut)', fontSize: '0.73rem', padding: '10px 0' }}>No runs yet.</div>
+        <MammothEmpty context="history" compact />
       ) : (
         <div style={{ display: 'grid', gap: 7 }}>
           {list.slice().reverse().map((entry) => (

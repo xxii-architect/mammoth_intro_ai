@@ -7,10 +7,16 @@ import OnboardingGuide from '../components/OnboardingGuide'
 import CodingArtifactPanel from '../components/CodingArtifactPanel'
 import ResearchArtifactPanel from '../components/ResearchArtifactPanel'
 import WorkspaceMemoryPanel from '../components/WorkspaceMemoryPanel'
+import PlanExecuteResultPanel from '../components/PlanExecuteResultPanel'
+import AgentResultPanel from '../components/AgentResultPanel'
+import MammothEmpty from '../components/MammothEmpty'
+import AgentCommandLibrary from '../components/AgentCommandLibrary'
+
+
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
-  'research_curriculum', 'research_survival', 'research_plants', 'compare_gear', 'browse_web', 'summarize',
+  'research_curriculum', 'research_survival', 'research_plants', 'research_long_form', 'compare_gear', 'browse_web', 'summarize',
   'lesson_curriculum', 'lesson_coaching', 'grade_submission',
   'generate_code', 'patch_existing', 'refactor_code', 'analyze_codebase', 'run_tests', 'write_docs',
 ]
@@ -25,6 +31,7 @@ const INTENT_TO_AGENT = {
   research_survival:   'research_agent',
   research_plants:     'research_agent',
   compare_gear:        'research_agent',
+  research_long_form:  'research_agent',
   browse_web:          'browser_agent',
   summarize:           'research_agent',
   lesson_curriculum:   'curriculum_agent',
@@ -75,6 +82,26 @@ const SMOKE_TESTS = [
   { agent_id: 'tutor_agent', intent: 'lesson_coaching', prompt: 'Smoke test: provide one coaching checkpoint.' },
   { agent_id: 'coding_agent', intent: 'generate_code', prompt: 'Smoke test: respond with one sentence confirming coding agent availability.' },
 ]
+
+function safeStorageGet(key, fallback = null) {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const value = window.localStorage.getItem(key)
+    return value === null ? fallback : value
+  } catch {
+    return fallback
+  }
+}
+
+function safeStorageSet(key, value) {
+  if (typeof window === 'undefined') return false
+  try {
+    window.localStorage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
 
 const PROMPT_PLAYBOOK = [
   {
@@ -145,6 +172,13 @@ function normalizeResearchArtifact(runResult) {
     retrievalErrors: normalizeList(output.retrieval_errors),
     workflowHints: output.workflow_hints && typeof output.workflow_hints === 'object' ? output.workflow_hints : null,
     confidence: typeof output.confidence === 'number' ? output.confidence : null,
+    artifact_type: output.artifact_type || '',
+    title: output.title || '',
+    abstract: output.abstract || output.executive_summary || '',
+    sections: Array.isArray(output.sections) ? output.sections : [],
+    conclusion: output.conclusion || '',
+    docx_filename: output.docx_filename || '',
+    word_count: output.word_count || 0,
     raw: output,
   }
 }
@@ -199,12 +233,13 @@ export default function AgentPage({ setPage }) {
   const [traceOpen, setTraceOpen] = useState(true)
   const [runHistory, setRunHistory] = useState(() => {
     try {
-      const raw = localStorage.getItem('mammoth_run_history')
+      const raw = safeStorageGet('mammoth_run_history')
       return raw ? JSON.parse(raw) : []
     } catch { return [] }
   })
   const [smokeRunning, setSmokeRunning] = useState(false)
   const [smokeResults, setSmokeResults] = useState([])
+  const [showCommandLibrary, setShowCommandLibrary] = useState(false)
   const [executionMode, setExecutionMode] = useState('single')
   const [planProfile, setPlanProfile] = useState('atlas')
   const [codingIntent, setCodingIntent] = useState('generate_code')
@@ -213,6 +248,8 @@ export default function AgentPage({ setPage }) {
   const [codingArtifact, setCodingArtifact] = useState(null)
   const [researchArtifact, setResearchArtifact] = useState(null)
   const [applyingPatch, setApplyingPatch] = useState(false)
+  const [lastRunResult, setLastRunResult] = useState(null)
+  const [lastRunMode, setLastRunMode] = useState('single')
 
   const refreshAgents = async () => {
     try {
@@ -258,6 +295,20 @@ export default function AgentPage({ setPage }) {
     } catch (_) {}
   }
 
+  const refreshRunHistory = async () => {
+    try {
+      const data = await api('/workspace/run-history')
+      const entries = Array.isArray(data?.entries) ? data.entries : []
+      setRunHistory(entries.slice(-20))
+      safeStorageSet('mammoth_run_history', JSON.stringify(entries.slice(-20)))
+    } catch (_) {
+      try {
+        const raw = safeStorageGet('mammoth_run_history')
+        setRunHistory(raw ? JSON.parse(raw) : [])
+      } catch (_) {}
+    }
+  }
+
   const approveApproval = async (approvalId) => {
     try {
       await api(`/approvals/${approvalId}/approve`, { method: 'POST' })
@@ -288,6 +339,7 @@ export default function AgentPage({ setPage }) {
     refreshApprovals()
     refreshSnapshots()
     refreshAutonomousRuns()
+    refreshRunHistory()
     const t = setInterval(() => {
       refreshAgents()
       refreshTimeline()
@@ -346,12 +398,22 @@ export default function AgentPage({ setPage }) {
     setPrompt(entry.prompt)
   }
 
-  const persistRunHistory = (entries) => {
-    setRunHistory(entries)
-    localStorage.setItem('mammoth_run_history', JSON.stringify(entries))
+  const persistRunHistory = async (entries) => {
+    const normalized = Array.isArray(entries) ? entries.slice(-20) : []
+    setRunHistory(normalized)
+    safeStorageSet('mammoth_run_history', JSON.stringify(normalized))
+    try {
+      await api('/workspace/run-history', { method: 'DELETE' })
+      await Promise.all(
+        normalized.map(entry =>
+          // preserve ids/timestamps when syncing the local list to backend
+          api('/workspace/run-history', { method: 'POST', body: entry }),
+        ),
+      )
+    } catch (_) {}
   }
 
-  const addRunHistoryEntry = (res, currentPrompt, currentAgent, currentIntent, extras = {}) => {
+  const addRunHistoryEntry = async (res, currentPrompt, currentAgent, currentIntent, extras = {}) => {
     const entry = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
       created_at: new Date().toISOString(),
@@ -365,11 +427,18 @@ export default function AgentPage({ setPage }) {
       runtime_model: res?.model || null,
       ...extras,
     }
+    let nextEntries = []
     setRunHistory(prev => {
       const next = [...prev, entry].slice(-20)
-      localStorage.setItem('mammoth_run_history', JSON.stringify(next))
+      nextEntries = next
+      safeStorageSet('mammoth_run_history', JSON.stringify(next))
       return next
     })
+    try {
+      await api('/workspace/run-history', { method: 'POST', body: entry })
+    } catch (_) {
+      safeStorageSet('mammoth_run_history', JSON.stringify(nextEntries))
+    }
   }
 
   const replayHistoryEntry = (entry) => {
@@ -398,10 +467,10 @@ export default function AgentPage({ setPage }) {
     setPrompt(run.objective || '')
   }
 
-  const clearRunHistory = () => {
+  const clearRunHistory = async () => {
     setCodingArtifact(null)
     setResearchArtifact(null)
-    persistRunHistory([])
+    await persistRunHistory([])
   }
 
   const run = async () => {
@@ -410,6 +479,8 @@ export default function AgentPage({ setPage }) {
     setOutput(null)
     setCodingArtifact(null)
     setResearchArtifact(null)
+    setLastRunResult(null)
+    setLastRunMode('single')
     await refreshAgents()
     try {
       const res = await api('/run', {
@@ -421,7 +492,7 @@ export default function AgentPage({ setPage }) {
       setCodingArtifact(artifact)
       setResearchArtifact(research)
       if (res.thought_steps && res.thought_steps.length) setThoughtSteps(res.thought_steps)
-      addRunHistoryEntry(res, prompt, selectedAgent, intent, {
+      await addRunHistoryEntry(res, prompt, selectedAgent, intent, {
         execution_mode: 'single',
         coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
         coding_artifact: artifact,
@@ -434,9 +505,13 @@ export default function AgentPage({ setPage }) {
           coding_intent: selectedAgent === 'coding_agent' ? codingIntent : null,
         },
       })
+      setLastRunResult(res)
+      setLastRunMode('single')
       setOutput(JSON.stringify(res, null, 2))
     } catch (e) {
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Request failed', detail: e.message, status: 'error' }])
+      setLastRunResult(null)
+      setLastRunMode('single')
       setOutput(`Error: ${e.message}`)
       setCodingArtifact(null)
       setResearchArtifact(null)
@@ -452,6 +527,8 @@ export default function AgentPage({ setPage }) {
     setOutput(null)
     setCodingArtifact(null)
     setResearchArtifact(null)
+    setLastRunResult(null)
+    setLastRunMode('plan')
     setPlanRun({
       status: 'ok',
       objective: prompt,
@@ -472,7 +549,7 @@ export default function AgentPage({ setPage }) {
       setCodingArtifact(artifact)
       setResearchArtifact(research)
       setPlanRun({ ...res, plan_profile: res.plan_profile || planProfile, coding_intent: res.coding_intent || codingIntent })
-      addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
+      await addRunHistoryEntry(res, prompt, 'orchestrator', 'plan_execute', {
         execution_mode: 'plan',
         plan_profile: res.plan_profile || planProfile,
         coding_intent: res.coding_intent || codingIntent,
@@ -486,6 +563,8 @@ export default function AgentPage({ setPage }) {
           approval_mode: approvalMode,
         },
       })
+      setLastRunResult(res)
+      setLastRunMode('plan')
       setOutput(JSON.stringify(res, null, 2))
       const summarizedThoughts = (res.plan_steps || []).map((step, idx) => ({
         ts: step.finished_at || new Date().toISOString(),
@@ -505,6 +584,8 @@ export default function AgentPage({ setPage }) {
         plan_steps: [],
         error: e.message,
       })
+      setLastRunResult(null)
+      setLastRunMode('plan')
       setThoughtSteps([{ ts: new Date().toISOString(), label: 'Plan run failed', detail: e.message, status: 'error' }])
       setOutput(`Error: ${e.message}`)
       setCodingArtifact(null)
@@ -608,7 +689,7 @@ export default function AgentPage({ setPage }) {
           }
           break
         }
-        localStorage.setItem('mammoth_run_history', JSON.stringify(next))
+        safeStorageSet('mammoth_run_history', JSON.stringify(next))
         return next
       })
       setOutput(JSON.stringify(result, null, 2))
@@ -642,6 +723,9 @@ export default function AgentPage({ setPage }) {
     <div className="page-enter" style={{ padding: 24 }}>
       <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Bot size={20} color="var(--violet)" /> Agent Console
+        <button onClick={() => setShowCommandLibrary(true)} className="text-xs bg-[#1a1a2e] border border-[#3d3d5c] text-[#aaaacc] hover:text-white hover:border-[#6655cc] px-3 py-1.5 rounded-lg transition-colors" style={{ marginLeft: 'auto', fontWeight: 400 }}>
+          📖 Commands
+        </button>
       </h1>
 
       <OnboardingGuide variant="banner" currentPage="agent" setPage={setPage} />
@@ -796,7 +880,7 @@ export default function AgentPage({ setPage }) {
             </div>
           </div>
 
-          <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 400, overflowY: 'auto' }}>
+          <div className="glass-card-solid" style={{ padding: 16, minHeight: 160, maxHeight: 480, overflowY: 'auto' }}>
             {researchArtifact ? (
               <ResearchArtifactPanel artifact={researchArtifact} rawJson={output} />
             ) : codingArtifact ? (
@@ -806,12 +890,14 @@ export default function AgentPage({ setPage }) {
                 onApplyPatch={applyCodingArtifactPatch}
                 applyingPatch={applyingPatch}
               />
+            ) : lastRunMode === 'plan' && (lastRunResult || planRun) ? (
+              <PlanExecuteResultPanel planRun={lastRunResult || planRun} rawJson={output} />
+            ) : lastRunResult ? (
+              <AgentResultPanel result={lastRunResult} rawJson={output} agentId={selectedAgent} />
             ) : output ? (
               <pre style={{ fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{output}</pre>
             ) : (
-              <div style={{ color: 'var(--txt-sec)', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Info size={16} /> Output will appear here when you run the agent.
-              </div>
+              <MammothEmpty context="output" />
             )}
           </div>
         </div>
@@ -910,7 +996,7 @@ export default function AgentPage({ setPage }) {
                     {item.preview}
                   </div>
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No smoke test run yet.</div>}
+              )) : <MammothEmpty context="smoke_test" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -918,35 +1004,69 @@ export default function AgentPage({ setPage }) {
               {planRun ? (
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{planRun.objective?.slice(0, 44) || 'Plan objective'}</span>
-                    <span style={{ fontSize: '0.66rem', textTransform: 'uppercase', color: planRun.plan_status === 'completed' ? '#22c55e' : planRun.plan_status === 'pending_approval' ? '#f59e0b' : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>
+                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {planRun.objective?.slice(0, 44) || 'Plan objective'}
+                    </span>
+                    <span style={{
+                      fontSize: '0.64rem', textTransform: 'uppercase', flexShrink: 0,
+                      color: planRun.plan_status === 'completed' ? '#22c55e'
+                        : planRun.plan_status === 'pending_approval' ? '#f59e0b'
+                        : planRun.plan_status === 'running' ? 'var(--photon)'
+                        : '#f87171',
+                      fontFamily: 'JetBrains Mono,monospace',
+                    }}>
                       {planRun.plan_status || 'unknown'}
                     </span>
                   </div>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.68rem', marginBottom: 8 }}>
-                    {(planRun.progress?.executed || 0)}/{(planRun.progress?.total || 0)} steps • completed {(planRun.progress?.completed || 0)} • pending {(planRun.progress?.pending_approval || 0)} • failed {(planRun.progress?.failed || 0)}
-                  </div>
+                  {/* Progress bar */}
                   <div style={{ marginBottom: 8 }}>
-                    <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${planProgressPercent}%`, background: planRun.plan_status === 'completed' ? '#22c55e' : planRun.plan_status === 'pending_approval' ? '#f59e0b' : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171', borderRadius: 999, transition: 'width 0.2s ease' }} />
+                    <div style={{ height: 4, borderRadius: 999, background: 'rgba(255,255,255,0.08)', overflow: 'hidden', marginBottom: 4 }}>
+                      <div style={{
+                        height: '100%', width: `${planProgressPercent}%`,
+                        background: planRun.plan_status === 'completed' ? '#22c55e'
+                          : planRun.plan_status === 'pending_approval' ? '#f59e0b'
+                          : planRun.plan_status === 'running' ? 'var(--photon)' : '#f87171',
+                        borderRadius: 999, transition: 'width 0.2s ease',
+                      }} />
                     </div>
-                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>
-                      progress {planProgressPercent}% • profile {planRun.plan_profile || 'balanced'}
+                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.63rem', fontFamily: 'JetBrains Mono,monospace' }}>
+                      {planProgressPercent}% · {planRun.progress?.completed || 0}/{planRun.progress?.total || 0} steps · {planRun.plan_profile || 'balanced'}
                     </div>
                   </div>
-                  {(planRun.plan_steps || []).map((step, idx) => (
-                    <div key={`${step.id || idx}-${idx}`} style={{ padding: '7px 0', borderTop: '1px solid var(--border)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                        <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem' }}>{idx + 1}. {step.title}</span>
-                        <span style={{ fontSize: '0.64rem', textTransform: 'uppercase', color: step.status === 'completed' ? '#22c55e' : step.status === 'pending_approval' ? '#f59e0b' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>{step.status}</span>
+                  {/* Compact step list */}
+                  {(planRun.plan_steps || []).map((step, idx) => {
+                    const sc = step.status === 'completed' ? { color: '#22c55e', icon: '✓' }
+                      : step.status === 'pending_approval' ? { color: '#f59e0b', icon: '…' }
+                      : step.status === 'failed' ? { color: '#f87171', icon: '✗' }
+                      : { color: 'var(--photon)', icon: '→' }
+                    return (
+                      <div key={`${step.id || idx}`} style={{
+                        padding: '6px 8px', borderRadius: 6, marginBottom: 4,
+                        background: 'rgba(255,255,255,0.025)',
+                        border: `1px solid ${sc.color}22`,
+                        borderLeft: `2px solid ${sc.color}`,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ color: sc.color, fontSize: '0.7rem', flexShrink: 0 }}>{sc.icon}</span>
+                          <span style={{ color: 'var(--txt-pri)', fontSize: '0.72rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {step.title || step.agent_id}
+                          </span>
+                        </div>
+                        <div style={{ color: 'var(--txt-mut)', fontSize: '0.64rem', marginTop: 2, paddingLeft: 14 }}>
+                          {(step.agent_id || '').replace(/_agent$/, '')}
+                          {step.duration_ms > 0 && ` · ${(step.duration_ms / 1000).toFixed(1)}s`}
+                        </div>
                       </div>
-                      <div style={{ color: 'var(--txt-sec)', fontSize: '0.67rem', marginTop: 3 }}>
-                        {step.agent_id} • {step.intent} • {step.duration_ms || 0}ms
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
+                  {(planRun.plan_steps || []).length === 0 && planRun.plan_status === 'running' && (
+                    <div style={{ color: 'var(--txt-mut)', fontSize: '0.72rem', padding: '4px 0' }}>Agents working…</div>
+                  )}
+                  {(planRun.plan_steps || []).length === 0 && planRun.plan_status !== 'running' && (
+                    <MammothEmpty context="plan_steps" compact />
+                  )}
                 </div>
-              ) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>Switch Mode to Plan + Execute and run an objective to orchestrate multiple agents.</div>}
+              ) : <MammothEmpty context="plan_idle" compact />}
             </div>
 
             <AutonomousRunPanel
@@ -969,7 +1089,7 @@ export default function AgentPage({ setPage }) {
                   </div>
                   {task.description ? <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{task.description}</div> : null}
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No tasks yet.</div>}
+              )) : <MammothEmpty context="tasks" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -985,7 +1105,7 @@ export default function AgentPage({ setPage }) {
                  </div>
                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
                </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No pending approvals.</div>}
+              )) : <MammothEmpty context="approvals" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -1001,7 +1121,7 @@ export default function AgentPage({ setPage }) {
                     {snapshot.existed_before ? 'Previous file captured' : 'New file snapshot'} • {new Date(snapshot.created_at).toLocaleTimeString()}
                   </div>
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No snapshots yet.</div>}
+              )) : <MammothEmpty context="snapshots" compact />}
             </div>
 
             <div style={{ marginTop: 16 }}>
@@ -1011,11 +1131,12 @@ export default function AgentPage({ setPage }) {
                   <div style={{ color: 'var(--txt-pri)', fontSize: '0.74rem', lineHeight: 1.5 }}>{entry.message}</div>
                   <div style={{ color: 'var(--txt-sec)', fontSize: '0.66rem', marginTop: 4, fontFamily: 'JetBrains Mono,monospace' }}>{entry.agent_id || 'system'} • {new Date(entry.created_at).toLocaleTimeString()}</div>
                 </div>
-              )) : <div style={{ color: 'var(--txt-sec)', fontSize: '0.75rem' }}>No activity yet.</div>}
+              )) : <MammothEmpty context="activity" compact />}
             </div>
           </div>
         </div>
       </div>
-    </div>
+        {showCommandLibrary && <AgentCommandLibrary onClose={() => setShowCommandLibrary(false)} />}
+      </div>
   )
 }

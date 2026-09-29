@@ -61,3 +61,24 @@ generated_reports/
 # MCP browser profile and temp browser data
 tmp/
 mcp/playwright-profile/
+
+# Local session/operator scratch docs
+COMPLETION_CHECKLIST.md
+IMPLEMENTATION_SUMMARY.md
+PROVENANCE_QUICK_REFERENCE.md
+TEAM_WORKFLOWS_QUICKSTART.md
+
+# MammothOS runtime/generated local data
+.mammoth/chat_threads/
+.mammoth/uploads/
+.mammoth/atlas_files/
+.mammoth/atlas_state/
+
+# Local Python environments
+venv/
+.venv/
+.mammoth/atlas_state/
+
+# Runtime-generated research documents
+generated_docs/
+*.docx

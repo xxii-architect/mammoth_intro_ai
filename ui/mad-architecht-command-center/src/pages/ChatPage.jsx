@@ -3,20 +3,52 @@ import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, Ch
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
 import ChatMessageBody from '../components/ChatMessageBody'
+import AgentResultPanel from '../components/AgentResultPanel'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 import GuideStepPanel from '../components/GuideStepPanel'
+import AgentThinkingIndicator from '../components/AgentThinkingIndicator'
 import ChatThreadSidebar from '../components/ChatThreadSidebar'
 import FileAttachmentPanel from '../components/FileAttachmentPanel'
+import { TrustBadgeRow } from '../components/TrustSurfaces'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
 const DEFAULT_SERVER_REPO = '/opt/mammothos/mammoth_intro_ai'
 const DEFAULT_LOCAL_REPO = 'C:\\Users\\runni\\mammoth_intro_ai.worktrees\\agents-mammothos-atlas-agent-system'
 
+function safeStorageGet(key, fallback = null) {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const value = window.localStorage.getItem(key)
+    return value === null ? fallback : value
+  } catch {
+    return fallback
+  }
+}
+
+function safeStorageSet(key, value) {
+  if (typeof window === 'undefined') return false
+  try {
+    window.localStorage.setItem(key, value)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function safeStorageRemove(key) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(key)
+  } catch {
+    // no-op: storage protections should never crash the UI
+  }
+}
+
 // ─── Repo picker helpers ────────────────────────────────────────────────────
 
 function loadRepos(userId) {
   try {
-    const raw = localStorage.getItem(`mammoth_repos:${userId}`)
+    const raw = safeStorageGet(`mammoth_repos:${userId}`)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
@@ -24,18 +56,16 @@ function loadRepos(userId) {
 }
 
 function saveRepos(userId, repos) {
-  localStorage.setItem(`mammoth_repos:${userId}`, JSON.stringify(repos.slice(0, 20)))
+  safeStorageSet(`mammoth_repos:${userId}`, JSON.stringify(repos.slice(0, 20)))
 }
 
 function loadActiveRepo(userId) {
-  try {
-    return localStorage.getItem(`mammoth_active_repo:${userId}`) || null
-  } catch { return null }
+  return safeStorageGet(`mammoth_active_repo:${userId}`) || null
 }
 
 function saveActiveRepo(userId, repoId) {
-  if (repoId) localStorage.setItem(`mammoth_active_repo:${userId}`, repoId)
-  else localStorage.removeItem(`mammoth_active_repo:${userId}`)
+  if (repoId) safeStorageSet(`mammoth_active_repo:${userId}`, repoId)
+  else safeStorageRemove(`mammoth_active_repo:${userId}`)
 }
 
 function isGitHubRepoRef(value = '') {
@@ -123,7 +153,7 @@ const SLASH_ACTIONS = [
 
 function loadTaskCards() {
   try {
-    const raw = localStorage.getItem(TASK_CARD_STORAGE_KEY)
+    const raw = safeStorageGet(TASK_CARD_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : []
@@ -133,7 +163,7 @@ function loadTaskCards() {
 }
 
 function saveTaskCards(cards) {
-  localStorage.setItem(TASK_CARD_STORAGE_KEY, JSON.stringify(cards.slice(0, 20)))
+  safeStorageSet(TASK_CARD_STORAGE_KEY, JSON.stringify(cards.slice(0, 20)))
 }
 
 function summarizePlanResult(result) {
@@ -144,6 +174,39 @@ function summarizePlanResult(result) {
     `Progress: ${progress.completed || 0}/${progress.total || 0} completed`,
     `Pending approvals: ${progress.pending_approval || 0}`,
   ].join(' • ')
+}
+
+function labelForAgent(agentId) {
+  const found = AGENT_OPTIONS.find((item) => item.id === agentId)
+  if (found?.label) return found.label
+  return (agentId || 'assistant').replaceAll('_', ' ')
+}
+
+function buildSuccessToast({ agentId, keyResult, nextAction }) {
+  const resultText = String(keyResult || '').trim()
+  const actionText = String(nextAction || '').trim()
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2, 7)}`,
+    title: `${labelForAgent(agentId)} run completed`,
+    keyResult: resultText || 'Response delivered to chat.',
+    nextAction: actionText || 'Review the latest response and continue.',
+  }
+}
+
+function deriveSuccessDetailsFromMessage(message, fallbackResult = '') {
+  const structured = parseStructuredAgentMessage(message)
+  if (structured && typeof structured === 'object') {
+    const result = structured.result && typeof structured.result === 'object' ? structured.result : {}
+    return {
+      keyResult: structured.summary || result.summary || structured.message || fallbackResult,
+      nextAction: structured.next_action || result.next_action || structured.runtime_notice?.next_action || '',
+    }
+  }
+  const plain = String(message || '').trim().replace(/\s+/g, ' ')
+  return {
+    keyResult: plain ? plain.slice(0, 170) : fallbackResult,
+    nextAction: '',
+  }
 }
 
 function parseSlashCommand(input) {
@@ -182,6 +245,7 @@ function inferRepoTargets(message) {
 
   // File paths inside the message (src/pages/..., components/..., etc.)
   const fileMatches = text.match(/(?:src|app|components|pages)[\\/][A-Za-z0-9_.\\/-]+/g) || []
+  const filenameMatches = text.match(/\b[A-Za-z0-9_.-]+\.(?:py|js|jsx|ts|tsx|md|json|toml|ya?ml|sql|sh|ps1)\b/g) || []
 
   // Windows-style absolute paths (C:\folder\file.js)
   const windowsMatches = text.match(/(?:[A-Za-z]:)?[\\/](?:[A-Za-z0-9_.-]+[\\/])+(?:[A-Za-z0-9_.-]+)/g) || []
@@ -191,6 +255,7 @@ function inferRepoTargets(message) {
 
   const all = [
     ...(fileMatches || []),
+    ...(filenameMatches || []),
     ...(windowsMatches || []),
     selection || null,
     codeBlock || null
@@ -217,6 +282,31 @@ function buildLivePageContext() {
     selected_text: selection ? selection.slice(0, 400) : '',
     updated_at: new Date().toISOString(),
   }
+}
+
+function parseStructuredAgentMessage(message) {
+  if (typeof message !== 'string') return null
+  const trimmed = message.trim()
+  if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (!parsed || typeof parsed !== 'object') return null
+    const hasReadableAgentShape =
+      typeof parsed.status === 'string' ||
+      typeof parsed.summary === 'string' ||
+      Array.isArray(parsed.quality_flags) ||
+      typeof parsed.agent === 'string'
+    return hasReadableAgentShape ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function normalizeConfidence(value, fallback = 0.74) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric > 1) return Math.max(0, Math.min(1, numeric / 100))
+  return Math.max(0, Math.min(1, numeric))
 }
 
 function findLastAssistantIndex(list) {
@@ -291,6 +381,51 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
   const [copied, setCopied] = useState(false)
   const isUser = entry.role === 'user'
   const isStreamingBubble = !isUser && entry.stream
+  const structuredResult = !isUser ? parseStructuredAgentMessage(entry.message) : null
+  const contradictionFlags = !isUser
+    ? (
+      Array.isArray(structuredResult?.contradictions)
+        ? structuredResult.contradictions
+        : Array.isArray(structuredResult?.quality_flags)
+          ? structuredResult.quality_flags.filter((flag) => String(flag).toLowerCase().includes('contrad'))
+          : entry.trust_metadata?.has_contradictions
+            ? ['Potential contradiction signals detected in trust metadata.']
+          : []
+    )
+    : []
+  const evidenceItems = Array.isArray(entry.evidence_items) ? entry.evidence_items : []
+  const evidenceDerivedSourceCount = evidenceItems.reduce((count, item) => {
+    if (!item || typeof item !== 'object') return count
+    const nested = ['files', 'source_files', 'references', 'evidence', 'citations']
+      .map((key) => (Array.isArray(item[key]) ? item[key].length : 0))
+      .reduce((a, b) => a + b, 0)
+    if (nested > 0) return count + nested
+    return count + 1
+  }, 0)
+  const trustCitationCount = Number(entry.trust_metadata?.citation_count)
+  const sourceCount = !isUser
+    ? (
+      Array.isArray(structuredResult?.citations) ? structuredResult.citations.length
+        : Array.isArray(structuredResult?.sources) ? structuredResult.sources.length
+          : Array.isArray(structuredResult?.references) ? structuredResult.references.length
+            : Number.isFinite(trustCitationCount) ? trustCitationCount
+              : evidenceDerivedSourceCount
+    )
+    : 0
+  const providerLabel = String(
+    entry.adapter
+      || entry.trust_metadata?.provider
+      || structuredResult?.provider
+      || structuredResult?.runtime_state?.provider
+      || 'unknown'
+  )
+  const confidenceScore = normalizeConfidence(
+    entry.trust_metadata?.confidence
+    ?? entry.runtime_status?.confidence
+    ?? structuredResult?.confidence
+    ?? structuredResult?.confidence_score
+    ?? entry.confidence
+  )
 
   const agentLabel = isUser
     ? 'You'
@@ -334,7 +469,9 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         {isUser
           ? <div style={{ whiteSpace: 'pre-wrap' }}>{entry.message}</div>
           : entry.message
-            ? <ChatMessageBody text={entry.message} />
+            ? (structuredResult
+              ? <AgentResultPanel result={structuredResult} rawJson={entry.message} agentId={entry.agent_id} />
+              : <ChatMessageBody text={entry.message} />)
             : (isStreamingBubble
               ? <span style={{ color: 'var(--txt-mut)' }}>MammothOS is composing…</span>
               : null)
@@ -343,6 +480,17 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
           <span style={{ display: 'inline-block', width: 8, height: 8, marginLeft: 6, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)', verticalAlign: 'middle' }} />
         )}
       </div>
+
+      {!isUser && (
+        <TrustBadgeRow
+          provider={providerLabel}
+          confidence={confidenceScore}
+          contradictions={contradictionFlags}
+          sourceCount={sourceCount}
+          showEvidence={sourceCount > 0}
+          style={{ marginTop: 6, marginBottom: 0, borderBottom: 'none', padding: '4px 0 0' }}
+        />
+      )}
 
       {/* Meta row */}
       {!isUser && (entry.model || entry.adapter || entry.task_id) && (
@@ -403,6 +551,36 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
   )
 }
 
+function persistSessionContext(agentId, history) {
+  if (typeof window === 'undefined') return
+  try {
+    // Extract topics from the last few user messages
+    const userMsgs = history.filter(e => e.role === 'user').slice(-5)
+    const topics = [...new Set(
+      userMsgs.flatMap(e => {
+        const words = String(e.message || '').split(/\s+/).filter(w => w.length > 4)
+        return words.slice(0, 3)
+      })
+    )].slice(0, 5)
+
+    // Collect agent IDs used
+    const agentsUsed = [...new Set(
+      history.map(e => e.agent_id).filter(Boolean)
+    )].slice(0, 4)
+
+    // Last assistant message summary
+    const lastAssistant = [...history].reverse().find(e => e.role === 'assistant' && e.message)
+    const last_summary = lastAssistant ? String(lastAssistant.message).slice(0, 200) : ''
+
+    const ctx = {
+      updated_at: new Date().toISOString(),
+      topics,
+      agents: agentsUsed.length ? agentsUsed : [agentId],
+      last_summary,
+    }
+    safeStorageSet('mammoth_session_context_v1', JSON.stringify(ctx))
+  } catch { /* no-op */ }
+}
 export default function ChatPage({ setPage }) {
   const [history, setHistory] = useState([])
   const [input, setInput] = useState('')
@@ -413,6 +591,7 @@ export default function ChatPage({ setPage }) {
   const [meta, setMeta] = useState(null)
   const [error, setError] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [streamStatus, setStreamStatus] = useState('idle')
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState(-1)
   const [quickActionsOpen, setQuickActionsOpen] = useState(false)
   const [taskCards, setTaskCards] = useState(() => loadTaskCards())
@@ -431,11 +610,26 @@ export default function ChatPage({ setPage }) {
   const [activeThreadId, setActiveThreadId] = useState(null)
   const [threadSidebarOpen, setThreadSidebarOpen] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState([])
+  const [successToast, setSuccessToast] = useState(null)
   const threadSidebarRef = useRef(null)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
+  const toastTimerRef = useRef(null)
+  const historySnapshotRef = useRef([])
   const { user } = useAuth()
   const scopeUserId = user?.id || 'local'
+
+  const publishSuccessToast = useCallback((payload) => {
+    if (!payload) return
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+    }
+    setSuccessToast(payload)
+    toastTimerRef.current = setTimeout(() => {
+      setSuccessToast(null)
+      toastTimerRef.current = null
+    }, 4800)
+  }, [])
 
   const refreshOps = async () => {
     try {
@@ -460,7 +654,7 @@ export default function ChatPage({ setPage }) {
   useEffect(() => {
     let stored = null
     try {
-      stored = typeof window !== 'undefined' ? JSON.parse(window.localStorage.getItem(`mammoth_chat_history:${scopeUserId}`) || 'null') : null
+      stored = typeof window !== 'undefined' ? JSON.parse(safeStorageGet(`mammoth_chat_history:${scopeUserId}`, 'null') || 'null') : null
     } catch {
       stored = null
     }
@@ -504,9 +698,9 @@ export default function ChatPage({ setPage }) {
   useEffect(() => {
     if (typeof window === 'undefined') return
     if (history.length > 0) {
-      window.localStorage.setItem(`mammoth_chat_history:${scopeUserId}`, JSON.stringify(history.slice(-50)))
+      safeStorageSet(`mammoth_chat_history:${scopeUserId}`, JSON.stringify(history.slice(-50)))
     } else {
-      window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
+      safeStorageRemove(`mammoth_chat_history:${scopeUserId}`)
     }
   }, [history, scopeUserId])
 
@@ -523,6 +717,12 @@ export default function ChatPage({ setPage }) {
 
   useEffect(() => () => {
     streamControllerRef.current?.abort?.()
+  }, [])
+
+  useEffect(() => () => {
+    if (toastTimerRef.current) {
+      clearTimeout(toastTimerRef.current)
+    }
   }, [])
 
   useEffect(() => {
@@ -719,7 +919,19 @@ export default function ChatPage({ setPage }) {
           setThoughtSteps(payload.thought_steps)
         }
         if (payload.chat_history) {
-          setHistory(Array.isArray(payload.chat_history) ? payload.chat_history : [])
+          const nextHistory = Array.isArray(payload.chat_history) ? payload.chat_history : []
+          setHistory(nextHistory)
+          const lastAssistant = [...nextHistory].reverse().find((entry) => entry.role === 'assistant')
+          if (lastAssistant) {
+            const derived = deriveSuccessDetailsFromMessage(lastAssistant.message, 'Agent run finished.')
+            publishSuccessToast(
+              buildSuccessToast({
+                agentId: payload.agent_id || lastAssistant.agent_id || effectiveAgentId,
+                keyResult: derived.keyResult,
+                nextAction: derived.nextAction,
+              }),
+            )
+          }
         } else if (Array.isArray(payload.guide_steps) && payload.guide_steps.length) {
           // Inject guide_steps into the placeholder bubble if history not replaced
           setHistory((prev) => {
@@ -828,6 +1040,13 @@ export default function ChatPage({ setPage }) {
             model: 'plan-execute',
             evidence_items: evidenceItems,
           })
+          publishSuccessToast(
+            buildSuccessToast({
+              agentId: 'orchestrator',
+              keyResult: summary,
+              nextAction: result?.next_action || (result?.progress?.pending_approval ? 'Review pending approvals in Agent Console.' : 'Start execution or refine the plan.'),
+            }),
+          )
           saveTaskCardFromEntry(
             { agent_id: 'orchestrator', message: summary, task_id: result.plan_id || '', evidence_items: evidenceItems },
             {
@@ -870,6 +1089,7 @@ export default function ChatPage({ setPage }) {
     const effectiveAgentId = overrideAgentId || agentId
     setBusy(true)
     setStreaming(true)
+    setStreamStatus(effectiveAgentId === 'coding_agent' ? 'patching' : effectiveAgentId === 'reasoning_agent' ? 'reasoning' : 'thinking')
     setError('')
     if (!override) setInput('')
     setAttachedFiles([])
@@ -941,6 +1161,7 @@ export default function ChatPage({ setPage }) {
     } finally {
       setBusy(false)
       setStreaming(false)
+      setStreamStatus('idle')
       streamControllerRef.current = null
       await refreshOps()
     }
@@ -962,9 +1183,7 @@ export default function ChatPage({ setPage }) {
         setError('')
         setExpandedThoughtIndex(-1)
         setAttachedFiles([])
-        if (typeof window !== 'undefined') {
-          window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
-        }
+        safeStorageRemove(`mammoth_chat_history:${scopeUserId}`)
         // Refresh sidebar
         threadSidebarRef.current?.reload?.()
       }
@@ -998,9 +1217,7 @@ export default function ChatPage({ setPage }) {
     } catch (e) {
       console.warn('Failed to clear chat history on backend:', e)
     }
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(`mammoth_chat_history:${scopeUserId}`)
-    }
+    safeStorageRemove(`mammoth_chat_history:${scopeUserId}`)
     setHistory([])
     setThoughtSteps([])
     setMeta(null)
@@ -1019,6 +1236,17 @@ export default function ChatPage({ setPage }) {
 
   return (
     <div className="page-enter" style={{ padding: 24, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+      {successToast && (
+        <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 70, maxWidth: 420, borderRadius: 12, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(6,25,15,0.95)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', padding: '10px 12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#86efac', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>
+            <Check size={14} />
+            Run complete
+          </div>
+          <div style={{ fontSize: '0.84rem', color: 'var(--txt-pri)', fontWeight: 700, marginBottom: 4 }}>{successToast.title}</div>
+          <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)', lineHeight: 1.5, marginBottom: 4 }}>Result: {successToast.keyResult}</div>
+          <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', lineHeight: 1.4 }}>Next: {successToast.nextAction}</div>
+        </div>
+      )}
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1175,9 +1403,10 @@ export default function ChatPage({ setPage }) {
                 onOpenHandoff={() => setPage?.('agent')}
               />
             ))}
-            {busy && !streaming && (
-              <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', fontSize: '0.8rem', color: 'var(--txt-mut)' }}>
-                MammothOS is checking the herd…
+            {busy && (
+              <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.18)', fontSize: '0.8rem', color: 'var(--txt-sec)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 12px rgba(77,166,255,0.6)' }} />
+                {streaming ? `MammothOS is ${streamStatus}…` : 'MammothOS is checking the herd…'}
               </div>
             )}
             <div ref={bottomRef} />

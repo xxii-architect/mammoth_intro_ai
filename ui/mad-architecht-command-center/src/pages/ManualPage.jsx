@@ -25,6 +25,8 @@ const liveNow = [
   'ATLAS Tutor now has clear Assistant / Tutor / Build lanes, Monaco lesson editing, and expandable guide cards.',
   'Learning materials can be uploaded into the ATLAS library for lesson-side context and reuse.',
   'The FAB can now be hidden and restored without losing its context or history.',
+  'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
+  'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',
 ]
 
 const surfaceMap = [
@@ -139,13 +141,15 @@ const qaChecklist = [
   'Open Landing, Manual, and Command Library first to confirm product positioning and surface naming are current.',
   'Run one Mammoth Mind /guide request and verify expandable guide steps appear.',
   'Run one ATLAS lesson loop: lesson start -> exercise -> submit -> adaptive feedback -> recap or quiz.',
+  'Check /api/health and confirm health_gate is present and passed before release actions.',
+  'Check /api/release-readiness and confirm release_gate and eval_gate are both passed.',
   'Upload one chat attachment or ATLAS material and confirm it appears in the right library.',
   'Capture final artifacts or tasks in Artifacts / Task Inbox so test sessions stay replayable.',
 ]
 
 export default function ManualPage({ setPage }) {
   return (
-    <div className="page-enter" style={{ padding: 24, maxWidth: 1180, margin: '0 auto 80px' }}>
+    <div className="page-enter page-shell" style={{ maxWidth: 1180 }}>
       <h1 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
         <BookOpen size={20} color="var(--cyan)" /> MammothOS Manual
       </h1>
@@ -161,7 +165,7 @@ export default function ManualPage({ setPage }) {
           This manual is the clean operating map for MammothOS right now: what is live, which surface to use, how repo context behaves,
           and how to test the platform without getting lost in old prototype-era noise.
         </div>
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+        <div className="manual-grid-wide" style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
           {liveNow.map((item) => (
             <div key={item} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.02)', color: 'var(--txt-sec)', fontSize: '0.8rem', lineHeight: 1.55, display: 'flex', gap: 8 }}>
               <span style={{ color: 'var(--cyan)' }}>✓</span>
@@ -175,7 +179,7 @@ export default function ManualPage({ setPage }) {
         <h2 style={{ fontSize: '0.96rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <CheckCircle2 size={16} color="var(--violet)" /> Choose the right surface
         </h2>
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))' }}>
+        <div className="manual-grid-wide" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           {surfaceMap.map((item) => {
             const Icon = item.icon
             return (
@@ -199,7 +203,7 @@ export default function ManualPage({ setPage }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+      <div className="manual-grid-mid" style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         <div className="glass-card-solid" style={sectionStyle}>
           <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <GraduationCap size={16} color="var(--violet)" /> ATLAS lane guide
@@ -233,7 +237,7 @@ export default function ManualPage({ setPage }) {
         <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
           <MessageSquare size={16} color="var(--cyan)" /> Prompt patterns that actually work
         </h2>
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+        <div className="manual-grid-wide" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           {promptPatterns.map((item) => (
             <div key={item.title} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
               <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700, marginBottom: 4 }}>{item.title}</div>
@@ -244,7 +248,7 @@ export default function ManualPage({ setPage }) {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+      <div className="manual-grid-mid" style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         <div className="glass-card-solid" style={sectionStyle}>
           <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
             <ShieldCheck size={16} color="var(--violet)" /> Safety and trust defaults

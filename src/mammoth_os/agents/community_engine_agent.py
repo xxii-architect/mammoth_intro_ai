@@ -1,3 +1,7 @@
+import logging
+
+logger = logging.getLogger(__name__)
+
 """
 Mammoth OS — CommunityEngineAgent
 Generates community challenges, shared missions, group prompts, and
@@ -8,6 +12,12 @@ from typing import Any, Dict, List
 
 from .base_agent import BaseAgent
 
+
+COMMUNITY_SYSTEM = """You write True XXII Supply community challenges. Boise, Idaho. Rugged, tactical, real skills.
+
+Output ONLY this JSON structure — zero prose, zero explanation before or after:
+
+{"challenge":"<full challenge — specific, rugged, actionable>","prompt":"<punchy CTA for community post>","social_callout":"<1-2 sentence social hook>"}"""
 
 class CommunityEngineAgent(BaseAgent):
     """
@@ -65,8 +75,8 @@ class CommunityEngineAgent(BaseAgent):
             constraints = []
             approval_contract = {}
 
-        placeholder_reason = self._placeholder_reason(theme, team_context, learner_context)
-        if placeholder_reason:
+        missing_context_reason = self._missing_context_reason(theme, team_context, learner_context)
+        if missing_context_reason:
             return {
                 "agent": "community_engine",
                 "status": "needs_context",
@@ -112,13 +122,20 @@ class CommunityEngineAgent(BaseAgent):
                     "checkpoint_count": 0,
                     "signal_confidence": 0.45,
                 },
-                "publish_preview": {"title": "Context required", "summary": placeholder_reason, "prompt": "", "reward": {}, "social_callout": ""},
+                "publish_preview": {"title": "Context required", "summary": missing_context_reason, "prompt": "", "reward": {}, "social_callout": ""},
             }
 
         challenge = self._generate_challenge(theme, difficulty, team_context, learner_context, engagement_goal)
-        prompt = self._generate_prompt(theme, team_context, learner_context)
+        _llm_out = {}
+        try:
+            _llm_out = self._run_async(self._llm_generate(theme, difficulty, mode, audience, team_context, learner_context, engagement_goal))
+        except Exception as exc:
+            logger.warning("CommunityEngineAgent LLM generate failed: %s", exc)
+        if _llm_out.get("challenge"):
+            challenge = _llm_out["challenge"]
+        prompt = _llm_out.get("prompt") or self._generate_prompt(theme, team_context, learner_context)
         reward = self._generate_reward(difficulty, group_size, learner_signals)
-        social = self._generate_social_callout(group_size, team_context)
+        social = _llm_out.get("social_callout") or self._generate_social_callout(group_size, team_context)
         checkpoints = self._build_checkpoints(theme, difficulty, group_size, engagement_goal)
         context_summary = self._build_context_summary(theme, difficulty, team_context, learner_context, learner_signals)
         next_actions = self._build_next_actions(theme, difficulty, group_size, learner_signals)
@@ -184,11 +201,64 @@ class CommunityEngineAgent(BaseAgent):
             },
         }
 
+
+    @staticmethod
+    def _run_async(coro):
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(coro)
+        else:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                return pool.submit(asyncio.run, coro).result()
+
+    async def _llm_generate(self, theme, difficulty, mode, audience, team_context, learner_context, engagement_goal) -> dict:
+        import json as _j
+        from mammoth_os.llm_client import get_llm_client
+        parts = [f"Generate a {difficulty} {theme} challenge for {audience}."]
+        if team_context:
+            parts.append(f"Team: {team_context}.")
+        if engagement_goal:
+            parts.append(f"Goal: {engagement_goal}.")
+        if learner_context:
+            parts.append(f"Context: {learner_context}.")
+        ctx = " ".join(parts)
+        raw = await get_llm_client().generate(
+            ctx,
+            system_prompt=COMMUNITY_SYSTEM,
+            max_tokens=1500,
+            temperature=0.6,
+        )
+        import re as _re
+        try:
+            parsed = _j.loads(raw) if isinstance(raw, str) else raw
+            if isinstance(parsed, dict) and parsed:
+                return parsed
+        except Exception as exc:
+            logger.warning("CommunityEngineAgent JSON outer parse failed: %s", exc)
+        if isinstance(raw, str):
+            m = _re.search(r'\{[^{}]*"challenge"[^{}]*\}', raw, _re.DOTALL)
+            if m:
+                try:
+                    return _j.loads(m.group())
+                except Exception as exc:
+                    logger.warning("CommunityEngineAgent JSON regex parse failed: %s", exc)
+            out = {}
+            for k in ["challenge", "prompt", "social_callout"]:
+                km = _re.search('"' + k + r'"\s*:\s*"(.*?)(?:"|$)', raw, _re.DOTALL)
+                if km:
+                    out[k] = km.group(1).strip()
+            if out:
+                return out
+        return {}
+
     def _normalize_theme(self, value: Any) -> str:
         theme = str(value or "mindset").strip().lower()
         if theme in {"fieldcraft", "mindset", "wildlife", "ai_learning"}:
             return theme
-        if self._is_placeholder(theme):
+        if self._is_standin(theme):
             return "unknown"
         return "mindset"
 
@@ -215,7 +285,7 @@ class CommunityEngineAgent(BaseAgent):
             return "ai_learning"
         if "field" in lowered or "outdoor" in lowered or "survival" in lowered:
             return "fieldcraft"
-        if self._is_placeholder(lowered.strip()):
+        if self._is_standin(lowered.strip()):
             return "unknown"
         return "mindset"
 
@@ -284,15 +354,15 @@ class CommunityEngineAgent(BaseAgent):
             "operator_note": "Preview the prompt and reward block before posting if the challenge is public-facing.",
         }
 
-    def _placeholder_reason(self, theme: str, team_context: str | None, learner_context: str | None) -> str | None:
+    def _missing_context_reason(self, theme: str, team_context: str | None, learner_context: str | None) -> str | None:
         anchors = [theme, team_context, learner_context]
         populated = [str(anchor).strip() for anchor in anchors if str(anchor or "").strip()]
-        if populated and all(self._is_placeholder(value) for value in populated):
-            return "placeholder target provided"
+        if populated and all(self._is_standin(value) for value in populated):
+            return "stand-in target provided"
         return None
 
-    def _is_placeholder(self, value: str) -> bool:
-        return value.strip().lower() in {"unknown", "tbd", "todo", "n/a", "none", "placeholder"}
+    def _is_standin(self, value: str) -> bool:
+        return value.strip().lower() in {"unknown", "tbd", "n/a", "none"}
 
     def _generate_challenge(
         self,

@@ -62,7 +62,7 @@ const NotesList: React.FC<{ notes: NoteRecord[]; onDelete: (id: string) => void;
       {notes.map((note) => (
         <li key={note.id} style={noteCardStyle}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
-            <button
+            <button type="button"
               onClick={() => setExpandedId((current) => current === note.id ? null : note.id)}
               style={{ flex: 1, minWidth: 0, background: 'transparent', border: 0, textAlign: 'left', padding: 0, cursor: 'pointer' }}
             >

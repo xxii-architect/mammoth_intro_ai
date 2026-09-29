@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Editor } from '@monaco-editor/react'
-import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X } from 'lucide-react'
+import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
 import MammothDiffViewer from '../components/MammothDiffViewer'
 import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
 import GuideStepPanel from '../components/GuideStepPanel'
+import { TrustBadgeRow } from '../components/TrustSurfaces'
+import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 import { useInterval } from '../hooks/useApi'
 
 
@@ -46,6 +48,28 @@ function inferAtlasLanguage(exercise, code = '') {
   if (sample.includes('function ') || sample.includes('const ')) return 'javascript'
   if (sample.includes('# ') || sample.includes('## ')) return 'markdown'
   return 'python'
+}
+
+function getBillingWarningState(billingUsage = null) {
+  const warningLevel = String(billingUsage?.warning_level || 'normal')
+  const percentUsed = Number.isFinite(Number(billingUsage?.usage?.percent_used))
+    ? Math.round(Number(billingUsage.usage.percent_used))
+    : 0
+  const show = ['elevated', 'critical', 'blocked'].includes(warningLevel)
+  const color = warningLevel === 'blocked'
+    ? '#ef4444'
+    : warningLevel === 'critical'
+      ? '#f97316'
+      : '#f59e0b'
+  const text = String(billingUsage?.warning_message || '').trim() || 'Usage is trending high for your current plan.'
+  return { warningLevel, show, color, text, percentUsed }
+}
+
+function normalizeConfidence(value, fallback = 0.74) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return fallback
+  if (numeric > 1) return Math.max(0, Math.min(1, numeric / 100))
+  return Math.max(0, Math.min(1, numeric))
 }
 
 function MonacoReadOnlyBlock({ value, language = 'plaintext', height = 220 }) {
@@ -98,8 +122,25 @@ export default function AtlasTutorPage() {
   const [atlasLibraryOpen, setAtlasLibraryOpen] = useState(false)
   const [attachedMaterials, setAttachedMaterials] = useState([])
   const [showRightPanel, setShowRightPanel] = useState(() => typeof window !== 'undefined' ? window.innerWidth >= 768 : true)
+  const [billingUsage, setBillingUsage] = useState(null)
+  const [journeyStageOverride, setJourneyStageOverride] = useState(null)
+  const [showAdvancedTools, setShowAdvancedTools] = useState(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.tutor.showAdvancedTools')
+      return stored === null ? false : stored === 'true'
+    } catch {
+      return false
+    }
+  })
   const chatBottomRef = useRef(null)
   const onboardingSeededRef = useRef(false)
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem('atlas.tutor.showAdvancedTools')
+      if (stored !== null) setShowAdvancedTools(stored === 'true')
+    } catch (_) {}
+  }, [])
 
   useEffect(() => {
     const onResize = () => {
@@ -113,6 +154,12 @@ export default function AtlasTutorPage() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('atlas.tutor.showAdvancedTools', String(showAdvancedTools))
+    } catch (_) {}
+  }, [showAdvancedTools])
 
   const loadState = async () => {
     try {
@@ -133,6 +180,7 @@ export default function AtlasTutorPage() {
       setModels(m)
       if (m?.active_model) setChatModel(m.active_model)
     }).catch(() => {})
+    api('/billing/usage/current').then(setBillingUsage).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -445,6 +493,62 @@ export default function AtlasTutorPage() {
   const starterFiles = exercise?.starter_files && typeof exercise.starter_files === 'object' ? exercise.starter_files : {}
   const primaryStarterFile = Object.keys(starterFiles)[0] || ''
   const exerciseLanguage = inferAtlasLanguage(exercise, code)
+  const billingWarning = getBillingWarningState(billingUsage)
+  const outcomeSummary = useMemo(() => {
+    const feedback = result?.adaptive_feedback || learnerContext || {}
+    const mastery = Number.isFinite(Number(feedback.mastery))
+      ? Number(feedback.mastery)
+      : Number.isFinite(Number(feedback.score))
+        ? Number(feedback.score)
+        : Number.isFinite(Number(feedback.progress))
+          ? Number(feedback.progress)
+          : 0
+    const recommendedDifficulty = feedback.recommended_difficulty || learnerContext?.recommended_difficulty || 'steady'
+    const focusAreas = Array.isArray(feedback.focus_areas)
+      ? feedback.focus_areas
+      : Array.isArray(learnerContext?.weakest_concepts)
+        ? learnerContext.weakest_concepts.slice(0, 3).map((item) => item.concept || item.name || item.label).filter(Boolean)
+        : []
+    return { mastery, recommendedDifficulty, focusAreas }
+  }, [result, learnerContext])
+
+  const confidenceSummary = useMemo(() => {
+    const rawConfidence = Number(result?.confidence ?? result?.confidence_score ?? result?.score ?? learnerContext?.confidence ?? learnerContext?.mastery ?? lastSubmission?.score ?? 0)
+    const confidence = Number.isFinite(rawConfidence)
+      ? Math.max(0, Math.min(100, rawConfidence > 1 ? rawConfidence : rawConfidence * 100))
+      : 0
+    const focusAreas = Array.isArray(result?.focus_areas)
+      ? result.focus_areas
+      : Array.isArray(learnerContext?.weakest_concepts)
+        ? learnerContext.weakest_concepts.slice(0, 3).map((item) => item.concept || item.name || item.label).filter(Boolean)
+        : []
+    const nextStep = result?.next_step || result?.recommendation || result?.suggested_next_step || learnerContext?.recommended_difficulty
+      ? `Continue with ${learnerContext?.recommended_difficulty || result?.recommended_difficulty || 'steady'} pacing.`
+      : 'Keep the current learning loop going.'
+    return {
+      confidence: Math.round(confidence),
+      focusAreas,
+      nextStep,
+      status: confidence >= 80 ? 'High confidence' : confidence >= 55 ? 'Moderate confidence' : 'Needs reinforcement',
+    }
+  }, [result, learnerContext, lastSubmission])
+
+  const inferredJourneyStage = useMemo(() => {
+    if (!exercise) return 'start'
+    if (studyAid?.type === 'review' || studyAid?.type === 'recap') return 'reflect'
+    if (result?.passed || result?.adaptive_feedback) return 'check'
+    if (String(code || '').trim() || chatHistory.length > 0) return 'practice'
+    return 'start'
+  }, [exercise, studyAid?.type, result?.passed, result?.adaptive_feedback, code, chatHistory.length])
+
+  const currentJourneyStage = journeyStageOverride || inferredJourneyStage
+  const journeyProgress = {
+    start: 0.2,
+    practice: 0.45,
+    check: 0.72,
+    reflect: 0.9,
+    next: 1,
+  }[currentJourneyStage] || 0.2
 
   useEffect(() => {
     const context = {
@@ -456,7 +560,9 @@ export default function AtlasTutorPage() {
       recommended_difficulty: learnerContext?.recommended_difficulty || null,
       weakest_concepts: learnerContext?.weakest_concepts || [],
     }
-    localStorage.setItem('atlas_fab_context', JSON.stringify(context))
+    try {
+      window.localStorage.setItem('atlas_fab_context', JSON.stringify(context))
+    } catch (_) {}
   }, [
     atlasState?.current_lesson?.title,
     atlasState?.current_lesson?.lesson_title,
@@ -489,6 +595,45 @@ export default function AtlasTutorPage() {
           </div>
         )}
       </div>
+
+      {billingWarning.show && (
+        <div className="glass-card-solid" style={{ padding: '12px 14px', border: `1px solid ${billingWarning.color}55`, background: `${billingWarning.color}14` }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={15} color={billingWarning.color} />
+              <span style={{ fontSize: '0.76rem', color: billingWarning.color, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Usage warning
+              </span>
+            </div>
+            <span style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', fontFamily: 'JetBrains Mono,monospace' }}>
+              {billingWarning.percentUsed}% used
+            </span>
+          </div>
+          <p style={{ margin: '8px 0 0', color: 'var(--txt-pri)', fontSize: '0.78rem', lineHeight: 1.45 }}>{billingWarning.text}</p>
+        </div>
+      )}
+
+      {(result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
+        <div className="glass-card-solid" style={{ padding: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(0,245,212,0.8)' }}>
+          {result?.error ? (
+            <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>Tutor action failed: {result.error}</div>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)' }}>Learning outcome</div>
+                <div style={{ marginTop: 4, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>
+                  {Math.round(outcomeSummary.mastery || 0)}% mastery signal · {outcomeSummary.recommendedDifficulty} pace
+                </div>
+              </div>
+              {outcomeSummary.focusAreas.length > 0 && (
+                <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)' }}>
+                  Focus next: {outcomeSummary.focusAreas.slice(0, 2).join(' · ')}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Three-column row — fills all remaining height */}
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 16, minHeight: 0, overflow: isMobile ? 'auto' : 'hidden' }}>
@@ -686,6 +831,57 @@ export default function AtlasTutorPage() {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
         {exercise ? (
           <>
+            <TutorJourneyRail
+              currentStage={currentJourneyStage}
+              progress={journeyProgress}
+              onStageChange={setJourneyStageOverride}
+            />
+
+            <OutcomesCard
+              masteryTrend={Math.max(0, Math.min(1, outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery))}
+              timeToCompetency={Math.max(10, Math.round((lessonHistory.length + 1) * 12))}
+              retentionSignal={Math.max(0.4, Math.min(0.98, confidenceSummary.confidence / 100))}
+              lessonsCompleted={lessonHistory.length}
+              totalLessons={Math.max(totalLessons, lessonHistory.length + 1)}
+              nextMilestone={confidenceSummary.nextStep}
+            />
+
+            <div className="glass-card-solid" style={{ padding: 16, flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div>
+                  <div className="eyebrow">Learning signal</div>
+                  <div style={{ marginTop: 4, fontSize: '0.9rem', color: 'var(--txt-pri)', fontWeight: 700 }}>Confidence and next step</div>
+                </div>
+                <div style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(34,197,94,0.24)', background: 'rgba(34,197,94,0.08)', color: '#86efac', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {confidenceSummary.status}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10 }}>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Confidence</div>
+                  <div style={{ marginTop: 6, fontSize: '1.35rem', fontWeight: 800, color: 'var(--cyan)' }}>{confidenceSummary.confidence}%</div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Difficulty</div>
+                  <div style={{ marginTop: 6, fontSize: '1rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{outcomeSummary.recommendedDifficulty}</div>
+                </div>
+                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)', gridColumn: 'span 1' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Next step</div>
+                  <div style={{ marginTop: 6, fontSize: '0.75rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{confidenceSummary.nextStep}</div>
+                </div>
+              </div>
+              {confidenceSummary.focusAreas?.length ? (
+                <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'rgba(77,166,255,0.06)', border: '1px solid rgba(77,166,255,0.22)' }}>
+                  <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Focus areas</div>
+                  <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {confidenceSummary.focusAreas.map((area, index) => (
+                      <span key={`${area}-${index}`} style={{ padding: '5px 8px', borderRadius: 999, border: '1px solid rgba(77,166,255,0.18)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)', fontSize: '0.7rem' }}>{area}</span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
             <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
               <div className="eyebrow">Exercise</div>
               <h2 style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: 8 }}>{exercise.title || 'Untitled Exercise'}</h2>
@@ -741,20 +937,35 @@ export default function AtlasTutorPage() {
               </div>
             </div>
 
-            <div className="glass-card-solid" style={{ padding: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <button onClick={loadRecap} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Recap</button>
-              <button onClick={loadQuiz} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Quiz</button>
-              <button onClick={loadFlashcards} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Flashcards</button>
-              <button onClick={loadReview} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Review</button>
-              <select value={atlasPlanProfile} onChange={e => setAtlasPlanProfile(e.target.value)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
-                <option value="coding">Tutor + Coding</option>
-                <option value="balanced">Balanced</option>
-                <option value="atlas">ATLAS-first</option>
-                <option value="autonomous">Autonomous Prep</option>
-              </select>
-              <button onClick={runAtlasPlan} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Build Plan</button>
-              <button onClick={runAtlasEvals} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Run Evals</button>
-              <button onClick={regenerateExercise} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.12)', color: 'var(--violet)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>New Variant</button>
+            <div className="glass-card-solid" style={{ padding: 12, display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)' }}>Support tools</div>
+                <button
+                  onClick={() => setShowAdvancedTools(v => !v)}
+                  style={{ padding: '5px 8px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.7rem', cursor: 'pointer' }}
+                >
+                  {showAdvancedTools ? 'Hide advanced' : 'Show advanced'}
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button onClick={loadRecap} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Recap</button>
+                <button onClick={loadQuiz} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Quiz</button>
+                <button onClick={loadFlashcards} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Flashcards</button>
+                <button onClick={loadReview} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: 'pointer' }}>Review</button>
+              </div>
+              {showAdvancedTools && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <select value={atlasPlanProfile} onChange={e => setAtlasPlanProfile(e.target.value)} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
+                    <option value="coding">Tutor + Coding</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="atlas">ATLAS-first</option>
+                    <option value="autonomous">Autonomous Prep</option>
+                  </select>
+                  <button onClick={runAtlasPlan} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Build Plan</button>
+                  <button onClick={runAtlasEvals} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Run Evals</button>
+                  <button onClick={regenerateExercise} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.12)', color: 'var(--violet)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>New Variant</button>
+                </div>
+              )}
             </div>
 
             {atlasState?.active_plan && (
@@ -1037,6 +1248,27 @@ export default function AtlasTutorPage() {
                   </p>
                   <div style={{ padding: '8px 10px', borderRadius: 10, background: msg.role === 'user' ? 'rgba(77,166,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <p style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{msg.message}</p>
+                    {msg.role !== 'user' && (
+                      <TrustBadgeRow
+                        provider={String(msg.adapter || msg.provider || 'unknown')}
+                        confidence={normalizeConfidence(msg.confidence ?? msg.confidence_score)}
+                        contradictions={
+                          Array.isArray(msg.contradictions)
+                            ? msg.contradictions
+                            : Array.isArray(msg.quality_flags)
+                              ? msg.quality_flags.filter((flag) => String(flag).toLowerCase().includes('contrad'))
+                              : []
+                        }
+                        sourceCount={
+                          Array.isArray(msg.citations) ? msg.citations.length
+                            : Array.isArray(msg.sources) ? msg.sources.length
+                              : Array.isArray(msg.references) ? msg.references.length
+                                : 0
+                        }
+                        showEvidence
+                        style={{ marginTop: 6, marginBottom: 0, borderBottom: 'none', padding: '4px 0 0' }}
+                      />
+                    )}
                     {hasGuideSteps && (
                       <GuideStepPanel steps={msg.guide_steps} branch={msg.guide_branch} query={previousMessage?.message} />
                     )}

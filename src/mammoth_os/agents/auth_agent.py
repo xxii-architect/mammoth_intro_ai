@@ -92,6 +92,57 @@ class AuthAgent(BaseAgent):  # type: ignore
     async def requires_scope(self, token: str, required_scope: str) -> bool:
         return await self.check_permission(token, required_scope)
 
+    async def run(self, payload) -> dict:
+        if isinstance(payload, dict):
+            action = str(payload.get("action") or "validate").strip().lower()
+        else:
+            action = "status"
+
+        if action == "issue":
+            user_id = str(payload.get("user_id") or "").strip()
+            scopes = payload.get("scopes") or ["read"]
+            role = payload.get("role")
+            if not user_id:
+                return {"status": "needs_context", "agent": self.name, "summary": "Provide user_id to issue a token."}
+            try:
+                await self.initialize()
+                token = await self.issue_token(user_id, scopes, role=role)
+                return {"status": "ok", "agent": self.name, "action": "issue", "user_id": user_id, "token": token[:20] + "...", "summary": f"Token issued for {user_id}."}
+            except Exception as exc:
+                return {"status": "error", "agent": self.name, "error": str(exc)}
+
+        if action == "validate":
+            token = str(payload.get("token") or "").strip()
+            if not token:
+                return {"status": "needs_context", "agent": self.name, "summary": "Provide a token to validate."}
+            try:
+                await self.initialize()
+                claims = await self.validate_token(token)
+                return {"status": "ok", "agent": self.name, "action": "validate", "claims": claims, "summary": "Token is valid."}
+            except Exception as exc:
+                return {"status": "error", "agent": self.name, "action": "validate", "error": str(exc), "summary": "Token validation failed."}
+
+        if action == "check_permission":
+            token = str(payload.get("token") or "").strip()
+            scope_required = str(payload.get("scope") or "read").strip()
+            try:
+                await self.initialize()
+                allowed = await self.check_permission(token, scope_required)
+                return {"status": "ok", "agent": self.name, "action": "check_permission", "allowed": allowed, "scope": scope_required, "summary": f"Permission {'granted' if allowed else 'denied'} for scope {scope_required}."}
+            except Exception as exc:
+                return {"status": "error", "agent": self.name, "error": str(exc)}
+
+        return {
+            "status": "ok",
+            "agent": self.name,
+            "action": "status",
+            "algorithm": self._algorithm,
+            "ttl_seconds": self._ttl_seconds,
+            "active_sessions": len(self._sessions),
+            "summary": "AuthAgent is active.",
+            "quality_flags": ["jwt_auth", "scope_enforcement", "session_tracking"],
+        }
+
     async def process(self, event: "MammothEvent") -> None:  # type: ignore
         if event is None:
             return None
