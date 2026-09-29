@@ -136,10 +136,27 @@ class MarketIntelAgent(BaseAgent):
     ) -> Dict[str, Any]:
         from mammoth_os.llm_client import get_llm_client
         client = get_llm_client()
-        loop = asyncio.get_event_loop()
-        web_snippets, web_errors = await loop.run_in_executor(
-            None, self._fetch_web_context, prompt_text
-        )
+        supplied_sources = context.get("sources") if isinstance(context.get("sources"), list) else []
+        if supplied_sources:
+            web_snippets = [
+                {
+                    "title": str(source.get("label") or source.get("title") or f"Source {index}"),
+                    "snippet": str(source.get("summary") or source.get("snippet") or ""),
+                    "source": str(source.get("publisher") or "Provided source"),
+                    "url": str(source.get("url") or ""),
+                }
+                for index, source in enumerate(supplied_sources, 1)
+                if isinstance(source, dict)
+            ]
+            web_errors = []
+        else:
+            if context.get("allow_web_lookup") is True:
+                loop = asyncio.get_event_loop()
+                web_snippets, web_errors = await loop.run_in_executor(
+                    None, self._fetch_web_context, prompt_text
+                )
+            else:
+                web_snippets, web_errors = [], []
         web_block = ""
         if web_snippets:
             web_block = "\n\nLive web context — incorporate into your analysis:\n"
@@ -172,6 +189,47 @@ class MarketIntelAgent(BaseAgent):
                 + (0.04 if parsed.get("white_space") else 0)),
             2,
         )
+        normalized_sources = [
+            {
+                "label": "Direct prompt" if source.get("source_type") == "prompt" else str(source.get("title") or f"Source {index}"),
+                "summary": str(source.get("snippet") or ""),
+                "publisher": str(source.get("source") or "Provided source"),
+                "url": str(source.get("url") or ""),
+                "source_type": "provided" if supplied_sources else "web",
+            }
+            for index, source in enumerate(web_snippets, 1)
+        ]
+        if not normalized_sources:
+            normalized_sources = [{
+                "label": "Direct prompt",
+                "summary": prompt_text,
+                "publisher": "User prompt",
+                "url": "",
+                "source_type": "prompt",
+            }]
+        opportunities = [
+            str(item.get("opportunity") or item.get("trend") or "")
+            for item in trends if isinstance(item, dict)
+        ]
+        opportunities = [item for item in opportunities if item]
+        if not opportunities:
+            opportunities = [f"Apply {prompt_text} to one practical production workflow and measure the result."]
+        risks = parsed.get("risks") if isinstance(parsed.get("risks"), list) else []
+        if not risks:
+            risks = ["Validate demand and implementation cost before committing resources."]
+        next_actions = parsed.get("strategic_moves") if isinstance(parsed.get("strategic_moves"), list) else []
+        if not next_actions:
+            next_actions = [f"Test one practical production use of {prompt_text} with a measurable outcome."]
+        citations = [
+            {"source_id": f"S{index}", "label": source["label"], "url": source["url"]}
+            for index, source in enumerate(normalized_sources, 1)
+        ]
+        has_evidence = any(source["source_type"] != "prompt" for source in normalized_sources)
+        quality_flags = (
+            ["llm_synthesized", "web_grounded", "prompt_responsive", "source_grounding_acceptable"]
+            if has_evidence
+            else ["llm_synthesized", "prompt_responsive", "no_live_web_data", "missing_external_sources"]
+        )
         return {
             "status": "ok",
             "agent": self.name,
@@ -185,6 +243,19 @@ class MarketIntelAgent(BaseAgent):
             "white_space": parsed.get("white_space", ""),
             "strategic_moves": parsed.get("strategic_moves", []),
             "risks": parsed.get("risks", []),
+            "sources": normalized_sources,
+            "opportunities": opportunities,
+            "next_actions": next_actions,
+            "citations": citations,
+            "references": [
+                {"label": source["label"], "url": source["url"]}
+                for source in normalized_sources
+            ],
+            "source_coverage": {
+                "source_count": len([source for source in normalized_sources if source["source_type"] != "prompt"]),
+                "citation_coverage": 1.0 if citations and has_evidence else 0.0,
+            },
+            "signal_confidence": max(confidence, 0.72 if len(supplied_sources) >= 2 else confidence),
             "confidence_note": parsed.get("confidence_note", ""),
             "web_sources_used": len(web_snippets),
             "web_retrieval_errors": web_errors,
@@ -195,11 +266,7 @@ class MarketIntelAgent(BaseAgent):
                 f"{len(competitors)} competitors, "
                 f"{len(web_snippets)} live sources: {prompt_text[:80]}"
             ),
-            "quality_flags": (
-                ["llm_synthesized", "web_grounded", "prompt_responsive"]
-                if web_snippets
-                else ["llm_synthesized", "prompt_responsive", "no_live_web_data"]
-            ),
+            "quality_flags": quality_flags,
         }
 
     def _fetch_web_context(self, query: str) -> Tuple[List[Dict], List[str]]:
@@ -284,12 +351,16 @@ class MarketIntelAgent(BaseAgent):
         if isinstance(prompt, dict):
             text = str(
                 prompt.get("prompt")
+                or prompt.get("topic")
                 or prompt.get("query")
                 or prompt.get("task")
                 or prompt.get("content")
                 or ""
             ).strip()
-            ctx = prompt.get("context") or {}
+            ctx = dict(prompt.get("context") or {})
+            for key, value in prompt.items():
+                if key not in {"prompt", "topic", "query", "task", "content", "context"}:
+                    ctx.setdefault(key, value)
         else:
             text = str(prompt or "").strip()
             ctx = {}

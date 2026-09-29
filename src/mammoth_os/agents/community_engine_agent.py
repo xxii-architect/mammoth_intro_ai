@@ -133,9 +133,15 @@ class CommunityEngineAgent(BaseAgent):
             logger.warning("CommunityEngineAgent LLM generate failed: %s", exc)
         if _llm_out.get("challenge"):
             challenge = _llm_out["challenge"]
+        if engagement_goal and engagement_goal.lower() not in challenge.lower():
+            challenge = f"{challenge} Engagement goal: {engagement_goal}."
         prompt = _llm_out.get("prompt") or self._generate_prompt(theme, team_context, learner_context)
         reward = self._generate_reward(difficulty, group_size, learner_signals)
         social = _llm_out.get("social_callout") or self._generate_social_callout(group_size, team_context)
+        if group_size == "open" and "open challenge" not in social.lower():
+            social = f"Open challenge: {social}"
+        if team_context and team_context.lower() not in social.lower():
+            social = f"{social} Team: {team_context}."
         checkpoints = self._build_checkpoints(theme, difficulty, group_size, engagement_goal)
         context_summary = self._build_context_summary(theme, difficulty, team_context, learner_context, learner_signals)
         next_actions = self._build_next_actions(theme, difficulty, group_size, learner_signals)

@@ -13,6 +13,7 @@ import asyncio
 import concurrent.futures
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Union
 
@@ -114,6 +115,17 @@ class FieldOpsAgent(BaseAgent):
         )
         parsed = self._extract_json(raw)
         priorities = parsed.get("priorities", [])
+        topic = str(context.get("topic") or self._extract_topic(prompt_text))
+        environment = str(context.get("environment") or "unspecified")
+        difficulty = str(context.get("difficulty") or self._extract_difficulty(prompt_text) or "medium").lower()
+        hazards = context.get("hazards") if isinstance(context.get("hazards"), list) else []
+        risk_level = "high" if difficulty == "hard" or len(hazards) >= 2 else "medium" if hazards else "low"
+        equipment = ["map", "compass"] if "navigat" in topic.lower() else []
+        safety_notes = [f"Hazard control: {hazard}." for hazard in hazards]
+        abort_conditions = [f"Abort if {hazard} makes the route unsafe." for hazard in hazards]
+        if risk_level == "high" and not abort_conditions:
+            abort_conditions.append("Abort if conditions exceed training or visibility limits.")
+        mission = f"Complete a {difficulty} {topic} mission in {environment}. Confirm a bearing and report route status."
         confidence = round(
             min(0.95, 0.65 + len(priorities) * 0.06 + (0.05 if parsed.get("immediate_win") else 0)),
             2,
@@ -124,6 +136,18 @@ class FieldOpsAgent(BaseAgent):
             "mode": "business_ops_intel",
             "artifact_type": "field_ops",
             "prompt": prompt_text,
+            "topic": topic,
+            "environment": environment,
+            "difficulty": difficulty,
+            "risk_level": risk_level,
+            "mission": mission,
+            "checklist": {"selected_landmark": False, "bearing_confirmed": False, "route_checked": False},
+            "completion_criteria": ["Bearing recorded", "Landmark identified", "Route status reported"],
+            "equipment": equipment,
+            "safety_notes": safety_notes,
+            "abort_conditions": abort_conditions,
+            "approval_gate": {"requires_review": risk_level == "high", "reason": "high-risk field mission" if risk_level == "high" else "standard field mission"},
+            "next_actions": ["Review hazards", "Confirm equipment", "Set an abort point"],
             "situation_summary": parsed.get("situation_summary", ""),
             "priorities": priorities,
             "immediate_win": parsed.get("immediate_win", ""),
@@ -144,16 +168,37 @@ class FieldOpsAgent(BaseAgent):
         if isinstance(prompt, dict):
             text = str(
                 prompt.get("prompt")
+                or prompt.get("topic")
                 or prompt.get("task")
                 or prompt.get("query")
                 or prompt.get("content")
                 or ""
             ).strip()
-            ctx = prompt.get("context") or {}
+            ctx = dict(prompt.get("context") or {})
+            for key, value in prompt.items():
+                if key not in {"prompt", "topic", "task", "query", "content", "context"}:
+                    ctx.setdefault(key, value)
         else:
             text = str(prompt or "").strip()
-            ctx = {}
+            ctx = {
+                "topic": FieldOpsAgent._extract_topic(text),
+                "difficulty": FieldOpsAgent._extract_difficulty(text) or "medium",
+            }
+            environment = re.search(r"\bin\s+([a-z][a-z -]+?)(?:\s+conditions?)?$", text, re.IGNORECASE)
+            if environment:
+                ctx["environment"] = environment.group(1).strip()
         return text, ctx
+
+    @staticmethod
+    def _extract_topic(text: str) -> str:
+        cleaned = re.sub(r"\b(easy|medium|hard)\b", "", text, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\bin\s+[a-z][a-z -]+?(?:\s+conditions?)?$", "", cleaned, flags=re.IGNORECASE)
+        return cleaned.strip() or "field operations"
+
+    @staticmethod
+    def _extract_difficulty(text: str) -> str | None:
+        match = re.search(r"\b(easy|medium|hard)\b", text, re.IGNORECASE)
+        return match.group(1).lower() if match else None
 
     @staticmethod
     def _extract_json(raw: str) -> Dict[str, Any]:

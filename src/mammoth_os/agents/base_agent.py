@@ -12,8 +12,9 @@ class BaseAgent:
 
     name: str = "BaseAgent"
 
-    def __init__(self, router: Any = None):
+    def __init__(self, router: Any = None, user_id: str | None = None):
         self.router = router
+        self.user_id = user_id
 
     # ---------------------------------------------------------
     # Modern async run()

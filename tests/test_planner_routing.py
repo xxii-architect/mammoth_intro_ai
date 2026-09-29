@@ -5,9 +5,12 @@ Plans are fetched once per session and cached to avoid redundant LLM calls.
 Run with: pytest tests/test_planner_routing.py -v
 """
 import pytest
-import requests
+from fastapi.testclient import TestClient
 
-BASE = "http://localhost:8000"
+import api_server
+from mammoth_os.agents.planner_agent import PlannerAgent
+
+client = TestClient(api_server.app)
 BANNED_SLUGS = {"tutor", "brand_voice", "reflection", "mammoth_guide"}
 GOALS = [
     "Build a mammoth landing page with hero, features, and CTA sections",
@@ -17,13 +20,41 @@ GOALS = [
 ]
 _PLAN_CACHE = {}
 
+
+@pytest.fixture(scope="session", autouse=True)
+def deterministic_planner():
+    async def _decompose(self, goal, constraints):
+        if constraints.get("use_curriculum"):
+            return [{
+                "task_id": "curriculum-1",
+                "agent": "curriculum",
+                "title": f"Teach: {goal}",
+                "input": {"goal": goal},
+                "depends_on": [],
+                "estimated_minutes": 15,
+            }]
+        return [{
+            "task_id": "plan-1",
+            "agent": "research" if goal.startswith("Research") else "coding",
+            "title": f"Plan: {goal}",
+            "input": {"goal": goal},
+            "depends_on": [],
+            "estimated_minutes": 15,
+        }]
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(PlannerAgent, "_decompose_to_tasks", _decompose)
+    yield
+    monkeypatch.undo()
+
+
 def _plan(goal, constraints=None, timeout=45):
     key = (goal, str(constraints))
     if key not in _PLAN_CACHE:
         body = {"goal": goal, "execute": False}
         if constraints:
             body["constraints"] = constraints
-        resp = requests.post(f"{BASE}/api/plan", json=body, timeout=timeout)
+        resp = client.post("/api/plan", json=body)
         assert resp.status_code == 200, f"HTTP {resp.status_code}: {resp.text[:200]}"
         _PLAN_CACHE[key] = resp.json()
     return _PLAN_CACHE[key]

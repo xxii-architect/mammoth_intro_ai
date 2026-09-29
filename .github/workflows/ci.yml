@@ -54,11 +54,12 @@ jobs:
 
       - name: Run tests (Linux with coverage)
         if: runner.os != 'Windows'
+        shell: bash
         env:
           PYTHONPATH: src
         run: |
+          set -o pipefail
           python -m pytest --junitxml=pytest.xml --cov=src --cov-report=xml -q | tee test.log
-        shell: bash
 
       - name: Run tests (Windows with coverage)
         if: runner.os == 'Windows'

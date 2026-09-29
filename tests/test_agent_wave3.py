@@ -14,18 +14,18 @@ Run with:
 """
 
 import pytest
-import requests
+from fastapi.testclient import TestClient
 
-BASE = "http://localhost:8000"
-TIMEOUT = 20  # seconds per request
+import api_server
+
+client = TestClient(api_server.app)
 
 # ── helpers ───────────────────────────────────────────────────────
 
 def _run(agent_id: str, intent: str, payload: dict) -> dict:
-    resp = requests.post(
-        f"{BASE}/api/run",
+    resp = client.post(
+        "/api/run",
         json={"agent_id": agent_id, "intent": intent, "payload": payload},
-        timeout=TIMEOUT,
     )
     assert resp.status_code == 200, f"{agent_id}: HTTP {resp.status_code}"
     return resp.json()
@@ -123,9 +123,9 @@ def test_wave3_scheduler_list():
 
 
 def test_wave3_shell_status():
-    # ShellAgent is a command executor — test with a real safe command
+    # Use Python rather than a platform-specific shell built-in.
     inner = _assert_ok(
-        _run("shell", "shell", {"command": "echo mammoth_wave3_ok"}),
+        _run("shell", "shell", {"command": "python -c \"print('mammoth_wave3_ok')\""}),
         "shell",
     )
     output = str(inner.get("stdout") or inner.get("output") or "")
@@ -181,10 +181,9 @@ def test_wave3_unknown_action_returns_error_not_500(agent_id, intent):
     Agents must handle an unrecognised action gracefully —
     return HTTP 200 with a structured error, never crash with 500.
     """
-    resp = requests.post(
-        f"{BASE}/api/run",
+    resp = client.post(
+        "/api/run",
         json={"agent_id": agent_id, "intent": intent, "payload": {"action": "__nonexistent__"}},
-        timeout=TIMEOUT,
     )
     assert resp.status_code == 200, (
         f"{agent_id}: unknown-action returned HTTP {resp.status_code}, expected 200"

@@ -1,7 +1,7 @@
 """Tests for curriculum validation hardening (Wave 4 Phase 2)."""
 
 import pytest
-from src.mammoth_os.agents.curriculum_validation_v2 import (
+from mammoth_os.agents.curriculum_validation_v2 import (
     _extract_subject_strict,
     _validate_lesson_content_depth,
     _validate_duration_estimates,

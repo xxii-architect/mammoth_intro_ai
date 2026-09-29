@@ -99,6 +99,10 @@ class PlantTheSeedAgent(BaseAgent):
     name = "PlantTheSeedAgent"
 
     def run(self, prompt: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+        if isinstance(prompt, dict) and "topic" in prompt and not any(
+            prompt.get(key) for key in ("prompt", "idea", "task", "content")
+        ):
+            return self._run_learning_seed(prompt)
         prompt_text, context = self._parse_input(prompt)
         if not prompt_text:
             return self._error_response("No seed idea provided — describe the idea you want to validate.")
@@ -107,6 +111,60 @@ class PlantTheSeedAgent(BaseAgent):
         except Exception as exc:
             logger.error(f"PlantTheSeedAgent run failed: {exc}")
             return self._error_response(str(exc))
+
+    @staticmethod
+    def _run_learning_seed(payload: Dict[str, Any]) -> Dict[str, Any]:
+        topic = str(payload.get("topic") or "").strip()
+        lesson_title = str(payload.get("lesson_title") or "").strip()
+        module_title = str(payload.get("module_title") or "").strip()
+        anchor = lesson_title or module_title or topic
+        placeholder_values = {"", "unknown", "placeholder", "tbd", "n/a", "none"}
+        if topic.lower() in placeholder_values or (lesson_title and lesson_title.lower() in placeholder_values):
+            return {
+                "status": "needs_context",
+                "agent": "PlantTheSeedAgent",
+                "mode": "learning_seed",
+                "summary": "PlantTheSeed needs a real lesson or learning topic before it can make a useful recommendation.",
+                "approval_gate": {"requires_review": False, "reason": "context required"},
+                "quality_flags": ["needs_context", "placeholder_target_rejected"],
+            }
+
+        try:
+            progress = float(payload.get("progress_score", 0.5))
+        except (TypeError, ValueError):
+            progress = 0.5
+        progress = max(0.0, min(1.0, progress))
+        next_focus = str(payload.get("next_focus") or "one focused practice step").strip()
+        recommendations = [
+            f"Anchor the next step to {anchor}.",
+            "Keep the scope small enough to verify immediately.",
+            f"Turn {next_focus} into one concrete practice step.",
+        ]
+        if progress < 0.5:
+            recommendations.append("Use one example, one explanation, and one check for understanding.")
+        tags = ["atlas"] if "atlas" in topic.lower() else []
+        if progress < 0.5:
+            tags.append("needs_foundation")
+        summary = (
+            f"{anchor} needs a smaller, repeatable rep before the learner moves on."
+            if progress < 0.5
+            else f"{anchor} is stable enough to keep compounding with one small daily rep."
+        )
+        return {
+            "status": "ok",
+            "agent": "PlantTheSeedAgent",
+            "mode": "learning_seed",
+            "topic": topic,
+            "seed": f"Plant the seed for {anchor} with one small, concrete learning rep.",
+            "expansion": f"Build a repeatable practice loop around {anchor}, then verify it with a short example.",
+            "action": f"Practice {next_focus} with one example tied to {anchor}.",
+            "summary": summary,
+            "tags": tags,
+            "follow_up": f"What changed after the next practice rep for {anchor}?",
+            "recommendations": recommendations[:4],
+            "approval_gate": {"requires_review": False, "reason": "learning guidance only"},
+            "quality_flags": ["learning_context_grounded", "progress_aware"],
+        }
 
     def execute_action(
         self, action_type: str, target: str, details: Dict[str, Any]
@@ -187,6 +245,7 @@ class PlantTheSeedAgent(BaseAgent):
             text = str(
                 prompt.get("prompt")
                 or prompt.get("idea")
+                or prompt.get("topic")
                 or prompt.get("task")
                 or prompt.get("content")
                 or ""

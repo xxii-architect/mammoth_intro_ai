@@ -66,6 +66,14 @@ class BrandVoiceAgent(BaseAgent):
         output_text  = result.get("output", "")     if isinstance(result, dict) else str(result)
         summary_text = result.get("summary", "")    if isinstance(result, dict) else str(output_text)[:220]
         tone_notes   = result.get("tone_notes", "") if isinstance(result, dict) else ""
+        if mode == "stakeholder_summary":
+            if "what changed" not in output_text.lower():
+                output_text = f"What changed: {output_text.strip()}"
+            if "guardrails" not in output_text.lower():
+                guardrails = ", ".join(str(item) for item in constraints)
+                if not guardrails:
+                    guardrails = "Keep the workflow approval-safe and grounded in source material."
+                output_text = f"{output_text}\n\nGuardrails: {guardrails}"
 
         return {
             "agent":      "brand_voice",

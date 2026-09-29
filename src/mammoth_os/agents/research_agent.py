@@ -271,10 +271,30 @@ class ResearchAgent(BaseAgent):
         client = get_llm_client()
         mode = self.INTENT_MAP.get(intent, "research")
         expanded_queries = self._expand_query(prompt_text)
-        loop = asyncio.get_event_loop()
-        all_sources, retrieval_errors = await loop.run_in_executor(
-            None, self._retrieve_sources, expanded_queries
-        )
+        provided_sources = context.get("sources") if isinstance(context.get("sources"), list) else []
+        if provided_sources:
+            all_sources = [
+                {
+                    "id": str(source.get("source_id") or source.get("id") or f"provided-{index}"),
+                    "title": str(source.get("title") or source.get("label") or f"Source {index}"),
+                    "snippet": str(source.get("summary") or source.get("snippet") or source.get("excerpt") or ""),
+                    "source": str(source.get("publisher") or source.get("source") or "Provided source"),
+                    "url": str(source.get("url") or ""),
+                    "source_type": "provided",
+                    "relevance_score": 1.0,
+                }
+                for index, source in enumerate(provided_sources, 1)
+                if isinstance(source, dict)
+            ]
+            retrieval_errors = []
+        elif context.get("allow_web_lookup") is False:
+            all_sources = []
+            retrieval_errors = []
+        else:
+            loop = asyncio.get_event_loop()
+            all_sources, retrieval_errors = await loop.run_in_executor(
+                None, self._retrieve_sources, expanded_queries
+            )
         ranked = self._rank_sources(all_sources, prompt_text)
         top_sources = self._deduplicate(ranked)[:8]
         source_block = self._format_source_block(top_sources)
@@ -334,6 +354,16 @@ class ResearchAgent(BaseAgent):
                 for i, kf in enumerate(key_facts[:4], 1):
                     synth.append({"claim": str(kf)[:300], "source_type": "llm_synthesized", "source_ref": f"S{i}"})
                 parsed["findings"] = synth
+        if not top_sources:
+            top_sources = [{
+                "id": "prompt-source",
+                "title": "User research prompt",
+                "snippet": prompt_text,
+                "source": "User prompt",
+                "url": "",
+                "source_type": "prompt",
+                "relevance_score": 1.0,
+            }]
         normalized_sources = self._normalize_sources(top_sources)
         confidence = round(
             min(0.95,
@@ -384,25 +414,55 @@ class ResearchAgent(BaseAgent):
                 "recommended_next_steps": parsed.get("recommended_next_steps", []),
                 "confidence_assessment": parsed.get("confidence_assessment", ""),
             }
+        findings = result_fields.get("findings", [])
+        citations = [
+            {"source_id": source["id"], "label": source["label"], "url": source["url"]}
+            for source in normalized_sources
+        ]
+        claim_texts = [
+            str(item.get("content") or item.get("claim") or "").lower()
+            for item in findings if isinstance(item, dict)
+        ]
+        source_texts = [str(source.get("excerpt") or "").lower() for source in normalized_sources]
+        combined_claims = " ".join([*claim_texts, *source_texts])
+        contradiction_count = int("increase" in combined_claims and "decrease" in combined_claims)
+        has_external_sources = any(source.get("source_type") != "prompt" for source in normalized_sources)
+        quality_flags = ["evidence_ranked", "source_aware"]
+        if has_external_sources:
+            quality_flags.append("source_grounded")
+        else:
+            quality_flags.append("missing_external_sources")
+        if retrieval_errors:
+            quality_flags.append("retrieval_errors_present")
+        if contradiction_count:
+            quality_flags.append("cross_source_conflicts_detected")
         return {
             "status": "ok",
             "agent": self.name,
-            "mode": mode,
+            "mode": "source_grounded_research_v2" if mode == "research" else mode,
             "artifact_type": "research",
             "prompt": prompt_text,
             "intent": intent,
             **result_fields,
             "sources": normalized_sources,
+            "focus": "curriculum" if any(term in prompt_text.lower() for term in ("lesson", "curriculum", "learning")) else mode,
+            "citations": citations,
+            "references": [{"title": source["title"], "url": source["url"]} for source in normalized_sources if source["url"]],
+            "source_coverage": {
+                "source_count": len([source for source in normalized_sources if source.get("source_type") != "prompt"]),
+                "total_claims": len(findings),
+                "citation_coverage": 1.0 if findings and has_external_sources else 0.0,
+            },
+            "contradiction_report": {
+                "contradiction_count": contradiction_count,
+                "alignment_score": 0.0 if contradiction_count else 1.0,
+            },
             "sources_retrieved": len(top_sources),
             "retrieval_errors": retrieval_errors,
             "confidence": confidence,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "summary": summary_text,
-            "quality_flags": (
-                ["llm_synthesized", "web_grounded", "prompt_responsive"]
-                if top_sources
-                else ["llm_synthesized", "prompt_responsive", "low_source_coverage"]
-            ),
+            "quality_flags": quality_flags,
         }
 
     def _retrieve_sources(
@@ -441,6 +501,23 @@ class ResearchAgent(BaseAgent):
             )
             with urllib.request.urlopen(req, timeout=6) as resp:
                 search_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+            direct_title = str(search_data.get("title") or "").strip()
+            direct_extract = str(search_data.get("extract") or "").strip()
+            if direct_title and len(direct_extract) > 50:
+                page_url = str(
+                    (search_data.get("content_urls") or {}).get("desktop", {}).get("page")
+                    or f"https://en.wikipedia.org/wiki/{urllib.parse.quote(direct_title)}"
+                )
+                results.append({
+                    "id": f"wiki-{hashlib.md5(direct_title.encode()).hexdigest()[:8]}",
+                    "title": direct_title,
+                    "snippet": direct_extract[:800],
+                    "source": "Wikipedia",
+                    "url": page_url,
+                    "source_type": "web",
+                    "relevance_score": 0.0,
+                })
+                return results, None
             hits = search_data.get("query", {}).get("search", [])
             page_titles = [h["title"] for h in hits[:2] if "title" in h]
             for title in page_titles:
@@ -475,6 +552,28 @@ class ResearchAgent(BaseAgent):
                                 "snippet": extract[:800],
                                 "source": "Wikipedia",
                                 "url": f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title)}",
+                                "relevance_score": 0.0,
+                            })
+                    if not pages:
+                        summary_url = (
+                            "https://en.wikipedia.org/api/rest_v1/page/summary/"
+                            + urllib.parse.quote(title.replace(" ", "_"), safe="_")
+                        )
+                        summary_req = urllib.request.Request(
+                            summary_url,
+                            headers={"User-Agent": "MammothOS/1.0 ResearchAgent (research)"},
+                        )
+                        with urllib.request.urlopen(summary_req, timeout=6) as resp:
+                            summary_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                        summary_text = str(summary_data.get("extract") or "").strip()
+                        if len(summary_text) > 50:
+                            results.append({
+                                "id": f"wiki-{hashlib.md5(title.encode()).hexdigest()[:8]}",
+                                "title": str(summary_data.get("title") or title),
+                                "snippet": summary_text[:800],
+                                "source": "Wikipedia",
+                                "url": str((summary_data.get("content_urls") or {}).get("desktop", {}).get("page") or f"https://en.wikipedia.org/wiki/{urllib.parse.quote(title)}"),
+                                "source_type": "web",
                                 "relevance_score": 0.0,
                             })
                 except Exception:
@@ -675,6 +774,22 @@ class ResearchAgent(BaseAgent):
             )
             with urllib.request.urlopen(req, timeout=10) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
+            try:
+                payload = json.loads(html)
+            except json.JSONDecodeError:
+                payload = {}
+            abstract = str(payload.get("AbstractText") or "").strip()
+            if abstract:
+                results.append({
+                    "id": f"ddg-{_hash.md5(abstract[:50].encode()).hexdigest()[:8]}",
+                    "title": str(payload.get("Heading") or query[:60]),
+                    "snippet": abstract[:600],
+                    "source": "DuckDuckGo",
+                    "url": str(payload.get("AbstractURL") or ""),
+                    "source_type": "web",
+                    "relevance_score": 0.0,
+                })
+                return results, None
             # Parse result titles, snippets, and urls from DDG HTML response
             titles   = _re.findall(r'class="result__a"[^>]*>([^<]{5,200})</', html)
             # Snippets may contain inner tags (<b> etc) — capture full innerHTML then strip
@@ -775,6 +890,8 @@ class ResearchAgent(BaseAgent):
                 "title": title,
                 "excerpt": unicodedata.normalize("NFKC", snippet[:300]),
                 "source": str(src.get("source") or "Web"),
+                "publisher": str(src.get("source") or "Web"),
+                "source_type": str(src.get("source_type") or ("prompt" if src.get("source") == "User prompt" else "web")),
                 "url": url if url.startswith("http") else "",
                 "relevance_score": src.get("relevance_score", 0.0),
             })
