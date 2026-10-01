@@ -92,7 +92,12 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
                     <h2 style={{ fontSize: '1.06rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>{sec.heading}</h2>
                   </div>
                   <div>
-                    {sec.content.split('\n\n').map((para, pi) => para.trim() ? (
+                    {sec.status === 'failed' && !sec.content?.trim() ? (
+                      <p style={{ fontSize: '0.82rem', color: 'var(--txt-mut)', fontStyle: 'italic', margin: 0 }}>
+                        This section could not be generated after a retry. Re-run the research to fill it in.
+                      </p>
+                    ) : null}
+                    {(sec.content || '').split('\n\n').map((para, pi) => para.trim() ? (
                       <p key={pi} style={{ fontSize: '0.89rem', color: 'var(--txt-sec)', lineHeight: 1.84, margin: '0 0 18px' }}>{para.trim()}</p>
                     ) : null)}
                   </div>

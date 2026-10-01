@@ -26,6 +26,8 @@ import urllib.request
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from mammoth_os import research_quality as rq
+
 from .base_agent import BaseAgent
 
 logger = logging.getLogger("mammoth.agents.research")
@@ -80,6 +82,8 @@ CRITICAL RULES:
 - If retrieved sources contain insufficient data, synthesize findings from your expert knowledge. Label these with "source_type": "llm_synthesized".
 - NEVER return an empty findings[] array. NEVER title the output "Unable to Assess" or "Source Gap Assessment" — always synthesize a useful answer.
 - The summary field must be a direct, actionable answer to the user question — not a meta-commentary about source availability.
+- Only cite [S#] labels that appear in the provided source list. Ignore sources that are about a different subject or entity than the query.
+- Never include your reasoning, planning, or notes about the task in any field.
 Return ONLY the JSON. No preamble.
 """
 
@@ -108,10 +112,10 @@ Respond in this exact JSON structure:
 }
 
 CRITICAL RULES:
-- You MUST always populate the findings[] array with a minimum of 5 substantive findings.
-- If retrieved sources contain insufficient data, synthesize findings from your expert knowledge. Label these with "source_type": "llm_synthesized".
-- NEVER return an empty findings[] array. NEVER title the output "Unable to Assess" or "Source Gap Assessment" — always synthesize a useful answer.
-- The summary field must be a direct, actionable answer to the user question — not a meta-commentary about source availability.
+- Always populate key_points[] with 3-5 concrete points. If sources are thin, use expert knowledge and say so in "caveats".
+- The tldr must directly answer the user's question — not meta-commentary about source availability.
+- Ignore sources that are about a different subject or entity than the query.
+- Never include your reasoning, planning, or notes about the task in any field.
 Return ONLY the JSON. No preamble.
 """
 
@@ -220,12 +224,19 @@ Respond in this exact JSON structure:
 }
 
 CRITICAL RULES:
-- You MUST always populate the findings[] array with a minimum of 5 substantive findings.
-- If retrieved sources contain insufficient data, synthesize findings from your expert knowledge. Label these with "source_type": "llm_synthesized".
-- NEVER return an empty findings[] array. NEVER title the output "Unable to Assess" or "Source Gap Assessment" — always synthesize a useful answer.
-- The summary field must be a direct, actionable answer to the user question — not a meta-commentary about source availability.
+- Always populate core_concepts[] (at least 4) and learning_path[] (at least 3 phases). If sources are thin, use expert knowledge.
+- The overview must directly describe the topic — not meta-commentary about source availability.
+- Ignore sources that are about a different subject or entity than the query.
+- Never include your reasoning, planning, or notes about the task in any field.
 Return ONLY the JSON. No preamble.
 """
+
+
+_MODE_REQUIREMENT = {
+    "research": ' Populate findings[] with at least 5 objects each having "heading", "content", "source_support" keys.',
+    "summarize": " Populate key_points[] with 3-5 concrete points and answer the question directly in tldr.",
+    "curriculum": " Populate core_concepts[] and learning_path[] as specified in the schema.",
+}
 
 
 class ResearchAgent(BaseAgent):
@@ -296,7 +307,8 @@ class ResearchAgent(BaseAgent):
                 None, self._retrieve_sources, expanded_queries
             )
         ranked = self._rank_sources(all_sources, prompt_text)
-        top_sources = self._deduplicate(ranked)[:8]
+        relevant, dropped_sources = rq.filter_relevant_sources(ranked, prompt_text)
+        top_sources = self._deduplicate(relevant)[:8]
         source_block = self._format_source_block(top_sources)
         if mode == "curriculum":
             system = CURRICULUM_SYSTEM
@@ -312,8 +324,8 @@ class ResearchAgent(BaseAgent):
             f"{source_block}"
             f"{ctx_block}"
             "\n\n---\nIMPORTANT: Your entire response must be a single valid JSON object."
-            " Start with {{ and end with }}. No preamble, no prose, no explanation outside the JSON."
-            " Populate findings[] with at least 5 objects each having \"heading\", \"content\", \"source_support\" keys."
+            " Start with { and end with }. No preamble, no prose, no explanation outside the JSON."
+            + _MODE_REQUIREMENT.get(mode, _MODE_REQUIREMENT["research"])
         )
         raw = await client.generate(
             user_message,
@@ -322,7 +334,8 @@ class ResearchAgent(BaseAgent):
             temperature=0.3,
             response_format={"type": "json_object"},
         )
-        parsed = self._extract_json(raw)
+        raw_clean, reasoning_trace = rq.strip_reasoning(raw)
+        parsed = rq.clean_string_fields(self._extract_json(raw_clean))
         # ── nested-JSON rescue: LLM sometimes returns JSON inside executive_summary ──
         exec_val = parsed.get("executive_summary", "")
         if isinstance(exec_val, str):
@@ -414,6 +427,13 @@ class ResearchAgent(BaseAgent):
                 "recommended_next_steps": parsed.get("recommended_next_steps", []),
                 "confidence_assessment": parsed.get("confidence_assessment", ""),
             }
+        for list_key in ("findings", "key_facts", "key_points", "recommended_next_steps", "core_concepts"):
+            if isinstance(result_fields.get(list_key), list):
+                result_fields[list_key] = rq.dedupe_items(
+                    result_fields[list_key],
+                    text_of=(lambda item: str(item.get("concept") or "")) if list_key == "core_concepts" else
+                    (lambda item: item if isinstance(item, str) else str((item or {}).get("content") or (item or {}).get("claim") or (item or {}).get("heading") or "")),
+                )
         findings = result_fields.get("findings", [])
         citations = [
             {"source_id": source["id"], "label": source["label"], "url": source["url"]}
@@ -436,6 +456,10 @@ class ResearchAgent(BaseAgent):
             quality_flags.append("retrieval_errors_present")
         if contradiction_count:
             quality_flags.append("cross_source_conflicts_detected")
+        if dropped_sources:
+            quality_flags.append("off_topic_sources_filtered")
+        if reasoning_trace:
+            quality_flags.append("reasoning_stripped")
         return {
             "status": "ok",
             "agent": self.name,
@@ -458,6 +482,11 @@ class ResearchAgent(BaseAgent):
                 "alignment_score": 0.0 if contradiction_count else 1.0,
             },
             "sources_retrieved": len(top_sources),
+            "sources_filtered": [
+                {"title": str(src.get("title") or ""), "url": str(src.get("url") or ""), "reason": src.get("drop_reason")}
+                for src in dropped_sources[:10]
+            ],
+            "reasoning_trace": reasoning_trace,
             "retrieval_errors": retrieval_errors,
             "confidence": confidence,
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -597,23 +626,42 @@ class ResearchAgent(BaseAgent):
             + "Write the full prose body for this section (650-800 words). "
             + "Do not include the heading -- just the body paragraphs."
         )
-        try:
-            prose = await client.generate(user_msg, system_prompt=LONG_FORM_SECTION_SYSTEM, max_tokens=2800, temperature=0.5)
-            # Strip reasoning traces from prose, save separately
-            _think_trace = ""
-            _prose_clean = prose.strip()
-            _tk_start = _prose_clean.find("<think>")
-            _tk_end   = _prose_clean.find("</think>")
-            if _tk_start != -1 and _tk_end != -1:
-                _think_trace = _prose_clean[_tk_start + 7 : _tk_end].strip()
-                _prose_clean = (_prose_clean[:_tk_start] + _prose_clean[_tk_end + 8:]).strip()
-            elif _prose_clean.startswith("<think>"):
-                _think_trace = _prose_clean[7:].strip()
-                _prose_clean = ""
-            return {"heading": heading, "content": _prose_clean, "trace": _think_trace, "order": idx}
-        except Exception as exc:
-            logger.warning("Long-form section %d failed: %s", idx, exc)
-            return {"heading": heading, "content": "[Section failed: " + str(exc) + "]", "trace": "", "order": idx}
+        last_error = ""
+        traces: List[str] = []
+        for attempt in range(2):
+            try:
+                prose = await client.generate(user_msg, system_prompt=LONG_FORM_SECTION_SYSTEM, max_tokens=2800, temperature=0.5)
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning("Long-form section %d attempt %d failed: %s", idx, attempt + 1, exc)
+                continue
+            clean, trace = rq.strip_reasoning(prose)
+            if trace:
+                traces.append(trace)
+            clean = rq.strip_echoed_heading(clean, heading)
+            if not clean.strip():
+                last_error = "empty section after removing reasoning"
+                continue
+            clean, trimmed = rq.trim_to_last_sentence(clean)
+            return {
+                "heading": heading,
+                "content": clean,
+                "trace": "\n\n".join(traces),
+                "order": idx,
+                "status": "ok",
+                "trimmed": trimmed,
+                "retried": attempt > 0,
+            }
+        return {
+            "heading": heading,
+            "content": "",
+            "trace": "\n\n".join(traces),
+            "order": idx,
+            "status": "failed",
+            "error": last_error,
+            "trimmed": False,
+            "retried": True,
+        }
 
     async def _long_form_pipeline(self, prompt_text, context):
         from mammoth_os.llm_client import get_llm_client
@@ -623,14 +671,15 @@ class ResearchAgent(BaseAgent):
         loop = asyncio.get_event_loop()
         all_sources, retrieval_errors = await loop.run_in_executor(None, self._retrieve_sources, expanded_queries)
         ranked = self._rank_sources(all_sources, prompt_text)
-        top_sources = self._deduplicate(ranked)[:10]
+        relevant, dropped_sources = rq.filter_relevant_sources(ranked, prompt_text)
+        top_sources = self._deduplicate(relevant)[:10]
         source_block = self._format_source_block(top_sources)
         ctx_block = ""
         if context:
             ctx_block = nl + nl + "Operator context:" + nl + json.dumps(context, indent=2)
         outline_msg = ("Research topic: " + prompt_text + nl + source_block + ctx_block + nl + nl + "Generate a 6-section document outline. Return ONLY valid JSON.")
         outline_raw = await client.generate(outline_msg, system_prompt=LONG_FORM_OUTLINE_SYSTEM, max_tokens=2048, temperature=0.3, response_format={"type": "json_object"})
-        outline = self._extract_json(outline_raw)
+        outline = rq.clean_string_fields(self._extract_json(rq.strip_reasoning(outline_raw)[0]))
         # If JSON parse failed or returned generic/empty title, use prompt as title
         _raw_title = (outline.get("title") or "").strip()
         _bad_titles = {"research output", "untitled", "document", "report", ""}
@@ -658,33 +707,33 @@ class ResearchAgent(BaseAgent):
             (not s.get("heading") or s.get("heading","").lower().startswith("section "))
             for s in _sections_raw
         )
+        _fallback_headings = rq.fallback_section_headings(prompt_text, 6)
         if _all_generic:
-            sections_spec = [{"heading": "Section " + str(i + 1), "brief": ""} for i in range(6)]
+            sections_spec = [{"heading": heading, "brief": ""} for heading in _fallback_headings]
         else:
-            sections_spec = _sections_raw
+            sections_spec = [dict(sec) for sec in _sections_raw if isinstance(sec, dict)]
         # Enforce 6-section minimum — LLM sometimes returns fewer
         if len(sections_spec) < 6:
             _existing = len(sections_spec)
-            _topics = [
-                "Market Overview and Industry Landscape",
-                "Leading Brands and Key Players",
-                "Product Categories and Offerings",
-                "Business Models and Distribution Channels",
-                "Consumer Trends and Demand Drivers",
-                "Opportunities, Challenges, and Future Outlook",
-            ]
-            for _pi in range(6 - _existing):
-                sections_spec.append({"heading": _topics[_existing + _pi] if (_existing + _pi) < len(_topics) else "Section " + str(_existing + _pi + 1), "brief": ""})
+            _used = {str(sec.get("heading") or "").strip().lower() for sec in sections_spec}
+            for heading in _fallback_headings:
+                if len(sections_spec) >= 6:
+                    break
+                if heading.lower() not in _used:
+                    sections_spec.append({"heading": heading, "brief": ""})
             logger.warning("Outline returned %d sections — padded to 6", _existing)
         conclusion_brief = outline.get("conclusion_brief") or ""
         section_tasks = [self._generate_section(client, prompt_text, source_block, sec, idx) for idx, sec in enumerate(sections_spec)]
         completed_sections = list(await asyncio.gather(*section_tasks))
+        completed_sections, duplicate_paragraphs_removed = rq.dedupe_sections(completed_sections)
         section_digest = (nl + nl).join("## " + s["heading"] + nl + s["content"][:400] + "..." for s in completed_sections)
         conclusion_msg = ("Document topic: " + prompt_text + nl + nl + "Conclusion brief: " + conclusion_brief + nl + nl + "Section contents:" + nl + section_digest + nl + nl + "Write the conclusion (400-500 words of flowing prose).")
         try:
-            conclusion = (await client.generate(conclusion_msg, system_prompt=LONG_FORM_CONCLUSION_SYSTEM, max_tokens=1024, temperature=0.4)).strip()
+            conclusion_raw = await client.generate(conclusion_msg, system_prompt=LONG_FORM_CONCLUSION_SYSTEM, max_tokens=1024, temperature=0.4)
+            conclusion, _ = rq.strip_reasoning(conclusion_raw)
+            conclusion, conclusion_trimmed = rq.trim_to_last_sentence(conclusion)
         except Exception as exc:
-            logger.warning("Conclusion failed: %s", exc); conclusion = ""
+            logger.warning("Conclusion failed: %s", exc); conclusion = ""; conclusion_trimmed = False
         normalized_sources = self._normalize_sources(top_sources)
         word_count = len(abstract.split()) + sum(len(s["content"].split()) for s in completed_sections) + len(conclusion.split())
         docx_filename = None
@@ -692,7 +741,15 @@ class ResearchAgent(BaseAgent):
             docx_filename = self._generate_docx(title, abstract, completed_sections, conclusion, normalized_sources, prompt_text)
         except Exception as exc:
             logger.warning("DOCX skipped: %s", exc)
-        return {"artifact_type": "long_form_research", "title": title, "abstract": abstract, "sections": completed_sections, "conclusion": conclusion, "sources": normalized_sources, "word_count": word_count, "docx_filename": docx_filename, "retrieval_errors": retrieval_errors or [], "executive_summary": abstract}
+        quality = {
+            "sections_failed": sum(1 for sec in completed_sections if sec.get("status") == "failed"),
+            "sections_retried": sum(1 for sec in completed_sections if sec.get("retried") and sec.get("status") == "ok"),
+            "sections_trimmed": sum(1 for sec in completed_sections if sec.get("trimmed")),
+            "conclusion_trimmed": bool(conclusion_trimmed),
+            "duplicate_paragraphs_removed": duplicate_paragraphs_removed,
+            "sources_filtered": len(dropped_sources),
+        }
+        return {"artifact_type": "long_form_research", "title": title, "abstract": abstract, "sections": completed_sections, "conclusion": conclusion, "sources": normalized_sources, "word_count": word_count, "docx_filename": docx_filename, "retrieval_errors": retrieval_errors or [], "executive_summary": abstract, "quality": quality}
 
     def _generate_docx(self, title, abstract, sections, conclusion, sources, query):
         try:
@@ -940,7 +997,7 @@ class ResearchAgent(BaseAgent):
 
     @staticmethod
     def _extract_json(raw: str) -> Dict[str, Any]:
-        text = str(raw or "").strip()
+        text = rq.strip_reasoning(raw)[0]
         # Strip markdown code fences (deepseek wraps JSON in ```json...```)
         import re as _re
         text = _re.sub(r"```(?:json)?\s*", "", text).strip()

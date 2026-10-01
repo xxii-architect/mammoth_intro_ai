@@ -545,6 +545,15 @@ The runtime now treats output quality as a real contract instead of a loose text
 
 This keeps the output source-aware, easier to validate, and far less likely to devolve into generic product copy.
 
+### Research output hygiene (`src/mammoth_os/research_quality.py`)
+
+- **Reasoning never leaks into deliverables.** `<think>`/`<thinking>`/`<reasoning>` blocks (closed, dangling, or cut off mid-way) and task meta-lines ("Okay, let me…", "Here's the section:", "Let me know if…") are stripped from research JSON, long-form sections, and conclusions. Stripped reasoning is returned separately as `reasoning_trace` (research) or per-section `trace` (long-form).
+- **Relevance filter.** Disambiguation pages are always dropped. Sources sharing no keywords with the query (light stemming, so "learners" matches "learning") are dropped when at least two on-topic sources exist; otherwise they are kept last with `relevance: "weak"`. Provided sources are never filtered. Dropped sources are listed in `sources_filtered`.
+- **Entity disambiguation.** When the query names an entity (quoted phrase or multi-word proper noun), sources that don't mention it in full are ranked below those that do. They are never dropped, because the entity may just be a qualifier.
+- **Dedupe.** Near-duplicate findings, key facts, key points, next steps, and concepts are collapsed. Long-form documents drop paragraphs that repeat an earlier section.
+- **Completeness.** Long-form sections retry once when the model fails or returns nothing but reasoning. Text cut off mid-sentence is trimmed back to the last complete sentence. A section that still fails is marked `status: "failed"` with empty content instead of embedding an error string in the document. The `quality` block reports failed, retried, and trimmed sections, duplicates removed, and sources filtered.
+- **Prompt contracts.** Summarize and curriculum modes ask for their own schema fields (`key_points[]`, `core_concepts[]`, `learning_path[]`) instead of the research-only `findings[]`. Outline fallbacks use topic-specific headings instead of market boilerplate.
+
 ## Additive agent bridge (Copilot Tasks optional)
 
 MammothOS supports the existing registry-backed runtime and an optional external HTTP bridge.

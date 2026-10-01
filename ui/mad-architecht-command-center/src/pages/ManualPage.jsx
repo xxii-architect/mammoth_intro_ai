@@ -26,6 +26,7 @@ const liveNow = [
   'Learning materials can be uploaded into the ATLAS library for lesson-side context and reuse.',
   'Mammoth Mind Agent mode streams a run timeline: plan, short reasoning summaries, tool calls, proposed diffs, and inline Approve / Reject cards. Stop cancels a run at any time.',
   'The floating button is now a Mammoth Mind pill in the top-right header, next to notifications. It opens a quick panel with a link to the full Mammoth Mind page.',
+  'Research output is cleaner. Model reasoning is moved into a separate trace, off-topic and disambiguation sources are filtered out, repeated paragraphs are removed, and cut-off sections are trimmed or retried. Long-form reports include a quality summary.',
   'Lessons now show a manifest (what to know first, sample input, expected output, done-when). Stuck detection suggests one concrete next move. Next checks that the exercise passed, and you can always choose Continue anyway.',
   'Mammoth Paths is the new workspace SDK (Python `MammothPaths`, JS `@mammothos/paths`) for embedding agent runs, your repos, notes, and the build log in other software. The tutor SDK is now called Mammoth Mind (formerly ATLAS FAB).',
   'Notes and the build log are now private to each account and enforced on the server for Pro tier and above.',

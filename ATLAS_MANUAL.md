@@ -262,6 +262,12 @@ The runtime now keeps structured payloads intact for coding and brand-voice work
 - `brand_voice` tasks should specify `mode`, `audience`, `tone`, and optional `constraints` so the rewrite stays on-message.
 - The UI prompt box works best when the user enters: objective + scope + constraints + expected output.
 
+**Research hygiene** (`research_quality.py`, used by `ResearchAgent`):
+- Model reasoning and meta-commentary are removed from research output and long-form documents and returned separately as `reasoning_trace` / per-section `trace`.
+- Off-topic sources and disambiguation pages are filtered (`sources_filtered`). Entity mismatches are ranked lower, never silently dropped.
+- Duplicate findings and repeated cross-section paragraphs are removed. Truncated sections are trimmed to the last full sentence; failed sections retry once, then show as `status: "failed"`.
+- Long-form results include a `quality` block so you can see exactly what was cleaned.
+
 ### CodingAgent hardening: Asyncio safety & exception handling (v1.2)
 
 **Problem:** CodingAgent was calling `asyncio.run()` in multiple places, which raised a `RuntimeError` when the agent was invoked from an already-running event loop. This was especially common during concurrent AI requests or when orchestrating multiple coding tasks.

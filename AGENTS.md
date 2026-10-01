@@ -38,6 +38,8 @@ Use this file when wiring or extending MammothOS agents.
 - Do not let coding/documentation flows invent content from a placeholder target like `unknown`.
 - Prefer explicit `mode`, `audience`, and `constraints` for brand-voice rewrites and tutorial output.
 - Validate outputs against expected shape before calling a task complete.
+- Run model text through `mammoth_os.research_quality` (`strip_reasoning`, `trim_to_last_sentence`, `dedupe_items` / `dedupe_sections`, `filter_relevant_sources`) before it reaches a deliverable. Surface stripped reasoning as a separate trace field, never inline.
+- Never embed provider error strings in user-facing document content. Mark the unit `status: "failed"` and report it in a `quality` block.
 
 ## Mammoth Mind tutor SDK (formerly ATLAS FAB) + package commercialization rules
 - Treat `src/mammoth_os/sdk.py` and `src/mammoth_os/__init__.py` as the public SDK contract for embedders.
