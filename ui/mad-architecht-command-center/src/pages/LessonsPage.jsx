@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, CheckCircle2, Circle, ChevronDown, ChevronUp, Sparkles, Wand2, Code2, AlignLeft, List, Map, Radio, HeartPulse, Dumbbell, DollarSign, Mic2, Wrench, Leaf, Brain, Camera, ChefHat, Scale, Globe2, Music2, Zap, ToggleRight, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
 import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
+import { LessonGateNotice, LessonManifestCard, StallNotice } from '../components/LessonDelivery'
 
 // ─── Expanded module catalog ──────────────────────────────────────────────────
 const FALLBACK_MODULE_TRACKS = [
@@ -136,6 +137,7 @@ export default function LessonsPage({ setPage }) {
   const [topic, setTopic]           = useState('')
   const [code, setCode]             = useState('')
   const [result, setResult]         = useState(null)
+  const [lessonGate, setLessonGate] = useState(null)
   const [loading, setLoading]       = useState(false)
   const [moduleCatalog, setModuleCatalog] = useState(FALLBACK_MODULE_TRACKS)
   const [moduleSearch, setModuleSearch] = useState('')
@@ -298,6 +300,7 @@ export default function LessonsPage({ setPage }) {
     if (!code.trim()) return
     setLoading(true)
     try {
+      setLessonGate(null)
       const res = await api('/atlas/submit', { method: 'POST', body: { code, response: code } })
       setResult(res.result || res)
     } catch (e) {
@@ -307,16 +310,23 @@ export default function LessonsPage({ setPage }) {
     }
   }
 
-  const nextLesson = async () => {
+  const nextLesson = async (override = false) => {
     setLoading(true)
     try {
-      await api('/atlas/next', { method: 'POST', body: {} })
+      const res = await api('/atlas/next', { method: 'POST', body: override ? { override: true } : {} })
+      if (res?.status === 'gated') {
+        setLessonGate(res.gate || null)
+        return
+      }
+      setLessonGate(null)
       await loadState()
       await loadLibrary()
       setResult(null)
       setCode('')
-    } catch (_) {}
-    setLoading(false)
+    } catch (_) {
+    } finally {
+      setLoading(false)
+    }
   }
 
   const exercise        = atlasState?.current_exercise
@@ -1005,12 +1015,28 @@ export default function LessonsPage({ setPage }) {
                       style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
                       <Send size={13} /> {loading ? 'Submitting…' : (submissionMode === 'code' ? 'Submit' : 'Submit response')}
                     </button>
-                    <button onClick={nextLesson} disabled={loading}
+                    <button onClick={() => nextLesson(false)} disabled={loading}
                       style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.82rem', cursor: 'pointer', fontWeight: 600 }}>
                       <ChevronRight size={14} /> Next
                     </button>
                   </div>
                 </div>
+
+                {lessonGate ? (
+                  <div style={{ marginTop: 12 }}>
+                    <LessonGateNotice gate={lessonGate} busy={loading} onDismiss={() => setLessonGate(null)} onContinue={() => nextLesson(true)} />
+                  </div>
+                ) : (result?.stall?.stalled || atlasState?.lesson_stall?.stalled) ? (
+                  <div style={{ marginTop: 12 }}>
+                    <StallNotice stall={result?.stall?.stalled ? result.stall : atlasState.lesson_stall} />
+                  </div>
+                ) : null}
+
+                {atlasState?.lesson_manifest ? (
+                  <div style={{ marginTop: 12 }}>
+                    <LessonManifestCard manifest={atlasState.lesson_manifest} />
+                  </div>
+                ) : null}
 
                 {exercise.expected_test && (
                   <details style={{ marginTop: 14 }}>

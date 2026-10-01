@@ -15,6 +15,7 @@ from typing import List, Dict, Any, Optional
 from mammoth_os.llm_client import get_llm_client
 from mammoth_os.embedding_engine import EmbeddingEngine
 from mammoth_os.supabase_client import get_supabase
+from mammoth_os.tutor_delivery import clean_chunks
 
 
 class LessonChunkRetriever:
@@ -174,11 +175,11 @@ class LessonChunkRetriever:
 
         scored_chunks.sort(key=lambda x: x[0], reverse=True)
         ranked = []
-        for score, chunk in scored_chunks[:top_k]:
+        for score, chunk in scored_chunks:
             item = dict(chunk)
             item["score"] = score
             ranked.append(item)
-        return ranked
+        return clean_chunks(ranked, min_chars=1)[:top_k]
 
     def _timestamp_value(self, row: Dict[str, Any]) -> float:
         raw = row.get("created_at") or row.get("completed_at") or row.get("last_accessed") or ""
@@ -365,7 +366,7 @@ class LessonChunkRetriever:
             item["signal_summary"] = self.build_signal_summary(signals)
             ranked.append(item)
         ranked.sort(key=lambda row: row.get("score", 0.0), reverse=True)
-        return ranked[:top_k]
+        return clean_chunks(ranked, min_chars=1)[:top_k]
 
     async def retrieve_chunks(
         self,
@@ -405,9 +406,9 @@ class LessonChunkRetriever:
         elif any("embedding" not in chunk or not chunk.get("embedding") for chunk in chunks):
             chunks = await self.embed_chunks(chunks)
 
-        # If no query, return first 3 chunks as context
+        # If no query, return first 3 distinct chunks as context
         if not query:
-            return [c["chunk_text"] for c in chunks[:3]]
+            return [c["chunk_text"] for c in clean_chunks(chunks, min_chars=1)[:3]]
 
         retrieved = await self.retrieve_top_k(query, chunks, top_k=3)
         return [c["chunk_text"] for c in retrieved]

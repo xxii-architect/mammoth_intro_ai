@@ -314,6 +314,7 @@ Embeddable monetization strengths now present:
 - workspace-scoped learner identity support
 - structured runtime-state surface for provider health/fallback visibility
 - lesson, submit, next-lesson, and code-gen loops exposed programmatically
+- lesson delivery surfaces: `fab.lesson_manifest()`, `fab.stall_status()`, `fab.next_lesson(require_mastery=True)` (raises `LessonGateError` until the exercise passes), and a `stall` block on every submission report
 
 ## Packaging posture for monetization
 
@@ -648,6 +649,11 @@ This keeps development moving but is less isolated than Docker sandboxing.
 - Long-running ATLAS coding/UI commands now receive extended backend timeouts so they behave more like a real operator terminal session.
 
 ## Lessons + curriculum note
+
+- **Lesson manifest** (`mammoth.lesson_manifest.v1`): `/api/atlas/status`, `/lesson`, `/next`, and `/back` return `lesson_manifest` with prerequisites, sample input, expected output, and "done when" criteria. All of it comes from the real lesson/exercise (asserts in the test scaffold, rubric lines, earlier lesson titles). Missing data stays empty instead of being invented.
+- **Stall telemetry** (`mammoth.lesson_telemetry.v1`): every submission records per-lesson attempts, consecutive failures, and a normalized error fingerprint in `lesson_telemetry`. `/api/atlas/submit` returns `stall` (`stalled`, `reasons`, one `suggestion`); the status payload carries `lesson_stall`. The thresholds are 3 failures in a row, the same error twice, or 20 minutes without progress.
+- **Comprehension gate**: `POST /api/atlas/next` returns `{"status": "gated", "gate": {...}}` when the current exercise has not passed. Send `{"override": true}` to move on anyway; overrides are written to the audit log. Lessons without a gradable exercise are never gated.
+- **Retrieval hygiene**: lesson chunk retrieval drops empty and duplicate/near-duplicate chunks before taking the top-k, and labels each chunk with `source_label`.
 
 - `GET /api/atlas/modules` now exposes a broader module catalog across outdoors, emergency, business, health, technology, creative, and life-skills tracks.
 - The Lessons page includes an **Adaptive UI** toggle that morphs the exercise surface by lesson type (`code`, `knowledge`, `writing`, `checklist`, `scenario`).

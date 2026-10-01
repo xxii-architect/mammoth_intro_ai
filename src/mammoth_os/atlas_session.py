@@ -27,6 +27,15 @@ from typing import Dict, Any, List, Optional
 from mammoth_os.agents.tutor_agent import TutorAgent  # noqa: F401  (re-exported for patching)
 from mammoth_os.agents.curriculum_agent import CurriculumAgent  # noqa: F401
 from mammoth_os.exercise_generator import generate_exercises_for_lesson  # noqa: F401
+from mammoth_os import tutor_delivery
+
+
+class LessonGateError(RuntimeError):
+    """Raised by ``next_lesson(require_mastery=True)`` when the current exercise has not passed."""
+
+    def __init__(self, gate: Dict[str, Any]):
+        super().__init__(gate.get("message") or "Current exercise has not passed yet.")
+        self.gate = gate
 
 
 class ATLASSession:
@@ -47,6 +56,8 @@ class ATLASSession:
         self.current_exercise: Optional[Dict[str, Any]] = None
         self._curriculum_id: Optional[str] = None
         self._lesson_id: Optional[str] = None
+        # per-lesson attempt/stall telemetry (see mammoth_os.tutor_delivery)
+        self.lesson_telemetry: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Step 1 — Start a lesson on a topic
@@ -97,6 +108,7 @@ class ATLASSession:
         lesson = lessons[min(lesson_idx, len(lessons) - 1)]
         self.current_lesson = lesson
         self._lesson_id = lesson["lesson_id"]
+        tutor_delivery.touch_lesson(self.lesson_telemetry, self._lesson_id)
 
         # 3. Generate exercises
         lesson_prefers_llm = str(lesson.get("exercise_generation_mode") or lesson.get("generation_mode") or "").strip().lower() in {"llm", "llm_preferred"}
@@ -157,8 +169,7 @@ class ATLASSession:
         recommendation = submission_result.get("recommendation", "same")
 
         hint = self._generate_hint(passed, raw_result, self.current_exercise)
-
-        return {
+        outcome = {
             "passed": passed,
             "recommendation": recommendation,
             "hint": hint,
@@ -166,6 +177,30 @@ class ATLASSession:
             "exercise_id": self.current_exercise.get("exercise_id"),
             "lesson_id": self._lesson_id,
         }
+        entry = tutor_delivery.record_attempt(self.lesson_telemetry, self._lesson_id or "", outcome)
+        outcome["stall"] = tutor_delivery.stall_signal(entry)
+        return outcome
+
+    # ------------------------------------------------------------------
+    # Delivery helpers — manifest, stall status, comprehension gate
+    # ------------------------------------------------------------------
+
+    def lesson_manifest(self) -> Dict[str, Any]:
+        """Prerequisites, sample data, expected output and success criteria for the active lesson."""
+        return tutor_delivery.build_lesson_manifest(self.current_lesson, self.current_exercise, self.curriculum)
+
+    def stall_status(self) -> Dict[str, Any]:
+        """Whether the learner looks stuck on the active lesson, with one suggested intervention."""
+        return tutor_delivery.stall_signal(self.lesson_telemetry.get(self._lesson_id or ""))
+
+    def gate_status(self, override: bool = False) -> Dict[str, Any]:
+        """Comprehension gate for advancing past the active lesson."""
+        return tutor_delivery.comprehension_gate(
+            lesson_id=self._lesson_id or "",
+            exercise=self.current_exercise,
+            telemetry_entry=self.lesson_telemetry.get(self._lesson_id or ""),
+            override=override,
+        )
 
     # ------------------------------------------------------------------
     # Hint generation — no LLM, fully local
@@ -236,13 +271,19 @@ class ATLASSession:
     # Convenience — advance to the next lesson
     # ------------------------------------------------------------------
 
-    def next_lesson(self, lesson_idx_delta: int = 1) -> Dict[str, Any]:
+    def next_lesson(self, lesson_idx_delta: int = 1, *, require_mastery: bool = False) -> Dict[str, Any]:
         """Advance to the next lesson in the current module.
 
-        Returns the new exercise, same as start_lesson().
+        Returns the new exercise, same as start_lesson(). With
+        ``require_mastery=True`` a :class:`LessonGateError` is raised when the
+        current exercise has not passed yet.
         """
         if self.curriculum is None:
             raise RuntimeError("No curriculum loaded. Call start_lesson() first.")
+        if require_mastery:
+            gate = self.gate_status()
+            if not gate.get("allowed"):
+                raise LessonGateError(gate)
 
         # Find current module and lesson indices
         modules: List[Dict] = self.curriculum.get("modules", [])
@@ -267,6 +308,7 @@ class ATLASSession:
         """Internal: switch to a lesson and generate its first exercise."""
         self.current_lesson = lesson
         self._lesson_id = lesson["lesson_id"]
+        tutor_delivery.touch_lesson(self.lesson_telemetry, self._lesson_id)
         exercises = generate_exercises_for_lesson(lesson, count=1)
         self.current_exercise = exercises[0]
         return {
@@ -381,6 +423,7 @@ class ATLASSession:
             "current_exercise": self.current_exercise,
             "_curriculum_id": self._curriculum_id,
             "_lesson_id": self._lesson_id,
+            "lesson_telemetry": self.lesson_telemetry,
         }
         os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         with open(path, "w", encoding="utf-8") as fh:
@@ -404,6 +447,8 @@ class ATLASSession:
             session.current_exercise = state.get("current_exercise")
             session._curriculum_id = state.get("_curriculum_id")
             session._lesson_id = state.get("_lesson_id")
+            telemetry = state.get("lesson_telemetry")
+            session.lesson_telemetry = telemetry if isinstance(telemetry, dict) else {}
             return session
         except Exception:
             return cls()

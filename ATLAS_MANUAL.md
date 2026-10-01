@@ -460,6 +460,7 @@ On pass: XP recorded in Supabase. On fail: error + TutorAgent hint.
 ```powershell
 python -m cli.main atlas next
 ```
+In the UI and over HTTP (`POST /api/atlas/next`), advancing past an exercise that has not passed returns `status: "gated"` with a message and any stall signal. The learner can keep practicing or choose **Continue anyway** (`{"override": true}`), which is audit-logged. In the SDK, `next_lesson()` keeps its old behaviour; pass `require_mastery=True` to get the gate (`LessonGateError`).
 
 ### Reset your session
 ```powershell
@@ -864,6 +865,10 @@ Applies instantly via CSS custom properties. Legacy `darker`/`midnight` values n
 | Pacing adapter | Honor onboarding `preferred_pacing` field to space exercises / explanations |
 | Post-lesson mastery update | Write concept mastery scores back to learner model after every submission. **Shipped** with mastery/confidence deltas in `recent_outcomes` |
 | Remediation branching | Trigger support mode for repeated failures, with optional automatic exercise regeneration |
+| Lesson manifest | **Shipped**: `lesson_manifest` (prerequisites, sample input, expected output, done-when criteria) derived from real lesson data |
+| Per-step stall telemetry | **Shipped**: `lesson_telemetry` + `stall` signal (3 fails in a row / same error twice / 20 min idle) with one targeted suggestion |
+| Comprehension gate | **Shipped**: `/api/atlas/next` gates unpassed exercises; explicit, audit-logged "Continue anyway" override |
+| Retrieval hygiene | **Shipped**: deduped, labeled lesson chunks before top-k |
 | Anti-cheat continuity | If direct-answer request is detected on active exercises, ATLAS refuses and can auto-generate a parallel variant |
 | Supabase session rows on lesson start | Write `atlas.sessions` entries for full lesson-history tracking |
 | `atlas progress` CLI command | Display XP, lessons completed, streak, weakest concepts from DB + learner model |

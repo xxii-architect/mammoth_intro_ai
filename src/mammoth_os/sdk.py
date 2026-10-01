@@ -145,6 +145,7 @@ class AtlasSubmissionReport(_SerializableDataclass):
     progress: Dict[str, Any] = field(default_factory=dict)
     usage: Dict[str, Any] = field(default_factory=dict)
     updated_at: str = ""
+    stall: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -468,8 +469,33 @@ class AtlasFAB:
     def status(self) -> Dict[str, Any]:
         return self.session.status()
 
-    def next_lesson(self, lesson_idx_delta: int = 1) -> Dict[str, Any]:
-        result = self.session.next_lesson(lesson_idx_delta=lesson_idx_delta)
+    def lesson_manifest(self) -> Dict[str, Any]:
+        """Prerequisites, sample data, expected output and success criteria for the active lesson."""
+        builder = getattr(self.session, "lesson_manifest", None)
+        if callable(builder):
+            return builder()
+        from mammoth_os.tutor_delivery import build_lesson_manifest
+
+        return build_lesson_manifest(
+            getattr(self.session, "current_lesson", None),
+            getattr(self.session, "current_exercise", None),
+            getattr(self.session, "curriculum", None),
+        )
+
+    def stall_status(self) -> Dict[str, Any]:
+        """Whether the learner looks stuck on the active lesson, with one suggested intervention."""
+        checker = getattr(self.session, "stall_status", None)
+        if callable(checker):
+            return checker()
+        from mammoth_os.tutor_delivery import stall_signal
+
+        return stall_signal(None)
+
+    def next_lesson(self, lesson_idx_delta: int = 1, *, require_mastery: bool = False) -> Dict[str, Any]:
+        if require_mastery:
+            result = self.session.next_lesson(lesson_idx_delta=lesson_idx_delta, require_mastery=True)
+        else:
+            result = self.session.next_lesson(lesson_idx_delta=lesson_idx_delta)
         self._last_lesson_id = str(result.get("lesson_id") or self._last_lesson_id or "").strip()
         self._last_exercise_id = str(result.get("exercise_id") or self._last_exercise_id or "").strip()
         self._record_event("lesson_advanced", {"lesson_idx_delta": lesson_idx_delta})
@@ -516,6 +542,7 @@ class AtlasFAB:
             progress=progress,
             usage=usage,
             updated_at=self._touch(),
+            stall=dict(raw.get("stall") or {}),
         )
 
     async def submit(

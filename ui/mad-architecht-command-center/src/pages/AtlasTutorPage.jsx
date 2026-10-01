@@ -8,6 +8,7 @@ import GuideStepPanel from '../components/GuideStepPanel'
 import { TrustBadgeRow } from '../components/TrustSurfaces'
 import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 import { useInterval } from '../hooks/useApi'
+import { LessonGateNotice, LessonManifestCard, StallNotice } from '../components/LessonDelivery'
 
 
 const ATLAS_MONACO_THEME = {
@@ -100,6 +101,7 @@ export default function AtlasTutorPage() {
   const [topic, setTopic]           = useState('')
   const [code, setCode]             = useState('')
   const [result, setResult]         = useState(null)
+  const [lessonGate, setLessonGate] = useState(null)
   const [loading, setLoading]       = useState(false)
   const [chatInput, setChatInput]   = useState('')
   const [chatBusy, setChatBusy]     = useState(false)
@@ -223,6 +225,7 @@ export default function AtlasTutorPage() {
     if (!code.trim()) return
     setLoading(true)
     try {
+      setLessonGate(null)
       const res = await api('/atlas/submit', { method: 'POST', body: { code, regenerate_on_fail: false } })
       setResult({ ...(res.result || res), adaptive_feedback: res.adaptive_feedback || null })
       setAtlasState(prev => ({
@@ -241,16 +244,23 @@ export default function AtlasTutorPage() {
     }
   }
 
-  const nextLesson = async () => {
+  const nextLesson = async (override = false) => {
     setLoading(true)
     try {
-      await api('/atlas/next', { method: 'POST', body: {} })
+      const res = await api('/atlas/next', { method: 'POST', body: override ? { override: true } : {} })
+      if (res?.status === 'gated') {
+        setLessonGate(res.gate || null)
+        return
+      }
+      setLessonGate(null)
       await loadState()
       setResult(null)
       setCode('')
       setStudyAid(null)
-    } catch (_) {}
-    setLoading(false)
+    } catch (_) {
+    } finally {
+      setLoading(false)
+    }
   }
 
   const prevLesson = async () => {
@@ -882,6 +892,8 @@ export default function AtlasTutorPage() {
               )}
             </div>
 
+            <LessonManifestCard manifest={atlasState?.lesson_manifest} />
+
             <div className="glass-card-solid" style={{ padding: 14, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 280 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, gap: 12, flexWrap: 'wrap' }}>
                 <div>
@@ -899,12 +911,21 @@ export default function AtlasTutorPage() {
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.8rem', cursor: 'pointer' }}>
                     Back
                   </button>
-                  <button onClick={nextLesson} disabled={loading}
+                  <button onClick={() => nextLesson(false)} disabled={loading}
                     style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', fontSize: '0.8rem', cursor: 'pointer' }}>
                     <ChevronRight size={13} /> Next
                   </button>
                 </div>
               </div>
+              {lessonGate ? (
+                <div style={{ marginBottom: 8 }}>
+                  <LessonGateNotice gate={lessonGate} busy={loading} onDismiss={() => setLessonGate(null)} onContinue={() => nextLesson(true)} />
+                </div>
+              ) : (result?.stall?.stalled || atlasState?.lesson_stall?.stalled) ? (
+                <div style={{ marginBottom: 8 }}>
+                  <StallNotice stall={result?.stall?.stalled ? result.stall : atlasState.lesson_stall} />
+                </div>
+              ) : null}
               <div style={{ flex: 1, minHeight: 240, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
                 <Editor
                   height="100%"

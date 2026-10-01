@@ -47,6 +47,12 @@ Use this file when wiring or extending MammothOS agents.
 - Keep package metadata (`pyproject.toml`) production-oriented: clear dependencies, public description, and accurate versioning.
 - For monetization features, design for future tenant keys and usage metering without hard-coding a single operator identity.
 
+## Tutor delivery rules
+- Lesson manifests, stall telemetry, the comprehension gate, and chunk hygiene live in `src/mammoth_os/tutor_delivery.py` as pure functions; the API, `ATLASSession`, and the SDK all call them. Do not fork the logic.
+- Manifests must be derived from real lesson/exercise data. Leave a field empty rather than generating filler.
+- The gate must always offer an explicit override, and overrides must be audit-logged. SDK `next_lesson()` stays ungated unless `require_mastery=True`.
+- Keep `lesson_telemetry` bounded (80 lessons) and clear it on learner reset.
+
 ## Mammoth Paths workspace SDK rules
 - Python client: `src/mammoth_os/paths/` (stdlib only). JS client: `packages/mammoth-paths/` (zero dependencies). Keep both method sets and the `mammoth.paths.v1` contract in sync, and add tests on both sides.
 - The app imports run-state logic from `@mammothos/paths` (Vite alias). Change the reducer there, not in the app.

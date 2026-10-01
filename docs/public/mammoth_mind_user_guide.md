@@ -64,3 +64,8 @@ Every run shows what the agents did, using one fixed set of labelled glyphs:
 ## ATLAS tutor
 
 ATLAS is the adaptive tutor. It keeps your lesson progress, coaches you on exercises, and can be embedded in other products through the ATLAS FAB SDK. In MammothOS itself, the tutor is reached through the Mammoth Mind header pill.
+
+How a lesson works:
+- **Lesson card.** Each lesson shows what to know first, sample input, expected output, and how you know you're done. These come from the lesson itself, so sections with no data are hidden.
+- **Stuck detection.** If you fail three times in a row, hit the same error twice, or go 20 minutes without progress, a "sticky step" note appears with one concrete next move.
+- **Next.** Next checks that the current exercise has passed. If it hasn't, you can keep practicing or choose **Continue anyway**. Skipping is always your call.

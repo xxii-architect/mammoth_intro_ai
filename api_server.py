@@ -50,6 +50,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from mammoth_os.learner_model import build_learner_context, build_lesson_plan, load_learner_model, save_learner_model, set_onboarding_profile, update_learner_model
 from mammoth_os.runtime_contracts import build_observability_run, build_runtime_notice, new_trace_id
 from mammoth_os.rag_retrieval import get_retriever
+from mammoth_os import tutor_delivery
 from mammoth_os.supabase_client import get_supabase
 from mammoth_os.memory_engine import MemoryEngine
 from mammoth_os.rag_context_store import get_rag_context_store
@@ -3874,7 +3875,34 @@ def _build_atlas_observability(state: Dict[str, Any], *, eval_history: Optional[
     }
 
 
+def _lesson_telemetry(state: Dict[str, Any]) -> Dict[str, Any]:
+    telemetry = state.get("lesson_telemetry")
+    if not isinstance(telemetry, dict):
+        telemetry = {}
+        state["lesson_telemetry"] = telemetry
+    return telemetry
+
+
+def _attach_delivery_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Derive the lesson manifest + stall signal for the active lesson (never stored stale)."""
+    lesson_id = str(state.get("lesson_id") or "").strip()
+    lesson = state.get("current_lesson") if isinstance(state.get("current_lesson"), dict) else {}
+    if not lesson_id and not lesson:
+        state["lesson_manifest"] = None
+        state["lesson_stall"] = None
+        return state
+    state["lesson_manifest"] = tutor_delivery.build_lesson_manifest(
+        lesson,
+        state.get("current_exercise") if isinstance(state.get("current_exercise"), dict) else {},
+        state.get("curriculum") if isinstance(state.get("curriculum"), dict) else {},
+    )
+    telemetry = state.get("lesson_telemetry") if isinstance(state.get("lesson_telemetry"), dict) else {}
+    state["lesson_stall"] = tutor_delivery.stall_signal(telemetry.get(lesson_id))
+    return state
+
+
 def _decorate_atlas_state(state: Dict[str, Any]) -> Dict[str, Any]:
+    _attach_delivery_state(state)
     eval_history = _load_eval_history()
     state["eval_history"] = eval_history[-8:]
     state["observability"] = _build_atlas_observability(state, eval_history=eval_history)
@@ -5719,6 +5747,7 @@ def _apply_atlas_session_reset() -> Dict[str, Any]:
         "recommended_difficulty": "beginner",
         "preferred_pacing": "gentle",
     }
+    state["lesson_telemetry"] = {}
     _save_atlas_state(state)
     return {"status": "ok", "message": "Session reset"}
 
@@ -6705,6 +6734,8 @@ async def atlas_lesson(body: Dict[str, Any]):
         })
         _hydrate_learner_state(state, user_id=learner_user_id)
         _append_lesson_history(state, session.current_lesson or {}, exercise or {})
+        tutor_delivery.touch_lesson(_lesson_telemetry(state), str(state.get("lesson_id") or ""))
+        _attach_delivery_state(state)
         _sync_resume_packet(state, state.get("lesson_id"))
         _save_atlas_state(state)
         _append_audit_event(
@@ -6720,6 +6751,7 @@ async def atlas_lesson(body: Dict[str, Any]):
             "learner_context": state.get("learner_context"),
             "active_module": _serialize_module_track(module_track),
             "curriculum_topic": curriculum_topic,
+            "lesson_manifest": state.get("lesson_manifest"),
         }
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -6758,6 +6790,12 @@ async def atlas_submit(body: Dict[str, Any]):
             files = {"solution.py": code}
             result = await session.submit(files)
 
+        telemetry_entry = tutor_delivery.record_attempt(
+            _lesson_telemetry(state), str(state.get("lesson_id") or ""), result
+        )
+        stall = tutor_delivery.stall_signal(telemetry_entry)
+        if isinstance(result, dict):
+            result["stall"] = stall
         state["last_submission"] = result
         _hydrate_learner_state(
             state,
@@ -6817,6 +6855,7 @@ async def atlas_submit(body: Dict[str, Any]):
             "adaptive_feedback": adaptive_feedback,
             "current_exercise": state.get("current_exercise"),
             "regenerated_exercise": regenerated_exercise,
+            "stall": stall,
             "provider": "atlas-tutor",
             "confidence": 0.85,  # ATLAS has high confidence in structured exercises
             "citations": ["Exercise library", "Curriculum standards"],
@@ -6828,13 +6867,26 @@ async def atlas_submit(body: Dict[str, Any]):
 
 
 @app.post("/api/atlas/next")
-async def atlas_next():
+async def atlas_next(body: Optional[Dict[str, Any]] = None):
+    body = body if isinstance(body, dict) else {}
     state = _load_atlas_state()
     curriculum = state.get("curriculum", {})
     modules = curriculum.get("modules", []) if isinstance(curriculum, dict) else []
     lesson_id = str(state.get("lesson_id") or "").strip()
     if not lesson_id:
         return {"status": "ok", "message": "No active lesson to advance from."}
+
+    history_entry = _matching_history_entry(state, lesson_id) or {}
+    history_submission = history_entry.get("last_submission") if isinstance(history_entry.get("last_submission"), dict) else None
+    gate = tutor_delivery.comprehension_gate(
+        lesson_id=lesson_id,
+        exercise=state.get("current_exercise") if isinstance(state.get("current_exercise"), dict) else {},
+        telemetry_entry=_lesson_telemetry(state).get(lesson_id),
+        history_submission=history_submission,
+        override=bool(body.get("override")),
+    )
+    if not gate.get("allowed"):
+        return {"status": "gated", "lesson_id": lesson_id, "gate": gate}
 
     next_lesson = None
     next_module = None
@@ -6890,8 +6942,18 @@ async def atlas_next():
 
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
+    tutor_delivery.touch_lesson(_lesson_telemetry(state), str(state.get("lesson_id") or ""))
+    _attach_delivery_state(state)
     _sync_resume_packet(state, state.get("lesson_id"))
     _save_atlas_state(state)
+    if gate.get("overridden"):
+        _append_audit_event(
+            kind="atlas_gate_override",
+            message="Learner advanced past an unpassed exercise",
+            details={"from_lesson_id": lesson_id, "reason": gate.get("reason")},
+            source="atlas",
+            actor="learner",
+        )
     return {
         "status": "ok",
         "lesson": next_lesson,
@@ -6899,6 +6961,8 @@ async def atlas_next():
         "module_id": state.get("module_id"),
         "active_module": state.get("active_module"),
         "lesson_id": state.get("lesson_id"),
+        "lesson_manifest": state.get("lesson_manifest"),
+        "gate": gate,
     }
 
 
@@ -6917,6 +6981,7 @@ async def atlas_back():
     if isinstance(previous.get("last_submission"), dict):
         state["last_submission"] = previous.get("last_submission")
     _sync_resume_packet(state, state.get("lesson_id"))
+    _attach_delivery_state(state)
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
     return {
@@ -6924,6 +6989,7 @@ async def atlas_back():
         "lesson": state.get("current_lesson"),
         "exercise": state.get("current_exercise"),
         "resume_packet": state.get("resume_packet"),
+        "lesson_manifest": state.get("lesson_manifest"),
     }
 
 

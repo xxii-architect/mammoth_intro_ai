@@ -1,6 +1,6 @@
 """Public package surface for MammothOS."""
 
-from mammoth_os.atlas_session import ATLASSession
+from mammoth_os.atlas_session import ATLASSession, LessonGateError
 from mammoth_os.sdk import (
     AtlasFAB,
     AtlasFABConfig,
@@ -24,6 +24,7 @@ __all__ = [
     "MammothPaths",
     "PathsError",
     "ATLASSession",
+    "LessonGateError",
     "AtlasFAB",
     "AtlasFABConfig",
     "AtlasFABError",
