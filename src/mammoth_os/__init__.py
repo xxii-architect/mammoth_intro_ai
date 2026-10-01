@@ -11,9 +11,18 @@ from mammoth_os.sdk import (
     AtlasRuntimeSnapshot,
     AtlasSubmissionReport,
     AtlasUsageSnapshot,
+    MammothMind,
+    MammothMindConfig,
+    MammothMindError,
 )
+from mammoth_os.paths import MammothPaths, PathsError
 
 __all__ = [
+    "MammothMind",
+    "MammothMindConfig",
+    "MammothMindError",
+    "MammothPaths",
+    "PathsError",
     "ATLASSession",
     "AtlasFAB",
     "AtlasFABConfig",
@@ -27,4 +36,4 @@ __all__ = [
     "__version__",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"

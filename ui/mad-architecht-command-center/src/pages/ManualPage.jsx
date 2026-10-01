@@ -26,6 +26,8 @@ const liveNow = [
   'Learning materials can be uploaded into the ATLAS library for lesson-side context and reuse.',
   'Mammoth Mind Agent mode streams a run timeline: plan, short reasoning summaries, tool calls, proposed diffs, and inline Approve / Reject cards. Stop cancels a run at any time.',
   'The floating button is now a Mammoth Mind pill in the top-right header, next to notifications. It opens a quick panel with a link to the full Mammoth Mind page.',
+  'Mammoth Paths is the new workspace SDK (Python `MammothPaths`, JS `@mammothos/paths`) for embedding agent runs, your repos, notes, and the build log in other software. The tutor SDK is now called Mammoth Mind (formerly ATLAS FAB).',
+  'Notes and the build log are now private to each account and enforced on the server for Pro tier and above.',
   'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
   'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',
 ]

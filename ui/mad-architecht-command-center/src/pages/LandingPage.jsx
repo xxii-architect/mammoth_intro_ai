@@ -177,7 +177,7 @@ const DOCS = [
   },
   {
     title: 'Pricing & Packaging',
-    body: 'The buyer-facing story for the platform, the SDK, and the embeddable ATLAS FAB.',
+    body: 'The buyer-facing story for the platform, the Mammoth Paths workspace SDK, and the embeddable Mammoth Mind tutor.',
     page: 'pricing',
   },
 ]

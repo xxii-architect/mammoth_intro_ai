@@ -1,0 +1,25 @@
+{
+  "name": "@mammothos/paths",
+  "version": "0.1.0",
+  "description": "Mammoth Paths: the MammothOS workspace SDK for embedding Mammoth Mind agent runs, repo sources, notes, and build logs.",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  }
+}

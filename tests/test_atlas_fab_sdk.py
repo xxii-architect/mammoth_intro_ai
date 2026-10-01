@@ -87,7 +87,7 @@ def test_package_exports_sdk_surface():
     assert AtlasProgressSnapshot is not None
     assert AtlasUsageSnapshot is not None
     assert AtlasRuntimeSnapshot is not None
-    assert __version__ == "0.5.0"
+    assert __version__ == "0.6.0"
 
 
 def test_atlas_fab_start_lesson_returns_richer_snapshot():

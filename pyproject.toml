@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mammoth-os"
-version = "0.5.0"
-description = "MammothOS and ATLAS: a multi-agent tutoring platform with an embeddable Python SDK."
+version = "0.6.0"
+description = "MammothOS: the Mammoth Mind tutor SDK and the Mammoth Paths workspace SDK for embedding agent runs, repos, notes, and build logs."
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 keywords = ["ai", "agents", "atlas", "education", "tutoring", "sdk", "developer-tools", "copilot", "workflow"]

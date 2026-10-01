@@ -205,7 +205,7 @@ const COMMANDS = [
     category: 'ATLAS learning lanes',
     icon: GraduationCap,
     accent: 'var(--violet)',
-    description: 'Prompts tuned for Assistant, Tutor, and Build behavior inside the ATLAS Tutor page and FAB.',
+    description: 'Prompts tuned for Assistant, Tutor, and Build behavior inside the ATLAS Tutor page and the Mammoth Mind pill.',
     commands: [
       {
         name: 'Assistant lane architecture help',
@@ -294,12 +294,12 @@ const COMMANDS = [
         name: 'Save the response as an artifact',
         syntax: 'Save this as a report',
         example: 'Save this as a report and keep it in markdown form',
-        description: 'Use the FAB save controls to turn the latest useful response into a durable artifact.',
+        description: 'Use the Mammoth Mind pill save controls to turn the latest useful response into a durable artifact.',
         parameters: [],
         output: 'A .md or .txt report stored in the artifact library.',
         guardrails: 'Saving is a UI action tied to the latest assistant message.',
         tips: 'Use reports for deployment notes, architecture tours, and validated research summaries.',
-        surface: 'ATLAS FAB or Mammoth Mind FAB',
+        surface: 'Mammoth Mind header pill',
         status: 'Live now',
       },
       {

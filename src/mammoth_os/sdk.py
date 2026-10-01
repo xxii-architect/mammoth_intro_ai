@@ -1,4 +1,9 @@
-"""Embeddable ATLAS FAB SDK surface for developers integrating MammothOS."""
+"""Embeddable Mammoth Mind tutor SDK (formerly the ATLAS FAB SDK).
+
+``MammothMind`` is the public product name. The ``AtlasFAB*`` names remain
+fully supported aliases, and wire values such as ``PRODUCT_SURFACE`` are
+unchanged so existing integrations and stored snapshots keep working.
+"""
 
 from __future__ import annotations
 
@@ -672,7 +677,16 @@ class AtlasFAB:
         }
 
 
+# Mammoth Mind product names. Same classes, so isinstance checks and pickles stay compatible.
+MammothMind = AtlasFAB
+MammothMindConfig = AtlasFABConfig
+MammothMindError = AtlasFABError
+
+
 __all__ = [
+    "MammothMind",
+    "MammothMindConfig",
+    "MammothMindError",
     "AtlasFAB",
     "AtlasFABConfig",
     "AtlasFABError",

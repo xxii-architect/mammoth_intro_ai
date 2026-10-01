@@ -8,9 +8,14 @@ MammothOS can now be described as a productized Python package instead of a repo
 - the installable runtime and SDK surface
 - suitable for internal operator tools, prototypes, and embed integrations
 
-**ATLAS FAB**
+**Mammoth Mind tutor SDK** (formerly ATLAS FAB; `AtlasFAB` remains a supported alias)
 - the learner-facing embed story on top of the package
 - best framed as the commercial wedge for tutoring and enablement use cases
+
+**Mammoth Paths workspace SDK**
+- embeds Mammoth Mind agent runs (with visible traces and approvals), bring-your-own repos, notes, and the build log in other software
+- Python `MammothPaths` client plus the zero-dependency JS package `@mammothos/paths`
+- every call is tenant-scoped server-side; the platform repository is never reachable by customers
 
 ## Package architecture
 
@@ -20,7 +25,9 @@ flowchart TD
     Install --> CLI[CLI entry point]
     InstallServer[pip install mammoth-os[server]] --> API[FastAPI backend]
     SDK --> Session[ATLASSession compatibility]
-    SDK --> FAB[AtlasFAB contract]
+    SDK --> FAB[MammothMind tutor contract]
+    SDK --> Paths[MammothPaths workspace client]
+    Paths --> API
     API --> UI[Command Center UI]
     API --> Auth[Tenant / auth guardrails]
 ```
@@ -55,4 +62,6 @@ If someone asks why they should buy or adopt this package, the answer is:
 - integration recipes for FastAPI, React, and internal tools
 - a hosted quickstart with tenant bootstrap
 - a billing / entitlements explainer tied to real backend endpoints
-- comparison copy: generic chatbot embed vs ATLAS FAB guided-learning embed
+- comparison copy: generic chatbot embed vs Mammoth Mind guided-learning embed
+- Mammoth Paths recipes: React run timeline with `createRunStore`, approval policies, usage metering via `usage_hook`
+- trademark search on "Mammoth Mind" and "Mammoth Paths" before commercial launch

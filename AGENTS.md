@@ -39,12 +39,18 @@ Use this file when wiring or extending MammothOS agents.
 - Prefer explicit `mode`, `audience`, and `constraints` for brand-voice rewrites and tutorial output.
 - Validate outputs against expected shape before calling a task complete.
 
-## ATLAS FAB + package commercialization rules
+## Mammoth Mind tutor SDK (formerly ATLAS FAB) + package commercialization rules
 - Treat `src/mammoth_os/sdk.py` and `src/mammoth_os/__init__.py` as the public SDK contract for embedders.
-- Keep `AtlasFAB` additive: never break existing `ATLASSession` flows while exposing higher-level embed APIs.
+- `MammothMind*` is the product name; `AtlasFAB*` names are permanent aliases of the same classes. Never rename wire values (`product_surface`, contract versions) as part of branding work.
+- Keep `MammothMind` additive: never break existing `ATLASSession` flows while exposing higher-level embed APIs.
 - Prefer explicit runtime/state surfaces (`runtime_state`, contract versions, provider labels) so integrators can monitor availability and fallback behavior.
 - Keep package metadata (`pyproject.toml`) production-oriented: clear dependencies, public description, and accurate versioning.
 - For monetization features, design for future tenant keys and usage metering without hard-coding a single operator identity.
+
+## Mammoth Paths workspace SDK rules
+- Python client: `src/mammoth_os/paths/` (stdlib only). JS client: `packages/mammoth-paths/` (zero dependencies). Keep both method sets and the `mammoth.paths.v1` contract in sync, and add tests on both sides.
+- The app imports run-state logic from `@mammothos/paths` (Vite alias). Change the reducer there, not in the app.
+- Clients never enforce access; the backend does. Workspace surfaces must stay user-scoped, and tier-gated surfaces use `_require_workspace_tier_api`.
 
 ## Repo access rules
 - `src/mammoth_os/repo_access.py` is the single policy for repository context. Never resolve repo roots anywhere else.

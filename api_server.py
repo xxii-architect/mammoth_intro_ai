@@ -719,6 +719,29 @@ def _require_admin_api() -> Optional[JSONResponse]:
     return None
 
 
+_TIER_RANK = {"explorer": 0, "pro": 1, "enterprise": 2}
+
+
+def _require_workspace_tier_api(minimum: str = "pro") -> Optional[JSONResponse]:
+    """Server-side twin of the UI tier gates for user-scoped workspace surfaces.
+
+    Admins always pass. Other callers must be signed in and hold ``minimum`` tier
+    (or developer access) on their own account state.
+    """
+    if not _AUTH_REQUIRED or _request_is_admin():
+        return None
+    if _current_request_user_id("") in {"", "anonymous"}:
+        return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
+    state = _load_atlas_state()
+    tier = str(state.get("tier") or "explorer").strip().lower()
+    if bool(state.get("developer_access")) or _TIER_RANK.get(tier, 0) >= _TIER_RANK.get(minimum, 1):
+        return None
+    return JSONResponse(
+        {"status": "error", "error": f"This workspace surface requires the {minimum} tier.", "code": "tier_required", "minimum_tier": minimum},
+        status_code=403,
+    )
+
+
 async def _require_auth_user(request: Request) -> Optional[Dict[str, Any]]:
     """
     Soft per-request auth check.
@@ -9161,6 +9184,7 @@ async def propose_repo_source_patch(source_id: str, body: Dict[str, Any]):
 
 _PUBLIC_GUIDE_DOCS = [
     "docs/public/mammoth_mind_user_guide.md",
+    "docs/public/mammoth_paths_sdk_guide.md",
     "docs/atlas_fab_product_guide.md",
     "docs/mammoth_os_package_offering.md",
 ]
@@ -10039,7 +10063,7 @@ async def mammoth_chat(body: Dict[str, Any]):
 
 @app.get("/api/notes")
 async def get_notes():
-    blocked = _require_admin_api()
+    blocked = _require_workspace_tier_api("pro")
     if blocked is not None:
         return blocked
     scope_user_id = _current_request_user_id()
@@ -10059,7 +10083,7 @@ async def get_notes():
 
 @app.post("/api/notes")
 async def upsert_note(body: Dict[str, Any]):
-    blocked = _require_admin_api()
+    blocked = _require_workspace_tier_api("pro")
     if blocked is not None:
         return blocked
     scope_user_id = _current_request_user_id()
@@ -10119,7 +10143,7 @@ async def upsert_note(body: Dict[str, Any]):
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: str):
-    blocked = _require_admin_api()
+    blocked = _require_workspace_tier_api("pro")
     if blocked is not None:
         return blocked
     scope_user_id = _current_request_user_id()
@@ -10238,20 +10262,37 @@ async def update_beta_feedback_status(feedback_id: str, body: Dict[str, Any]):
 # /api/buildlog
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _buildlog_entry_visible(entry: Any, user_id: str, is_admin: bool) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    owner = str(entry.get("user_id") or "").strip()
+    if not owner:
+        # Entries written before tenant scoping belong to the operator.
+        return is_admin
+    return owner == user_id
+
+
 @app.get("/api/buildlog")
 async def get_buildlog():
-    blocked = _require_admin_api()
+    blocked = _require_workspace_tier_api("pro")
     if blocked is not None:
         return blocked
-    return _read_json(BUILDLOG_FILE)
+    entries = _read_json(BUILDLOG_FILE, default=[])
+    if not isinstance(entries, list):
+        return []
+    user_id = _current_request_user_id()
+    is_admin = _request_is_admin()
+    return [entry for entry in entries if _buildlog_entry_visible(entry, user_id, is_admin)]
 
 
 @app.post("/api/buildlog")
 async def append_buildlog(body: Dict[str, Any]):
-    blocked = _require_admin_api()
+    blocked = _require_workspace_tier_api("pro")
     if blocked is not None:
         return blocked
-    entries = _read_json(BUILDLOG_FILE)
+    entries = _read_json(BUILDLOG_FILE, default=[])
+    if not isinstance(entries, list):
+        entries = []
     fields = body.get("fields", {})
     if not isinstance(fields, dict):
         fields = {}
@@ -10267,6 +10308,7 @@ async def append_buildlog(body: Dict[str, Any]):
         "status":      body.get("status", "") or str(fields.get("goal_outcome") or ""),
         "fields":      fields,
         "created_at":  datetime.now(timezone.utc).isoformat(),
+        "user_id":     _current_request_user_id(),
     }
     entries.append(entry)
     _write_json(BUILDLOG_FILE, entries)

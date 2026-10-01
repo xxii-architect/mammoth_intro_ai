@@ -1,6 +1,8 @@
-# ATLAS FAB Product Guide
+# Mammoth Mind Tutor SDK Product Guide (formerly ATLAS FAB)
 
-ATLAS FAB is the embeddable tutoring surface of MammothOS: a product for teams that want adaptive teaching loops, page-aware coaching, and runtime-state visibility inside an existing app.
+> **Naming:** the product is now called **Mammoth Mind**. In code, `MammothMind`, `MammothMindConfig`, and `MammothMindError` are the preferred imports; `AtlasFAB`, `AtlasFABConfig`, and `AtlasFABError` remain fully supported aliases for the same classes. Wire values (`product_surface: "atlas_fab"`, contract `v2`) are unchanged.
+
+The Mammoth Mind tutor SDK (formerly ATLAS FAB) is the embeddable tutoring surface of MammothOS: a product for teams that want adaptive teaching loops, page-aware coaching, and runtime-state visibility inside an existing app.
 
 ## Positioning
 

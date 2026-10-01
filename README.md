@@ -52,7 +52,7 @@ Mammoth Mind's **Agent** mode (default; toggle to **Classic** in the chat header
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/mammoth/tools?repo=` | Tool catalog visible to *you* for that repo selection |
-| `POST /api/mammoth/runs` | Start a run (SSE). Body: `message`, `agent_id`, `repo_context.root`, `approval_mode` (`tools`\|`always`), `max_steps` |
+| `POST /api/mammoth/runs` | Start a run (SSE). Body: `message`, `agent_id`, `repo_context.root`, `approval_mode` (`tools`\|`always`), `thread_id` |
 | `GET /api/mammoth/runs` / `GET /api/mammoth/runs/{id}?after=` | Your recent runs / replay events after a sequence number |
 | `POST /api/mammoth/runs/{id}/approval` | `{approval_id, decision: approve\|reject, note}` → resumes the stream (audited) |
 | `POST /api/mammoth/runs/{id}/cancel` | Stop a run |
@@ -214,9 +214,56 @@ ssh root@165.227.80.86
 bash /opt/mammothos/mammoth_intro_ai/scripts/deploy-droplet.sh
 ```
 
-## Standalone ATLAS FAB SDK
+## SDKs at a glance
 
-MammothOS now exposes an embeddable Python SDK surface for ATLAS so it can be positioned as a standalone product inside another app, workflow, or developer tool.
+| SDK | What it embeds | Python | JavaScript |
+| --- | --- | --- | --- |
+| **Mammoth Mind** (tutor; formerly ATLAS FAB) | Adaptive lessons, submissions, progress, runtime state | `from mammoth_os import MammothMind` | (UI pill in the app) |
+| **Mammoth Paths** (workspace) | Mammoth Mind agent runs + approvals, bring-your-own repos, notes, build log, owner terminal | `from mammoth_os import MammothPaths` | `@mammothos/paths` in `packages/mammoth-paths/` |
+
+The `AtlasFAB*` names are permanent aliases for `MammothMind*` (same classes), and wire values such as `product_surface: "atlas_fab"` are unchanged, so existing integrations keep working.
+
+## Mammoth Paths workspace SDK
+
+Mammoth Paths is a thin, versioned client (`mammoth.paths.v1`) over the backend. Every call is scoped server-side to the caller's token, so an embedder can never read another user's runs, repos, notes, or build log, or the platform repository.
+
+```python
+from mammoth_os import MammothPaths
+
+paths = MammothPaths("https://your-backend", token=user_access_token, usage_hook=print)
+paths.connect_repo("owner/repo")                       # public GitHub repo -> private sandbox
+result = paths.run(
+    "Find where auth tokens are validated",
+    repo="owner/repo",
+    on_event=lambda e: print(e.type),                 # mammoth.run.v1 events
+    approve=lambda e: e.data["tool"].startswith("repo_"),  # optional approval policy
+)
+print(result.status, result.reply, result.diffs)
+paths.save_note("Follow up on token expiry", title="Auth")
+paths.log_build("Shipped token validation fix")
+```
+
+```js
+import { createPathsClient, createRunStore } from '@mammothos/paths'
+
+const paths = createPathsClient({ baseUrl: 'https://your-backend', getToken: () => session.access_token })
+const store = createRunStore()                   // React: useSyncExternalStore(store.subscribe, store.getSnapshot)
+const result = await paths.run('Summarize the README', { repo: 'owner/repo', onEvent: store.dispatch })
+```
+
+Surface access:
+
+| Surface | Who |
+| --- | --- |
+| Agent runs, tools, repo sources | Any signed-in user (own data only) |
+| Notes, build log | Pro / Enterprise / developer access, enforced server-side (`tier_required` 403 otherwise); entries are per user, and pre-scoping build-log entries stay owner-only |
+| Terminal | Owner/admin only |
+
+`usage_hook` / `usageHook` receives `{surface, method, path, status, duration}` for every call. Use it for client-side metering until server-side tenant metering ships. The JS package is `private: true` until you decide to publish it. The app consumes it from source (Vite alias) so the UI and embedders fold run events identically.
+
+## Mammoth Mind tutor SDK (formerly ATLAS FAB)
+
+MammothOS exposes an embeddable Python SDK surface for the tutor so it can be positioned as a standalone product inside another app, workflow, or developer tool.
 
 ### Install
 
@@ -233,16 +280,17 @@ pip install mammoth-os[server]
 Core public imports:
 
 ```python
-from mammoth_os import AtlasFAB, AtlasFABConfig, ATLASSession
+from mammoth_os import MammothMind, MammothMindConfig, ATLASSession
+# Legacy names still work: AtlasFAB, AtlasFABConfig, AtlasFABError
 ```
 
 Example embedding flow:
 
 ```python
-from mammoth_os import AtlasFAB, AtlasFABConfig
+from mammoth_os import MammothMind, MammothMindConfig
 
-fab = AtlasFAB(
-    AtlasFABConfig(
+fab = MammothMind(
+    MammothMindConfig(
         user_id="workspace:customer-123",
         adapter="openai",
         audience="developer",
@@ -262,7 +310,7 @@ runtime = fab.runtime_state()
 ```
 
 Embeddable monetization strengths now present:
-- clear SDK entry point (`AtlasFAB`)
+- clear SDK entry point (`MammothMind`, alias `AtlasFAB`)
 - workspace-scoped learner identity support
 - structured runtime-state surface for provider health/fallback visibility
 - lesson, submit, next-lesson, and code-gen loops exposed programmatically
