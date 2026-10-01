@@ -10,9 +10,10 @@ function statusTone(state) {
   return '#f87171'
 }
 
-export default function RuntimeStatusBanner({ title = 'Runtime status', compact = false }) {
+export default function RuntimeStatusBanner({ title = 'Runtime status', compact = false, header = false, mobile = false }) {
   const [runtime, setRuntime] = useState(null)
   const [expanded, setExpanded] = useState(() => {
+    if (header) return false
     if (typeof window === 'undefined') return false
     try {
       return window.localStorage.getItem(RUNTIME_STATUS_STORAGE_KEY) === 'true'
@@ -22,6 +23,7 @@ export default function RuntimeStatusBanner({ title = 'Runtime status', compact 
   })
 
   useEffect(() => {
+    if (header) return
     if (typeof window === 'undefined') return
     try {
       window.localStorage.setItem(RUNTIME_STATUS_STORAGE_KEY, String(expanded))
@@ -57,6 +59,81 @@ export default function RuntimeStatusBanner({ title = 'Runtime status', compact 
   const fallbackChain = Array.isArray(runtime?.fallback_chain) ? runtime.fallback_chain.join(' -> ') : ''
   const fallbackReason = runtime?.fallback_reason ? String(runtime.fallback_reason).replaceAll('_', ' ') : ''
   const statusLabel = state === 'ready' ? 'Healthy' : state === 'degraded' ? 'Degraded' : 'Blocked'
+  const StatusIcon = state === 'ready' ? CheckCircle2 : state === 'degraded' ? AlertTriangle : WifiOff
+
+  if (header) {
+    return (
+      <div style={{ position: 'relative', display: 'inline-flex' }}>
+        <button
+          type="button"
+          onClick={() => setExpanded(value => !value)}
+          aria-expanded={expanded}
+          aria-haspopup="dialog"
+          title={`Runtime ${statusLabel.toLowerCase()}${activeProvider ? ` · ${activeProvider}` : ''}`}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6, height: 30,
+            padding: '0 10px', borderRadius: 999,
+            border: `1px solid ${tone}66`, background: `${tone}12`,
+            color: tone, fontSize: '0.69rem', fontWeight: 700,
+            cursor: 'pointer', whiteSpace: 'nowrap',
+          }}
+        >
+          <StatusIcon size={13} />
+          {!mobile && <span>Runtime</span>}
+          <span style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>{statusLabel}</span>
+          {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+        </button>
+        {expanded && (
+          <div
+            role="dialog"
+            aria-label={title}
+            style={{
+              position: 'fixed', top: 56, right: 12, zIndex: 9001,
+              width: 'min(360px, calc(100vw - 24px))', maxHeight: 'min(70vh, 520px)',
+              overflowY: 'auto', padding: 14, borderRadius: 14,
+              border: `1px solid ${tone}55`, borderTop: `2px solid ${tone}`,
+              background: 'var(--card)', backdropFilter: 'blur(20px)',
+              boxShadow: '0 12px 44px rgba(0,0,0,0.5)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <StatusIcon size={15} color={tone} />
+              <strong style={{ color: 'var(--txt-pri)', fontSize: '0.8rem' }}>{title}</strong>
+              <span style={{ color: tone, fontSize: '0.66rem', fontWeight: 700, textTransform: 'uppercase', marginLeft: 'auto' }}>{statusLabel}</span>
+            </div>
+            <p style={{ margin: 0, color: 'var(--txt-sec)', fontSize: '0.76rem', lineHeight: 1.55 }}>{issueText}</p>
+            {nextActionText && nextActionText !== issueText && (
+              <p style={{ margin: '5px 0 0', color: 'var(--txt-mut)', fontSize: '0.7rem', lineHeight: 1.5 }}>Next action: {nextActionText}</p>
+            )}
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10, fontSize: '0.7rem', color: 'var(--txt-mut)' }}>
+              <span>Active provider: <strong style={{ color: 'var(--txt-pri)' }}>{activeProvider}</strong></span>
+              {runtime?.active_model && <span>Model: <strong style={{ color: 'var(--txt-pri)' }}>{runtime.active_model}</strong></span>}
+              {runtime?.fallback_used && <span>Fallback active{fallbackReason ? ` · ${fallbackReason}` : ''}</span>}
+              {fallbackChain && <span>Chain: {fallbackChain}</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              {providers.map(provider => {
+                const providerTone = provider.status === 'ready' ? '#22c55e' : provider.status === 'offline' ? '#f87171' : '#f59e0b'
+                return (
+                  <span key={provider.provider} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '5px 8px', borderRadius: 999,
+                    border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)',
+                    fontSize: '0.68rem', color: provider.active ? 'var(--txt-pri)' : 'var(--txt-sec)',
+                  }}>
+                    <Activity size={11} color={providerTone} />
+                    {provider.provider}
+                    {provider.active && <strong style={{ color: 'var(--photon)' }}>active</strong>}
+                    {provider.fallback_target && <strong style={{ color: '#f59e0b' }}>fallback</strong>}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="glass-card-solid" style={{ padding: compact ? 12 : 14, borderLeft: `2px solid ${tone}`, marginBottom: compact ? 12 : 16 }}>

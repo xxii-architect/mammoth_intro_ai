@@ -749,9 +749,15 @@ Settings → Theme section. Two options:
 Applies instantly via CSS custom properties. Legacy `darker`/`midnight` values normalize to the current Dark theme so older saved preferences still behave correctly.
 
 ### Runtime Status Bar
-- The runtime status surface in the top shell is now compact by default.
-- Use **Show runtime** to expand provider details and **Hide runtime** to collapse it.
-- The expanded/collapsed state persists in browser storage across sessions.
+- Runtime health is a color-coded pill in the header beside Mammoth Mind: green for healthy, amber for degraded, and red for blocked.
+- Press the pill to expand provider, model, fallback, and next-action details; press it again to collapse. The detail popover is transient and starts collapsed.
+- The pill replaces the in-content runtime banner, giving the current page more room.
+
+### Mammoth Mind response style
+- Mammoth Mind should match the response to the ask: quick and conversational for simple questions, clearly structured and thorough when a request is multi-part, technical, consequential, or explicitly asks for depth.
+- Structure is used when it helps, not forced onto every reply. Complex answers lead with the outcome and then cover rationale, caveats, and useful next steps.
+- Mammoth Mind can explain its rationale and evidence, but does not expose private chain-of-thought.
+- The chat feed now meets the composer without a horizontal divider.
 
 ### Design System
 - Colors: `--shell`, `--photon: #4da6ff`, `--cyan: #00f5d4`, `--violet: #b47cff`

@@ -6,6 +6,8 @@ This guide is published content. The MammothOS Guide (`/guide`) answers from it,
 
 Mammoth Mind is the MammothOS chat workspace. You pick an agent lane, optionally pick a repository, and ask for help with planning, debugging, coding, or learning.
 
+Mammoth Mind adapts its response style to the request: simple asks get a brief, natural reply; multi-part, technical, or explicitly thorough asks get a structured answer when that structure helps. It can explain its rationale and evidence without exposing private chain-of-thought.
+
 Agent lanes:
 
 - **Mammoth Assistant**: general planning, debugging, and product thinking.

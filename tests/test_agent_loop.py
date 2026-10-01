@@ -107,6 +107,25 @@ def test_run_reads_file_then_answers(tmp_path, repo):
     assert runner.store.get(run.id, "someone-else") is None
 
 
+def test_final_prompt_adapts_depth_and_includes_recent_conversation(tmp_path):
+    llm = ScriptedLLM([])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(
+        id=AgentRun.new_id(),
+        user_id="u1",
+        message="Compare the tradeoffs and give me a thorough migration plan.",
+        request={"history_text": "user: We use PostgreSQL.\nassistant: Got it."},
+    )
+
+    prompt = runner._final_prompt(run)
+
+    assert "simple requests get a brief, natural reply" in prompt
+    assert "multi-part, technical, consequential, or explicitly thorough requests" in prompt
+    assert "Do not reveal private chain-of-thought" in prompt
+    assert "We use PostgreSQL." in prompt
+    assert "Do not output JSON" in prompt
+
+
 @pytest.mark.parametrize("path", [".env", "../outside.txt", "/etc/passwd", "C:/Windows/win.ini", ".git/config"])
 def test_repo_tools_refuse_secrets_and_escapes(tmp_path, repo, path):
     registry = ToolRegistry()

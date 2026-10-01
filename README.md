@@ -28,7 +28,9 @@ Details for each are in the sections below and in `ATLAS_MANUAL.md`.
   - Chat trust surfaces now consume dynamic backend metadata (`confidence`, `trust_metadata`, `evidence_items`) rather than static UI defaults.
 - UX consistency updates now live:
   - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
-  - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
+  - Mammoth Mind reply depth adapts to the ask: brief, conversational replies for simple questions and useful structure for complex work
+  - Runtime health is a color-coded header pill beside Mammoth Mind; press it to expand provider and fallback details without taking space from page content
+  - The chat feed flows directly into the composer without a separating rule
 
 
 ## Repo access model (Mammoth Mind, ATLAS, Workspace)

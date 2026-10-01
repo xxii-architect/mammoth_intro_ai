@@ -758,7 +758,7 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', gap: 8 }}>
+          <div style={{ padding: '10px 12px', display: 'flex', gap: 8 }}>
             <input
               value={input}
               onChange={e => setInput(e.target.value)}
@@ -1043,6 +1043,7 @@ export default function App() {
           )}
           <div style={{ marginLeft: canAccessProjectTools ? 8 : 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
             <MammothMindPill currentPage={page} isMobile={isMobile} setPage={setPage} />
+            <RuntimeStatusBanner title="MammothOS runtime" header mobile={isMobile} />
             <NotificationsDropdown />
           </div>
         </div>
@@ -1051,9 +1052,6 @@ export default function App() {
             {backendWarning}
           </div>
         )}
-        <div style={{ padding: '12px 16px 0' }}>
-          <RuntimeStatusBanner title="MammothOS runtime" compact />
-        </div>
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
           <Suspense fallback={<div style={{ padding: 28, color: 'var(--txt-sec)' }}>Loading page…</div>}>
             {gate ? <AccessPreviewPage gate={gate} entitlements={entitlements} setPage={setPage} /> : <PageComponent setPage={setPage} />}

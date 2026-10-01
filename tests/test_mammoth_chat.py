@@ -37,7 +37,9 @@ def test_mammoth_chat_assistant_uses_separate_history(monkeypatch):
     assert response['reply'] == 'native-chat-response'
     assert state.get('mammoth_chat_history')
     assert 'assistant_chat_history' not in state
-    assert prompt_log and 'MammothOS Chat' in prompt_log[-1]
+    assert prompt_log and 'You are Mammoth Mind' in prompt_log[-1]
+    assert 'simple questions and confirmations briefly' in prompt_log[-1]
+    assert 'multi-part, technical, consequential' in prompt_log[-1]
     assert any(step['label'] == 'Priming mammoth cores' for step in response['thought_steps'])
 
 

@@ -1392,7 +1392,7 @@ export default function ChatPage({ setPage }) {
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ padding: 16, borderTop: '1px solid var(--border)' }}>
+          <div style={{ padding: 16 }}>
             {error && <div style={{ marginBottom: 10, color: '#f87171', fontSize: '0.78rem' }}>{error}</div>}
             {/* File attachments */}
             {attachedFiles.length > 0 && (
