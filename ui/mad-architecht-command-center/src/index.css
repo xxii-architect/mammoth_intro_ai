@@ -10,7 +10,7 @@
   --violet: #b47cff;
   --txt-pri: #e2e8f0;
   --txt-sec: #8b9ab0;
-  --txt-mut: #4a5568;
+  --txt-mut: var(--mm-color-text-muted, #6b7a90); /* raised for 4.5:1 contrast */
   --border: rgba(255,255,255,0.08);
 }
 

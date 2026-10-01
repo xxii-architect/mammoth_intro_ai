@@ -46,6 +46,14 @@ Use this file when wiring or extending MammothOS agents.
 - Keep package metadata (`pyproject.toml`) production-oriented: clear dependencies, public description, and accurate versioning.
 - For monetization features, design for future tenant keys and usage metering without hard-coding a single operator identity.
 
+## Repo access rules
+- `src/mammoth_os/repo_access.py` is the single policy for repository context. Never resolve repo roots anywhere else.
+- No repo requested means no repo context. Never add an implicit default repository.
+- The platform repo is owner/admin-only. Non-admins only reach repos they connected, by source id or slug, never by filesystem path.
+- Writes to user repos are proposal-only (branch + patch). Never push on a user's behalf.
+- Agents that execute on or write to the backend host belong in `_PRIVILEGED_AGENT_IDS` in `api_server.py`.
+- Pass user text to git after `-e` / `--` so it cannot be parsed as an option.
+
 ## Production tenant/auth rules
 - Treat `.mammoth\supabase_tenant_auth.sql` as the baseline blueprint for tenant ownership, membership, billing usage, and audit trails.
 - Do not duplicate existing `atlas` or `mammoth` product tables when adding auth; wrap them with tenant/account ownership and RLS instead.

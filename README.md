@@ -18,6 +18,33 @@ This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Comman
   - Runtime status in the top shell is compact by default and can be expanded on demand; the expand/collapse preference persists in browser storage
 
 
+## Repo access model (Mammoth Mind, ATLAS, Workspace)
+
+Enforced server-side in `src/mammoth_os/repo_access.py` (not by UI hiding):
+
+- **No repo selected → no repo context.** There is no implicit default repository.
+- **Platform repo is owner/admin-only.** `platform`, `xxii-architect/mammoth_intro_ai`, the backend's own path, and forks of it are rejected for everyone else. Add more private slugs with `MAMMOTH_PLATFORM_REPOS=owner/repo,...`.
+- **Users bring their own repos.** `POST /api/mammoth/repo-sources {"repo": "owner/repo"}` clones a public GitHub repo into a per-user sandbox (`MAMMOTH_TENANT_REPO_DIR`, default `.mammoth/tenant_repos/`). Users address it by source id or slug, never by filesystem path. Limit: 5 per user.
+- **Writes are proposal-only.** `POST /api/mammoth/repo-sources/{id}/propose` writes on a fresh local branch and returns a git patch. Nothing is pushed. Private repos need the MammothOS GitHub App (not yet registered).
+- **Guide uses published docs.** `/guide` answers from `docs/public/` + product guides, not live source.
+- **Host-executing agents are admin-only** (shell, filesystem, deploy, build, executor, ui_builder, database, custodial), including the `/agent/*` HTTP routes.
+- Production must run with `MAMMOTH_REQUIRE_AUTH=1`; with auth off every request is treated as the local owner.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/mammoth/repo-sources` | List your sources + picker options (platform option only for admin) |
+| `POST /api/mammoth/repo-sources` | Connect `owner/repo` |
+| `POST /api/mammoth/repo-sources/{id}/sync` | Re-clone latest default branch |
+| `DELETE /api/mammoth/repo-sources/{id}` | Remove source and sandbox clone |
+| `POST /api/mammoth/repo-sources/{id}/propose` | Branch + patch proposal (never pushed) |
+| `POST /api/mammoth/repo-context` | Snapshot for a selected source (403 when denied) |
+
+## Design tokens + trace vocabulary
+
+- Tokens live in `ui/mad-architecht-command-center/src/design/tokens.json` (W3C DTCG format) and compile to `tokens.css` via `npm run tokens` (runs automatically before `npm run build`).
+- One agent accent (copper `--mm-color-agent-default`) for agent activity and pending approvals; blue for system state; red only for failures/irreversible actions. Motion tokens drop to 0ms under `prefers-reduced-motion`.
+- Trace glyphs (`src/design/traceVocabulary.js`, `TraceGlyph.jsx`): read, searched, fetched, planned, reasoning, ran, tool, delegated, wrote, proposed, awaiting approval, applied, reverted, failed. Every glyph carries a text label; meaning never depends on colour alone.
+
 ## MCP Browser Bridge + Repo Access
 
 MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.
@@ -28,16 +55,15 @@ If you want the chat assistant to read file contents (not just repo names), incl
 
 - a filename (`api_server.py`, `DiagnosticsPage.jsx`)
 - a relative path (`src/mammoth_os/atlas_session.py`)
-- an absolute path that exists on the backend host (`/opt/mammothos/mammoth_intro_ai/...`)
+
+A repository must be selected in the Repo Context panel first (see the repo access model above).
 
 What now happens automatically:
 
-- absolute paths under the configured repo root are normalized to tracked repo paths
 - filename/path hints in natural language are resolved to real tracked files when possible
 - repo context falls back to token-based search when full-query grep returns no hits
 - chat evidence now includes repo snippet/search signals so trust badges can reflect real context use
-
-Tip for hosted deployments: if you prompt from a Windows workstation but the backend runs on Linux, prefer relative paths or `/opt/...` server paths.
+- the chat response reports `repo_scope` (`none`, `tenant`, `platform`, `public_docs`) and a `repo_access_notice` when a request was denied
 
 ### Quick start
 

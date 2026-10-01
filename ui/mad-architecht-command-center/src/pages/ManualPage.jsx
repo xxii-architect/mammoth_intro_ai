@@ -113,20 +113,24 @@ const promptPatterns = [
 
 const repoContextRules = [
   {
-    title: 'Use the path of the machine running the backend',
-    body: 'If the app is using your live server, the repo path should be the server path. If the app is hitting your local backend, the repo path should be the local Windows path.',
+    title: 'No repository selected means no repo context',
+    body: 'Mammoth Mind never falls back to a default repository. Pick a repo in the Repo Context panel or the agents answer without code context.',
   },
   {
-    title: 'Save both local and live presets',
-    body: 'A good pair is C:\\Users\\runni\\mammoth_intro_ai.worktrees\\agents-mammothos-atlas-agent-system for local work and /opt/mammothos/mammoth_intro_ai for live.',
+    title: 'Connect your own repositories',
+    body: 'Enter a public GitHub repo as owner/repo. MammothOS clones it into your private sandbox; other users can never see it. Use the sync button to refresh it.',
+  },
+  {
+    title: 'Edits are proposals, never pushes',
+    body: 'Write requests on a connected repo produce a local branch plus a git patch you can apply with `git am` or turn into a pull request. MammothOS never pushes to your repository.',
+  },
+  {
+    title: 'The MammothOS platform repo is owner-only',
+    body: 'Only the owner/admin sees the locked "MammothOS platform" option. The server enforces this; filesystem paths and forks of the platform repo are rejected for everyone else.',
   },
   {
     title: 'Queries determine what code gets surfaced',
     body: 'Generic chat like “do you see the code?” may return empty snippets. Ask for a file, symbol, route, or behavior you want inspected.',
-  },
-  {
-    title: 'Prefer absolute paths',
-    body: 'Use a full Windows path such as C:\\Users\\runni\\... instead of a partial path like \\Users\\runni\\....',
   },
 ]
 

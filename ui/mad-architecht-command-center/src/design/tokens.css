@@ -1,0 +1,46 @@
+/* AUTO-GENERATED from tokens.json by scripts/build-tokens.mjs. Do not edit by hand. */
+:root {
+  --mm-color-surface-shell: #050608;
+  --mm-color-surface-base: #0d1117;
+  --mm-color-surface-raised: #161b22;
+  --mm-color-surface-sunken: #080a0e;
+  --mm-color-text-primary: #e2e8f0;
+  --mm-color-text-secondary: #8b9ab0;
+  --mm-color-text-muted: #6b7a90;
+  --mm-color-border-subtle: rgba(255,255,255,0.08);
+  --mm-color-border-strong: rgba(255,255,255,0.16);
+  --mm-color-border-focus: #4da6ff;
+  --mm-color-system-default: #4da6ff;
+  --mm-color-system-soft: rgba(77,166,255,0.12);
+  --mm-color-agent-default: #d08a52;
+  --mm-color-agent-soft: rgba(208,138,82,0.14);
+  --mm-color-agent-strong: #e6a06a;
+  --mm-color-status-success: #34d399;
+  --mm-color-status-warning: #f5b942;
+  --mm-color-status-info: #8b9ab0;
+  --mm-color-status-danger: #f87171;
+  --mm-font-body: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+  --mm-font-mono: JetBrains Mono, ui-monospace, SFMono-Regular, Consolas, monospace;
+  --mm-radius-sm: 6px;
+  --mm-radius-md: 10px;
+  --mm-radius-lg: 14px;
+  --mm-radius-pill: 999px;
+  --mm-space-1: 4px;
+  --mm-space-2: 8px;
+  --mm-space-3: 12px;
+  --mm-space-4: 16px;
+  --mm-space-6: 24px;
+  --mm-motion-duration-fast: 120ms;
+  --mm-motion-duration-base: 200ms;
+  --mm-motion-duration-slow: 320ms;
+  --mm-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --mm-motion-easing-exit: cubic-bezier(0.4, 0, 1, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --mm-motion-duration-fast: 0ms;
+    --mm-motion-duration-base: 0ms;
+    --mm-motion-duration-slow: 0ms;
+  }
+}
