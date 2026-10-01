@@ -67,7 +67,7 @@ All 17+ endpoints bridging the React UI to the Python agents:
 11. **Settings** — system info, env keys, ATLAS reset, theme toggle, AI runtime status
 
 **Global features:**
-- Floating ATLAS FAB chat widget (🧠 violet button, fixed bottom-right, ALL pages)
+- Mammoth Mind header pill (top-right next to notifications, ALL pages) opening a quick panel; replaced the old floating ATLAS FAB
 - Theme toggle: Dark / Aurora — writes CSS custom properties live, persists to localStorage, and normalizes legacy darker/midnight values to Dark
 - Design system: `--shell #050608`, `--photon #4da6ff`, `--cyan #00f5d4`, `--violet #b47cff`, glass cards, CRT scanlines, JetBrains Mono
 

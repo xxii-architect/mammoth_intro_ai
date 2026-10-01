@@ -2,6 +2,19 @@
 
 This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Command Center UI.
 
+## Current upgrade wave (SDK optimization + Mammoth Mind)
+
+| Phase | What shipped |
+|---|---|
+| 0–1 | Repo lockdown: no repo selected → no repo context; platform repo owner-only; users connect their own repos (tenant repo sources) |
+| 2 | Design tokens, trace vocabulary, public user guide docs |
+| 3 | Mammoth Mind agent loop (`mammoth.run.v1`): plan, MCP-style tools, approvals, reasoning/run traces; header pill replaces the floating FAB |
+| 4 | Mammoth Paths workspace SDK (Python `MammothPaths`, JS `@mammothos/paths`), server-side tier gates, per-user build log; tutor SDK renamed Mammoth Mind |
+| 5 | Tutor delivery: lesson manifests, stall telemetry, comprehension gate with override, retrieval dedupe |
+| 6 | Research hygiene: reasoning stripped to traces, relevance/disambiguation filtering, dedupe, truncation repair |
+
+Details for each are in the sections below and in `ATLAS_MANUAL.md`.
+
 ## Phase 3/4 productization highlights
 
 - UI story surfaces are now workflow-first:
@@ -144,7 +157,10 @@ All four phases of the 8 → 9 pass are now done:
 
 ## Product docs
 
-- `docs\atlas_fab_product_guide.md` - ATLAS FAB positioning, workflow diagram, and pricing skeleton
+- `docs\atlas_fab_product_guide.md` - Mammoth Mind tutor SDK (formerly ATLAS FAB) positioning, workflow diagram, and pricing skeleton
+- `docs\public\mammoth_mind_user_guide.md` - end-user guide for Mammoth Mind (agent mode, traces, repo context, tutor)
+- `docs\public\mammoth_paths_sdk_guide.md` - Mammoth Paths workspace SDK guide (Python + JS)
+- `packages\mammoth-paths\README.md` - JS client package reference
 - `docs\mammoth_os_package_offering.md` - package offering, install tiers, and commercialization framing
 - `ATLAS_MANUAL.md` - operator/CLI playbook and phased upgrade notes
 - `ui\mad-architecht-command-center\src\pages\ManualPage.jsx` - in-app UI manual

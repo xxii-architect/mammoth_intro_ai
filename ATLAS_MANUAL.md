@@ -729,12 +729,12 @@ The ATLAS Tutor sidebar now shows:
 - onboarding profile controls for experience, pacing, style, goals, and focus areas
 - learner memory map summary with recent lesson/concept nodes
 
-### Floating ATLAS Chat (FAB)
-A violet 🐘 button is fixed to the bottom-right corner on **every page**.  
-Click it → glass chat panel slides up → chat directly with ATLAS tutor without leaving your current screen.  
-Wired to `POST /api/atlas/chat` with full chat history.
+### Mammoth Mind quick panel (header pill; formerly the floating ATLAS FAB)
+A **Mammoth Mind** pill sits in the header's top-right next to the notification bell on **every page**.  
+Click it and a quick chat panel opens under the header (a bottom sheet on mobile). Escape closes it, and **Full view →** opens the Mammoth Mind chat page.  
+On the chat page the panel uses `POST /api/mammoth/chat`; elsewhere it uses `POST /api/atlas/chat` with full chat history.
 
-Phase 2 upgrades now wired in the FAB:
+Phase 2 upgrades now wired in the quick panel:
 - **Tutor mode** + **Plan + Build mode** toggle
 - **No-cheat guard** toggle (blocks direct answer dumping for active exercises)
 - automatic **fresh exercise regeneration** when guard is triggered (if enabled)
@@ -803,7 +803,12 @@ Applies instantly via CSS custom properties. Legacy `darker`/`midnight` values n
 - OpenAI adapter updated to v2 SDK (gpt-4o-mini default)
 - LLM auto-detection: Ollama running → use it; OPENAI_API_KEY set → use that
 - Mad Architecht Command Center: 11-page React UI fully wired to FastAPI backend
-- Floating ATLAS FAB chat widget on all pages
+- Mammoth Mind header pill + quick panel on all pages (replaced the floating ATLAS FAB)
+- Mammoth Mind agent runs (`mammoth.run.v1`): plan, tool calls, approvals, and reasoning/run traces
+- Repo lockdown: no repo selected means no repo context; the platform repo is owner-only; users connect their own repos
+- Mammoth Paths workspace SDK (Python `MammothPaths`, JS `@mammothos/paths`) with server-side tier gates and per-user build log
+- Tutor delivery: lesson manifests, stall telemetry, comprehension gate with override, retrieval dedupe
+- Research hygiene: reasoning stripped to traces, relevance/disambiguation filtering, dedupe, truncation repair
 - Dedicated ATLAS Tutor page (3-column: curriculum | editor | chat)
 - Working theme toggle (Dark/Aurora) with CSS variable mutation + localStorage normalization for legacy values
 - Terminal WebSocket + HTTP fallback
