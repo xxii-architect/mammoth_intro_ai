@@ -86,3 +86,4 @@ generated_docs/
 # Tenant repo sandboxes and per-user repo source registries (never commit)
 .mammoth/tenant_repos/
 .mammoth/repo_sources/
+.mammoth/agent_runs/

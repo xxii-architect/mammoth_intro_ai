@@ -45,6 +45,29 @@ Enforced server-side in `src/mammoth_os/repo_access.py` (not by UI hiding):
 - One agent accent (copper `--mm-color-agent-default`) for agent activity and pending approvals; blue for system state; red only for failures/irreversible actions. Motion tokens drop to 0ms under `prefers-reduced-motion`.
 - Trace glyphs (`src/design/traceVocabulary.js`, `TraceGlyph.jsx`): read, searched, fetched, planned, reasoning, ran, tool, delegated, wrote, proposed, awaiting approval, applied, reverted, failed. Every glyph carries a text label; meaning never depends on colour alone.
 
+## Mammoth Mind agent runs (`mammoth.run.v1`)
+
+Mammoth Mind's **Agent** mode (default; toggle to **Classic** in the chat header) runs a plan → tool → observe loop in `src/mammoth_os/agent_loop/` and streams every step as Server-Sent Events. The UI renders them as a collapsible timeline: plan checklist, one-line reasoning summaries, tool rows, proposed diffs, and inline approval cards. Slash commands and attachments still use the classic chat path.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /api/mammoth/tools?repo=` | Tool catalog visible to *you* for that repo selection |
+| `POST /api/mammoth/runs` | Start a run (SSE). Body: `message`, `agent_id`, `repo_context.root`, `approval_mode` (`tools`\|`always`), `max_steps` |
+| `GET /api/mammoth/runs` / `GET /api/mammoth/runs/{id}?after=` | Your recent runs / replay events after a sequence number |
+| `POST /api/mammoth/runs/{id}/approval` | `{approval_id, decision: approve\|reject, note}` → resumes the stream (audited) |
+| `POST /api/mammoth/runs/{id}/cancel` | Stop a run |
+
+Event types: `run.started`, `plan.updated`, `reasoning.summary`, `tool.call`, `tool.result`, `approval.requested`, `approval.resolved`, `diff.proposed`, `message.delta`, `message.completed`, `run.awaiting_approval`, `run.completed`, `run.failed`, `run.cancelled`. Each event carries `contract`, `run_id`, `seq`, `ts`.
+
+Rules the loop enforces:
+
+- **Tool tiers:** `read`, `network`, `write` (proposal-only, never touches the checkout), `exec` (always needs approval). MCP tools whose names look mutating also need approval; `git_push` is never exposed.
+- **Repo tools follow the repo access model.** No repo selected → no repo tools. Paths are repo-relative; `..`, absolute paths, `.git`, symlinks, and secret files are refused.
+- **MCP access:** each `mcp/*.json` declares `access: admin|tenant`. Admin repo servers (filesystem, git) are only offered to the owner with the platform repo selected; tenant servers run with the user's sandbox clone as cwd.
+- **Honest output:** reasoning lines are short model-written summaries (no hidden chain-of-thought). Repeated identical tool calls and exhausted step budgets go straight to a final answer. With no cloud or Ollama provider the run says it is offline instead of echoing.
+- Runs are stored per user under `.mammoth/agent_runs/` (last 50); other users get 404.
+- `/api/internet/*` fetches refuse private, loopback, and link-local targets, including on redirects (SSRF guard).
+
 ## MCP Browser Bridge + Repo Access
 
 MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.

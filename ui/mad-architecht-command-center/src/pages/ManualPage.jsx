@@ -24,7 +24,8 @@ const liveNow = [
   'Mammoth Mind supports multi-thread chat, file attachments, and repo-aware /guide flows.',
   'ATLAS Tutor now has clear Assistant / Tutor / Build lanes, Monaco lesson editing, and expandable guide cards.',
   'Learning materials can be uploaded into the ATLAS library for lesson-side context and reuse.',
-  'The FAB can now be hidden and restored without losing its context or history.',
+  'Mammoth Mind Agent mode streams a run timeline: plan, short reasoning summaries, tool calls, proposed diffs, and inline Approve / Reject cards. Stop cancels a run at any time.',
+  'The floating button is now a Mammoth Mind pill in the top-right header, next to notifications. It opens a quick panel with a link to the full Mammoth Mind page.',
   'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
   'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',
 ]
@@ -35,7 +36,7 @@ const surfaceMap = [
     label: 'Mammoth Mind',
     icon: MessageSquare,
     accent: 'var(--photon)',
-    purpose: 'Repo-aware general chat, /guide walkthroughs, threads, and attachments.',
+    purpose: 'Agent-mode runs with visible tool traces and approvals, plus repo-aware chat, /guide walkthroughs, threads, and attachments. Toggle Agent / Classic in the chat header.',
     useWhen: 'You want code-grounded explanations, planning help, or workflow support across the product.',
     avoid: 'Using vague messages with no target file, goal, or repo context.',
   },
@@ -134,6 +135,25 @@ const repoContextRules = [
   },
 ]
 
+const agentRunRules = [
+  {
+    title: 'Agent mode shows its work',
+    body: 'Each run shows a collapsible “Worked · N tool calls” timeline: the plan, one-line reasoning summaries, what was read or searched, and any proposed diff. Reasoning lines are short summaries written by the model, not hidden chain-of-thought.',
+  },
+  {
+    title: 'Risky tools stop and ask',
+    body: 'Write tools only produce proposals. Execution tools, and MCP tools that would change something, pause the run on an approval card. Approve to continue or Reject to let Mammoth Mind work around it.',
+  },
+  {
+    title: 'Stop is always available',
+    body: 'While a run is active the Send button becomes Stop. Cancelled runs keep the steps already completed.',
+  },
+  {
+    title: 'Classic mode is still there',
+    body: 'Slash commands (/guide, /research, /web, /plan) and messages with attachments use the classic chat path automatically. Switch to Classic in the header to use it for everything.',
+  },
+]
+
 const safetyRules = [
   'Use preview or approval-first flows for mutations whenever the surface supports them.',
   'Treat generated content as assistive output until it is validated against the repo, runtime, or course material.',
@@ -144,6 +164,7 @@ const safetyRules = [
 const qaChecklist = [
   'Open Landing, Manual, and Command Library first to confirm product positioning and surface naming are current.',
   'Run one Mammoth Mind /guide request and verify expandable guide steps appear.',
+  'Run one Mammoth Mind Agent-mode question and confirm the run timeline shows tool calls and a real final answer; press Stop on a second run to confirm cancellation.',
   'Run one ATLAS lesson loop: lesson start -> exercise -> submit -> adaptive feedback -> recap or quiz.',
   'Check /api/health and confirm health_gate is present and passed before release actions.',
   'Check /api/release-readiness and confirm release_gate and eval_gate are both passed.',
@@ -234,6 +255,20 @@ export default function ManualPage({ setPage }) {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--photon)' }}>
+        <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Bot size={16} color="var(--photon)" /> Mammoth Mind agent runs
+        </h2>
+        <div className="manual-grid-wide" style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+          {agentRunRules.map((item) => (
+            <div key={item.title} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12 }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700, marginBottom: 6 }}>{item.title}</div>
+              <div style={{ fontSize: '0.77rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>{item.body}</div>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -13,6 +13,22 @@ Agent lanes:
 - **Reasoning Agent**: decisions, tradeoffs, and next steps.
 - **MammothOS Guide**: how to use MammothOS, ATLAS, and the SDKs.
 
+You can reach Mammoth Mind two ways: the full **Mammoth Mind** page in the sidebar, or the **Mammoth Mind** pill in the top-right header, next to notifications. The pill opens a quick panel. On learning pages it answers with lesson awareness, and **Full view →** takes you to the full page.
+
+## Agent mode
+
+Agent mode is on by default. Use the **Agent / Classic** toggle in the chat header to switch.
+
+1. Mammoth Mind writes a short plan.
+2. It calls tools: searching docs, reading files in your selected repository, or fetching a web page.
+3. It answers using what it found.
+
+The run appears above the answer as a collapsible **Worked · N tool calls** timeline. Reasoning lines are short summaries of what the agent is doing, not hidden internal thoughts.
+
+- **Approvals:** proposing a change never modifies your repository. Anything that would run or change something pauses on an approval card. **Approve** continues; **Reject** tells the agent to work around it.
+- **Stop:** while a run is active, the Send button turns into **Stop**.
+- **Classic path:** slash commands and messages with attachments use classic chat automatically.
+
 ## Repository context
 
 - No repository selected means the agents answer without code context.
@@ -47,4 +63,4 @@ Every run shows what the agents did, using one fixed set of labelled glyphs:
 
 ## ATLAS tutor
 
-ATLAS is the adaptive tutor. It keeps your lesson progress, coaches you on exercises, and can be embedded in other products through the ATLAS FAB SDK.
+ATLAS is the adaptive tutor. It keeps your lesson progress, coaches you on exercises, and can be embedded in other products through the ATLAS FAB SDK. In MammothOS itself, the tutor is reached through the Mammoth Mind header pill.

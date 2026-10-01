@@ -10,6 +10,7 @@
   "env": {},
   "enabled": true,
   "transport": "stdio",
+  "access": "admin",
   "allowed_paths": [
     "."
   ],
@@ -33,7 +34,7 @@
   ],
   "notes": [
     "Repo root is the allowed root. No paths outside the project are accessible.",
-    "Secrets (.env, .env.admin) are in the denied list — the MCP server will refuse those reads.",
+    "Secrets (.env, .env.admin) are in the denied list \u2014 the MCP server will refuse those reads.",
     "Write operations should go through human approval gate before commit."
   ]
 }

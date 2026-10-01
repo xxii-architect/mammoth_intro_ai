@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, PanelLeft, Paperclip } from 'lucide-react'
+import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, PanelLeft, Paperclip, Square } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
+import { startAgentRun, resolveRunApproval, cancelAgentRun, reduceRunEvent } from '../lib/agentRuns'
+import RunTimeline from '../components/RunTimeline'
 import ChatMessageBody from '../components/ChatMessageBody'
 import AgentResultPanel from '../components/AgentResultPanel'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
@@ -314,7 +316,7 @@ function ThoughtTrail({ steps, busy, expandedIndex, onToggle, compact = false })
   )
 }
 
-function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard, onOpenHandoff }) {
+function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard, onOpenHandoff, onRunDecision }) {
   const [copied, setCopied] = useState(false)
   const isUser = entry.role === 'user'
   const isStreamingBubble = !isUser && entry.stream
@@ -403,13 +405,21 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         boxShadow: isStreamingBubble ? '0 0 0 1px rgba(77,166,255,0.06) inset' : 'none',
         position: 'relative',
       }}>
+        {!isUser && entry.run && (
+          <RunTimeline
+            run={entry.run}
+            busy={busy && entry.run.status !== 'awaiting_approval'}
+            onApprove={() => onRunDecision?.(entry, 'approve')}
+            onReject={() => onRunDecision?.(entry, 'reject')}
+          />
+        )}
         {isUser
           ? <div style={{ whiteSpace: 'pre-wrap' }}>{entry.message}</div>
           : entry.message
             ? (structuredResult
               ? <AgentResultPanel result={structuredResult} rawJson={entry.message} agentId={entry.agent_id} />
               : <ChatMessageBody text={entry.message} />)
-            : (isStreamingBubble
+            : (isStreamingBubble && !entry.run
               ? <span style={{ color: 'var(--txt-mut)' }}>MammothOS is composing…</span>
               : null)
         }
@@ -546,6 +556,8 @@ export default function ChatPage({ setPage }) {
   const [threadSidebarOpen, setThreadSidebarOpen] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState([])
   const [successToast, setSuccessToast] = useState(null)
+  const [agentMode, setAgentMode] = useState(() => safeStorageGet('mammoth_mind_agent_mode', '1') !== '0')
+  const activeRunIdRef = useRef(null)
   const threadSidebarRef = useRef(null)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
@@ -857,6 +869,69 @@ export default function ChatPage({ setPage }) {
     }
   }
 
+  const updateRunEntry = (localId, updater) => {
+    setHistory((prev) => prev.map((item) => (item.local_id === localId ? updater(item) : item)))
+  }
+
+  const applyRunEvent = (localId, effectiveAgentId) => (event) => {
+    if (event?.run_id) activeRunIdRef.current = event.run_id
+    updateRunEntry(localId, (item) => {
+      const run = reduceRunEvent(item.run, event)
+      const summary = run.summary || {}
+      return {
+        ...item,
+        run,
+        run_id: run.id,
+        message: run.reply || item.message,
+        stream: !['completed', 'failed', 'cancelled', 'awaiting_approval'].includes(run.status),
+        adapter: summary.provider || item.adapter,
+        model: summary.model || item.model,
+      }
+    })
+    if (event?.type === 'run.completed') {
+      const derived = deriveSuccessDetailsFromMessage(event.data?.reply || '', 'Agent run finished.')
+      publishSuccessToast(buildSuccessToast({ agentId: effectiveAgentId, keyResult: derived.keyResult, nextAction: derived.nextAction }))
+      setMeta({ agentId: effectiveAgentId, adapter: event.data?.provider || 'unknown', model: event.data?.model || 'unknown', taskId: '', dispatched: false })
+    }
+  }
+
+  const runWithStream = async (localId, effectiveAgentId, invoke) => {
+    setBusy(true)
+    setStreaming(true)
+    setStreamStatus('working')
+    streamControllerRef.current = new AbortController()
+    try {
+      await invoke(streamControllerRef.current.signal, applyRunEvent(localId, effectiveAgentId))
+    } catch (e) {
+      if (e?.name !== 'AbortError') setError(e instanceof Error ? e.message : 'Agent run failed')
+      updateRunEntry(localId, (item) => ({ ...item, stream: false, run: item.run ? { ...item.run, status: item.run.status === 'running' ? 'cancelled' : item.run.status } : item.run }))
+    } finally {
+      setBusy(false)
+      setStreaming(false)
+      setStreamStatus('idle')
+      streamControllerRef.current = null
+    }
+  }
+
+  const decideRun = (entry, decision) => {
+    const run = entry.run
+    if (!run?.id || !run.approval?.id || busy) return
+    runWithStream(entry.local_id, entry.agent_id, (signal, onEvent) => resolveRunApproval(run.id, run.approval.id, decision, { signal, onEvent }))
+  }
+
+  const stopActive = async () => {
+    const runId = activeRunIdRef.current
+    streamControllerRef.current?.abort?.()
+    if (runId) await cancelAgentRun(runId)
+  }
+
+  const toggleAgentMode = () => {
+    setAgentMode((prev) => {
+      safeStorageSet('mammoth_mind_agent_mode', prev ? '0' : '1')
+      return !prev
+    })
+  }
+
   const send = async (override, overrideAgentId = null) => {
     const message = (override || input).trim()
     if (!message || busy) return
@@ -904,7 +979,7 @@ export default function ChatPage({ setPage }) {
               approval_mode: true,
               stop_on_failure: true,
               plan_profile: agentId === 'coding_agent' ? 'coding' : 'atlas',
-              coding_intent,
+              coding_intent: codingIntent,
             },
           })
           const summary = summarizePlanResult(result)
@@ -969,6 +1044,28 @@ export default function ChatPage({ setPage }) {
     }
 
     const effectiveAgentId = overrideAgentId || agentId
+    const useAgentLoop = agentMode && !message.startsWith('/') && attachedFiles.length === 0
+    if (useAgentLoop) {
+      setError('')
+      if (!override) setInput('')
+      const localId = `run-local-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+      const now = new Date().toISOString()
+      setHistory((prev) => [
+        ...prev,
+        { role: 'user', message, created_at: now, agent_id: effectiveAgentId, mode: 'agent', page: 'chat' },
+        { role: 'assistant', message: '', created_at: now, agent_id: effectiveAgentId, mode: 'agent', adapter: 'agent-loop', model: '', stream: true, local_id: localId, run: { status: 'running', events: [], plan: [], approval: null, reply: '' } },
+      ])
+      setMeta(null)
+      activeRunIdRef.current = null
+      const body = {
+        message,
+        agent_id: effectiveAgentId,
+        thread_id: activeThreadId || undefined,
+        repo_context: activeRepoValue ? { root: activeRepoValue } : undefined,
+      }
+      await runWithStream(localId, effectiveAgentId, (signal, onEvent) => startAgentRun(body, { signal, onEvent }))
+      return
+    }
     setBusy(true)
     setStreaming(true)
     setStreamStatus(effectiveAgentId === 'coding_agent' ? 'patching' : effectiveAgentId === 'reasoning_agent' ? 'reasoning' : 'thinking')
@@ -1172,6 +1269,15 @@ export default function ChatPage({ setPage }) {
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <button
+                type="button"
+                onClick={toggleAgentMode}
+                aria-pressed={agentMode}
+                title={agentMode ? 'Agent mode: plans, uses tools, and shows a live trace' : 'Classic mode: single-shot chat response'}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: `1px solid ${agentMode ? 'var(--mm-color-agent-default, #c8794a)' : 'var(--border)'}`, background: agentMode ? 'var(--mm-color-agent-soft, rgba(200,121,74,0.12))' : 'rgba(255,255,255,0.04)', color: agentMode ? 'var(--mm-color-agent-default, #c8794a)' : 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
+              >
+                <Workflow size={13} /> {agentMode ? 'Agent' : 'Classic'}
+              </button>
+              <button
                 onClick={clearLocalView}
                 title="New Chat — clear history and start fresh"
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--photon-rgb,99,102,241),0.35)', background: 'rgba(99,102,241,0.10)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
@@ -1274,9 +1380,10 @@ export default function ChatPage({ setPage }) {
                 prevMessage={history[idx - 1]}
                 onSaveCard={() => saveTaskCardFromEntry(entry, { prompt: history[idx - 1]?.role === 'user' ? history[idx - 1].message : '' })}
                 onOpenHandoff={() => setPage?.('agent')}
+                onRunDecision={decideRun}
               />
             ))}
-            {busy && (
+            {busy && !history[history.length - 1]?.run && (
               <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.18)', fontSize: '0.8rem', color: 'var(--txt-sec)', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 12px rgba(77,166,255,0.6)' }} />
                 {streaming ? `MammothOS is ${streamStatus}…` : 'MammothOS is checking the herd…'}
@@ -1317,13 +1424,22 @@ export default function ChatPage({ setPage }) {
                   onAttach={(f) => setAttachedFiles(prev => [...prev.filter(x => x.file_id !== f.file_id), f])}
                   onRemove={(id) => setAttachedFiles(prev => prev.filter(f => f.file_id !== id))}
                 />
-                <button
-                  onClick={() => send()}
-                  disabled={busy}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 132, padding: '12px 14px', borderRadius: 12, border: 'none', background: busy ? 'rgba(77,166,255,0.35)' : 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer' }}
-                >
-                  <Send size={15} /> {busy ? 'Thinking…' : 'Send'}
-                </button>
+                {busy ? (
+                  <button
+                    onClick={stopActive}
+                    aria-label="Stop the current run"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 132, padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    <Square size={13} /> Stop
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => send()}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 132, padding: '12px 14px', borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: 'pointer' }}
+                  >
+                    <Send size={15} /> Send
+                  </button>
+                )}
               </div>
             </div>
           </div>

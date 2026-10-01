@@ -54,6 +54,13 @@ Use this file when wiring or extending MammothOS agents.
 - Agents that execute on or write to the backend host belong in `_PRIVILEGED_AGENT_IDS` in `api_server.py`.
 - Pass user text to git after `-e` / `--` so it cannot be parsed as an option.
 
+## Agent loop + tool rules
+- `src/mammoth_os/agent_loop/` owns the Mammoth Mind run loop. Its event contract is `mammoth.run.v1`; add new event types without changing existing payload fields.
+- Register tools through `ToolRegistry` with an honest tier: `read`, `network`, `write` (proposal-only), `exec` (approval required). Set `admin_only` / `needs_repo` instead of checking access inside the handler.
+- Repo tools must go through `safe_repo_path` and receive the root from `_agent_tool_context` (which uses the repo access policy).
+- Every `mcp/*.json` declares `access: admin|tenant`. Admin repo-category servers are only offered with platform scope. Never expose `git_push`.
+- Reasoning events carry short model-written summaries only. Do not fabricate progress (for example, marking plan steps done that were never verified).
+
 ## Production tenant/auth rules
 - Treat `.mammoth\supabase_tenant_auth.sql` as the baseline blueprint for tenant ownership, membership, billing usage, and audit trails.
 - Do not duplicate existing `atlas` or `mammoth` product tables when adding auth; wrap them with tenant/account ownership and RLS instead.

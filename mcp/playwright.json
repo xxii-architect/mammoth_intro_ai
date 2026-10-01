@@ -15,6 +15,7 @@
   },
   "enabled": true,
   "transport": "stdio",
+  "access": "admin",
   "tools": [
     "browser_navigate",
     "browser_snapshot",

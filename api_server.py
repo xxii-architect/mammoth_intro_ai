@@ -7849,17 +7849,55 @@ def _build_chat_trust_metadata(
     return trust_metadata
 
 
+def _public_url_block_reason(url: str) -> str:
+    """Return why ``url`` must not be fetched server-side (SSRF guard), or ''."""
+    import ipaddress
+    import socket
+
+    parsed = urllib.parse.urlparse(str(url or ""))
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return "URL must be absolute and start with http:// or https://"
+    host = parsed.hostname.strip("[]").lower()
+    if host in {"localhost", "metadata.google.internal"} or host.endswith(".localhost") or host.endswith(".internal"):
+        return "URL points at a private or local host."
+    try:
+        infos = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except (socket.gaierror, UnicodeError, ValueError):
+        return "URL host could not be resolved."
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        except ValueError:
+            return "URL host could not be resolved."
+        if not ip.is_global or ip.is_multicast:
+            return "URL points at a private or local host."
+    return ""
+
+
+class _PublicOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[override]
+        if _public_url_block_reason(newurl):
+            raise urllib.error.URLError("Redirect to a private or local host was blocked.")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_PUBLIC_URL_OPENER = urllib.request.build_opener(_PublicOnlyRedirectHandler)
+
+
 def _internet_fetch_url(url: str) -> Dict[str, Any]:
     cleaned = str(url or "").strip()
     parsed = urllib.parse.urlparse(cleaned)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return {"status": "error", "error": "URL must be absolute and start with http:// or https://"}
+    blocked_reason = _public_url_block_reason(cleaned)
+    if blocked_reason:
+        return {"status": "error", "error": blocked_reason}
     req = urllib.request.Request(
         cleaned,
         headers={"User-Agent": "MammothOS/1.0 (+https://command.truexxiisupply.com)"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with _PUBLIC_URL_OPENER.open(req, timeout=10) as resp:
             content_type = str(resp.headers.get("Content-Type") or "").lower()
             payload = resp.read(50000)
     except urllib.error.URLError as exc:
@@ -9172,6 +9210,272 @@ async def mammoth_gitops_propose(body: Dict[str, Any]):
         "error": "Git mutation commands are disabled in Mammoth Mind chat. Use Copilot CLI or repository workflow for commits/push/deploy.",
         "code": "mammoth_chat_read_only",
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mammoth Mind agent runs — typed run events, permissioned tools, MCP
+# ─────────────────────────────────────────────────────────────────────────────
+
+from mammoth_os.agent_loop import (  # noqa: E402
+    AgentRun,
+    AgentRunner,
+    MCPBridge,
+    RunStore,
+    ToolContext,
+    ToolRegistry,
+    ToolSpec,
+    TIER_NETWORK,
+    TIER_READ,
+    EVENT_CONTRACT_VERSION,
+    register_query_tool,
+    register_repo_tools,
+)
+
+_URL_ARG_SCHEMA = {
+    "type": "object",
+    "properties": {"url": {"type": "string", "minLength": 8, "maxLength": 2000}},
+    "required": ["url"],
+    "additionalProperties": False,
+}
+
+
+def _agent_tool_docs(query: str, ctx: ToolContext) -> Dict[str, Any]:
+    docs = _collect_public_docs_context(query, max_snippets=2)
+    if not docs:
+        return {"status": "ok", "snippets": [], "note": "No published MammothOS docs matched."}
+    return {"status": "ok", "snippets": docs.get("snippets") or [], "hits": docs.get("search_hits") or []}
+
+
+async def _agent_tool_research(query: str, ctx: ToolContext) -> Dict[str, Any]:
+    result = await asyncio.to_thread(_run_internet_command, {"kind": "research", "query": query})
+    return {"status": result.get("status") or "error", "summary": str(result.get("reply") or "")[:6000], "evidence": result.get("evidence")}
+
+
+async def _agent_tool_fetch(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    result = await asyncio.to_thread(_internet_fetch_url, str(args.get("url") or ""))
+    if result.get("status") != "ok":
+        return {"status": "error", "error": result.get("error") or "Fetch failed."}
+    return {"status": "ok", "url": result.get("url"), "title": result.get("title"), "content": str(result.get("summary") or "")[:8000]}
+
+
+def _build_agent_tool_registry() -> "tuple[ToolRegistry, MCPBridge]":
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    register_query_tool(
+        registry,
+        name="docs_search",
+        description="Search the published MammothOS / ATLAS / SDK user documentation.",
+        tier=TIER_READ,
+        trace_kind="searched",
+        handler=_agent_tool_docs,
+    )
+    register_query_tool(
+        registry,
+        name="web_research",
+        description="Research a topic on the public internet and return a sourced summary.",
+        tier=TIER_NETWORK,
+        trace_kind="fetched",
+        handler=_agent_tool_research,
+    )
+    registry.register(ToolSpec(
+        name="web_fetch",
+        description="Fetch a public web page (http/https, public hosts only) and return its readable text.",
+        input_schema=_URL_ARG_SCHEMA,
+        tier=TIER_NETWORK,
+        handler=_agent_tool_fetch,
+        trace_kind="fetched",
+    ))
+    bridge = MCPBridge(ROOT)
+    bridge.register(registry)
+    return registry, bridge
+
+
+_AGENT_TOOLS, _AGENT_MCP = _build_agent_tool_registry()
+_AGENT_RUNS = RunStore(MAMMOTH_DIR / "agent_runs")
+
+
+def _agent_llm_factory():
+    from mammoth_os.llm_client import get_llm_client
+
+    return get_llm_client()
+
+
+_AGENT_RUNNER = AgentRunner(_AGENT_TOOLS, _agent_llm_factory, _AGENT_RUNS)
+
+
+def _agent_tool_context(raw_repo_context: Any) -> "tuple[ToolContext, Dict[str, Any]]":
+    """Build a ToolContext for the current request. Repo access goes through the policy."""
+    user_id = _current_request_user_id()
+    is_admin = _request_is_admin()
+    raw_root = raw_repo_context.get("root") if isinstance(raw_repo_context, dict) else raw_repo_context
+    notice: Dict[str, Any] = {}
+    resolution = _resolve_repo_context_root(raw_root) if str(raw_root or "").strip() else {"scope": "none"}
+    root_text = str(resolution.get("root") or "")
+    scope = str(resolution.get("scope") or "none")
+    if scope == "denied":
+        notice = {"code": "repo_access_denied", "message": resolution.get("root_warning") or "Repository access denied."}
+    repo_root = Path(root_text) if root_text and scope in {"platform", "tenant", "local_path"} else None
+    ctx = ToolContext(
+        user_id=user_id,
+        is_admin=is_admin,
+        repo_root=repo_root if repo_root is not None and repo_root.is_dir() else None,
+        repo_scope=scope if repo_root is not None else "none",
+        repo_slug=str(resolution.get("slug") or ("platform" if scope == "platform" else "")),
+        repo_source_id=str(resolution.get("source_id") or ""),
+        policy=_REPO_POLICY,
+    )
+    return ctx, notice
+
+
+def _agent_history_text(user_id: str, account_id: str, limit: int = 6) -> str:
+    state = _load_atlas_state()
+    items = [
+        item for item in (state.get("mammoth_chat_history") or [])
+        if isinstance(item, dict)
+        and str(item.get("user_id") or "") == user_id
+        and _normalize_account_id(item.get("account_id") or "default") == account_id
+    ][-limit:]
+    return "\n".join(f"{item.get('role', 'unknown')}: {str(item.get('message') or '')[:500]}" for item in items)
+
+
+def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
+    state = _load_atlas_state()
+    account_id = _active_account_id(state)
+    all_history = state.get("mammoth_chat_history") if isinstance(state.get("mammoth_chat_history"), list) else []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    exchange = [
+        {"role": "user", "message": run.message, "created_at": run.created_at, "agent_id": run.agent_id, "mode": "agent",
+         "user_id": run.user_id, "account_id": account_id},
+        {"role": "assistant", "message": run.reply, "created_at": now_iso, "agent_id": run.agent_id, "mode": "agent",
+         "adapter": run.provider, "model": run.model, "run_id": run.id, "user_id": run.user_id, "account_id": account_id},
+    ]
+    state["mammoth_chat_history"] = (all_history + exchange)[-400:]
+    state["updated_at"] = now_iso
+    _save_atlas_state(state)
+    if thread_id:
+        try:
+            messages = _load_thread_messages(run.user_id, thread_id) + exchange
+            _save_thread_messages(run.user_id, thread_id, messages[-120:])
+            first_user = next((m.get("message", "") for m in messages if m.get("role") == "user"), "")
+            title = (first_user.strip()[:60] + "…") if len(first_user.strip()) > 60 else first_user.strip()
+            _upsert_thread_index_entry(run.user_id, thread_id, title=title or "Conversation", agent_id=run.agent_id, message_count=len(messages))
+        except Exception:
+            pass
+
+
+def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "") -> StreamingResponse:
+    async def event_stream():
+        async for event in events_iter:
+            yield event.to_sse()
+            if event.type == "run.completed":
+                try:
+                    _persist_agent_run_exchange(run, thread_id=thread_id)
+                except Exception:
+                    pass
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "X-Mammoth-Run-Id": run.id},
+    )
+
+
+@app.get("/api/mammoth/tools")
+async def mammoth_agent_tools(repo: str = ""):
+    """Tools and MCP servers the caller can use. Platform-rooted MCP servers are admin-only."""
+    ctx, notice = _agent_tool_context({"root": repo} if repo else None)
+    return {
+        "status": "ok",
+        "contract": EVENT_CONTRACT_VERSION,
+        "tools": _AGENT_TOOLS.catalog(ctx),
+        "mcp_servers": _AGENT_MCP.describe(ctx),
+        "repo": {"scope": ctx.repo_scope, "slug": ctx.repo_slug} if ctx.has_repo else None,
+        "repo_access_notice": notice or None,
+    }
+
+
+@app.post("/api/mammoth/runs")
+async def mammoth_agent_run_start(body: Dict[str, Any]):
+    message = str(body.get("message") or "").strip()
+    if not message:
+        return JSONResponse({"status": "error", "error": "message is required"}, status_code=400)
+    if len(message) > 20_000:
+        return JSONResponse({"status": "error", "error": "message is too long"}, status_code=413)
+    ctx, notice = _agent_tool_context(body.get("repo_context"))
+    if notice:
+        return JSONResponse({"status": "error", **notice}, status_code=403)
+    user_id = ctx.user_id
+    account_id = _active_account_id(_load_atlas_state())
+    approval_mode = str(body.get("approval_mode") or "tools").lower()
+    run = AgentRun(
+        id=AgentRun.new_id(),
+        user_id=user_id,
+        message=message,
+        agent_id=str(body.get("agent_id") or "assistant").strip()[:64] or "assistant",
+        request={
+            "repo_context": {"root": (body.get("repo_context") or {}).get("root")} if isinstance(body.get("repo_context"), dict) else None,
+            "approval_mode": approval_mode if approval_mode in {"tools", "always"} else "tools",
+            "history_text": _agent_history_text(user_id, account_id),
+            "thread_id": str(body.get("thread_id") or "")[:80],
+        },
+    )
+    return _agent_run_stream(run, _AGENT_RUNNER.start(run, ctx), thread_id=run.request["thread_id"])
+
+
+@app.get("/api/mammoth/runs")
+async def mammoth_agent_run_list():
+    return {"status": "ok", "runs": _AGENT_RUNS.list(_current_request_user_id())}
+
+
+@app.get("/api/mammoth/runs/{run_id}")
+async def mammoth_agent_run_get(run_id: str, after: int = 0):
+    run = _AGENT_RUNS.get(run_id, _current_request_user_id())
+    if run is None:
+        return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)
+    data = run.public()
+    data["events"] = [e for e in run.events if int(e.get("seq") or 0) > max(0, int(after or 0))]
+    return {"status": "ok", "run": data}
+
+
+@app.post("/api/mammoth/runs/{run_id}/approval")
+async def mammoth_agent_run_approval(run_id: str, body: Dict[str, Any]):
+    run = _AGENT_RUNS.get(run_id, _current_request_user_id())
+    if run is None:
+        return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)
+    decision = str(body.get("decision") or "").lower()
+    if decision not in {"approve", "reject"}:
+        return JSONResponse({"status": "error", "error": "decision must be approve or reject"}, status_code=400)
+    ctx, notice = _agent_tool_context(run.request.get("repo_context"))
+    if notice:
+        return JSONResponse({"status": "error", **notice}, status_code=403)
+    _append_audit_event(
+        kind="agent_run_approval",
+        message=f"Agent run tool {decision}d",
+        details={"run_id": run.id, "approval_id": str(body.get("approval_id") or ""), "tool": (run.pending_approval or {}).get("tool")},
+        source="mammoth_mind",
+        actor=ctx.user_id,
+    )
+    events_iter = _AGENT_RUNNER.resume(
+        run, ctx,
+        approval_id=str(body.get("approval_id") or ""),
+        approved=decision == "approve",
+        note=str(body.get("note") or ""),
+    )
+    return _agent_run_stream(run, events_iter, thread_id=str(run.request.get("thread_id") or ""))
+
+
+@app.post("/api/mammoth/runs/{run_id}/cancel")
+async def mammoth_agent_run_cancel(run_id: str):
+    run = _AGENT_RUNS.get(run_id, _current_request_user_id())
+    if run is None:
+        return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)
+    if run.status == "awaiting_approval":
+        run.pending_approval = None
+        run.status = "cancelled"
+        _AGENT_RUNS.save(run)
+    else:
+        _AGENT_RUNNER.cancel(run)
+    return {"status": "ok", "run_id": run.id, "run_status": run.status, "cancel_requested": True}
 
 
 

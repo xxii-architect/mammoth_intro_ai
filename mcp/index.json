@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "description": "MammothOS MCP server registry. Each entry maps to a config file in this directory. Set enabled=false to disable without removing the config.",
+  "description": "MammothOS MCP server registry. Each entry maps to a config file in this directory. Set enabled=false to disable without removing the config. Each config's access field (admin|tenant) controls who can see its tools in Mammoth Mind agent runs.",
   "servers": [
     {
       "id": "playwright",
@@ -16,7 +16,7 @@
       "enabled": true,
       "category": "repo",
       "label": "Filesystem (Repo)",
-      "description": "Read/write access to the MammothOS repo root. Allows Mammoth Mind to inspect and edit project files. Secrets are denied."
+      "description": "Owner/admin only, platform repo scope only. Lets Mammoth Mind inspect project files; mutating calls require approval. Secrets are denied."
     },
     {
       "id": "git",
@@ -24,7 +24,7 @@
       "enabled": true,
       "category": "repo",
       "label": "Git",
-      "description": "Git status, diff, log, and branch inspection. Commit/push require human approval gate."
+      "description": "Owner/admin only, platform repo scope only. Status, diff, log, and branch inspection; mutating calls require approval and git_push is never exposed."
     }
   ]
 }
