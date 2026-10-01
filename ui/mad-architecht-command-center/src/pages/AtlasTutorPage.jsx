@@ -428,19 +428,7 @@ export default function AtlasTutorPage() {
               recommended_difficulty: learnerContext?.recommended_difficulty || null,
             },
           },
-          repo_context: {
-            query: msg,
-            files: [
-              'api_server.py',
-              'src/mammoth_os/cortex_router.py',
-              'src/mammoth_os/sdk.py',
-              'src/mammoth_os/atlas_session.py',
-            ],
-            branch: 'main',
-            include_git_status: false,
-            max_results: 2,
-            max_snippets: 2,
-          },
+          // Tutor never receives platform source. /guide answers come from the published docs bundle server-side.
         },
       })
       if (res.chat_history) {

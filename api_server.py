@@ -55,6 +55,7 @@ from mammoth_os.memory_engine import MemoryEngine
 from mammoth_os.rag_context_store import get_rag_context_store
 from mammoth_os.audit_engine import AuditEngine
 from mammoth_os.team_workflows import TeamWorkflowManager, RunbookStep
+from mammoth_os.repo_access import RepoAccessPolicy
 from mammoth_os.telemetry_engine import TelemetryEngine
 from mammoth_os.provenance_contract import (
     validate_response,
@@ -81,8 +82,9 @@ _START_TIME = time.time()
 # ── .mammoth storage ─────────────────────────────────────────────────────────
 MAMMOTH_DIR = ROOT / ".mammoth"
 MAMMOTH_DIR.mkdir(exist_ok=True)
+_REPO_POLICY = RepoAccessPolicy.from_env(ROOT, MAMMOTH_DIR)
 
-NOTES_FILE    = MAMMOTH_DIR / "notes.json"
+NOTES_FILE     = MAMMOTH_DIR / "notes.json"
 BUILDLOG_FILE = MAMMOTH_DIR / "buildlog.json"
 SALES_FILE    = MAMMOTH_DIR / "sales_log.json"
 OPERATOR_HEALTH_FILE = MAMMOTH_DIR / "operator_health.json"
@@ -749,6 +751,22 @@ def _mutation_allowed() -> bool:
     return _request_is_admin()
 
 
+# Agents that execute on, or write to, the backend host. Owner/admin only.
+_PRIVILEGED_AGENT_IDS = {
+    "shell_agent",
+    "filesystem_agent",
+    "deploy_agent",
+    "build_agent",
+    "executor_agent",
+    "ui_builder_agent",
+    "database_agent",
+    "config_manager_agent",
+    "custodial_agent",
+}
+_PRIVILEGED_RUNTIME_AGENTS = {"custodial", "shell", "filesystem", "deploy", "build", "executor", "ui_builder", "database"}
+_PRIVILEGED_INTENTS = {"shell", "run_tests", "deploy", "build"}
+
+
 def _is_auth_optional_path(path: str) -> bool:
     if path in _AUTH_OPTIONAL_PATHS:
         return True
@@ -802,7 +820,7 @@ def _set_request_auth_context(request: Request, user: Dict[str, Any]):
 
 @app.middleware("http")
 async def auth_guard_middleware(request: Request, call_next):
-    if not request.url.path.startswith("/api/"):
+    if not (request.url.path.startswith("/api/") or request.url.path.startswith("/agent/")):
         return await call_next(request)
 
     optional_path = request.method.upper() == "OPTIONS" or _is_auth_optional_path(request.url.path)
@@ -2738,11 +2756,17 @@ async def run_atlas_agent_endpoint(payload: Any):
 
 @app.post("/agent/coding/run")
 async def run_coding_agent_endpoint(payload: Any):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     return await _dispatch_http_agent("coding", payload)
 
 
 @app.post("/agent/shell/run")
 async def run_shell_agent_endpoint(payload: Any):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
     prompt = _coerce_http_agent_prompt(payload)
     if not prompt:
         return {"status": "error", "error": "command is required", "agent": "shell"}
@@ -4743,6 +4767,24 @@ async def run_agent(body: Dict[str, Any]):
 
     try:
         runtime_agent = _runtime_agent_name(intent, tracked_agent_id)
+        if not _mutation_allowed() and (
+            tracked_agent_id in _PRIVILEGED_AGENT_IDS
+            or runtime_agent in _PRIVILEGED_RUNTIME_AGENTS
+            or intent in _PRIVILEGED_INTENTS
+        ):
+            _think("Privileged agent denied", "owner/admin privileges required for host-executing agents", "error")
+            denied = _owner_mutation_denied(intent or tracked_agent_id or runtime_agent)
+            _upsert_task(task_id, task["title"], status="failed", agent_id=tracked_agent_id, description="Privileged agent blocked", details={"intent": intent, "trace_id": trace_id})
+            return {
+                "status": "error",
+                "task_id": task_id,
+                "agent_id": tracked_agent_id,
+                "result": denied,
+                "thought_steps": thought_steps,
+                "runtime_status": runtime_status,
+                "trace_id": trace_id,
+                "preflight": preflight,
+            }
         execution_policy = _execution_policy_for_run(body, payload_dict, runtime_agent=runtime_agent)
         preflight_checks.append(
             {
@@ -7305,7 +7347,8 @@ async def atlas_chat(body: Dict[str, Any]):
     page_context = _normalize_page_context(body.get("page_context"), body.get("page_snapshot"))
     repo_context_request = _normalize_repo_context_request(body.get("repo_context"))
     repo_context = _collect_repo_context_snapshot(repo_context_request) if repo_context_request else {}
-    repo_evidence_items = _repo_context_evidence_items(repo_context)
+    if not repo_context and (str(body.get("agent_id") or "").strip().lower() == "mammoth_guide" or message.lower().startswith("/guide")):
+        repo_context = _collect_public_docs_context(message)
     repo_evidence_items = _repo_context_evidence_items(repo_context)
     attached_material_ids = body.get("attached_material_ids") if isinstance(body.get("attached_material_ids"), list) else []
     attached_material_context = _collect_attached_atlas_material_context(
@@ -8033,6 +8076,14 @@ def _normalize_page_context(raw_page_context: Any, raw_page_snapshot: Any = None
     return {k: v for k, v in normalized.items() if v}
 
 
+def _path_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except (ValueError, OSError):
+        return False
+
+
 def _safe_repo_relative_path(raw_path: Any, *, repo_root: Any = None) -> str:
     candidate = str(raw_path or "").strip().replace("\\", "/")
     if not candidate:
@@ -8144,40 +8195,43 @@ def _resolve_repo_file_hint_to_tracked_path(hint: str, *, tracked_files: List[st
 
 
 def _resolve_repo_context_root(raw_root: Any) -> Dict[str, str]:
-    requested = str(raw_root or "").strip()
-    if not requested:
-        return {"root": str(ROOT), "requested_root": "", "root_warning": ""}
+    """Resolve a requested repo reference through the server-side access policy.
 
-    if len(requested) >= 400:
-        return {
-            "root": str(ROOT),
-            "requested_root": requested[:400],
-            "root_warning": "Requested repo root was too long and was reset to the backend default repository.",
-        }
+    Empty -> no repo context. The platform repo is owner/admin-only; everyone
+    else can only reach repositories they connected (see /api/mammoth/repo-sources).
+    """
+    resolution = _REPO_POLICY.resolve(
+        raw_root,
+        user_id=_current_request_user_id(),
+        is_admin=_request_is_admin(),
+    )
+    if resolution.scope == "denied":
+        _append_audit_event(
+            kind="repo_context_denied",
+            message="Repository context request denied by access policy",
+            details={"requested_root": resolution.requested_root[:200]},
+            source="repo_access",
+            actor=_current_request_user_id(),
+        )
+    return resolution.as_dict()
 
-    repo_ref_pattern = r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+"
-    if re.fullmatch(repo_ref_pattern, requested):
-        return {
-            "root": str(ROOT),
-            "requested_root": requested,
-            "root_warning": "GitHub owner/repo reference received. Using backend default local repository root for context reads.",
-        }
 
-    candidate = Path(requested)
-    if candidate.exists() and candidate.is_dir():
-        return {"root": str(candidate), "requested_root": requested, "root_warning": ""}
-
-    return {
-        "root": str(ROOT),
-        "requested_root": requested,
-        "root_warning": "Requested repo root was not found on the backend host. Using backend default repository root.",
-    }
+def _repo_context_denied_notice(raw_repo_context: Any) -> Dict[str, Any]:
+    """Explain to the client why a repo request produced no context."""
+    if not isinstance(raw_repo_context, dict) or not str(raw_repo_context.get("root") or "").strip():
+        return {}
+    resolution = _resolve_repo_context_root(raw_repo_context.get("root"))
+    if resolution.get("scope") != "denied":
+        return {}
+    return {"scope": "denied", "requested_root": resolution.get("requested_root"), "root_warning": resolution.get("root_warning")}
 
 
 def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     if not isinstance(raw_repo_context, dict):
         return {}
     root_resolution = _resolve_repo_context_root(raw_repo_context.get("root"))
+    if not root_resolution.get("root"):
+        return {}
     files_raw = raw_repo_context.get("files") if isinstance(raw_repo_context.get("files"), list) else []
     files = []
     for value in files_raw:
@@ -8189,15 +8243,19 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
     symbols_raw = raw_repo_context.get("symbols") if isinstance(raw_repo_context.get("symbols"), list) else []
     symbols = [str(item).strip() for item in symbols_raw if str(item).strip()][:12]
     query = str(raw_repo_context.get("query") or "").strip()
-    branch = str(raw_repo_context.get("branch") or "main").strip() or "main"
-    if not re.fullmatch(r"[A-Za-z0-9._/\-]+", branch):
-        branch = "main"
+    branch = str(raw_repo_context.get("branch") or "HEAD").strip() or "HEAD"
+    # No leading '-' (git option injection) and no '..' (ref ranges).
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._/\-]{0,120}", branch) or ".." in branch:
+        branch = "HEAD"
     return {
         "query": query[:240],
         "files": files,
         "symbols": symbols,
         "branch": branch,
         "root": root_resolution["root"],
+        "scope": root_resolution.get("scope", ""),
+        "source_id": root_resolution.get("source_id", ""),
+        "slug": root_resolution.get("slug", ""),
         "requested_root": root_resolution["requested_root"],
         "root_warning": root_resolution["root_warning"],
         "include_git_status": bool(raw_repo_context.get("include_git_status", True)),
@@ -8207,7 +8265,10 @@ def _normalize_repo_context_request(raw_repo_context: Any) -> Dict[str, Any]:
 
 
 def _read_repo_file_excerpt(relative_path: str, *, repo_root: Any = None, max_lines: int = 120, max_chars: int = 3600) -> Dict[str, Any]:
-    target = Path(str(repo_root or ROOT)) / relative_path
+    base = Path(str(repo_root or ROOT))
+    target = base / relative_path
+    if target.is_symlink() or not _path_within(target, base):
+        return {"path": relative_path, "status": "error", "error": "path escapes repository root"}
     if not target.exists() or not target.is_file():
         return {"path": relative_path, "status": "missing"}
     try:
@@ -8259,10 +8320,13 @@ def _read_repo_file_excerpt_from_ref(
 
 
 def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, Any]:
-    if not repo_request:
+    if not repo_request or not str(repo_request.get("root") or "").strip():
         return {}
 
-    repo_cwd = str(repo_request.get("root") or ROOT).strip() or str(ROOT)
+    repo_cwd = str(repo_request.get("root")).strip()
+    scope = str(repo_request.get("scope") or "")
+    # Never echo server filesystem paths for tenant sandboxes back to clients.
+    root_label = str(repo_request.get("slug") or "") if scope == "tenant" else repo_cwd
 
     snapshot: Dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -8270,7 +8334,9 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
         "symbols": list(repo_request.get("symbols") or []),
         "files": list(repo_request.get("files") or []),
         "branch": str(repo_request.get("branch") or "main"),
-        "root": repo_cwd,
+        "root": root_label,
+        "scope": scope,
+        "source_id": str(repo_request.get("source_id") or ""),
         "requested_root": str(repo_request.get("requested_root") or ""),
         "snippets": [],
         "search_hits": [],
@@ -8329,7 +8395,8 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
         for term in query_terms:
             if len(snapshot["search_hits"]) >= max_hits:
                 break
-            grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", "-F", "-i", term, git_ref], timeout=60, cwd=repo_cwd)
+            # "-e" keeps user text from being parsed as a git option (e.g. --open-files-in-pager).
+            grep_result = _run_git_command(["grep", "-n", "-I", "--no-color", "-F", "-i", "-e", term, git_ref, "--"], timeout=60, cwd=repo_cwd)
             if grep_result.get("status") != "ok":
                 continue
             for line in str(grep_result.get("stdout") or "").splitlines():
@@ -8358,7 +8425,7 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
             for path in walk_root.rglob("*"):
                 if len(snapshot["search_hits"]) >= max_hits:
                     break
-                if not path.is_file():
+                if not path.is_file() or path.is_symlink():
                     continue
                 if any(part in skipped_dirs for part in path.parts):
                     continue
@@ -8979,12 +9046,123 @@ async def delete_atlas_file(file_id: str):
 
 @app.post("/api/mammoth/repo-context")
 async def mammoth_repo_context(body: Dict[str, Any]):
-    blocked = _require_admin_api()
-    if blocked is not None:
-        return blocked
-    repo_request = _normalize_repo_context_request(body.get("repo_context") if isinstance(body.get("repo_context"), dict) else body)
+    raw = body.get("repo_context") if isinstance(body.get("repo_context"), dict) else body
+    repo_request = _normalize_repo_context_request(raw)
+    if not repo_request:
+        notice = _repo_context_denied_notice(raw)
+        if notice:
+            return JSONResponse({"status": "error", "code": "repo_access_denied", "error": notice.get("root_warning"), "repo_context": {}}, status_code=403)
+        return {"status": "ok", "repo_context": {}, "notice": "No repository selected. Connect a repository to use repo context."}
     snapshot = _collect_repo_context_snapshot(repo_request)
     return {"status": "ok", "repo_context": snapshot}
+
+
+# ── Repo sources (tenant-scoped, Phase 1) ────────────────────────────────────
+
+def _repo_sources_payload(user_id: str) -> Dict[str, Any]:
+    sources = [_REPO_POLICY.public_source(item) for item in _REPO_POLICY.list_sources(user_id)]
+    options: List[Dict[str, Any]] = []
+    if _request_is_admin():
+        options.append({"id": "platform", "value": "platform", "label": "MammothOS platform (owner only)", "scope": "platform"})
+    for item in sources:
+        options.append({"id": item.get("id"), "value": item.get("id"), "label": item.get("slug"), "scope": "tenant", "status": item.get("status")})
+    return {"status": "ok", "sources": sources, "options": options, "limit": 5, "write_mode": "proposal_only"}
+
+
+@app.get("/api/mammoth/repo-sources")
+async def list_repo_sources():
+    return _repo_sources_payload(_current_request_user_id())
+
+
+@app.post("/api/mammoth/repo-sources")
+async def connect_repo_source(body: Dict[str, Any]):
+    user_id = _current_request_user_id()
+    if _AUTH_REQUIRED and user_id in {"", "anonymous"}:
+        return JSONResponse({"status": "error", "error": "Sign in to connect repositories."}, status_code=401)
+    result = await asyncio.to_thread(_REPO_POLICY.connect, user_id, body.get("repo") or body.get("slug"), is_admin=_request_is_admin())
+    _append_audit_event(
+        kind="repo_source_connect",
+        message=f"Repository connect: {result.get('status')}",
+        details={"repo": str(body.get("repo") or body.get("slug") or "")[:200], "code": result.get("code", "")},
+        source="repo_access",
+        actor=user_id,
+    )
+    return result
+
+
+@app.post("/api/mammoth/repo-sources/{source_id}/sync")
+async def sync_repo_source(source_id: str):
+    return await asyncio.to_thread(_REPO_POLICY.sync, _current_request_user_id(), source_id)
+
+
+@app.delete("/api/mammoth/repo-sources/{source_id}")
+async def remove_repo_source(source_id: str):
+    return await asyncio.to_thread(_REPO_POLICY.remove, _current_request_user_id(), source_id)
+
+
+@app.post("/api/mammoth/repo-sources/{source_id}/propose")
+async def propose_repo_source_patch(source_id: str, body: Dict[str, Any]):
+    """Proposal-only write: local branch + patch in the user's sandbox clone. Never pushes."""
+    user_id = _current_request_user_id()
+    result = await asyncio.to_thread(
+        _REPO_POLICY.propose_patch,
+        user_id,
+        source_id,
+        body.get("changes") if isinstance(body.get("changes"), list) else [],
+        title=str(body.get("title") or ""),
+    )
+    _append_audit_event(
+        kind="repo_source_proposal",
+        message=f"Repository proposal: {result.get('status')}",
+        details={"source_id": source_id, "branch": result.get("branch", ""), "code": result.get("code", "")},
+        source="repo_access",
+        actor=user_id,
+    )
+    return result
+
+
+_PUBLIC_GUIDE_DOCS = [
+    "docs/public/mammoth_mind_user_guide.md",
+    "docs/atlas_fab_product_guide.md",
+    "docs/mammoth_os_package_offering.md",
+]
+
+
+def _collect_public_docs_context(query: str, *, max_snippets: int = 3) -> Dict[str, Any]:
+    """Curated, publishable docs for the MammothOS Guide. Never platform source code."""
+    snippets: List[Dict[str, Any]] = []
+    hits: List[Dict[str, Any]] = []
+    tokens = _repo_context_query_tokens(query)
+    for rel in _PUBLIC_GUIDE_DOCS:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        if len(snippets) < max_snippets:
+            excerpt = _read_repo_file_excerpt(rel, repo_root=ROOT, max_lines=80, max_chars=2400)
+            if excerpt.get("status") == "ok":
+                excerpt["ref"] = "public-docs"
+                snippets.append(excerpt)
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for idx, line in enumerate(lines, start=1):
+            if len(hits) >= 4:
+                break
+            lowered = line.lower()
+            if tokens and any(token in lowered for token in tokens):
+                hits.append({"path": rel, "line": idx, "preview": line.strip()[:280], "ref": "public-docs"})
+    if not snippets and not hits:
+        return {}
+    return {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "scope": "public_docs",
+        "root": "mammothos-docs",
+        "branch": "published",
+        "query": str(query or "")[:240],
+        "snippets": snippets,
+        "search_hits": hits,
+    }
 
 
 @app.post("/api/mammoth/gitops/propose")
@@ -9021,6 +9199,7 @@ async def mammoth_chat(body: Dict[str, Any]):
     trace_id = str(body.get("trace_id") or new_trace_id("chat"))
     initial_repo_request = _normalize_repo_context_request(body.get("repo_context"))
     initial_repo_context = _collect_repo_context_snapshot(initial_repo_request) if initial_repo_request else {}
+    repo_access_notice = {} if initial_repo_request else _repo_context_denied_notice(body.get("repo_context"))
     repo_evidence_items = _repo_context_evidence_items(initial_repo_context)
     slash = _parse_mammoth_chat_command(message)
     if slash and slash.get("kind") == "plan":
@@ -9182,9 +9361,11 @@ async def mammoth_chat(body: Dict[str, Any]):
 
     state = _load_atlas_state()
     page_context = _normalize_page_context(body.get("page_context"), body.get("page_snapshot"))
-    repo_context_request = _normalize_repo_context_request(body.get("repo_context"))
-    repo_context = _collect_repo_context_snapshot(repo_context_request) if repo_context_request else {}
+    repo_context = initial_repo_context
     agent_id = str(body.get("agent_id") or "assistant").strip() or "assistant"
+    if not repo_context and agent_id == "mammoth_guide":
+        repo_context = _collect_public_docs_context(message)
+        repo_evidence_items = _repo_context_evidence_items(repo_context)
     mode = str(body.get("mode") or "chat").strip().lower() or "chat"
     adapter = str(body.get("adapter", "")).strip()
     model = str(body.get("model", "")).strip()
@@ -9526,6 +9707,8 @@ async def mammoth_chat(body: Dict[str, Any]):
         "reply": reply,
         "chat_history": scoped_history,
         "thought_steps": thought_steps[-12:],
+        "repo_scope": str(repo_context.get("scope") or "none") if isinstance(repo_context, dict) else "none",
+        "repo_access_notice": repo_access_notice or None,
         "agent_id": agent_id,
         "adapter": active_adapter,
         "model": active_model,
@@ -11964,7 +12147,9 @@ def _build_repo_context_snapshot() -> Dict[str, Any]:
     ]
     # Only include files that actually exist
     existing = [f for f in key_files if (ROOT / f).exists()]
+    # "platform" resolves only for the owner/admin; everyone else gets no repo context.
     repo_request = _normalize_repo_context_request({
+        "root": "platform",
         "files": existing,
         "query": "",
         "include_git_status": True,

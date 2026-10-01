@@ -484,3 +484,56 @@ LEFT JOIN public.usage_events ue ON ue.tenant_id = t.id
 GROUP BY t.id, t.name, t.plan_tier;
 
 -- End of tenant/auth schema bootstrap.
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Repo sources (Mammoth Mind / Workspace SDK repo context)
+-- Users connect their own repositories. The MammothOS platform repository is
+-- never stored here; the backend policy (src/mammoth_os/repo_access.py) keeps
+-- it owner-only. Writes are proposal-only (branch + patch), never pushed.
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS public.repo_sources (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES public.tenants(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL DEFAULT 'github' CHECK (provider IN ('github')),
+    slug TEXT NOT NULL CHECK (slug ~ '^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9._-]{1,100}$'),
+    default_branch TEXT NOT NULL DEFAULT 'main',
+    github_installation_id BIGINT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'ready', 'error')),
+    last_synced_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, user_id, slug)
+);
+
+ALTER TABLE public.repo_sources ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users manage their own repo sources" ON public.repo_sources;
+CREATE POLICY "Users manage their own repo sources"
+    ON public.repo_sources
+    FOR ALL
+    USING (
+        user_id = auth.uid()
+        AND EXISTS (
+            SELECT 1 FROM public.workspace_memberships wm
+            WHERE wm.tenant_id = repo_sources.tenant_id
+              AND wm.user_id = auth.uid()
+              AND wm.status = 'active'
+        )
+    )
+    WITH CHECK (
+        user_id = auth.uid()
+        AND EXISTS (
+            SELECT 1 FROM public.workspace_memberships wm
+            WHERE wm.tenant_id = repo_sources.tenant_id
+              AND wm.user_id = auth.uid()
+              AND wm.status = 'active'
+        )
+    );
+
+DROP POLICY IF EXISTS "Service role manages repo sources" ON public.repo_sources;
+CREATE POLICY "Service role manages repo sources"
+    ON public.repo_sources
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);

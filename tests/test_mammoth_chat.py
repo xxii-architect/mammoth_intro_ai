@@ -359,6 +359,7 @@ def test_mammoth_repo_context_endpoint_returns_snapshot(monkeypatch):
         api_server.mammoth_repo_context(
             {
                 'repo_context': {
+                    'root': 'platform',
                     'query': 'atlas',
                     'files': ['api_server.py'],
                 }
@@ -371,37 +372,42 @@ def test_mammoth_repo_context_endpoint_returns_snapshot(monkeypatch):
     assert response['repo_context']['snippets'][0]['path'] == 'api_server.py'
 
 
-def test_normalize_repo_context_defaults_to_main_branch():
-    normalized = api_server._normalize_repo_context_request({"query": "sdk"})
-    assert normalized["branch"] == "main"
+def test_normalize_repo_context_without_root_has_no_context():
+    assert api_server._normalize_repo_context_request({"query": "sdk"}) == {}
 
 
-def test_normalize_repo_context_rejects_invalid_branch():
-    normalized = api_server._normalize_repo_context_request({"query": "sdk", "branch": "main; rm -rf"})
-    assert normalized["branch"] == "main"
+def test_normalize_repo_context_rejects_invalid_branch(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+    normalized = api_server._normalize_repo_context_request({"query": "sdk", "root": "platform", "branch": "main; rm -rf"})
+    assert normalized["branch"] == "HEAD"
 
 
-def test_normalize_repo_context_owner_repo_reference_uses_default_root():
+def test_normalize_repo_context_rejects_option_like_branch(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+    normalized = api_server._normalize_repo_context_request({"query": "sdk", "root": "platform", "branch": "--output=/tmp/pwn"})
+    assert normalized["branch"] == "HEAD"
+
+
+def test_normalize_repo_context_platform_slug_resolves_for_admin(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
     normalized = api_server._normalize_repo_context_request({"query": "sdk", "root": "xxii-architect/mammoth_intro_ai"})
-    assert normalized["requested_root"] == "xxii-architect/mammoth_intro_ai"
     assert normalized["root"] == str(api_server.ROOT)
-    assert "GitHub owner/repo reference" in normalized["root_warning"]
+    assert normalized["scope"] == "platform"
 
 
-def test_normalize_repo_context_missing_root_falls_back_to_default():
-    normalized = api_server._normalize_repo_context_request({"query": "sdk", "root": "C:/missing/repo/path"})
-    assert normalized["requested_root"] == "C:/missing/repo/path"
-    assert normalized["root"] == str(api_server.ROOT)
-    assert "not found on the backend host" in normalized["root_warning"]
+def test_normalize_repo_context_missing_root_yields_no_context(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+    assert api_server._normalize_repo_context_request({"query": "sdk", "root": "C:/missing/repo/path"}) == {}
 
 
-def test_normalize_repo_context_accepts_absolute_file_inside_root(tmp_path):
+def test_normalize_repo_context_accepts_absolute_file_inside_root(tmp_path, monkeypatch):
     repo_root = tmp_path / "repo"
     src_dir = repo_root / "src"
     src_dir.mkdir(parents=True)
     target = src_dir / "sample.py"
     target.write_text("print('ok')\n", encoding="utf-8")
 
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
     normalized = api_server._normalize_repo_context_request(
         {
             "query": "sample",
@@ -468,7 +474,7 @@ def test_mammoth_chat_response_includes_dynamic_trust_metadata(monkeypatch):
                 "message": "Give me a quick architecture summary.",
                 "agent_id": "assistant",
                 "mode": "chat",
-                "repo_context": {"query": "atlas session"},
+                "repo_context": {"root": "platform", "query": "atlas session"},
             }
         )
     )

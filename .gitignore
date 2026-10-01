@@ -82,3 +82,7 @@ venv/
 # Runtime-generated research documents
 generated_docs/
 *.docx
+
+# Tenant repo sandboxes and per-user repo source registries (never commit)
+.mammoth/tenant_repos/
+.mammoth/repo_sources/
