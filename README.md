@@ -78,8 +78,9 @@ Rules the loop enforces:
 
 - **Tool tiers:** `read`, `network`, `write` (proposal-only, never touches the checkout), `exec` (always needs approval). MCP tools whose names look mutating also need approval; `git_push` is never exposed.
 - **Repo tools follow the repo access model.** No repo selected → no repo tools. Paths are repo-relative; `..`, absolute paths, `.git`, symlinks, and secret files are refused.
+- **Patches are edit-first.** `repo_propose_patch` takes either full `content` (new or small files) or `edits` (exact `old` → `new` snippets, each matching once) per file, so the model never has to re-send a large file. The connected repo is named in every prompt.
 - **MCP access:** each `mcp/*.json` declares `access: admin|tenant`. Admin repo servers (filesystem, git) are only offered to the owner with the platform repo selected; tenant servers run with the user's sandbox clone as cwd.
-- **Honest output:** reasoning lines are short model-written summaries (no hidden chain-of-thought). Repeated identical tool calls and exhausted step budgets go straight to a final answer. With no cloud or Ollama provider the run says it is offline instead of echoing.
+- **Honest output:** reasoning lines are short model-written summaries (no hidden chain-of-thought). Repeated identical tool calls and exhausted step budgets go straight to a final answer. A cut-off or malformed decision is never shown to the user: the model is told and retries once, then the run ends with a plain message. With no cloud or Ollama provider the run says it is offline instead of echoing.
 - Runs are stored per user under `.mammoth/agent_runs/` (last 50); other users get 404.
 - `/api/internet/*` fetches refuse private, loopback, and link-local targets, including on redirects (SSRF guard).
 

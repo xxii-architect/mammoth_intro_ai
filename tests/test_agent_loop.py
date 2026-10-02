@@ -374,3 +374,67 @@ def test_repo_category_mcp_requires_platform_scope_and_never_pushes(tmp_path):
     names = {t["name"]: t for t in registry.catalog(owner_platform)}
     assert set(names) == {"mcp__git__git_status", "mcp__git__git_commit"}
     assert names["mcp__git__git_commit"]["requires_approval"] is True
+
+def test_propose_patch_accepts_small_edits(tmp_path, repo):
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")
+    args = {"title": "Change greeting", "files": [{"path": "src/app.py", "edits": [{"old": "return 'hi'", "new": "return 'hello'"}]}]}
+    result = asyncio.run(registry.invoke("repo_propose_patch", args, ctx))
+    assert result["status"] == "ok"
+    assert "+    return 'hello'" in result["diff"] and "-    return 'hi'" in result["diff"]
+    assert (repo / "src" / "app.py").read_text(encoding="utf-8").endswith("return 'hi'\n")
+
+
+@pytest.mark.parametrize("change,code", [
+    ({"path": "src/app.py", "edits": [{"old": "missing text", "new": "x"}]}, "edit_mismatch"),
+    ({"path": "src/new.py", "edits": [{"old": "a", "new": "b"}]}, "not_found"),
+    ({"path": "src/app.py", "content": "x", "edits": [{"old": "def", "new": "x"}]}, "invalid_change"),
+    ({"path": "src/app.py"}, "invalid_change"),
+])
+def test_propose_patch_edit_errors(tmp_path, repo, change, code):
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")
+    result = asyncio.run(registry.invoke("repo_propose_patch", {"title": "Bad edit", "files": [change]}, ctx))
+    assert result["status"] == "error" and result["code"] == code
+
+
+TRUNCATED = '{"reasoning":"Ready to patch.","plan":[],"tool":"repo_propose_patch","args":{"title":"Big","files":[{"path":"src/app.py","content":"def hello():\\n    ret'
+
+
+def test_truncated_decision_is_never_shown_and_model_retries(tmp_path, repo):
+    llm = ScriptedLLM([
+        TRUNCATED,
+        {"reasoning": "Use a small edit.", "tool": "repo_propose_patch",
+         "args": {"title": "Greeting", "files": [{"path": "src/app.py", "edits": [{"old": "'hi'", "new": "'hey'"}]}]}},
+        {"reasoning": "Done.", "final": "Proposed a one-line patch."},
+    ])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Change the greeting")
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")
+    events = _collect(runner.start(run, ctx))
+    assert "cut off" in llm.prompts[1]
+    assert any(e.type == "diff.proposed" for e in events)
+    assert events[-1].type == "run.completed"
+    assert events[-1].data["reply"] == "Proposed a one-line patch."
+    assert all('"tool"' not in str(e.data.get("text") or "") for e in events if e.type == "message.delta")
+
+
+def test_repeated_truncation_ends_with_clean_message(tmp_path, repo):
+    llm = ScriptedLLM([TRUNCATED, TRUNCATED, TRUNCATED])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Rewrite everything")
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")
+    events = _collect(runner.start(run, ctx))
+    reply = events[-1].data["reply"]
+    assert events[-1].type == "run.completed"
+    assert "cut off" in reply and "{" not in reply
+
+
+def test_final_answer_hides_truncated_json(tmp_path):
+    llm = ScriptedLLM([TRUNCATED])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="x")
+    result = asyncio.run(runner._final_answer(run))
+    assert "{" not in result["final"] and "cut off" in result["final"]

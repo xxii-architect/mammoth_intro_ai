@@ -152,6 +152,35 @@ def parse_decision(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+_DECISION_KEY_RE = re.compile(r'"(?:tool|final|reasoning|args|plan)"\s*:')
+
+
+def looks_like_decision(text: str) -> bool:
+    """True for text that was meant to be a decision object but did not parse (e.g. cut off)."""
+    cleaned = _FENCE_RE.sub("", str(text or "").strip())
+    return cleaned.startswith("{") or bool(_DECISION_KEY_RE.search(cleaned[:400]))
+
+
+INVALID_RESPONSE_ERROR = (
+    "Your previous response was cut off or was not a valid JSON decision, so it was discarded. "
+    "Reply with one complete JSON object. For changes to existing files, use repo_propose_patch with "
+    "small 'edits' (exact old → new snippets) instead of full file 'content'."
+)
+INVALID_FINAL_MESSAGE = (
+    "I couldn't finish that response cleanly; my output was cut off before it was complete. "
+    "Try asking for a smaller, more specific change (for example one component or function at a time)."
+)
+MAX_INVALID_RESPONSES = 2
+
+
+def _trailing_invalid(transcript: List[Dict[str, Any]]):
+    """Yield the run of consecutive invalid-response entries at the end of the transcript."""
+    for step in reversed(transcript):
+        if step.get("tool") != "(invalid response)":
+            return
+        yield step
+
+
 def _normalize_plan(raw: Any) -> List[Dict[str, Any]]:
     if not isinstance(raw, list):
         return []
@@ -198,7 +227,8 @@ Rules:
           "final": "<markdown answer>" or null}
 - Set exactly one of "tool" or "final".
 - Only call tools from the catalog. Arguments must match the tool's input_schema.
-- Changes are proposals: use repo_propose_patch with full new file contents. Never claim you applied or pushed anything.
+- Changes are proposals: use repo_propose_patch. For existing files send small exact "edits" (old → new snippets
+  copied from what you read); send full "content" only for new or small files. Never claim you applied or pushed anything.
 - If no repository is connected, do not pretend to know its code.
 - If a repository IS connected, never say you lack repo access or context. When the request is about the code,
   inspect it with the repo tools before answering.
@@ -312,6 +342,8 @@ class AgentRunner:
         decision = parse_decision(text)
         if decision is not None:
             text = str(decision.get("final") or "").strip()
+        elif looks_like_decision(text):
+            text = INVALID_FINAL_MESSAGE
         return {"final": text or "I could not produce an answer from the information gathered.", "_meta": meta}
 
     async def _decide(self, run: AgentRun, ctx: ToolContext) -> Dict[str, Any]:
@@ -324,6 +356,8 @@ class AgentRunner:
             return {"final": OFFLINE_MESSAGE, "_meta": {**meta, "offline": True}}
         decision = parse_decision(text)
         if decision is None:
+            if looks_like_decision(text):
+                return {"_invalid": True, "_meta": meta}
             decision = {"final": text.strip() or "I could not produce an answer."}
         decision["_meta"] = meta
         return decision
@@ -400,6 +434,16 @@ class AgentRunner:
                 else:
                     decision = await self._decide(run, ctx)
                 meta = decision.pop("_meta", {})
+                if decision.pop("_invalid", False):
+                    invalid_streak = sum(1 for _ in _trailing_invalid(run.transcript)) + 1
+                    run.transcript.append({
+                        "tool": "(invalid response)",
+                        "args": {},
+                        "result": {"status": "error", "code": "invalid_response", "error": INVALID_RESPONSE_ERROR},
+                    })
+                    if invalid_streak < MAX_INVALID_RESPONSES:
+                        continue
+                    decision = {"final": INVALID_FINAL_MESSAGE}
                 reasoning = str(decision.get("reasoning") or "").strip()
                 if reasoning:
                     yield self._emit(run, ev.REASONING_SUMMARY, {"text": reasoning[:1200], "step": run.steps, "provider": meta.get("provider")})

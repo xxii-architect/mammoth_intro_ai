@@ -163,12 +163,48 @@ def _unified_diff(root: Path, changes: List[Dict[str, Any]]) -> str:
     return "".join(chunks)
 
 
+def _resolve_changes(root: Path, raw_changes: List[Dict[str, Any]]) -> "tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]":
+    """Turn each change into ``{path, content}``.
+
+    A change carries either ``content`` (full new file) or ``edits`` (exact
+    ``old`` → ``new`` replacements applied to the current file). Edits keep
+    model output small, so large files never need to be re-sent in full.
+    """
+    resolved: List[Dict[str, Any]] = []
+    for change in raw_changes:
+        rel = str(change.get("path") or "")
+        target = safe_repo_path(root, rel)
+        if target is None:
+            return [], {"status": "error", "code": "invalid_path", "error": f"Cannot propose a change to: {rel}"}
+        has_content = isinstance(change.get("content"), str)
+        edits = change.get("edits")
+        if has_content == bool(edits):
+            return [], {"status": "error", "code": "invalid_change", "error": f"{rel}: provide exactly one of 'content' or 'edits'."}
+        if has_content:
+            resolved.append({"path": rel, "content": change["content"]})
+            continue
+        if not target.is_file():
+            return [], {"status": "error", "code": "not_found", "error": f"{rel}: 'edits' need an existing file; use 'content' to create it."}
+        text = target.read_text(encoding="utf-8", errors="replace")
+        for idx, edit in enumerate(edits, start=1):
+            old, new = str(edit.get("old") or ""), str(edit.get("new") or "")
+            count = text.count(old) if old else 0
+            if count != 1:
+                problem = "was not found" if count == 0 else f"matches {count} places; include more surrounding lines"
+                return [], {
+                    "status": "error", "code": "edit_mismatch",
+                    "error": f"{rel} edit {idx}: 'old' text {problem}. Re-read the file and copy the exact lines.",
+                }
+            text = text.replace(old, new, 1)
+        resolved.append({"path": rel, "content": text})
+    return resolved, None
+
+
 def _propose_patch(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     root = ctx.repo_root
-    changes = args.get("files") or []
-    for change in changes:
-        if safe_repo_path(root, change.get("path")) is None:
-            return {"status": "error", "code": "invalid_path", "error": f"Cannot propose a change to: {change.get('path')}"}
+    changes, error = _resolve_changes(root, args.get("files") or [])
+    if error is not None:
+        return error
     title = str(args.get("title") or "MammothOS proposal")
     diff = _unified_diff(root, changes)
     if not diff:
@@ -231,9 +267,24 @@ REPO_PROPOSE_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "minLength": 1, "maxLength": 300},
-                    "content": {"type": "string", "maxLength": 400_000, "description": "Full new file content."},
+                    "content": {"type": "string", "maxLength": 400_000, "description": "Full new file content. Use only for new or small files."},
+                    "edits": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 30,
+                        "description": "Preferred for existing files: exact replacements applied in order. 'old' must match exactly once.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "old": {"type": "string", "minLength": 1, "maxLength": 20_000},
+                                "new": {"type": "string", "maxLength": 40_000},
+                            },
+                            "required": ["old", "new"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
-                "required": ["path", "content"],
+                "required": ["path"],
                 "additionalProperties": False,
             },
         },
@@ -270,7 +321,10 @@ def register_repo_tools(registry: ToolRegistry) -> None:
     ))
     registry.register(ToolSpec(
         name="repo_propose_patch",
-        description="Propose full-file changes. Produces a reviewable diff/patch; never pushes or edits the user's checkout.",
+        description=(
+            "Propose file changes as a reviewable diff/patch; never pushes or edits the user's checkout. "
+            "For existing files send small exact 'edits' (old → new); send full 'content' only for new or small files."
+        ),
         input_schema=REPO_PROPOSE_SCHEMA, tier=TIER_WRITE, handler=_propose_patch,
         trace_kind="proposed", needs_repo=True, requires_approval=False,
     ))
