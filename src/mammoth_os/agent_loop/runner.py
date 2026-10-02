@@ -24,7 +24,9 @@ from . import events as ev
 from .tools import ToolContext, ToolRegistry
 
 DEFAULT_MAX_STEPS = 8
-MAX_OBSERVATION_CHARS = 6_000
+MAX_OBSERVATION_CHARS = 24_000
+MAX_OLD_OBSERVATION_CHARS = 2_000
+RECENT_OBSERVATIONS = 3
 RUN_ID_RE = re.compile(r"^run-[a-f0-9]{16}$")
 
 LLMFactory = Callable[[], Any]
@@ -261,10 +263,45 @@ Rules:
 - Only call tools from the catalog. Arguments must match the tool's input_schema.
 - Changes are proposals: use repo_propose_patch. For existing files send small exact "edits" (old → new snippets
   copied from what you read); send full "content" only for new or small files. Never claim you applied or pushed anything.
+- Large files: repo_search for the symbol or text first to get line numbers, then repo_read_file a focused
+  start_line/end_line range around it (follow next_start_line to continue). Copy "old" snippets only from text shown
+  between <<<content and content>>>, never from memory.
+- If a patch fails with edit_mismatch, re-read that exact range before retrying.
 - If no repository is connected, do not pretend to know its code.
 - If a repository IS connected, never say you lack repo access or context. When the request is about the code,
   inspect it with the repo tools before answering.
 """
+
+
+def render_observation(result: Any, budget: int) -> str:
+    """Model-facing view of a tool result that never truncates silently.
+
+    File excerpts are shown as raw text (not JSON-escaped) so the model can copy
+    exact snippets into patch edits, and they are cut at a line boundary with
+    the real last line reported, so the model knows where to continue reading.
+    """
+    if isinstance(result, dict) and isinstance(result.get("content"), str) and "start_line" in result:
+        meta = {k: v for k, v in result.items() if k != "content"}
+        content_lines = result["content"].split("\n")
+        start = int(result.get("start_line") or 1)
+        header_room = budget - len(json.dumps(meta, default=str)) - 200
+        kept: List[str] = []
+        used = 0
+        for line in content_lines:
+            used += len(line) + 1
+            if kept and used > header_room:
+                break
+            kept.append(line)
+        if len(kept) < len(content_lines):
+            shown_end = start + len(kept) - 1
+            meta["end_line"] = shown_end
+            meta["next_start_line"] = shown_end + 1
+            meta["note"] = f"Excerpt clipped; only lines {start}-{shown_end} are shown. Read from line {shown_end + 1} for more."
+        return f"{json.dumps(meta, default=str)}\n<<<content\n" + "\n".join(kept) + "\ncontent>>>"
+    text = json.dumps(result, default=str)
+    if len(text) <= budget:
+        return text
+    return text[:budget] + f" …[clipped {len(text) - budget} chars; narrow the query or read a smaller range]"
 
 
 def describe_repo(ctx: Optional[ToolContext]) -> str:
@@ -341,11 +378,13 @@ class AgentRunner:
     def _observations_text(run: AgentRun) -> str:
         if not run.transcript:
             return ""
+        window = run.transcript[-10:]
         lines = ["Observations so far (oldest first):"]
-        for idx, step in enumerate(run.transcript[-10:], start=1):
+        for idx, step in enumerate(window, start=1):
+            recent = len(window) - idx < RECENT_OBSERVATIONS
+            budget = MAX_OBSERVATION_CHARS if recent else MAX_OLD_OBSERVATION_CHARS
             call = f"{step.get('tool')}({json.dumps(step.get('args') or {}, default=str)[:400]})"
-            result = json.dumps(step.get("result") or {}, default=str)[:MAX_OBSERVATION_CHARS]
-            lines.append(f"[{idx}] {call}\n    → {result}")
+            lines.append(f"[{idx}] {call}\n    → {render_observation(step.get('result') or {}, budget)}")
         return "\n".join(lines)
 
     def _final_prompt(self, run: AgentRun, ctx: Optional[ToolContext] = None) -> str:

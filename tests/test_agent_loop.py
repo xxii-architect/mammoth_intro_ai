@@ -477,3 +477,60 @@ def test_unparseable_dsml_is_never_shown(tmp_path):
     run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="x")
     events = _collect(runner.start(run, ToolContext(user_id="u1")))
     assert "DSML" not in events[-1].data["reply"]
+
+def _big_file(repo, lines=3000):
+    body = "".join(f"const line{n} = 'value {n} padded to look like real source code';\n" for n in range(1, lines + 1))
+    (repo / "src" / "Big.jsx").write_text(body, encoding="utf-8")
+
+
+def test_read_file_reaches_the_end_of_large_files(repo):
+    _big_file(repo)
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="tenant")
+    head = asyncio.run(registry.invoke("repo_read_file", {"path": "src/Big.jsx"}, ctx))
+    assert head["total_lines"] == 3000
+    assert head["next_start_line"] == head["end_line"] + 1
+    tail = asyncio.run(registry.invoke("repo_read_file", {"path": "src/Big.jsx", "start_line": 2990}, ctx))
+    assert tail["end_line"] == 3000 and "line3000 " in tail["content"]
+    assert "next_start_line" not in tail
+    past = asyncio.run(registry.invoke("repo_read_file", {"path": "src/Big.jsx", "start_line": 5000}, ctx))
+    assert past["code"] == "out_of_range"
+
+
+def test_observations_show_raw_content_and_never_clip_silently():
+    from mammoth_os.agent_loop.runner import render_observation
+    content = "\n".join(f'  <div className="row-{n}">"quoted"</div>' for n in range(1, 401))
+    result = {"status": "ok", "path": "a.jsx", "start_line": 1, "end_line": 400, "total_lines": 900, "content": content}
+    text = render_observation(result, 4_000)
+    assert '<div className="row-1">"quoted"</div>' in text  # raw, not JSON-escaped
+    assert len(text) <= 4_200
+    meta = json.loads(text.split("\n", 1)[0])
+    shown_end = meta["end_line"]
+    assert shown_end < 400 and meta["next_start_line"] == shown_end + 1
+    assert f'row-{shown_end}"' in text and f'row-{shown_end + 1}"' not in text
+    assert render_observation({"status": "ok", "matches": ["x" * 5000]}, 1_000).endswith("read a smaller range]")
+
+
+def test_latest_observation_gets_the_large_budget(tmp_path, repo):
+    _big_file(repo)
+    llm = ScriptedLLM([
+        {"tool": "repo_read_file", "args": {"path": "src/Big.jsx", "start_line": 2601}},
+        {"final": "done"},
+    ])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Inspect the end of Big.jsx")
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="tenant")
+    _collect(runner.start(run, ctx))
+    second_prompt = llm.prompts[1]
+    assert "line2601 " in second_prompt and "line2700 " in second_prompt
+
+
+def test_edit_mismatch_points_to_likely_lines(tmp_path, repo):
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform", is_admin=True)
+    change = {"path": "src/app.py", "edits": [{"old": "def hello():\n  return 'hi'", "new": "x"}]}
+    result = asyncio.run(registry.invoke("repo_propose_patch", {"title": "Bad edit hint", "files": [change]}, ctx))
+    assert result["code"] == "edit_mismatch"
+    assert "line(s) 1" in result["error"]

@@ -21,8 +21,9 @@ SECRET_PATTERNS = (
     ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "id_rsa*", "id_ed25519*",
     ".npmrc", ".pypirc", ".netrc", "credentials*", "*secret*", "*.keystore",
 )
-MAX_READ_BYTES = 60_000
+MAX_READ_BYTES = 20_000
 MAX_READ_LINES = 400
+MAX_FILE_BYTES = 5_000_000
 MAX_LIST = 300
 
 
@@ -92,22 +93,39 @@ def _read_file(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     target = safe_repo_path(root, rel)
     if target is None or not target.is_file():
         return {"status": "error", "code": "invalid_path", "error": f"File not readable: {rel}"}
-    raw = target.read_bytes()[:MAX_READ_BYTES]
+    if target.stat().st_size > MAX_FILE_BYTES:
+        return {"status": "error", "code": "too_large", "error": f"{rel} is larger than {MAX_FILE_BYTES // 1_000_000} MB; use repo_search instead."}
+    raw = target.read_bytes()
     if b"\x00" in raw[:4096]:
         return {"status": "error", "code": "binary", "error": f"Binary file: {rel}"}
+    # Slice by line over the whole file so every range stays reachable; the
+    # byte budget applies only to the returned excerpt.
     lines = raw.decode("utf-8", errors="replace").splitlines()
+    total = len(lines)
     start = max(1, int(args.get("start_line") or 1))
+    if total and start > total:
+        return {"status": "error", "code": "out_of_range", "error": f"{rel} has {total} lines; start_line {start} is past the end."}
     end = int(args.get("end_line") or (start + MAX_READ_LINES - 1))
-    end = min(end, start + MAX_READ_LINES - 1, len(lines))
-    excerpt = "\n".join(lines[start - 1:end])
-    return {
+    end = max(start, min(end, start + MAX_READ_LINES - 1, total))
+    kept: List[str] = []
+    used = 0
+    for line in lines[start - 1:end]:
+        used += len(line.encode("utf-8")) + 1
+        if kept and used > MAX_READ_BYTES:
+            break
+        kept.append(line)
+    end = start + len(kept) - 1 if kept else start
+    result: Dict[str, Any] = {
         "status": "ok",
         "path": _rel(root, target),
         "start_line": start,
         "end_line": end,
-        "total_lines": len(lines),
-        "content": excerpt,
+        "total_lines": total,
+        "content": "\n".join(kept),
     }
+    if end < total:
+        result["next_start_line"] = end + 1
+    return result
 
 
 def _search(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
@@ -163,6 +181,18 @@ def _unified_diff(root: Path, changes: List[Dict[str, Any]]) -> str:
     return "".join(chunks)
 
 
+def _edit_location_hint(text: str, old: str) -> str:
+    """Point a failed edit at the lines that most likely hold its first line."""
+    anchor = next((ln.strip() for ln in old.splitlines() if ln.strip()), "")
+    if len(anchor) < 4:
+        return ""
+    hits = [no for no, ln in enumerate(text.splitlines(), start=1) if anchor in ln]
+    if not hits:
+        return " Its first line does not appear in the file either."
+    shown = ", ".join(str(n) for n in hits[:5])
+    return f" Its first line appears at line(s) {shown}; read around there (whitespace or later lines likely differ)."
+
+
 def _resolve_changes(root: Path, raw_changes: List[Dict[str, Any]]) -> "tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]":
     """Turn each change into ``{path, content}``.
 
@@ -191,9 +221,10 @@ def _resolve_changes(root: Path, raw_changes: List[Dict[str, Any]]) -> "tuple[Li
             count = text.count(old) if old else 0
             if count != 1:
                 problem = "was not found" if count == 0 else f"matches {count} places; include more surrounding lines"
+                hint = _edit_location_hint(text, old) if count == 0 else ""
                 return [], {
                     "status": "error", "code": "edit_mismatch",
-                    "error": f"{rel} edit {idx}: 'old' text {problem}. Re-read the file and copy the exact lines.",
+                    "error": f"{rel} edit {idx}: 'old' text {problem}. Re-read the file and copy the exact lines.{hint}",
                 }
             text = text.replace(old, new, 1)
         resolved.append({"path": rel, "content": text})
@@ -309,7 +340,10 @@ def register_repo_tools(registry: ToolRegistry) -> None:
     ))
     registry.register(ToolSpec(
         name="repo_read_file",
-        description="Read a file (or a line range) from the connected repository.",
+        description=(
+            "Read a line range from the connected repository (up to 400 lines per call). Reports total_lines; "
+            "when more remains it returns next_start_line. For large files, repo_search first and read around the hit."
+        ),
         input_schema=REPO_READ_SCHEMA, tier=TIER_READ, handler=_read_file,
         trace_kind="read", needs_repo=True,
     ))
