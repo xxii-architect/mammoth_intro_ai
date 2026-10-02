@@ -41,6 +41,18 @@ export async function signInAsGuest() {
   return supabase.auth.signInAnonymously()
 }
 
+// Per-user caches that must not leak to the next account on a shared browser.
+const USER_SCOPED_CACHE_KEYS = [
+  'mammoth_chat_task_cards_v1',
+  'mammoth_artifact_library_v1',
+  'mammoth_agent_threads_v1',
+]
+
 export async function signOut() {
+  try {
+    USER_SCOPED_CACHE_KEYS.forEach((key) => localStorage.removeItem(key))
+  } catch {
+    // Storage may be unavailable (private mode); sign-out must still proceed.
+  }
   return supabase.auth.signOut()
 }

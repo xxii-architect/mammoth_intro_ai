@@ -19,6 +19,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -108,6 +109,8 @@ VENV_PYTHON   = next((path for path in _VENV_PYTHON_CANDIDATES if path.exists())
 VENV_UVICORN  = next((path for path in _VENV_UVICORN_CANDIDATES if path.exists()), _VENV_UVICORN_CANDIDATES[0])
 AGENT_ACTIVITY_FILE = MAMMOTH_DIR / "agent_activity.json"
 TASKS_FILE = MAMMOTH_DIR / "tasks.json"
+GENERATED_DOCS_DIR = Path(os.environ.get("MAMMOTH_GENERATED_DOCS_DIR") or (ROOT / "generated_docs"))
+GENERATED_DOC_OWNERS_FILE = MAMMOTH_DIR / "generated_doc_owners.json"
 NOTIFICATIONS_FILE = MAMMOTH_DIR / "notifications.json"
 ACCOUNT_DELETIONS_FILE = MAMMOTH_DIR / "account_deletion_requests.json"
 ONBOARDING_FILE = MAMMOTH_DIR / "onboarding_state.json"
@@ -1802,6 +1805,7 @@ def _upsert_task(task_id: str, title: str, *, status: str = "queued", agent_id: 
         "agent_id": agent_id,
         "description": description,
         "details": details or {},
+        "owner_id": (existing or {}).get("owner_id") or _current_request_user_id("local"),
         "updated_at": now,
         "created_at": existing.get("created_at") if existing else now,
     }
@@ -1811,6 +1815,47 @@ def _upsert_task(task_id: str, title: str, *, status: str = "queued", agent_id: 
     tasks.append(task)
     _save_tasks(tasks)
     return task
+
+
+def _visible_tasks() -> List[Dict[str, Any]]:
+    """Tasks the current caller may see: all for admins, only their own otherwise.
+    Legacy tasks without an ``owner_id`` stay admin-only."""
+    tasks = [item for item in _load_tasks() if isinstance(item, dict)]
+    if _request_is_admin():
+        return tasks
+    user_id = _current_request_user_id("")
+    if not user_id or user_id == "anonymous":
+        return []
+    return [task for task in tasks if str(task.get("owner_id") or "") == user_id]
+
+
+_DOC_OWNERS_LOCK = threading.Lock()
+
+
+def _record_generated_doc_owner(filename: str) -> None:
+    safe = os.path.basename(str(filename or ""))
+    if not safe.endswith(".docx"):
+        return
+    owner = _current_request_user_id("local")
+    with _DOC_OWNERS_LOCK:
+        owners = _read_json(GENERATED_DOC_OWNERS_FILE, default={})
+        owners = owners if isinstance(owners, dict) else {}
+        owners.setdefault(safe, owner)
+        if len(owners) > 2000:
+            owners = dict(list(owners.items())[-2000:])
+        _write_json(GENERATED_DOC_OWNERS_FILE, owners)
+
+
+def _generated_doc_visible(filename: str) -> bool:
+    """Admins see every generated doc; others only docs recorded as theirs.
+    Docs generated before ownership tracking stay admin-only."""
+    if _request_is_admin():
+        return True
+    user_id = _current_request_user_id("")
+    if not user_id or user_id == "anonymous":
+        return False
+    owners = _read_json(GENERATED_DOC_OWNERS_FILE, default={})
+    return isinstance(owners, dict) and str(owners.get(filename) or "") == user_id
 
 
 def _read_env_vars() -> Dict[str, str]:
@@ -3180,20 +3225,30 @@ async def add_activity(body: Dict[str, Any]):
     )
 
 
+def _require_signed_in_api() -> Optional[JSONResponse]:
+    if _AUTH_REQUIRED and not _request_is_admin() and _current_request_user_id("") in {"", "anonymous"}:
+        return JSONResponse({"status": "error", "error": "Authentication required"}, status_code=401)
+    return None
+
+
 @app.get("/api/tasks")
 async def get_tasks():
-    blocked = _require_admin_api()
+    blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
-    return _load_tasks()
+    return _visible_tasks()
 
 
 @app.post("/api/tasks")
 async def upsert_task(body: Dict[str, Any]):
-    blocked = _require_admin_api()
+    blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
     task_id = str(body.get("id") or "").strip() or f"task-{uuid.uuid4().hex[:8]}"
+    if not _request_is_admin():
+        existing = next((t for t in _load_tasks() if isinstance(t, dict) and t.get("id") == task_id), None)
+        if existing is not None and str(existing.get("owner_id") or "") != _current_request_user_id(""):
+            return JSONResponse({"status": "error", "error": "Task not found."}, status_code=404)
     return _upsert_task(
         task_id,
         str(body.get("title", "Untitled task")),
@@ -3207,7 +3262,7 @@ async def upsert_task(body: Dict[str, Any]):
 @app.get("/api/observability/runs")
 async def get_observability_runs():
     runs: List[Dict[str, Any]] = []
-    tasks = [item for item in _load_tasks() if isinstance(item, dict)]
+    tasks = _visible_tasks()
     for task in tasks[-20:]:
         details = task.get("details") if isinstance(task.get("details"), dict) else {}
         source = str(details.get("source") or "task").strip() or "task"
@@ -3253,9 +3308,11 @@ async def get_observability_runs():
         )
 
     runs.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
-    recent_activities = _load_activity_events()[-40:]
-    approvals = _load_approvals()[-20:]
-    snapshots = _load_snapshots()[-20:]
+    # Activity, approvals, and snapshots are platform-wide operator data.
+    is_admin = _request_is_admin()
+    recent_activities = _load_activity_events()[-40:] if is_admin else []
+    approvals = _load_approvals()[-20:] if is_admin else []
+    snapshots = _load_snapshots()[-20:] if is_admin else []
     return {
         "status": "ok",
         "contract_version": "v2",
@@ -3925,7 +3982,7 @@ def _build_atlas_observability(state: Dict[str, Any], *, eval_history: Optional[
     recent_outcomes = [item for item in ((state.get("learner_model") or {}).get("recent_outcomes") or []) if isinstance(item, dict)]
     fab_events = [item for item in (state.get("fab_usage_events") or []) if isinstance(item, dict)]
     sandbox_runs = _read_jsonl_records(MAMMOTH_DIR / "sandbox_runs.jsonl", limit=40)
-    recent_activity = [item for item in _load_activity_events() if isinstance(item, dict)][-6:]
+    recent_activity = [item for item in _load_activity_events() if isinstance(item, dict)][-6:] if _request_is_admin() else []
 
     attempts = len(recent_outcomes)
     passed_attempts = sum(1 for item in recent_outcomes if bool(item.get("passed")))
@@ -4834,8 +4891,8 @@ async def get_autonomous_runs():
 
 
     plan_tasks = [
-        task for task in _load_tasks()
-        if isinstance(task, dict) and (
+        task for task in _visible_tasks()
+        if (
             str(task.get("id", "")).startswith("plan-")
             or str(task.get("title", "")).strip() == "plan+execute run"
         )
@@ -5341,6 +5398,8 @@ async def run_agent(body: Dict[str, Any]):
                 elif isinstance(payload, dict):
                     payload_for_agent.setdefault("prompt", payload.get("prompt") or payload.get("content") or payload.get("task") or "")
                 if runtime_agent == "coding":
+                    # Server-forced: non-admins never touch host files, host tests, or the shared vector store.
+                    payload_for_agent["host_access"] = _mutation_allowed()
                     payload_for_agent["context"] = dict(payload_for_agent.get("context") or {})
                     payload_for_agent["context"].setdefault("source", prompt_text or payload_for_agent.get("task") or "")
                     payload_for_agent["context"].setdefault("files", payload_for_agent.get("files") or [])
@@ -5349,6 +5408,11 @@ async def run_agent(body: Dict[str, Any]):
                     if coding_intent:
                         payload_for_agent["context"]["coding_intent"] = coding_intent
                         payload_for_agent["intent"] = coding_intent
+                if runtime_agent == "browser":
+                    # Server-forced: non-admins can't reach private/metadata addresses or other users' sessions.
+                    privileged = _mutation_allowed()
+                    payload_for_agent["allow_private_network"] = privileged
+                    payload_for_agent["session_scope"] = "" if privileged else f"user:{_current_request_user_id('anonymous')}"
             if runtime_agent in ("research_agent", "research"):
                 if not isinstance(payload_for_agent, dict):
                     payload_for_agent = {"prompt": str(payload_for_agent or ""), "intent": str(intent or ""), "context": {}}
@@ -5674,6 +5738,8 @@ async def run_agent(body: Dict[str, Any]):
             or _lf_out.get("artifact_type") == "long_form_research"
         )
         if _is_longform:
+            if _lf_out.get("docx_filename"):
+                _record_generated_doc_owner(str(_lf_out.get("docx_filename")))
             _secs = _lf_out.get("sections") or []
             _wc = int(_lf_out.get("word_count") or 0)
             _docx = bool(_lf_out.get("docx_filename"))
@@ -13516,11 +13582,15 @@ def _load_json_file(path) -> list:
 
 @app.get('/api/download-docx/{filename:path}')
 def download_docx_file(filename: str):
-    import os as _dx
-    from fastapi import HTTPException
     from fastapi.responses import FileResponse
-    safe = _dx.path.basename(filename)
-    if not safe.endswith('.docx') or '..' in safe: raise HTTPException(status_code=400)
-    path = _dx.path.join('/opt/mammothos/mammoth_intro_ai/generated_docs', safe)
-    if not _dx.path.isfile(path): raise HTTPException(status_code=404)
-    return FileResponse(path, filename=safe, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+    safe = os.path.basename(str(filename or ""))
+    if not safe.endswith('.docx') or '..' in safe or safe != filename:
+        return JSONResponse({"status": "error", "error": "Invalid document name."}, status_code=400)
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    path = GENERATED_DOCS_DIR / safe
+    # Same 404 for "missing" and "not yours" so filenames can't be probed.
+    if not _generated_doc_visible(safe) or not path.is_file():
+        return JSONResponse({"status": "error", "error": "Document not found."}, status_code=404)
+    return FileResponse(str(path), filename=safe, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')

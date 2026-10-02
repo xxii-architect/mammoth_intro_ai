@@ -24,6 +24,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from mammoth_os import research_quality as rq
@@ -814,8 +815,9 @@ class ResearchAgent(BaseAgent):
                     doc.add_paragraph()
             safe_title = "".join(c for c in title if c.isalnum() or c in " _-")[:60].strip().replace(" ", "_")
             ts = _dt.now().strftime("%Y%m%d_%H%M%S")
-            filename = "mammoth_research_" + safe_title + "_" + ts + ".docx"
-            out_dir = "/opt/mammothos/mammoth_intro_ai/generated_docs"
+            import secrets as _secrets
+            filename = "mammoth_research_" + safe_title + "_" + ts + "_" + _secrets.token_hex(4) + ".docx"
+            out_dir = _os.environ.get("MAMMOTH_GENERATED_DOCS_DIR") or str(Path(__file__).resolve().parents[3] / "generated_docs")
             _os.makedirs(out_dir, exist_ok=True); doc.save(_os.path.join(out_dir, filename))
             logger.info("DOCX saved: %s", filename); return filename
         except ImportError: logger.warning("python-docx not installed"); return None

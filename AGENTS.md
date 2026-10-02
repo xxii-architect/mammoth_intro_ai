@@ -67,6 +67,10 @@ Use this file when wiring or extending MammothOS agents.
 - The platform repo is owner/admin-only. Non-admins only reach repos they connected, by source id or slug, never by filesystem path.
 - Writes to user repos are proposal-only (branch + patch). Never push on a user's behalf.
 - Agents that execute on or write to the backend host belong in `_PRIVILEGED_AGENT_IDS` in `api_server.py`.
+- Shared agents that *can* touch the host get a server-forced sandbox flag in `run_agent`, not a caller-supplied one:
+  - CodingAgent: `host_access`.
+  - BrowserAgent: `allow_private_network` and `session_scope`.
+  Any new agent that reads host files or fetches arbitrary URLs must follow the same pattern and add tests to `tests/test_agent_sandbox.py`.
 - Pass user text to git after `-e` / `--` so it cannot be parsed as an option.
 
 ## Agent loop + tool rules

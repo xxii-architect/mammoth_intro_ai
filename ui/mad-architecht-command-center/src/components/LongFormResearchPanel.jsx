@@ -1,9 +1,11 @@
 import { useRef, useState } from 'react'
 import { BookOpen, Clock, Download, Hash } from 'lucide-react'
+import { authorizedFetch } from '../api/client'
 
 export default function LongFormResearchPanel({ artifact, rawJson }) {
   const [showRaw, setShowRaw] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [downloadError, setDownloadError] = useState('')
   const refs = useRef([])
 
   if (!artifact) return null
@@ -15,14 +17,27 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
 
   const scrollTo = (idx) => refs.current[idx]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 
-  const dlDocx = () => {
-    if (!docx_filename) return
+  // A plain <a href> can't carry the bearer token, so fetch with auth and save the blob.
+  const dlDocx = async () => {
+    if (!docx_filename || downloading) return
     setDownloading(true)
-    const a = document.createElement('a')
-    a.href = `/api/download-docx/${docx_filename}`
-    a.download = docx_filename
-    document.body.appendChild(a); a.click(); document.body.removeChild(a)
-    setTimeout(() => setDownloading(false), 2000)
+    setDownloadError('')
+    try {
+      const res = await authorizedFetch(`/download-docx/${encodeURIComponent(docx_filename)}`)
+      if (!res.ok) {
+        throw new Error(res.status === 404 ? 'Document not found. It may have expired from the server.' : res.status === 401 ? 'Sign in again to download.' : `Download failed (${res.status}).`)
+      }
+      const url = URL.createObjectURL(await res.blob())
+      const a = document.createElement('a')
+      a.href = url
+      a.download = docx_filename
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : String(error))
+    } finally {
+      setDownloading(false)
+    }
   }
 
   return (
@@ -48,6 +63,9 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
               <button onClick={dlDocx} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 8, background: 'rgba(34,211,238,0.10)', border: '1px solid rgba(34,211,238,0.25)', color: 'var(--cyan)', fontSize: '0.73rem', fontWeight: 700, cursor: downloading ? 'wait' : 'pointer' }}>
                 <Download size={12} />{downloading ? 'Preparing...' : 'Download DOCX'}
               </button>
+            )}
+            {downloadError && (
+              <span role="alert" style={{ maxWidth: 180, fontSize: '0.66rem', color: 'var(--red, #f87171)' }}>{downloadError}</span>
             )}
             <button onClick={() => setShowRaw(r => !r)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 11px', borderRadius: 8, background: 'none', border: '1px solid var(--border)', color: 'var(--txt-mut)', fontSize: '0.68rem', cursor: 'pointer' }}>
               <Hash size={11} />{showRaw ? 'Document' : 'Raw JSON'}

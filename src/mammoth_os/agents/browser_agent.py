@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextvars
+import ipaddress
 import json
 import re
+import socket
 import uuid
 from datetime import datetime, timezone
 from html.parser import HTMLParser
@@ -16,6 +19,33 @@ from .base_agent import BaseAgent
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# The API server forces these per run for non-admin callers: no private-network
+# fetches (SSRF into the host, metadata service, or LAN) and sessions/replays
+# scoped to the caller so cookies and auth headers never cross users.
+_PRIVATE_NETWORK_ALLOWED: contextvars.ContextVar[bool] = contextvars.ContextVar("browser_private_network", default=True)
+_SESSION_SCOPE: contextvars.ContextVar[str] = contextvars.ContextVar("browser_session_scope", default="")
+
+_MAX_REDIRECTS = 5
+
+
+class BlockedURLError(requests.RequestException):
+    """Raised when a URL targets a non-public address for a sandboxed caller."""
+
+
+def _assert_public_url(url: str) -> None:
+    parsed = urlparse(str(url or "").strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise BlockedURLError(f"Only public http(s) URLs are allowed: {url!r}")
+    try:
+        infos = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise BlockedURLError(f"Could not resolve host {parsed.hostname!r}") from exc
+    for info in infos:
+        address = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        if not address.is_global or address.is_multicast:
+            raise BlockedURLError(f"Blocked non-public address for host {parsed.hostname!r}")
 
 
 class _PageSnapshotParser(HTMLParser):
@@ -203,6 +233,11 @@ class BrowserAgent(BaseAgent):
             "rerun": False,
         }
 
+    @staticmethod
+    def _session_key(session_id: str) -> str:
+        scope = _SESSION_SCOPE.get()
+        return f"{scope}::{session_id}" if scope else session_id
+
     def _session_for(self, state: Dict[str, Any], session_id: str) -> requests.Session:
         session = requests.Session()
         session.headers.update(
@@ -211,7 +246,7 @@ class BrowserAgent(BaseAgent):
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             }
         )
-        session_meta = state.get("sessions", {}).get(session_id) if session_id else None
+        session_meta = state.get("sessions", {}).get(self._session_key(session_id)) if session_id else None
         if isinstance(session_meta, dict):
             stored_headers = session_meta.get("headers")
             if isinstance(stored_headers, dict):
@@ -229,7 +264,7 @@ class BrowserAgent(BaseAgent):
             if key.lower() in {"user-agent", "accept", "content-type", "authorization", "x-requested-with"}:
                 session_headers[str(key)] = str(value)
         state.setdefault("sessions", {})
-        state["sessions"][session_id] = {
+        state["sessions"][self._session_key(session_id)] = {
             "session_id": session_id,
             "last_url": last_url,
             "headers": session_headers,
@@ -247,17 +282,33 @@ class BrowserAgent(BaseAgent):
         json_payload: Any = None,
         headers: Dict[str, str] | None = None,
     ) -> Dict[str, Any]:
-        response = session.request(
-            method=method,
-            url=url,
-            headers=headers or None,
-            data=form or None,
-            json=json_payload,
-            timeout=12,
-            allow_redirects=True,
-        )
+        guarded = not _PRIVATE_NETWORK_ALLOWED.get()
+        current_url = url
+        current_method = method
+        body_form = form or None
+        body_json = json_payload
+        for _ in range(_MAX_REDIRECTS + 1):
+            if guarded:
+                _assert_public_url(current_url)
+            response = session.request(
+                method=current_method,
+                url=current_url,
+                headers=headers or None,
+                data=body_form,
+                json=body_json,
+                timeout=12,
+                allow_redirects=False,
+            )
+            location = response.headers.get("location") if getattr(response, "is_redirect", False) else None
+            if not location:
+                break
+            current_url = urljoin(str(response.url or current_url), location)
+            if response.status_code in {301, 302, 303} and current_method != "HEAD":
+                current_method, body_form, body_json = "GET", None, None
+        else:
+            raise BlockedURLError(f"Too many redirects starting from {url!r}")
         content_type = str(response.headers.get("content-type") or "")
-        final_url = str(response.url or url).strip()
+        final_url = str(response.url or current_url).strip()
         parser = _PageSnapshotParser(final_url)
         body = response.text or ""
         if "html" in content_type.lower() or "xml" in content_type.lower() or body.lstrip().startswith("<"):
@@ -285,6 +336,7 @@ class BrowserAgent(BaseAgent):
         record = {
             "replay_id": replay_id,
             "session_id": session_id,
+            "scope": _SESSION_SCOPE.get(),
             "action": request_action,
             "created_at": _utc_now(),
             "actions": actions,
@@ -295,8 +347,13 @@ class BrowserAgent(BaseAgent):
         return replay_id
 
     def _find_replay(self, state: Dict[str, Any], replay_id: str) -> Dict[str, Any] | None:
+        scope = _SESSION_SCOPE.get()
         for item in reversed(state.get("replays", [])):
-            if isinstance(item, dict) and str(item.get("replay_id") or "").strip() == replay_id:
+            if (
+                isinstance(item, dict)
+                and str(item.get("replay_id") or "").strip() == replay_id
+                and str(item.get("scope") or "") == scope
+            ):
                 return item
         return None
 
@@ -427,7 +484,7 @@ class BrowserAgent(BaseAgent):
         max_links: int,
     ) -> Dict[str, Any]:
         session = self._session_for(state, session_id)
-        session_meta = state.get("sessions", {}).get(session_id) if isinstance(state.get("sessions"), dict) else {}
+        session_meta = state.get("sessions", {}).get(self._session_key(session_id)) if isinstance(state.get("sessions"), dict) else {}
         last_url = str((session_meta or {}).get("last_url") or "").strip()
         action_results: List[Dict[str, Any]] = []
 
@@ -489,6 +546,23 @@ class BrowserAgent(BaseAgent):
         return response
 
     def run(self, prompt: Any) -> Dict[str, Any]:
+        """Entry point. ``allow_private_network`` / ``session_scope`` (dict payloads)
+        are forced by the API server for non-admin callers."""
+        allow_private = True
+        scope = ""
+        if isinstance(prompt, dict):
+            if "allow_private_network" in prompt:
+                allow_private = prompt.get("allow_private_network") is True
+            scope = str(prompt.get("session_scope") or "").strip()
+        net_token = _PRIVATE_NETWORK_ALLOWED.set(allow_private)
+        scope_token = _SESSION_SCOPE.set(scope)
+        try:
+            return self._run(prompt)
+        finally:
+            _SESSION_SCOPE.reset(scope_token)
+            _PRIVATE_NETWORK_ALLOWED.reset(net_token)
+
+    def _run(self, prompt: Any) -> Dict[str, Any]:
         request = self._normalize_request(prompt)
         state = self._load_state()
         session_id = request.get("session_id") or f"browser-{uuid.uuid4().hex[:10]}"
@@ -672,13 +746,27 @@ class BrowserAgent(BaseAgent):
         request = self._normalize_request({"action": "snapshot", "url": url})
         state = self._load_state()
         session_id = f"audit-{uuid.uuid4().hex[:8]}"
-        if self._mcp_available():
+        guarded = not _PRIVATE_NETWORK_ALLOWED.get()
+        if guarded:
+            # External browsers follow redirects we can't vet, so sandboxed callers
+            # get the in-process (per-hop validated) snapshot only.
+            try:
+                _assert_public_url(url)
+            except BlockedURLError as exc:
+                return {"status": "error", "agent": self.name, "mode": "site_audit", "url": url, "message": str(exc), "summary": str(exc)}
+        if self._mcp_available() and not guarded:
             browser_result = self._run_playwright_mcp(request)
         else:
-            response = self._run_actions(state=state, session_id=session_id, actions=[{"action": "snapshot", "url": url}], max_links=20)
+            try:
+                response = self._run_actions(state=state, session_id=session_id, actions=[{"action": "snapshot", "url": url}], max_links=20)
+            except requests.RequestException as exc:
+                return {"status": "error", "agent": self.name, "mode": "site_audit", "url": url, "message": f"Unable to complete browser action: {exc}"}
             self._save_state(state)
             browser_result = response
-        lighthouse_result = self._run_lighthouse(url)
+        if guarded:
+            lighthouse_result = {"status": "skipped", "message": "Lighthouse audits are owner-only on the shared host."}
+        else:
+            lighthouse_result = self._run_lighthouse(url)
         combined_summary = str(browser_result.get("summary") or "")
         if lighthouse_result.get("status") == "ok":
             combined_summary += " | " + str(lighthouse_result.get("summary") or "")

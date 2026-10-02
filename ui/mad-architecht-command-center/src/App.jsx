@@ -223,14 +223,15 @@ const PAGE_ACCESS_RULES = {
     ],
   },
   agent: {
-    kind: 'owner',
-    badge: 'Owner only',
+    kind: 'tier',
+    minimumTier: 'pro',
+    badge: 'Paid preview',
     title: 'Agent Workbench',
-    message: 'The Agent workbench can execute mutation-capable workflows. It is reserved for the owner account while tester access is being hardened.',
+    message: 'Talk directly to individual agents, run multi-agent plans, and inspect every step. Agents run sandboxed to your own account and connected repos.',
     highlights: [
-      'Coordinated planner, reasoner, and coding flows',
-      'Mutation-capable execution lanes',
-      'Reserved to prevent unintended platform changes during coworker testing',
+      'Prompt specific agents and follow each run step by step',
+      'Planner, research, and coding lanes with full output traces',
+      'Sandboxed: no host access, private-network fetches, or shared run data',
     ],
   },
   chat: {

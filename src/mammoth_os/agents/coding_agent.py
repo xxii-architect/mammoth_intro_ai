@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import contextvars
 import json
 import logging
 import os
@@ -12,6 +13,13 @@ from mammoth_os.llm_client import get_llm_client, extract_code_from_text  # type
 
 
 logger = logging.getLogger("mammoth.agents.coding")
+
+# Host access = reading files/codebases on the backend host, executing its tests,
+# and searching the shared (non-tenant) vector store. The API server forces this
+# off for non-admin callers so they only ever work on code they supply.
+_HOST_ACCESS: contextvars.ContextVar[bool] = contextvars.ContextVar("coding_agent_host_access", default=True)
+
+_SANDBOXED_HOST_OPS = {"analyze_codebase", "run_tests"}
 
 
 class CodingAgent(BaseAgent):
@@ -47,6 +55,39 @@ class CodingAgent(BaseAgent):
 
     def run(self, prompt: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
         """
+        Entry point. ``host_access`` (dict payloads only) defaults to True; the API
+        server forces it to False for non-admin callers, which confines the agent
+        to caller-supplied code.
+        """
+        host_access = True
+        if isinstance(prompt, dict) and "host_access" in prompt:
+            host_access = prompt.get("host_access") is True
+        token = _HOST_ACCESS.set(host_access)
+        try:
+            return self._route(prompt)
+        finally:
+            _HOST_ACCESS.reset(token)
+
+    @staticmethod
+    def _host_access_allowed() -> bool:
+        return _HOST_ACCESS.get()
+
+    def _sandboxed_host_op(self, task_kind: str, target: str, prompt_text: str, files: Any) -> Dict[str, Any]:
+        return {
+            "status": "error",
+            "code": "owner_required",
+            "agent": "CodingAgent",
+            "mode": "coding",
+            "task_kind": task_kind,
+            "target": target,
+            "prompt": prompt_text,
+            "files": files,
+            "error": "Analyzing or testing code on the MammothOS host is owner-only.",
+            "summary": "Paste the code you want analyzed or tested and CodingAgent will work on that instead.",
+        }
+
+    def _route(self, prompt: Union[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """
         Hybrid natural-language router for CodingAgent.
         - Fast keyword routing for obvious cases
         - LLM reasoning for ambiguous cases
@@ -66,6 +107,10 @@ class CodingAgent(BaseAgent):
             explicit_intent = ""
 
         prompt_lower = prompt_text.lower()
+        sandboxed = not self._host_access_allowed()
+
+        if sandboxed and explicit_intent in _SANDBOXED_HOST_OPS:
+            return self._sandboxed_host_op(explicit_intent, target, prompt_text, files)
 
         if explicit_intent in {"generate_code", "patch_existing"}:
             context = dict(context or {})
@@ -122,11 +167,11 @@ class CodingAgent(BaseAgent):
             result = self._run_async(self.refactor(target, strategy))
             return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
-        if "analyze" in prompt_lower or "analysis" in prompt_lower:
+        if not sandboxed and ("analyze" in prompt_lower or "analysis" in prompt_lower):
             result = self._run_async(self.analyze_codebase("."))
             return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
-        if "test" in prompt_lower:
+        if not sandboxed and "test" in prompt_lower:
             result = self._run_async(self.run_tests(project_path="."))
             return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
@@ -176,11 +221,11 @@ class CodingAgent(BaseAgent):
             result = self._run_async(self.refactor(target or "unknown", "default"))
             return self._standardize_result(result, task_kind="refactor", target=target, prompt=prompt_text, files=files)
 
-        if "analyze" in decision:
+        if not sandboxed and "analyze" in decision:
             result = self._run_async(self.analyze_codebase("."))
             return self._standardize_result(result, task_kind="analysis", target=target, prompt=prompt_text, files=files)
 
-        if "test" in decision:
+        if not sandboxed and "test" in decision:
             result = self._run_async(self.run_tests("."))
             return self._standardize_result(result, task_kind="test", target=target, prompt=prompt_text, files=files)
 
@@ -327,7 +372,8 @@ class CodingAgent(BaseAgent):
         else:
             try:
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, coro)
+                    ctx = contextvars.copy_context()
+                    future = executor.submit(ctx.run, asyncio.run, coro)
                     return future.result()
             except Exception as e:
                 logger.error(f"Error running async task in thread pool: {e}")
@@ -349,6 +395,8 @@ class CodingAgent(BaseAgent):
 
         Uses src/mammoth_os/analysis/code_inspector.py for best-effort metrics.
         """
+        if not self._host_access_allowed():
+            return {"status": "error", "code": "owner_required", "error": "Host codebase analysis is owner-only."}
         try:
             from mammoth_os.analysis.code_inspector import analyze_codebase as inspector
             metrics = inspector(codebase_path)
@@ -372,6 +420,8 @@ class CodingAgent(BaseAgent):
         Returns a list of dicts with keys: id, text, metadata, score
         """
         snippets = []
+        if not self._host_access_allowed():
+            return snippets
         try:
             # Build embedding for the query
             client = get_llm_client()
@@ -468,7 +518,7 @@ class CodingAgent(BaseAgent):
             original_text = ""
             if target_path:
                 try:
-                    if os.path.exists(target_path):
+                    if self._host_path_exists(target_path):
                         original_text = await self._read_file(target_path)
                     else:
                         for item in context_files:
@@ -503,7 +553,7 @@ class CodingAgent(BaseAgent):
                 "confidence": confidence,
                 "warnings": (
                     ([] if code_text else ["LLM returned no code block"])
-                    + ([f"Target file not found: {target_path}"] if target_path and not os.path.exists(target_path) else [])
+                    + ([f"Target file not found: {target_path}"] if target_path and not original_text and not self._host_path_exists(target_path) else [])
                 ),
                 "task_plan": task_plan,
                 "quality_checks": task_plan.get("validation", []),
@@ -594,8 +644,7 @@ class CodingAgent(BaseAgent):
         try:
             # read file if it exists
             src = None
-            import os
-            if os.path.exists(target):
+            if self._host_path_exists(target):
                 try:
                     with open(target, 'r', encoding='utf-8') as fh:
                         src = fh.read()
@@ -646,6 +695,8 @@ class CodingAgent(BaseAgent):
         import os
         import sys
 
+        if not self._host_access_allowed():
+            return {"passed": False, "error": "Running tests on the MammothOS host is owner-only."}
         if not os.path.exists(project_path):
             return {"passed": False, "error": "project_path not found"}
 
@@ -805,7 +856,7 @@ sys.exit(failed)
 
         if not source_text and normalized_target:
             try:
-                if os.path.exists(normalized_target):
+                if self._host_path_exists(normalized_target):
                     with open(normalized_target, "r", encoding="utf-8") as fh:
                         source_text = fh.read()
                 else:
@@ -871,12 +922,21 @@ sys.exit(failed)
     # INTERNAL HELPERS
     # ---------------------------------------------------------
 
+    def _host_path_exists(self, path: str) -> bool:
+        """True only when host access is allowed and ``path`` exists on disk."""
+        if not path or not self._host_access_allowed():
+            return False
+        try:
+            return os.path.exists(path)
+        except (OSError, ValueError):
+            return False
+
     async def _get_files(self, path: str) -> list[str]:
         """Recursively collect all Python file paths under the given directory."""
         import glob
         import os
 
-        if not os.path.exists(path):
+        if not self._host_path_exists(path):
             self.log("WARNING", f"_get_files: path not found: {path}")
             return []
 
@@ -890,6 +950,8 @@ sys.exit(failed)
 
     async def _read_file(self, path: str) -> str:
         """Read a file from disk and return its contents as a string."""
+        if not self._host_access_allowed():
+            return ""
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return f.read()

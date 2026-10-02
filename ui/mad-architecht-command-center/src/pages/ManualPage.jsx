@@ -135,6 +135,10 @@ const repoContextRules = [
     body: 'Only the owner/admin sees the locked "MammothOS platform" option. The server enforces this; filesystem paths and forks of the platform repo are rejected for everyone else.',
   },
   {
+    title: 'Your runs, tasks, and artifacts are private',
+    body: 'The Agent Workbench (Pro), Task Inbox, and Artifacts only show items you created. Shared agents run sandboxed for your account: they cannot read the host machine, run host tests, or fetch private-network addresses. The Terminal stays owner-only.',
+  },
+  {
     title: 'Queries determine what code gets surfaced',
     body: 'Generic chat like “do you see the code?” may return empty snippets. Ask for a file, symbol, route, or behavior you want inspected.',
   },

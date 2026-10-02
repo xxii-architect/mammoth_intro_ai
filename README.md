@@ -43,6 +43,10 @@ Enforced server-side in `src/mammoth_os/repo_access.py` (not by UI hiding):
 - **Writes are proposal-only.** `POST /api/mammoth/repo-sources/{id}/propose` writes on a fresh local branch and returns a git patch. Nothing is pushed. Private repos need the MammothOS GitHub App (not yet registered).
 - **Guide uses published docs.** `/guide` answers from `docs/public/` + product guides, not live source.
 - **Host-executing agents are admin-only** (shell, filesystem, deploy, build, executor, ui_builder, database, custodial), including the `/agent/*` HTTP routes.
+- **Shared agents are sandboxed for non-admins.** The server forces these flags on every run, overriding anything the caller sends:
+  - CodingAgent (`host_access=false`): no host file reads, no codebase scans, no host test runs, no shared vector-store lookups. It only works on code the caller pastes.
+  - BrowserAgent (`allow_private_network=false`): only public http(s) addresses, checked on every redirect hop. No loopback, LAN, or cloud-metadata addresses, and no Lighthouse/Playwright subprocesses.
+  - BrowserAgent (`session_scope`): browser sessions and replays are scoped per user.
 - Production must run with `MAMMOTH_REQUIRE_AUTH=1`; with auth off every request is treated as the local owner.
 
 | Endpoint | Purpose |
@@ -276,6 +280,8 @@ Surface access:
 | Surface | Who |
 | --- | --- |
 | Agent runs, tools, repo sources | Any signed-in user (own data only) |
+| Agent Workbench page | Pro / Enterprise / developer access; shared agents run sandboxed for non-admins (no host files, tests, private-network fetches, or other users' sessions) |
+| Task Inbox, run feeds, artifacts | Any signed-in user, own items only. Platform activity, approvals, snapshots, and pre-scoping tasks without an owner stay owner-only |
 | Notes, build log | Pro / Enterprise / developer access, enforced server-side (`tier_required` 403 otherwise); entries are per user, and pre-scoping build-log entries stay owner-only |
 | Terminal | Owner/admin only |
 
