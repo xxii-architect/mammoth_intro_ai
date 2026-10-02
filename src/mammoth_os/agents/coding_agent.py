@@ -114,7 +114,7 @@ class CodingAgent(BaseAgent):
                     "target": target,
                     "prompt": prompt_text,
                     "files": files,
-                    "summary": "Refactor requires a real file path or source snippet; stand-in placeholders are rejected.",
+                    "summary": "Refactor requires a real target file path or source snippet; stand-in placeholders are rejected.",
                     "warnings": ["Missing real source context for refactor."],
                 }
             target = target if target and target.lower() != "unknown" else "unknown"
@@ -170,7 +170,7 @@ class CodingAgent(BaseAgent):
                     "target": target,
                     "prompt": prompt_text,
                     "files": files,
-                    "summary": "Refactor requires a real file path or source snippet; stand-in placeholders are rejected.",
+                    "summary": "Refactor requires a real target file path or source snippet; stand-in placeholders are rejected.",
                     "warnings": ["Missing real source context for refactor."],
                 }
             result = self._run_async(self.refactor(target or "unknown", "default"))
