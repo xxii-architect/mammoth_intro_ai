@@ -2829,6 +2829,13 @@ def _port_open(port: int) -> bool:
         return False
 
 
+def _dev_server_port() -> int:
+    try:
+        return int(str(os.environ.get("MAMMOTH_DEV_SERVER_PORT") or "5173").strip())
+    except ValueError:
+        return 5173
+
+
 @app.get("/api/health")
 async def get_health():
     blocked = _require_admin_api()
@@ -2861,18 +2868,20 @@ async def get_health():
             "status": "green" if _port_open(8000) else "red",
             "up":     _port_open(8000),
         },
-        {
-            "label":  "React Dev Server (5173)",
-            "detail": ":5173 Vite",
-            "status": "green" if _port_open(5173) else "red",
-            "up":     _port_open(5173),
-        },
-        {
-            "label":  "React Dev Server (5174)",
-            "detail": ":5174 Vite",
-            "status": "green" if _port_open(5174) else "yellow",
-            "up":     _port_open(5174),
-        },
+    ]
+    # The Vite dev server only exists in local development. Production serves the
+    # built frontend, so the check is skipped there, and locally a stopped dev
+    # server is a warning rather than a release blocker.
+    if not _AUTH_REQUIRED:
+        dev_port = _dev_server_port()
+        dev_up = _port_open(dev_port)
+        services.append({
+            "label":  f"React Dev Server ({dev_port})",
+            "detail": f":{dev_port} Vite",
+            "status": "green" if dev_up else "yellow",
+            "up":     dev_up,
+        })
+    services += [
         {
             "label":  ".env Config",
             "detail": str(env_file),

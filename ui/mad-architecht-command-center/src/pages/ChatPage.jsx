@@ -559,6 +559,7 @@ export default function ChatPage({ setPage }) {
   const [agentMode, setAgentMode] = useState(() => safeStorageGet('mammoth_mind_agent_mode', '1') !== '0')
   const activeRunIdRef = useRef(null)
   const threadSidebarRef = useRef(null)
+  const templatesRef = useRef(null)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
   const toastTimerRef = useRef(null)
@@ -1204,6 +1205,22 @@ export default function ChatPage({ setPage }) {
     send(action.message, action.agentId)
   }
 
+  useEffect(() => {
+    if (!quickActionsOpen) return undefined
+    const onPointerDown = (event) => {
+      if (templatesRef.current && !templatesRef.current.contains(event.target)) setQuickActionsOpen(false)
+    }
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setQuickActionsOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [quickActionsOpen])
+
   return (
     <div className="page-enter" style={{ padding: 24, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
       {successToast && (
@@ -1268,6 +1285,54 @@ export default function ChatPage({ setPage }) {
               <div style={{ fontSize: '0.92rem', color: selectedAgent.accent, fontWeight: 700 }}>{selectedAgent.label}</div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <div ref={templatesRef} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setQuickActionsOpen((prev) => !prev)}
+                  aria-expanded={quickActionsOpen}
+                  aria-haspopup="dialog"
+                  title="Prompt templates and slash commands"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 999, border: `1px solid ${quickActionsOpen ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`, background: quickActionsOpen ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.03)', color: quickActionsOpen ? 'var(--txt-pri)' : 'var(--txt-sec)', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer' }}
+                >
+                  <Sparkles size={13} /> Templates
+                  <ChevronDown size={13} style={{ transition: 'transform 160ms ease', transform: quickActionsOpen ? 'rotate(180deg)' : 'none' }} />
+                </button>
+                {quickActionsOpen && (
+                  <div
+                    role="dialog"
+                    aria-label="Prompt templates"
+                    style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40, width: 'min(560px, 86vw)', maxHeight: '60vh', overflowY: 'auto', padding: 14, borderRadius: 14, border: '1px solid var(--border)', background: 'rgba(10,14,22,0.97)', boxShadow: '0 18px 40px rgba(0,0,0,0.45)', backdropFilter: 'blur(12px)', display: 'grid', gap: 10 }}
+                  >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {SLASH_ACTIONS.map((action) => (
+                        <button
+                          key={action}
+                          onClick={() => { setInput(action); setQuickActionsOpen(false) }}
+                          style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}
+                        >
+                          {action}
+                        </button>
+                      ))}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10 }}>
+                      {QUICK_ACTIONS.map((card) => (
+                        <button
+                          key={card.title}
+                          onClick={() => { setQuickActionsOpen(false); dispatchQuickAction(card) }}
+                          disabled={busy}
+                          style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: busy ? 'not-allowed' : 'pointer' }}
+                        >
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{card.title}</div>
+                            <Workflow size={14} color="var(--txt-mut)" />
+                          </div>
+                          <div style={{ fontSize: '0.74rem', lineHeight: 1.5 }}>{card.message}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={toggleAgentMode}
@@ -1315,49 +1380,6 @@ export default function ChatPage({ setPage }) {
                 </select>
               )}
             </div>
-          </div>
-
-          <div style={{ padding: isShortViewport ? 14 : 16, borderBottom: '1px solid var(--border)', display: 'grid', gap: isShortViewport ? 8 : 10 }}>
-            <button
-              type="button"
-              onClick={() => setQuickActionsOpen((prev) => !prev)}
-              style={{ justifySelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer' }}
-            >
-              {quickActionsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-              {quickActionsOpen ? 'Hide templates' : 'Show templates'}
-            </button>
-
-            {quickActionsOpen && (
-              <>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {SLASH_ACTIONS.map((action) => (
-                    <button
-                      key={action}
-                      onClick={() => setInput(action)}
-                      style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}
-                    >
-                      {action}
-                    </button>
-                  ))}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10 }}>
-                  {QUICK_ACTIONS.map((card) => (
-                    <button
-                      key={card.title}
-                      onClick={() => dispatchQuickAction(card)}
-                      disabled={busy}
-                      style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: 'pointer' }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{card.title}</div>
-                        <Workflow size={14} color="var(--txt-mut)" />
-                      </div>
-                      <div style={{ fontSize: '0.74rem', lineHeight: 1.5 }}>{card.message}</div>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>

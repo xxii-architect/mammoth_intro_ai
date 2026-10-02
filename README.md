@@ -523,6 +523,8 @@ npm run dev
 
 UI: http://localhost:5173
 
+System health only checks the Vite dev server when auth is off (local dev), using `MAMMOTH_DEV_SERVER_PORT` (default 5173). A stopped dev server shows as a warning and never blocks the runtime health gate; production does not report it at all.
+
 ## Audit export
 
 - Backend audit API: `GET /api/audit`

@@ -154,10 +154,42 @@ def parse_decision(text: str) -> Optional[Dict[str, Any]]:
 
 _DECISION_KEY_RE = re.compile(r'"(?:tool|final|reasoning|args|plan)"\s*:')
 
+# DeepSeek models sometimes answer with their native tool-call markup instead of
+# the requested JSON, e.g. <｜DSML｜invoke name="repo_read_file"><｜DSML｜parameter
+# name="path" string="true">a.py</｜DSML｜parameter></｜DSML｜invoke>.
+_DSML = r"[｜|]+\s*DSML\s*[｜|]+\s*"
+_DSML_MARKER_RE = re.compile(r"<\s*/?\s*" + _DSML, re.I)
+_DSML_INVOKE_RE = re.compile(
+    r"<\s*" + _DSML + r'invoke\s+name\s*=\s*"([^"]+)"\s*>(.*?)<\s*/\s*' + _DSML + r"invoke\s*>", re.I | re.S,
+)
+_DSML_PARAM_RE = re.compile(
+    r"<\s*" + _DSML + r'parameter\s+name\s*=\s*"([^"]+)"([^>]*)>(.*?)<\s*/\s*' + _DSML + r"parameter\s*>", re.I | re.S,
+)
+
+
+def parse_dsml_tool_call(text: str) -> Optional[Dict[str, Any]]:
+    """Convert the first DeepSeek-native tool invocation into a decision dict."""
+    match = _DSML_INVOKE_RE.search(str(text or ""))
+    if not match:
+        return None
+    args: Dict[str, Any] = {}
+    for name, attrs, raw in _DSML_PARAM_RE.findall(match.group(2)):
+        value: Any = raw.strip()
+        if re.search(r'string\s*=\s*"false"', attrs, re.I):
+            try:
+                value = json.loads(value)
+            except ValueError:
+                pass
+        args[name.strip()] = value
+    reasoning = _DSML_MARKER_RE.split(str(text))[0].strip()
+    return {"reasoning": reasoning[:400], "tool": match.group(1).strip(), "args": args, "final": None}
+
 
 def looks_like_decision(text: str) -> bool:
     """True for text that was meant to be a decision object but did not parse (e.g. cut off)."""
     cleaned = _FENCE_RE.sub("", str(text or "").strip())
+    if _DSML_MARKER_RE.search(cleaned):
+        return True
     return cleaned.startswith("{") or bool(_DECISION_KEY_RE.search(cleaned[:400]))
 
 
@@ -355,6 +387,8 @@ class AgentRunner:
         if text.startswith("[LOCAL_ADAPTER]"):
             return {"final": OFFLINE_MESSAGE, "_meta": {**meta, "offline": True}}
         decision = parse_decision(text)
+        if decision is None:
+            decision = parse_dsml_tool_call(text)
         if decision is None:
             if looks_like_decision(text):
                 return {"_invalid": True, "_meta": meta}

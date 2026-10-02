@@ -438,3 +438,42 @@ def test_final_answer_hides_truncated_json(tmp_path):
     run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="x")
     result = asyncio.run(runner._final_answer(run))
     assert "{" not in result["final"] and "cut off" in result["final"]
+
+
+DSML_CALL = (
+    'Let me look.\n<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="repo_search">\n'
+    '<｜｜DSML｜｜ parameter name="query" string="true">hello</｜｜DSML｜｜ parameter>\n'
+    '<｜｜DSML｜｜ parameter name="max_results" string="false">5</｜｜DSML｜｜ parameter>\n'
+    '</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>'
+)
+
+
+def test_parse_dsml_tool_call():
+    from mammoth_os.agent_loop.runner import parse_dsml_tool_call
+    decision = parse_dsml_tool_call(DSML_CALL)
+    assert decision["tool"] == "repo_search"
+    assert decision["args"] == {"query": "hello", "max_results": 5}
+    assert decision["reasoning"] == "Let me look."
+    single_bar = '<｜DSML｜invoke name="repo_read_file"><｜DSML｜parameter name="path" string="true">src/app.py</｜DSML｜parameter></｜DSML｜invoke>'
+    assert parse_dsml_tool_call(single_bar)["args"] == {"path": "src/app.py"}
+    assert parse_dsml_tool_call("plain text") is None
+
+
+def test_dsml_tool_calls_execute_instead_of_leaking(tmp_path, repo):
+    llm = ScriptedLLM([DSML_CALL, {"reasoning": "Found it.", "final": "hello() is in src/app.py."}])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Where is hello?")
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")
+    events = _collect(runner.start(run, ctx))
+    call = next(e for e in events if e.type == "tool.call")
+    assert call.data["tool"] == "repo_search" and call.data["args"]["max_results"] == 5
+    assert events[-1].data["reply"] == "hello() is in src/app.py."
+    assert all("DSML" not in str(e.data.get("text") or "") for e in events)
+
+
+def test_unparseable_dsml_is_never_shown(tmp_path):
+    llm = ScriptedLLM(['<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="repo_search">'] * 3)
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="x")
+    events = _collect(runner.start(run, ToolContext(user_id="u1")))
+    assert "DSML" not in events[-1].data["reply"]

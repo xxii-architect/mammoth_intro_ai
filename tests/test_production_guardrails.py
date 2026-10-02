@@ -25,8 +25,27 @@ def test_health_exposes_runtime_snapshot(monkeypatch):
 
     assert health["runtime"]["state"] == "ready"
     assert health["summary"]["healthy_services"] >= 2
-    assert "React Dev Server (5174)" in health["summary"]["yellow_services"]
+    labels = [service["label"] for service in health["services"]]
+    assert not any("5174" in label for label in labels)
     assert health["health_gate"]["status"] in {"ready", "blocked"}
+
+
+def test_health_dev_server_is_local_only_and_never_blocks(monkeypatch):
+    monkeypatch.setattr(api_server, "_read_env_vars", lambda: {})
+    monkeypatch.setattr(api_server, "_models_snapshot", lambda: {"ollama_running": False})
+    monkeypatch.setattr(api_server, "_port_open", lambda port: port == 8000)
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+    monkeypatch.delenv("MAMMOTH_DEV_SERVER_PORT", raising=False)
+
+    local = asyncio.run(api_server.get_health())
+    dev = next(s for s in local["services"] if s["label"].startswith("React Dev Server"))
+    assert dev["label"] == "React Dev Server (5173)" and dev["status"] == "yellow"
+    assert not any("React Dev Server" in b for b in local["health_gate"]["blockers"])
+
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", True)
+    monkeypatch.setattr(api_server, "_require_admin_api", lambda: None)
+    production = asyncio.run(api_server.get_health())
+    assert not any(s["label"].startswith("React Dev Server") for s in production["services"])
 
 
 def test_release_readiness_scorecard_uses_runtime_modules_and_profile(monkeypatch, tmp_path):
