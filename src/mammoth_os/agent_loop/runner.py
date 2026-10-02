@@ -200,7 +200,24 @@ Rules:
 - Only call tools from the catalog. Arguments must match the tool's input_schema.
 - Changes are proposals: use repo_propose_patch with full new file contents. Never claim you applied or pushed anything.
 - If no repository is connected, do not pretend to know its code.
+- If a repository IS connected, never say you lack repo access or context. When the request is about the code,
+  inspect it with the repo tools before answering.
 """
+
+
+def describe_repo(ctx: Optional[ToolContext]) -> str:
+    """One-line, model-facing description of the run's repository context."""
+    if ctx is None or not ctx.has_repo:
+        return "Repository context: none. No repository is connected for this run."
+    if ctx.repo_scope == "platform":
+        label = "MammothOS platform repository (owner only)"
+    else:
+        label = ctx.repo_slug or "user-connected repository"
+    return (
+        f"Repository context: connected to {label} (scope={ctx.repo_scope}). "
+        "You can list, read, and search its files with the repo tools, and propose changes as patches "
+        "(proposal-only; nothing is applied or pushed)."
+    )
 
 
 class AgentRunner:
@@ -236,10 +253,7 @@ class AgentRunner:
             {"name": t["name"], "description": t["description"], "tier": t["tier"], "input_schema": t["input_schema"]}
             for t in self.registry.catalog(ctx)
         ]
-        repo_line = (
-            f"Connected repository: {ctx.repo_slug or ctx.repo_scope} (scope={ctx.repo_scope})."
-            if ctx.has_repo else "No repository is connected for this run."
-        )
+        repo_line = describe_repo(ctx)
         history = str(run.request.get("history_text") or "").strip()
         parts = [
             SYSTEM_PROMPT,
@@ -272,7 +286,7 @@ class AgentRunner:
             lines.append(f"[{idx}] {call}\n    → {result}")
         return "\n".join(lines)
 
-    def _final_prompt(self, run: AgentRun) -> str:
+    def _final_prompt(self, run: AgentRun, ctx: Optional[ToolContext] = None) -> str:
         return "\n\n".join(p for p in [
             "You are Mammoth Mind, replying as a thoughtful and approachable collaborator. Use only the observations below "
             "for claims about tools or repository contents; if something could not be determined, say so plainly. "
@@ -281,15 +295,16 @@ class AgentRunner:
             "helpful structure (headings, steps, bullets, or code only where useful). Lead with the answer, then include "
             "necessary explanation, caveats, and next steps. Avoid filler, canned openings, and repetitive conclusions. "
             "Do not reveal private chain-of-thought; share concise rationale and evidence instead. Do not output JSON.",
+            describe_repo(ctx) if ctx is not None else "",
             f"User request:\n{run.message}",
             ("Recent conversation:\n" + str(run.request.get("history_text") or "").strip()[:4000])
             if str(run.request.get("history_text") or "").strip() else "",
             self._observations_text(run),
         ] if p)
 
-    async def _final_answer(self, run: AgentRun) -> Dict[str, Any]:
+    async def _final_answer(self, run: AgentRun, ctx: Optional[ToolContext] = None) -> Dict[str, Any]:
         client = self.llm_factory()
-        text = str(await client.generate(self._final_prompt(run), temperature=0.2) or "").strip()
+        text = str(await client.generate(self._final_prompt(run, ctx), temperature=0.2) or "").strip()
         meta = _client_meta(client)
         run.provider, run.model = meta["provider"], meta["model"]
         if text.startswith("[LOCAL_ADAPTER]"):
@@ -381,7 +396,7 @@ class AgentRunner:
                     return
                 run.steps += 1
                 if run.steps > self.max_steps:
-                    decision = await self._final_answer(run)
+                    decision = await self._final_answer(run, ctx)
                 else:
                     decision = await self._decide(run, ctx)
                 meta = decision.pop("_meta", {})
@@ -397,7 +412,7 @@ class AgentRunner:
                 args = decision.get("args") if isinstance(decision.get("args"), dict) else {}
                 if tool_name and self._is_repeat(run, str(tool_name), args):
                     # Models sometimes loop on an identical call; answer from what we have.
-                    decision = await self._final_answer(run)
+                    decision = await self._final_answer(run, ctx)
                     meta = decision.pop("_meta", meta)
                     tool_name = None
                 if tool_name and not decision.get("final"):
@@ -423,7 +438,7 @@ class AgentRunner:
 
                 final = str(decision.get("final") or "").strip()
                 if not final:
-                    decision = await self._final_answer(run)
+                    decision = await self._final_answer(run, ctx)
                     meta = decision.pop("_meta", meta)
                     final = str(decision.get("final") or "").strip()
                 run.reply = final

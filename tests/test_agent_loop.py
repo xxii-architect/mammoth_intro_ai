@@ -126,6 +126,34 @@ def test_final_prompt_adapts_depth_and_includes_recent_conversation(tmp_path):
     assert "Do not output JSON" in prompt
 
 
+def test_prompts_state_connected_repo_context(tmp_path, repo):
+    llm = ScriptedLLM([])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="What does this repo do?")
+
+    platform_ctx = ToolContext(user_id="u1", is_admin=True, repo_root=repo, repo_scope="platform", repo_slug="platform")
+    for prompt in (runner._build_prompt(run, platform_ctx), runner._final_prompt(run, platform_ctx)):
+        assert "connected to MammothOS platform repository (owner only)" in prompt
+        assert "proposal-only" in prompt
+
+    tenant_ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="tenant", repo_slug="me/demo")
+    assert "connected to me/demo (scope=tenant)" in runner._final_prompt(run, tenant_ctx)
+
+    none_ctx = ToolContext(user_id="u1")
+    assert "No repository is connected" in runner._build_prompt(run, none_ctx)
+    assert "No repository is connected" in runner._final_prompt(run, none_ctx)
+
+
+def test_direct_final_answer_sees_repo_context(tmp_path, repo):
+    llm = ScriptedLLM([{"reasoning": "Wrap up.", "tool": None, "final": None}, "It is a demo repo."])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Do you have my repo?")
+    ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="tenant", repo_slug="me/demo")
+    events = _collect(runner.start(run, ctx))
+    assert events[-1].type == "run.completed"
+    assert "connected to me/demo" in llm.prompts[-1]
+
+
 @pytest.mark.parametrize("path", [".env", "../outside.txt", "/etc/passwd", "C:/Windows/win.ini", ".git/config"])
 def test_repo_tools_refuse_secrets_and_escapes(tmp_path, repo, path):
     registry = ToolRegistry()
