@@ -27,7 +27,7 @@ import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 from dotenv import dotenv_values, load_dotenv
 
 # ── ensure src/ is on path ──────────────────────────────────────────────────
@@ -57,6 +57,7 @@ from mammoth_os.rag_context_store import get_rag_context_store
 from mammoth_os.audit_engine import AuditEngine
 from mammoth_os.team_workflows import TeamWorkflowManager, RunbookStep
 from mammoth_os.repo_access import RepoAccessPolicy
+from mammoth_os.research_quality import strip_reasoning, trim_to_last_sentence
 from mammoth_os.telemetry_engine import TelemetryEngine
 from mammoth_os.provenance_contract import (
     validate_response,
@@ -3350,6 +3351,86 @@ def _agent_id_from_intent(intent: str) -> str:
     return _INTENT_TO_AGENT_ID.get(str(intent or "").strip(), "")
 
 
+_HISTORY_MAX_TURNS = 8
+_HISTORY_TURN_CHARS = 1200
+_HISTORY_TOTAL_CHARS = 6000
+_BACKGROUND_MAX_CHARS = 8000
+# Agents whose prompt doubles as a web search query: anchor follow-ups to the thread's subject.
+# Every other agent keeps its prompt verbatim; earlier turns reach the model through
+# llm_client.conversation_context so agent templates never echo the transcript.
+_HISTORY_QUERY_AGENTS = {"research", "search"}
+
+
+def _normalize_conversation_history(raw: Any) -> List[Dict[str, str]]:
+    """Validate client-supplied turns and clip them to a bounded window (newest kept)."""
+    if not isinstance(raw, list):
+        return []
+    turns: List[Dict[str, str]] = []
+    for item in raw[-_HISTORY_MAX_TURNS:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role not in {"user", "agent", "assistant"}:
+            continue
+        text = re.sub(r"\s+", " ", str(item.get("text") or item.get("content") or "")).strip()
+        if not text:
+            continue
+        turns.append({
+            "role": "user" if role == "user" else "agent",
+            "agent_id": str(item.get("agent_id") or "")[:64],
+            "text": _clip_words(text, _HISTORY_TURN_CHARS),
+        })
+    while turns and sum(len(turn["text"]) for turn in turns) > _HISTORY_TOTAL_CHARS:
+        turns.pop(0)
+    return turns
+
+
+def _render_conversation_history(turns: List[Dict[str, str]]) -> str:
+    lines = []
+    for turn in turns:
+        speaker = "User" if turn["role"] == "user" else (turn.get("agent_id") or "Agent")
+        lines.append(f"{speaker}: {turn['text']}")
+    return "\n".join(lines)
+
+
+def _apply_conversation_history(payload: Dict[str, Any], turns: List[Dict[str, str]], runtime_agent: str) -> Dict[str, Any]:
+    """Expose earlier turns as structured context without rewriting the agent's prompt."""
+    updated = dict(payload)
+    updated.pop("history", None)
+    if not turns:
+        return updated
+    context = dict(updated.get("context") or {}) if isinstance(updated.get("context"), dict) else {}
+    context["conversation"] = _render_conversation_history(turns)
+    updated["context"] = context
+    prompt = str(updated.get("prompt") or "").strip()
+    if prompt and runtime_agent in _HISTORY_QUERY_AGENTS:
+        subject = next((turn["text"] for turn in turns if turn["role"] == "user"), "")
+        if subject and subject.lower() not in prompt.lower():
+            updated["prompt"] = f"{prompt} (follow-up on: {_clip_words(subject, 160)})"
+    return updated
+
+
+def _compose_llm_background(turns: List[Dict[str, str]], extra: Any = "") -> str:
+    """Background the model sees alongside each agent call: earlier turns and/or earlier plan steps."""
+    parts = []
+    if turns:
+        parts.append(f"Conversation so far:\n{_render_conversation_history(turns)}")
+    extra_text = str(extra or "").strip()
+    if extra_text:
+        parts.append(extra_text)
+    return _clip_words("\n\n".join(parts), _BACKGROUND_MAX_CHARS) if parts else ""
+
+
+def _with_llm_background(background: str, fn: Callable[..., Any], *args: Any) -> Any:
+    """Run an agent call (typically in a worker thread) with background scoped to its LLM calls."""
+    if not background:
+        return fn(*args)
+    from mammoth_os.llm_client import conversation_context
+
+    with conversation_context(background):
+        return fn(*args)
+
+
 def _runtime_agent_name(intent: str, selected_agent_id: str) -> str:
     if selected_agent_id and selected_agent_id in _AGENT_ID_TO_RUNTIME:
         return _AGENT_ID_TO_RUNTIME[selected_agent_id]
@@ -3532,14 +3613,27 @@ def _build_coding_step(objective: str, coding_intent: str) -> Dict[str, Any]:
     }
 
 
+_PLAN_CODING_WORDS = ("build", "implement", "code", "patch", "create", "ui", "feature", "fix", "bug", "refactor", "endpoint", "component")
+_PLAN_MARKET_WORDS = ("market", "audience", "position", "messaging", "competitor", "pricing", "customer")
+_PLAN_FIELD_OPS_WORDS = ("ops", "operational", "operations", "runbook", "checklist", "launch", "rollout", "deploy")
+_PLAN_BRAND_WORDS = ("brand", "stakeholder", "announce", "announcement", "caption", "tagline", "copy", "newsletter", "pitch")
+
+
+def _objective_mentions(lower_text: str, words: Iterable[str]) -> bool:
+    """Whole-word prefix match so 'ops' does not fire on 'stops' or 'ui' on 'build'."""
+    pattern = r"\b(?:" + "|".join(re.escape(word) for word in words) + r")"
+    return re.search(pattern, lower_text) is not None
+
+
 def _build_plan_steps(objective: str, plan_profile: str = "balanced", coding_intent: str = "") -> List[Dict[str, Any]]:
     objective = (objective or "").strip()
     lower = objective.lower()
     profile = _normalize_plan_profile(plan_profile)
     effective_coding_intent = _normalize_coding_intent(coding_intent) or _default_coding_intent_for_profile(profile)
-    include_coding = profile in {"coding", "coding_only"} or any(tok in lower for tok in ["build", "implement", "code", "patch", "create", "ui", "feature"])
-    include_market = profile == "atlas" or any(tok in lower for tok in ["market", "audience", "position", "messaging"])
-    include_field_ops = profile == "atlas" or any(tok in lower for tok in ["ops", "operational", "runbook", "checklist", "launch"])
+    include_coding = profile in {"coding", "coding_only"} or _objective_mentions(lower, _PLAN_CODING_WORDS)
+    include_market = profile == "atlas" or _objective_mentions(lower, _PLAN_MARKET_WORDS)
+    include_field_ops = profile == "atlas" or _objective_mentions(lower, _PLAN_FIELD_OPS_WORDS)
+    include_brand = _objective_mentions(lower, _PLAN_BRAND_WORDS)
     include_community = profile == "autonomous"
     include_custodial = profile == "autonomous"
 
@@ -3567,6 +3661,7 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced", coding_int
             "agent_id": "reflection_agent",
             "intent": "reflection",
             "prompt": f"Given this objective, list top risks and acceptance criteria: {objective}",
+            "chain_context": True,
         },
     ]
 
@@ -3603,6 +3698,7 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced", coding_int
                 "agent_id": "community_engine_agent",
                 "intent": "summarize",
                 "prompt": f"Create a short community update and expectation-setting note for: {objective}",
+                "chain_context": True,
             }
         )
 
@@ -3614,20 +3710,36 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced", coding_int
                 "agent_id": "custodial_agent",
                 "intent": "summarize",
                 "prompt": f"Provide a maintenance checklist and rollback guard notes before executing: {objective}",
+                "chain_context": True,
             }
         )
 
-    steps.append(
-        {
-            "id": "brand-summary",
-            "title": "Produce stakeholder-ready summary",
-            "agent_id": "brand_voice_agent",
-            "intent": "brand_voice",
-            "prompt": f"Summarize the plan in confident brand voice for stakeholders: {objective}",
-        }
-    )
+    if include_brand:
+        steps.append(
+            {
+                "id": "brand-summary",
+                "title": "Produce stakeholder-ready copy",
+                "agent_id": "brand_voice_agent",
+                "intent": "brand_voice",
+                "prompt": f"Write stakeholder-ready copy in brand voice for: {objective}",
+                "chain_context": True,
+            }
+        )
+
+    steps.append(_build_synthesis_step(objective))
 
     return steps
+
+
+def _build_synthesis_step(objective: str) -> Dict[str, Any]:
+    return {
+        "id": "team-synthesis",
+        "title": "Synthesize the team's results",
+        "agent_id": "orchestrator",
+        "intent": "synthesize",
+        "kind": "synthesis",
+        "prompt": f"Combine every completed step into one brief that answers: {objective}",
+    }
 
 
 def _read_jsonl_records(path: Path, *, limit: int = 200) -> List[Dict[str, Any]]:
@@ -3988,6 +4100,172 @@ async def _build_atlas_library_snapshot(state: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
+_PLAN_DIGEST_SUMMARY_KEYS = (
+    "executive_summary", "summary", "synthesis", "hypothesis", "insight", "reflection_summary",
+    "market_summary", "situation_summary", "verdict", "answer", "explanation", "output", "response", "text",
+)
+_PLAN_DIGEST_LIST_KEYS = (
+    "findings", "key_facts", "risks", "acceptance_criteria", "recommendations", "recommended_next_steps",
+    "validation_steps", "key_trends", "opportunities", "checklist", "highlights", "next_steps",
+)
+_PLAN_DIGEST_ITEM_KEYS = ("title", "finding", "fact", "risk", "recommendation", "step", "item", "text", "summary", "description", "name")
+_PLAN_DIGEST_CHARS = 700
+_PLAN_PRIOR_CONTEXT_CHARS = 3600
+_PLAN_SYNTHESIS_TIMEOUT_S = 90.0
+_PLAN_SYNTHESIS_SYSTEM = (
+    "You merge the results of several specialist agents into one brief for the person who asked. "
+    "Use only the step results provided. Do not invent facts, sources, or numbers. "
+    "Write plain, direct language with no filler. Respond with JSON only: "
+    '{"summary": "3-5 sentences that directly answer the objective", '
+    '"highlights": ["up to 5 concrete takeaways"], "next_steps": ["up to 5 concrete actions"]}'
+)
+
+
+def _plan_step_output(step_result: Dict[str, Any]) -> Any:
+    response = step_result.get("response") if isinstance(step_result, dict) else None
+    result = response.get("result") if isinstance(response, dict) else None
+    if isinstance(result, dict):
+        return result.get("output")
+    return None
+
+
+def _plan_item_text(item: Any) -> str:
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        for key in _PLAN_DIGEST_ITEM_KEYS:
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+
+def _clip_words(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(",;:") + "…"
+
+
+def _plan_step_digest(step_result: Dict[str, Any], limit: int = _PLAN_DIGEST_CHARS) -> str:
+    """Short readable digest of a step's artifact, used to chain context and synthesize."""
+    if step_result.get("status") != "completed":
+        return ""
+    output = _plan_step_output(step_result)
+    parts: List[str] = []
+    if isinstance(output, str):
+        parts.append(output)
+    elif isinstance(output, dict):
+        if output.get("status") == "error":
+            return ""
+        for key in _PLAN_DIGEST_SUMMARY_KEYS:
+            value = output.get(key)
+            if isinstance(value, str) and value.strip():
+                parts.append(value.strip())
+                break
+        for key in _PLAN_DIGEST_LIST_KEYS:
+            value = output.get(key)
+            if isinstance(value, list):
+                items = [text for text in (_plan_item_text(item) for item in value[:3]) if text]
+                if items:
+                    parts.append(f"{key.replace('_', ' ')}: " + "; ".join(items))
+    text = strip_reasoning("\n".join(parts))[0]
+    text = re.sub(r"\s+", " ", text).strip()
+    if text.startswith("[LOCAL_ADAPTER]"):
+        text = text[len("[LOCAL_ADAPTER]"):].strip()
+    return _clip_words(text, limit)
+
+
+def _plan_prior_context(prior: List[Dict[str, Any]], limit: int = _PLAN_PRIOR_CONTEXT_CHARS) -> str:
+    """Render earlier step digests, dropping the oldest entries first when over budget."""
+    lines = [f"- {entry['title']}: {entry['digest']}" for entry in prior if entry.get("digest")]
+    while lines and sum(len(line) + 1 for line in lines) > limit:
+        lines.pop(0)
+    return "\n".join(lines)
+
+
+def _plan_fallback_synthesis(objective: str, prior: List[Dict[str, Any]]) -> Dict[str, Any]:
+    highlights = []
+    for entry in prior:
+        digest = str(entry.get("digest") or "")
+        first = re.split(r"(?<=[.!?])\s", digest, maxsplit=1)[0]
+        if first:
+            highlights.append(f"{entry['title']}: {_clip_words(first, 220)}")
+    summary = (
+        f"{len(prior)} step{'s' if len(prior) != 1 else ''} completed for: {objective}. "
+        "The model synthesis was unavailable, so the highlights below come straight from each step."
+    )
+    return {"summary": summary, "highlights": highlights[:6], "next_steps": [], "method": "digest"}
+
+
+def _parse_synthesis_json(text: str) -> Dict[str, Any]:
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return {}
+    try:
+        parsed = json.loads(match.group(0))
+    except (TypeError, ValueError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _string_list(value: Any, limit: int = 5) -> List[str]:
+    if not isinstance(value, list):
+        return []
+    return [text for text in (_plan_item_text(item) for item in value) if text][:limit]
+
+
+async def _synthesize_plan_results(objective: str, prior: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Merge completed step digests into one brief; deterministic fallback if the model is unavailable."""
+    usable = [entry for entry in prior if entry.get("digest")]
+    if not usable:
+        return {"summary": "", "highlights": [], "next_steps": [], "method": "none"}
+    fallback = _plan_fallback_synthesis(objective, usable)
+    message = f"Objective: {objective}\n\nStep results:\n{_plan_prior_context(usable, limit=6000)}"
+    try:
+        from mammoth_os.llm_client import get_llm_client
+
+        raw = await asyncio.wait_for(
+            get_llm_client().generate(
+                message,
+                system_prompt=_PLAN_SYNTHESIS_SYSTEM,
+                max_tokens=700,
+                temperature=0.3,
+                response_format={"type": "json_object"},
+            ),
+            timeout=_PLAN_SYNTHESIS_TIMEOUT_S,
+        )
+    except Exception as exc:  # provider outage must never break the run
+        logger.warning("Plan synthesis failed, using digest fallback: %s", exc)
+        return fallback
+    text, reasoning = strip_reasoning(raw)
+    if not text or text.startswith("[LOCAL_ADAPTER]"):
+        return fallback
+    parsed = _parse_synthesis_json(text)
+    summary = str(parsed.get("summary") or "").strip() if parsed else ""
+    if not summary:
+        if parsed:
+            return fallback
+        summary = trim_to_last_sentence(text)[0]
+    result = {
+        "summary": summary,
+        "highlights": _string_list(parsed.get("highlights")) if parsed else [],
+        "next_steps": _string_list(parsed.get("next_steps")) if parsed else [],
+        "method": "llm",
+    }
+    if reasoning:
+        result["reasoning_trace"] = reasoning
+    return result
+
+
+def _plan_run_summary(step_results: List[Dict[str, Any]]) -> str:
+    for step in reversed(step_results):
+        if step.get("id") == "team-synthesis" and step.get("status") == "completed":
+            output = _plan_step_output(step)
+            if isinstance(output, dict):
+                return str(output.get("summary") or "")
+    return ""
+
+
 async def _execute_plan_steps(
     *,
     plan_id: str,
@@ -3999,6 +4277,7 @@ async def _execute_plan_steps(
     activity_agent_id: str,
 ) -> List[Dict[str, Any]]:
     step_results: List[Dict[str, Any]] = []
+    prior: List[Dict[str, Any]] = []
 
     for idx, step in enumerate(steps, start=1):
         started_at = _ts()
@@ -4014,44 +4293,73 @@ async def _execute_plan_steps(
         step_requires_approval = approval_mode and (
             step["agent_id"] == "coding_agent" or bool(approval_contract)
         )
-        run_body = {
-            "intent": step["intent"],
-            "payload": {
-                "prompt": step["prompt"],
-                "coding_intent": step.get("coding_intent", ""),
-                "files": step.get("files") or [],
-                "target": step.get("target") or "",
-                "approval_contract": approval_contract,
-                "context": {
-                    "source": "atlas.plan_execute",
+        prior_context = _plan_prior_context(prior)
+        step_prompt = step["prompt"]
+        step_background = ""
+        if prior_context and step.get("chain_context"):
+            step_background = f"Results from earlier steps (build on these, do not repeat them):\n{prior_context}"
+
+        if step.get("kind") == "synthesis":
+            synthesis = await _synthesize_plan_results(objective, prior)
+            ok = bool(synthesis.get("summary"))
+            response = {
+                "status": "ok" if ok else "error",
+                "agent_id": step["agent_id"],
+                "result": {
+                    "status": "ok" if ok else "error",
+                    "runtime_agent": "synthesis",
+                    "output": {key: value for key, value in synthesis.items() if key != "reasoning_trace"},
+                },
+            }
+            if synthesis.get("reasoning_trace"):
+                response["reasoning_trace"] = synthesis["reasoning_trace"]
+            result_obj = response["result"]
+            inner_status = result_obj["status"]
+            failure_reason = "" if ok else "No completed steps produced results to synthesize."
+        else:
+            run_body = {
+                "intent": step["intent"],
+                "payload": {
+                    "prompt": step_prompt,
+                    "background": step_background,
+                    "coding_intent": step.get("coding_intent", ""),
                     "files": step.get("files") or [],
                     "target": step.get("target") or "",
-                    "coding_intent": step.get("coding_intent", ""),
                     "approval_contract": approval_contract,
+                    "context": {
+                        "source": "atlas.plan_execute",
+                        "files": step.get("files") or [],
+                        "target": step.get("target") or "",
+                        "coding_intent": step.get("coding_intent", ""),
+                        "approval_contract": approval_contract,
+                        "objective": objective,
+                        "prior_steps": prior_context,
+                    },
                 },
-            },
-            "temperature": temperature,
-            "agent_id": step["agent_id"],
-            "approval_mode": step_requires_approval,
-            "approval_contract": approval_contract,
-        }
+                "temperature": temperature,
+                "agent_id": step["agent_id"],
+                "approval_mode": step_requires_approval,
+                "approval_contract": approval_contract,
+            }
 
-        response = await run_agent(run_body)
-        result_obj = response.get("result") if isinstance(response, dict) else {}
-        inner_status = str((result_obj or {}).get("status", ""))
+            response = await run_agent(run_body)
+            result_obj = response.get("result") if isinstance(response, dict) else {}
+            inner_status = str((result_obj or {}).get("status", ""))
 
-        # Extract contract verification detail so the UI can show why a step failed
-        exec_loop = (result_obj or {}).get("execution_loop") if isinstance(result_obj, dict) else {}
-        verification = (exec_loop or {}).get("verification") if isinstance(exec_loop, dict) else {}
-        failed_checks = verification.get("failed_checks") if isinstance(verification, dict) else []
-        failure_reason = ""
-        if isinstance(failed_checks, list) and failed_checks:
-            failure_reason = "; ".join(
-                str(c.get("name") or "") + ": " + str(c.get("detail") or "")
-                for c in failed_checks if isinstance(c, dict)
-            )
+            # Extract contract verification detail so the UI can show why a step failed
+            exec_loop = (result_obj or {}).get("execution_loop") if isinstance(result_obj, dict) else {}
+            verification = (exec_loop or {}).get("verification") if isinstance(exec_loop, dict) else {}
+            failed_checks = verification.get("failed_checks") if isinstance(verification, dict) else []
+            failure_reason = ""
+            if isinstance(failed_checks, list) and failed_checks:
+                failure_reason = "; ".join(
+                    str(c.get("name") or "") + ": " + str(c.get("detail") or "")
+                    for c in failed_checks if isinstance(c, dict)
+                )
 
-        if response.get("status") != "ok" or inner_status == "error":
+        if step.get("kind") == "synthesis" and inner_status == "error":
+            step_status = "skipped"
+        elif response.get("status") != "ok" or inner_status == "error":
             step_status = "failed"
         elif inner_status == "pending_approval":
             step_status = "pending_approval"
@@ -4076,8 +4384,12 @@ async def _execute_plan_steps(
             "approval": (result_obj or {}).get("approval") if isinstance(result_obj, dict) else None,
             "preview": (result_obj or {}).get("preview") if isinstance(result_obj, dict) else None,
             "step_requires_approval": step_requires_approval,
+            "chained_context": bool(prior_context and step.get("chain_context")),
         }
+        step_result["digest"] = _plan_step_digest(step_result)
         step_results.append(step_result)
+        if step_result["digest"] and step.get("kind") != "synthesis":
+            prior.append({"title": step["title"], "agent_id": step["agent_id"], "digest": step_result["digest"]})
 
         _append_activity(
             f"Plan step {idx}/{len(steps)} {step_status}",
@@ -4355,6 +4667,37 @@ async def plan_execute(body: Dict[str, Any]):
     plan_id = f"plan-{uuid.uuid4().hex[:8]}"
     steps = _build_plan_steps(objective, plan_profile, coding_intent)
 
+    if bool(body.get("dry_run")):
+        return {
+            "status": "ok",
+            "dry_run": True,
+            "objective": objective,
+            "plan_profile": plan_profile,
+            "coding_intent": coding_intent,
+            "plan_status": "preview",
+            "progress": {"total": len(steps), "executed": 0, "completed": 0, "pending_approval": 0, "failed": 0},
+            "plan_steps": [
+                {
+                    "id": step["id"],
+                    "title": step["title"],
+                    "agent_id": step["agent_id"],
+                    "intent": step["intent"],
+                    "prompt": step["prompt"],
+                    "kind": step.get("kind") or "agent",
+                    "status": "planned",
+                    "requires_approval": approval_mode and (step["agent_id"] == "coding_agent" or bool(step.get("approval_contract"))),
+                }
+                for step in steps
+            ],
+        }
+
+    requested_ids = body.get("step_ids")
+    if isinstance(requested_ids, list) and requested_ids:
+        wanted = {str(item) for item in requested_ids}
+        steps = [step for step in steps if step["id"] in wanted or step.get("kind") == "synthesis"]
+        if not any(step.get("kind") != "synthesis" for step in steps):
+            return {"status": "error", "error": "step_ids did not match any planned step"}
+
     _upsert_task(
         plan_id,
         "plan+execute run",
@@ -4453,6 +4796,7 @@ async def plan_execute(body: Dict[str, Any]):
         },
         "plan_steps": step_results,
         **runtime_snapshot,
+        "summary": _plan_run_summary(step_results),
         "provider": "orchestrator",
         "confidence": 0.9 if plan_status == "completed" else 0.6,  # Lower confidence if partial/failed
         "citations": ["Plan step execution", "Task tracking"],
@@ -4742,6 +5086,13 @@ async def run_agent(body: Dict[str, Any]):
     requested_agent_id = str(body.get("agent_id", "")).strip()
     tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
     prompt_text = str(payload_dict.get("prompt", "") or "").strip()
+    display_prompt = prompt_text
+    history_turns = _normalize_conversation_history(payload_dict.get("history"))
+    llm_background = _compose_llm_background(history_turns, payload_dict.pop("background", ""))
+    if "history" in payload_dict:
+        payload_dict = _apply_conversation_history(payload_dict, history_turns, _runtime_agent_name(intent, tracked_agent_id))
+        prompt_text = str(payload_dict.get("prompt", "") or "").strip()
+    payload = payload_dict if isinstance(payload, dict) else payload
     approval_mode = bool(body.get("approval_mode") or payload_dict.get("approval_mode") or payload_dict.get("preview_only"))
     coding_intent = _normalize_coding_intent(payload_dict.get("coding_intent")) or _normalize_coding_intent(intent)
     trace_id = str(body.get("trace_id") or new_trace_id("run"))
@@ -4791,6 +5142,10 @@ async def run_agent(body: Dict[str, Any]):
         return False
 
     _think("Received request", f"intent={intent!r}  agent={requested_agent_id!r}  approval_mode={approval_mode}")
+    if history_turns:
+        _think("Conversation context", f"{len(history_turns)} earlier turn(s) available to the model as background")
+    elif llm_background:
+        _think("Earlier results", "Results from earlier plan steps available to the model as background")
 
     task_id = f"task-{uuid.uuid4().hex[:8]}"
     task = _upsert_task(
@@ -4798,8 +5153,8 @@ async def run_agent(body: Dict[str, Any]):
         f"{intent or 'agent'} run",
         status="active",
         agent_id=tracked_agent_id,
-        description=prompt_text or "Agent execution started",
-        details={"intent": intent, "temperature": temperature, "approval_mode": approval_mode, "trace_id": trace_id},
+        description=display_prompt or "Agent execution started",
+        details={"intent": intent, "temperature": temperature, "approval_mode": approval_mode, "trace_id": trace_id, "history_turns": len(history_turns)},
     )
     _append_activity(
         f"Started task for {intent or 'agent'}",
@@ -4807,7 +5162,7 @@ async def run_agent(body: Dict[str, Any]):
         task_id=task_id,
         kind="task_started",
         trace_id=trace_id,
-        details={"prompt": prompt_text[:220], "temperature": temperature, "approval_mode": approval_mode, "trace_id": trace_id},
+        details={"prompt": display_prompt[:220], "temperature": temperature, "approval_mode": approval_mode, "trace_id": trace_id},
     )
 
     manifest = None
@@ -5010,7 +5365,7 @@ async def run_agent(body: Dict[str, Any]):
                 ).strip()
                 _think("Previewing approval-aware content", f"operation={operation!r}  target={target!r}")
                 raw_result = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: registry_run_agent(runtime_agent, payload_for_agent)
+                    None, lambda: _with_llm_background(llm_background, registry_run_agent, runtime_agent, payload_for_agent)
                 )
                 preview = _build_non_coding_approval_preview(operation, payload_for_agent, raw_result)
                 approval = _create_approval_record(
@@ -5150,7 +5505,7 @@ async def run_agent(body: Dict[str, Any]):
                         }
                     _think("Dispatching to agent", f"attempt={attempt} runtime_agent={runtime_agent!r}")
                     raw_result = await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: registry_run_agent(runtime_agent, attempt_payload)
+                        None, lambda: _with_llm_background(llm_background, registry_run_agent, runtime_agent, attempt_payload)
                     )
                     final_envelope = _normalize_agent_output(runtime_agent, raw_result)
                     verification = _verify_execution_contract(final_envelope, execution_policy)
@@ -5254,7 +5609,7 @@ async def run_agent(body: Dict[str, Any]):
                         "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
                     }
                     reasoning_result = await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: registry_run_agent("reasoning", reasoning_payload)
+                        None, lambda: _with_llm_background(llm_background, registry_run_agent, "reasoning", reasoning_payload)
                     )
                     _think("Reasoning guidance attached", f"preview={str(reasoning_result)[:120]!r}", "success")
                     result["reasoning"] = reasoning_result
@@ -5263,7 +5618,7 @@ async def run_agent(body: Dict[str, Any]):
             from mammoth_os.cortex.router import CortexRouter
             router = CortexRouter()
             result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: router.route(intent, payload)
+                None, lambda: _with_llm_background(llm_background, router.route, intent, payload)
             )
             _think("CortexRouter returned", f"status={result.get('status','?')!r}  preview={str(result)[:120]!r}", "success")
 
@@ -6556,6 +6911,7 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding",
                 f"Create learner checkpoints, a reflection question, and a safe next action for this lesson. "
                 f"Topic: {topic}. Objective: {objective}"
             ),
+            "chain_context": True,
         },
     ]
 

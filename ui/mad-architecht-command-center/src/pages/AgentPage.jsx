@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bot, Play, Info, ChevronRight, Brain, CheckCircle, AlertTriangle, XCircle, Loader } from 'lucide-react'
+import { Bot, Play, Info, ChevronRight, Brain, CheckCircle, AlertTriangle, XCircle, Loader, SlidersHorizontal } from 'lucide-react'
 import { api } from '../api/client'
 import RunHistoryPanel from '../components/RunHistoryPanel'
 import AutonomousRunPanel from '../components/AutonomousRunPanel'
@@ -11,6 +11,8 @@ import PlanExecuteResultPanel from '../components/PlanExecuteResultPanel'
 import AgentResultPanel from '../components/AgentResultPanel'
 import MammothEmpty from '../components/MammothEmpty'
 import AgentCommandLibrary from '../components/AgentCommandLibrary'
+import { normalizeCodingArtifact, normalizeResearchArtifact } from '../components/agent-workspace/artifacts'
+import AgentWorkspace from '../components/agent-workspace/AgentWorkspace'
 
 
 
@@ -147,73 +149,6 @@ const PROMPT_PLAYBOOK = [
   },
 ]
 
-function normalizeResearchArtifact(runResult) {
-  if (!runResult || typeof runResult !== 'object') return null
-  let output = runResult?.result?.output ?? runResult?.output ?? null
-  if (typeof output === 'string') {
-    try { output = JSON.parse(output) } catch { output = null }
-  }
-  if (!output || typeof output !== 'object' || Array.isArray(output)) return null
-  if (!Array.isArray(output.citations) && !Array.isArray(output.sources) && !Array.isArray(output.references)) return null
-  const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
-  return {
-    status: String(output.status || runResult.status || 'ok'),
-    agent: String(output.agent || runResult.agent || 'ResearchAgent'),
-    mode: String(output.mode || runResult.mode || 'research'),
-    prompt: String(output.prompt || runResult.prompt || ''),
-    focus: String(output.focus || ''),
-    summary: String(output.summary || ''),
-    findings: Array.isArray(output.findings) ? output.findings : [],
-    citations: Array.isArray(output.citations) ? output.citations : [],
-    references: Array.isArray(output.references) ? output.references : [],
-    sources: Array.isArray(output.sources) ? output.sources : [],
-    sourceCoverage: output.source_coverage && typeof output.source_coverage === 'object' ? output.source_coverage : null,
-    qualityFlags: normalizeList(output.quality_flags),
-    retrievalErrors: normalizeList(output.retrieval_errors),
-    workflowHints: output.workflow_hints && typeof output.workflow_hints === 'object' ? output.workflow_hints : null,
-    confidence: typeof output.confidence === 'number' ? output.confidence : null,
-    artifact_type: output.artifact_type || '',
-    title: output.title || '',
-    abstract: output.abstract || output.executive_summary || '',
-    sections: Array.isArray(output.sections) ? output.sections : [],
-    conclusion: output.conclusion || '',
-    docx_filename: output.docx_filename || '',
-    word_count: output.word_count || 0,
-    raw: output,
-  }
-}
-
-function normalizeCodingArtifact(runResult) {
-  if (!runResult || typeof runResult !== 'object') return null
-  let output = runResult?.result?.output ?? runResult?.output ?? null
-  if (typeof output === 'string') {
-    try { output = JSON.parse(output) } catch { output = null }
-  }
-  if (!output || typeof output !== 'object' || Array.isArray(output)) return null
-  const normalizeList = (value) => (Array.isArray(value) ? value.map(item => String(item).trim()).filter(Boolean) : [])
-  const taskPlan = output.task_plan && typeof output.task_plan === 'object' ? output.task_plan : null
-  return {
-    status: String(output.status || runResult.status || 'ok'),
-    agent: String(output.agent || runResult.agent || 'CodingAgent'),
-    mode: String(output.mode || runResult.mode || 'coding'),
-    taskKind: String(output.task_kind || runResult.task_kind || runResult.intent || 'generate_code'),
-    target: String(output.target || runResult.target || ''),
-    prompt: String(output.prompt || runResult.prompt || ''),
-    summary: String(output.summary || ''),
-    code: String(output.code || ''),
-    tests: String(output.tests || ''),
-    docs: String(output.docs || ''),
-    diff: String(output.diff || ''),
-    confidence: typeof output.confidence === 'number' ? output.confidence : null,
-    warnings: normalizeList(output.warnings),
-    qualityChecks: normalizeList(output.quality_checks),
-    qualityFlags: normalizeList(output.quality_flags),
-    taskPlan,
-    evidence: output.evidence && typeof output.evidence === 'object' ? output.evidence : null,
-    raw: output,
-  }
-}
-
 export default function AgentPage({ setPage }) {
   const [agents, setAgents] = useState([])
   const [selectedAgent, setSelected] = useState('')
@@ -250,6 +185,9 @@ export default function AgentPage({ setPage }) {
   const [applyingPatch, setApplyingPatch] = useState(false)
   const [lastRunResult, setLastRunResult] = useState(null)
   const [lastRunMode, setLastRunMode] = useState('single')
+  const [classicConsole, setClassicConsole] = useState(() => safeStorageGet('mammoth_agent_classic') === '1')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [replayRequest, setReplayRequest] = useState(null)
 
   const refreshAgents = async () => {
     try {
@@ -443,7 +381,16 @@ export default function AgentPage({ setPage }) {
 
   const replayHistoryEntry = (entry) => {
     if (!entry) return
-    if (entry.execution_mode === 'plan' || String(entry.intent || '').startsWith('plan_execute')) {
+    const isPlan = entry.execution_mode === 'plan' || String(entry.intent || '').startsWith('plan_execute')
+    setReplayRequest({
+      nonce: Date.now(),
+      mode: isPlan ? 'plan' : 'single',
+      agentId: entry.agent_id,
+      intent: entry.intent,
+      prompt: entry.prompt || entry.replay?.objective || '',
+      planProfile: entry.plan_profile,
+    })
+    if (isPlan) {
       setExecutionMode('plan')
       if (entry.plan_profile) setPlanProfile(entry.plan_profile)
       if (entry.coding_intent) setCodingIntent(entry.coding_intent)
@@ -460,6 +407,7 @@ export default function AgentPage({ setPage }) {
 
   const replayAutonomousRun = (run) => {
     if (!run) return
+    setReplayRequest({ nonce: Date.now(), mode: 'plan', prompt: run.objective || '', planProfile: run.plan_profile || 'atlas' })
     setExecutionMode('plan')
     setPlanProfile(run.plan_profile || 'atlas')
     setCodingIntent(run.coding_intent || 'summarize')
@@ -656,29 +604,30 @@ export default function AgentPage({ setPage }) {
     ? Math.round(((planRun.progress.completed || 0) / planRun.progress.total) * 100)
     : 0
 
-  const applyCodingArtifactPatch = async () => {
-    if (!codingArtifact?.target || !codingArtifact?.code || applyingPatch) return
+  const applyCodingArtifactPatch = async (candidate) => {
+    const source = candidate && typeof candidate === 'object' && !candidate.nativeEvent && typeof candidate.code === 'string' ? candidate : codingArtifact
+    if (!source?.target || !source?.code || applyingPatch) return null
     setApplyingPatch(true)
     try {
       const result = await api('/atlas/apply', {
         method: 'POST',
         body: {
           operation: 'apply_patch',
-          file_path: codingArtifact.target,
-          new_content: codingArtifact.code,
+          file_path: source.target,
+          new_content: source.code,
           approval_mode: false,
         },
       })
       const nextArtifact = {
-        ...codingArtifact,
+        ...source,
         applied: true,
         applyResult: result,
       }
-      setCodingArtifact(nextArtifact)
+      if (source === codingArtifact) setCodingArtifact(nextArtifact)
       setRunHistory(prev => {
         const next = [...prev]
         for (let i = next.length - 1; i >= 0; i -= 1) {
-          if (next[i]?.coding_artifact?.target !== codingArtifact.target) continue
+          if (next[i]?.coding_artifact?.target !== source.target) continue
           next[i] = {
             ...next[i],
             coding_artifact: {
@@ -698,11 +647,12 @@ export default function AgentPage({ setPage }) {
         {
           ts: new Date().toISOString(),
           label: 'Patch applied',
-          detail: `${codingArtifact.target} updated through /api/atlas/apply`,
+          detail: `${source.target} updated through /api/atlas/apply`,
           status: 'success',
         },
       ])
       await Promise.all([refreshTimeline(), refreshSnapshots(), refreshApprovals()])
+      return nextArtifact
     } catch (e) {
       setThoughtSteps(prev => [
         ...prev,
@@ -714,23 +664,80 @@ export default function AgentPage({ setPage }) {
         },
       ])
       setOutput(`Apply error: ${e.message}`)
+      return null
     } finally {
       setApplyingPatch(false)
     }
   }
 
+  const handleWorkspaceRun = async ({ res, prompt: runPrompt, agentId, intent: runIntent, planProfile: runProfile, mode }) => {
+    if (res) {
+      const extras = mode === 'plan'
+        ? { execution_mode: 'plan', plan_profile: runProfile, replay: { execution_mode: 'plan', objective: runPrompt, plan_profile: runProfile, approval_mode: approvalMode } }
+        : { execution_mode: 'single', replay: { execution_mode: 'single', prompt: runPrompt, agent_id: agentId, intent: runIntent } }
+      await addRunHistoryEntry(res, runPrompt, agentId, runIntent, extras)
+    }
+    await Promise.all([refreshAgents(), refreshTimeline(), refreshApprovals(), refreshSnapshots(), refreshAutonomousRuns()])
+  }
+
+  const toggleClassic = () => {
+    setClassicConsole(open => {
+      safeStorageSet('mammoth_agent_classic', open ? '0' : '1')
+      return !open
+    })
+  }
+
   return (
     <div className="page-enter" style={{ padding: 24 }}>
-      <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 20, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <Bot size={20} color="var(--violet)" /> Agent Console
-        <button onClick={() => setShowCommandLibrary(true)} className="text-xs bg-[#1a1a2e] border border-[#3d3d5c] text-[#aaaacc] hover:text-white hover:border-[#6655cc] px-3 py-1.5 rounded-lg transition-colors" style={{ marginLeft: 'auto', fontWeight: 400 }}>
-          📖 Commands
-        </button>
+      <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Bot size={20} color="var(--mm-color-agent-default, #d08a52)" /> Agents
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          <button onClick={() => setAdvancedOpen(open => !open)} aria-expanded={advancedOpen}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 400, color: advancedOpen ? 'var(--mm-color-agent-default, #d08a52)' : 'var(--txt-sec)', background: 'transparent', border: `1px solid ${advancedOpen ? 'var(--mm-color-agent-default, #d08a52)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 11px', cursor: 'pointer' }}>
+            <SlidersHorizontal size={13} /> Advanced
+          </button>
+          <button onClick={() => setShowCommandLibrary(true)}
+            style={{ fontSize: '0.74rem', fontWeight: 400, color: 'var(--txt-sec)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 11px', cursor: 'pointer' }}>
+            Commands
+          </button>
+        </span>
       </h1>
+
+      {advancedOpen && (
+        <div className="glass-card-solid" style={{ padding: '10px 14px', marginBottom: 14, display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center', fontSize: '0.74rem', color: 'var(--txt-sec)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            Creativity
+            <input type="range" min="0" max="1" step="0.1" value={temperature} onChange={e => setTemp(parseFloat(e.target.value))} style={{ width: 90, accentColor: '#d08a52' }} />
+            <span style={{ fontFamily: 'var(--mm-font-mono, monospace)', color: 'var(--txt-pri)' }}>{temperature.toFixed(1)}</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="Coding changes are prepared as previews and wait for your approval">
+            <input type="checkbox" checked={approvalMode} onChange={e => setApprovalMode(e.target.checked)} style={{ accentColor: '#d08a52' }} />
+            Preview file changes before applying
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8 }} title="The original console: intent chips, playbook, coding shortcuts, smoke test">
+            <input type="checkbox" checked={classicConsole} onChange={toggleClassic} style={{ accentColor: '#d08a52' }} />
+            Classic console
+          </label>
+        </div>
+      )}
 
       <OnboardingGuide variant="banner" currentPage="agent" setPage={setPage} />
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
+        {!classicConsole ? (
+          <div style={{ flex: '1 1 560px', minWidth: 0 }}>
+            <AgentWorkspace
+              agents={agents}
+              temperature={temperature}
+              approvalMode={approvalMode}
+              onTrace={setThoughtSteps}
+              onPlanRun={setPlanRun}
+              onRunComplete={handleWorkspaceRun}
+              applyPatch={applyCodingArtifactPatch}
+              replay={replayRequest}
+            />
+          </div>
+        ) : (
         <div style={{ flex: '1 1 420px', minWidth: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16, marginBottom: 16 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'center' }}>
@@ -901,6 +908,7 @@ export default function AgentPage({ setPage }) {
             )}
           </div>
         </div>
+        )}
 
         <div style={{ width: 300, flexShrink: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16 }}>

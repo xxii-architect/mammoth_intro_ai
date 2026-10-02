@@ -39,6 +39,7 @@ Use this file when wiring or extending MammothOS agents.
 - Prefer explicit `mode`, `audience`, and `constraints` for brand-voice rewrites and tutorial output.
 - Validate outputs against expected shape before calling a task complete.
 - Run model text through `mammoth_os.research_quality` (`strip_reasoning`, `trim_to_last_sentence`, `dedupe_items` / `dedupe_sections`, `filter_relevant_sources`) before it reaches a deliverable. Surface stripped reasoning as a separate trace field, never inline.
+- Never splice conversation history or earlier step results into an agent's `prompt`. Pass them as `payload.history` / `payload.background`; `run_agent` scopes them through `llm_client.conversation_context` so only the model sees them.
 - Never embed provider error strings in user-facing document content. Mark the unit `status: "failed"` and report it in a `quality` block.
 
 ## Mammoth Mind tutor SDK (formerly ATLAS FAB) + package commercialization rules

@@ -8,3 +8,4 @@ supabase
 uvicorn
 pytest
 python-multipart
+python-docx

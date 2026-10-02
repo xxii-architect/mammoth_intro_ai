@@ -124,7 +124,7 @@ const JOURNEYS = [
   {
     audience: 'For builders',
     headline: 'Inspect, guide, and ship from one workspace.',
-    body: 'Use Mammoth Mind for repo-aware /guide flows, the Agent page for plan/execute, and the Command Library for high-signal prompts.',
+    body: 'Use Mammoth Mind for repo-aware /guide flows, the Agent page to chat with specific agents or run a Team run, and the Command Library for high-signal prompts.',
     primaryLabel: 'Open Mammoth Mind',
     primaryPage: 'chat',
     secondaryLabel: 'Open Command Library',

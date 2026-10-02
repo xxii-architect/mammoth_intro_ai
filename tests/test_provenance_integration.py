@@ -293,18 +293,24 @@ class TestStrictModeEnforcement:
         import mammoth_os.provenance_contract as pc
         reload(pc)
         
-        response = {
-            "confidence": 0.8,
-            "content": "Missing provider",
-        }
-        
-        # Even with enforcement, missing provider is a critical issue
-        should_release, block_reason, metadata = pc.enforce_on_release(response)
-        
-        # In strict mode, missing critical fields should block
-        # (Note: actual behavior depends on contract implementation)
-        assert isinstance(should_release, bool)
-        assert isinstance(metadata, dict)
+        try:
+            response = {
+                "confidence": 0.8,
+                "content": "Missing provider",
+            }
+            
+            # Even with enforcement, missing provider is a critical issue
+            should_release, block_reason, metadata = pc.enforce_on_release(response)
+            
+            # In strict mode, missing critical fields should block
+            # (Note: actual behavior depends on contract implementation)
+            assert isinstance(should_release, bool)
+            assert isinstance(metadata, dict)
+        finally:
+            # The reload swaps the module-level contract; restore the default so
+            # strict mode does not leak into later tests.
+            monkeypatch.delenv("TRUST_STRICT_MODE", raising=False)
+            reload(pc)
     
     def test_conservative_mode_allows_with_warnings(self):
         """In conservative mode (default), responses are allowed with warnings."""

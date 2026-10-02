@@ -78,7 +78,8 @@ Rules the loop enforces:
 
 - **Tool tiers:** `read`, `network`, `write` (proposal-only, never touches the checkout), `exec` (always needs approval). MCP tools whose names look mutating also need approval; `git_push` is never exposed.
 - **Repo tools follow the repo access model.** No repo selected → no repo tools. Paths are repo-relative; `..`, absolute paths, `.git`, symlinks, and secret files are refused.
-- **Patches are edit-first.** `repo_propose_patch` takes either full `content` (new or small files) or `edits` (exact `old` → `new` snippets, each matching once) per file, so the model never has to re-send a large file. The connected repo is named in every prompt.
+- **Patches are edit-first.** `repo_propose_patch` takes either full `content` (new or small files) or `edits` (exact `old` → `new` snippets, each matching once) per file, so the model never has to re-send a large file. A missed edit reports the line(s) where its first line appears. The connected repo is named in every prompt.
+- **Large files:** `repo_read_file` can reach any line of files up to 5 MB (400 lines / 20 KB per call, with `total_lines` and `next_start_line`). The newest three tool results are shown to the model in full (24K chars) as raw text, and older ones are condensed. Clipped excerpts always state the last line shown, so the model never edits text it hasn't seen. DeepSeek's native tool-call markup is parsed as a real tool call.
 - **MCP access:** each `mcp/*.json` declares `access: admin|tenant`. Admin repo servers (filesystem, git) are only offered to the owner with the platform repo selected; tenant servers run with the user's sandbox clone as cwd.
 - **Honest output:** reasoning lines are short model-written summaries (no hidden chain-of-thought). Repeated identical tool calls and exhausted step budgets go straight to a final answer. A cut-off or malformed decision is never shown to the user: the model is told and retries once, then the run ends with a plain message. With no cloud or Ollama provider the run says it is offline instead of echoing.
 - Runs are stored per user under `.mammoth/agent_runs/` (last 50); other users get 404.
@@ -531,9 +532,21 @@ System health only checks the Vite dev server when auth is off (local dev), usin
 - CSV export: `GET /api/audit/export`
 - UI path: Diagnostics page → **Export CSV**
 
+## Agent Workspace
+
+The Agent page opens on a calm workspace instead of a console:
+
+- **Roster**: agents in plain language (what each one is for), with a live Ready / Working / Offline status from `/api/agents`. System agents are hidden behind **Show system agents**.
+- **Agent chats**: each agent keeps its own thread (stored locally, last 30 messages). Follow-ups send the last 8 turns as `payload.history`, so the agent remembers the conversation. Start a message with `@reflection`, `@coding`, `@research`, etc. to send that message, with the thread's context, to another agent.
+- **Team run**: describe an objective, preview the plan (`POST /api/plan-execute` with `dry_run: true`), untick steps you don't want, then run the selected `step_ids`. Each step sees earlier results, and a final synthesis step returns one answer (`summary`). Every step expands to show its full output.
+- **Advanced**: creativity (temperature), "Preview file changes before applying", and **Classic console** (the original intent/payload console, unchanged).
+- The right-hand panel (runs, approvals, autonomous runs) stays as it was.
+
+Conversation history and earlier step results reach the model through a scoped **background channel** (`mammoth_os.llm_client.conversation_context`), never by rewriting the agent's prompt. Template-based agents (reflection, tutor flows) treat the prompt as a topic, so stuffing transcripts into it would leak them into the output.
+
 ## Safety-first agent workflow
 
-- In Agent Console, keep **Preview first** enabled for coding edits.
+- In the Agent page (Advanced → Preview file changes before applying, or Preview first in the classic console), keep previews enabled for coding edits.
 - The Agent Console prompt box accepts short one-line prompts, but best results come from: objective + scope + constraints.
 - The Command Center now includes an in-app **Manual** page with terminal examples and prompt patterns for new users.
 - Review changes in **Pending Approvals**.

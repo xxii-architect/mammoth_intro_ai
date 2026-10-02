@@ -1,10 +1,41 @@
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterator, List
 
 from .openai_adapter import OpenAIAdapter
 from .ollama_adapter import OllamaAdapter, MODEL_ALIASES, check_ollama_running
 from .llm_parsing import extract_code_and_files
+
+
+# Background (earlier conversation turns, earlier plan-step results) that should reach
+# the model for the duration of one agent run without being written into agent prompts.
+_CONVERSATION_CONTEXT: ContextVar[str] = ContextVar("mammoth_conversation_context", default="")
+
+
+@contextmanager
+def conversation_context(background: str) -> Iterator[None]:
+    """Scope background context to every LLM client created inside the block."""
+    token = _CONVERSATION_CONTEXT.set(str(background or "").strip())
+    try:
+        yield
+    finally:
+        _CONVERSATION_CONTEXT.reset(token)
+
+
+def current_conversation_context() -> str:
+    return _CONVERSATION_CONTEXT.get()
+
+
+def with_background(prompt: str, background: str) -> str:
+    if not background:
+        return prompt
+    return (
+        "Background for this request (use it to resolve references and stay consistent; "
+        "do not repeat it back):\n"
+        f"{background}\n\n---\n\n{prompt}"
+    )
 
 
 class LLMClient:
@@ -330,12 +361,36 @@ def _build_deepseek_chain(cfg: Dict[str, Any]) -> LLMClient | None:
     )
 
 
+class ContextualClient(LLMClient):
+    """Wraps a client so generate() carries the active conversation background."""
+
+    def __init__(self, inner: Any, background: str):
+        self._inner = inner
+        self._background = background
+
+    async def generate(self, prompt: str, **kwargs) -> str:
+        return await self._inner.generate(with_background(prompt, self._background), **kwargs)
+
+    async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
+        return await self._inner.embed(texts, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
 def get_llm_client(config: Dict[str, Any] | None = None):
     """Return the best available LLM client.
 
     Reads explicit config first, then process env, then the repository .env file so
-    the runtime and UI use the same provider source of truth.
+    the runtime and UI use the same provider source of truth. Inside a
+    conversation_context() block the client also carries that background.
     """
+    client = _resolve_llm_client(config)
+    background = _CONVERSATION_CONTEXT.get()
+    return ContextualClient(client, background) if background else client
+
+
+def _resolve_llm_client(config: Dict[str, Any] | None = None):
     cfg = config or {}
     adapter_name = _cfg_or_env(cfg, "MAMMOTH_LLM_ADAPTER").lower().strip()
 

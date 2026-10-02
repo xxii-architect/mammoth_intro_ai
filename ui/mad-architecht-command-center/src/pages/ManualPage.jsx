@@ -59,9 +59,9 @@ const surfaceMap = [
     label: 'Agent',
     icon: Bot,
     accent: 'var(--violet)',
-    purpose: 'Structured plan/execute workflows with visible runs and approval-safe edits.',
-    useWhen: 'You want multi-step implementation, audits, or system tasks with traceability.',
-    avoid: 'Running broad mutation-heavy prompts without scope, constraints, or verification criteria.',
+    purpose: 'Chat with a specific agent, hand off with @agent, or run a Team run: preview the plan, pick steps, and get one synthesized answer.',
+    useWhen: 'You want a specialist (research, coding, reflection, audit) to keep context across turns, or several agents to build on each other.',
+    avoid: 'Running broad mutation-heavy prompts without scope, constraints, or verification criteria. The classic console is still under Advanced.',
   },
   {
     page: 'terminal',

@@ -16,6 +16,7 @@ const AGENT_LABELS = {
   market_intel_agent:    { label: 'Market Intel',   icon: Search,    color: '#2dd4bf' },
   browser_agent:         { label: 'Browser',        icon: Search,    color: '#60a5fa' },
   community_engine_agent:{ label: 'Community',      icon: Cpu,       color: '#4ade80' },
+  orchestrator:          { label: 'Synthesis',      icon: Cpu,       color: '#fb923c' },
 }
 
 const STATUS_CONFIG = {
@@ -58,7 +59,7 @@ const HIDDEN_KEYS = new Set([
   'quality_flags', 'citations', 'references', 'sources', 'ranked_sources', 'source_coverage', 'sources_filtered',
   'sources_retrieved', 'retrieval_errors', 'web_retrieval_errors', 'web_sources_used', 'reasoning_trace',
   'workflow_hints', 'execution_loop', 'runtime_agent', 'confidence', 'signal_confidence', 'intent', 'focus',
-  'tone', 'audience', 'lesson_title', 'title', 'progress_score', 'follow_up_tags', 'signals', 'environment', 'equipment',
+  'tone', 'audience', 'lesson_title', 'title', 'progress_score', 'follow_up_tags', 'signals', 'environment', 'equipment', 'method',
 ])
 
 function humanizeKey(key) {
@@ -75,8 +76,9 @@ function itemText(item) {
   return rest.length ? `${head} — ${rest.join(' · ')}` : head
 }
 
-function artifactSections(artifact) {
-  if (typeof artifact === 'string') return { summary: artifact, sections: [] }
+export function artifactSections(artifact) {
+  if (artifact == null) return { summary: '', sections: [] }
+  if (typeof artifact !== 'object') return { summary: String(artifact), sections: [] }
   const summaryKey = SUMMARY_KEYS.find(k => typeof artifact[k] === 'string' && artifact[k].trim())
   const sections = []
   for (const [key, value] of Object.entries(artifact)) {
@@ -97,7 +99,7 @@ function artifactSections(artifact) {
   return { summary: summaryKey ? artifact[summaryKey].trim() : '', sections }
 }
 
-function StepOutput({ artifact }) {
+export function StepOutput({ artifact }) {
   const { summary, sections } = artifactSections(artifact)
   if (!summary && !sections.length) return <MammothEmpty context="step_output" compact />
   return (

@@ -26,6 +26,7 @@ classifiers = [
 ]
 dependencies = [
   "openai",
+  "python-docx",
   "pydantic",
   "python-dotenv",
   "requests",
