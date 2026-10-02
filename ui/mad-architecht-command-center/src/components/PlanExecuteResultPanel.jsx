@@ -36,27 +36,91 @@ function agentCfg(agentId) {
   return AGENT_LABELS[agentId] || { label: agentId?.replace(/_agent$/, '').replace(/_/g, ' '), icon: Cpu, color: '#94a3b8' }
 }
 
-function extractReadableSummary(result) {
-  if (!result || typeof result !== 'object') return typeof result === 'string' ? result.slice(0, 300) : null
-  // Try known readable fields in priority order
-  const candidates = [
-    result.summary,
-    result.executive_summary,
-    result.output,
-    result.preview,
-    result.message,
-    result.explanation,
-    result.content,
-    result.text,
-    result.response,
-    result.result?.summary,
-    result.result?.output,
-    result.result?.preview,
-  ]
+// Plan steps carry the agent's artifact at response.result.output (older
+// payloads used result/output directly).
+export function stepArtifact(step) {
+  if (!step || typeof step !== 'object') return null
+  const inner = step.response?.result
+  const candidates = [inner?.output, inner, step.result?.output, step.result, step.output]
   for (const c of candidates) {
-    if (c && typeof c === 'string' && c.trim()) return c.trim().slice(0, 600)
+    if (typeof c === 'string' && c.trim()) return c
+    if (c && typeof c === 'object' && Object.keys(c).length) return c
   }
   return null
+}
+
+const SUMMARY_KEYS = [
+  'summary', 'executive_summary', 'market_summary', 'situation_summary', 'reflection_summary',
+  'idea_summary', 'output', 'insight', 'message', 'explanation', 'content', 'text', 'response',
+]
+const HIDDEN_KEYS = new Set([
+  ...SUMMARY_KEYS, 'status', 'agent', 'mode', 'artifact_type', 'prompt', 'input', 'topic', 'generated_at', 'timestamp',
+  'quality_flags', 'citations', 'references', 'sources', 'ranked_sources', 'source_coverage', 'sources_filtered',
+  'sources_retrieved', 'retrieval_errors', 'web_retrieval_errors', 'web_sources_used', 'reasoning_trace',
+  'workflow_hints', 'execution_loop', 'runtime_agent', 'confidence', 'signal_confidence', 'intent', 'focus',
+  'tone', 'audience', 'lesson_title', 'title', 'progress_score', 'follow_up_tags', 'signals', 'environment', 'equipment',
+])
+
+function humanizeKey(key) {
+  const text = String(key).replace(/_/g, ' ').trim()
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+function itemText(item) {
+  if (item == null) return ''
+  if (typeof item !== 'object') return String(item)
+  const values = Object.values(item).filter(v => v != null && typeof v !== 'object' && String(v).trim())
+  if (!values.length) return ''
+  const [head, ...rest] = values.map(String)
+  return rest.length ? `${head} — ${rest.join(' · ')}` : head
+}
+
+function artifactSections(artifact) {
+  if (typeof artifact === 'string') return { summary: artifact, sections: [] }
+  const summaryKey = SUMMARY_KEYS.find(k => typeof artifact[k] === 'string' && artifact[k].trim())
+  const sections = []
+  for (const [key, value] of Object.entries(artifact)) {
+    if (HIDDEN_KEYS.has(key) || value == null) continue
+    if (Array.isArray(value)) {
+      const items = value.map(itemText).filter(Boolean).slice(0, 12)
+      if (items.length) sections.push({ key, title: humanizeKey(key), items })
+    } else if (typeof value === 'object') {
+      const items = Object.entries(value)
+        .filter(([, v]) => v != null && typeof v !== 'object' && String(v).trim())
+        .map(([k, v]) => `${humanizeKey(k)}: ${v}`)
+        .slice(0, 12)
+      if (items.length) sections.push({ key, title: humanizeKey(key), items })
+    } else if (typeof value === 'string' && value.trim().length > 2) {
+      sections.push({ key, title: humanizeKey(key), text: value.trim() })
+    }
+  }
+  return { summary: summaryKey ? artifact[summaryKey].trim() : '', sections }
+}
+
+function StepOutput({ artifact }) {
+  const { summary, sections } = artifactSections(artifact)
+  if (!summary && !sections.length) return <MammothEmpty context="step_output" compact />
+  return (
+    <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {summary && (
+        <p style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', lineHeight: 1.65, margin: 0, whiteSpace: 'pre-wrap' }}>{summary}</p>
+      )}
+      {sections.map(section => (
+        <div key={section.key}>
+          <div style={{ fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--txt-mut)', marginBottom: 4 }}>
+            {section.title}
+          </div>
+          {section.text ? (
+            <p style={{ fontSize: '0.79rem', color: 'var(--txt-sec)', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{section.text}</p>
+          ) : (
+            <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--txt-sec)', fontSize: '0.79rem', lineHeight: 1.6 }}>
+              {section.items.map((item, i) => <li key={i}>{item}</li>)}
+            </ul>
+          )}
+        </div>
+      ))}
+    </div>
+  )
 }
 
 function StepCard({ step, idx }) {
@@ -65,8 +129,10 @@ function StepCard({ step, idx }) {
   const ac = agentCfg(step.agent_id)
   const StatusIcon = sc.icon
   const AgentIcon = ac.icon
-  const summary = extractReadableSummary(step.result || step.output)
-  const hasDrilldown = summary || step.result
+  const artifact = stepArtifact(step)
+  const errorText = step.error || step.failure_reason || (step.status === 'failed' ? step.response?.result?.error || step.response?.error : '')
+  const hasDrilldown = Boolean(artifact || errorText)
+  const toggle = () => hasDrilldown && setOpen(o => !o)
 
   return (
     <div style={{
@@ -78,7 +144,11 @@ function StepCard({ step, idx }) {
       overflow: 'hidden',
     }}>
       <div
-        onClick={() => hasDrilldown && setOpen(o => !o)}
+        onClick={toggle}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle() } }}
+        role={hasDrilldown ? 'button' : undefined}
+        tabIndex={hasDrilldown ? 0 : undefined}
+        aria-expanded={hasDrilldown ? open : undefined}
         style={{
           padding: '10px 12px',
           cursor: hasDrilldown ? 'pointer' : 'default',
@@ -127,25 +197,19 @@ function StepCard({ step, idx }) {
 
       {open && hasDrilldown && (
         <div style={{ padding: '0 12px 12px 12px', borderTop: `1px solid ${sc.color}20` }}>
-          {summary ? (
-            <p style={{ fontSize: '0.8rem', color: 'var(--txt-sec)', lineHeight: 1.65, marginTop: 10, marginBottom: 0 }}>
-              {summary}
-            </p>
-          ) : (
-            <MammothEmpty context="step_output" compact />
-          )}
-          {step.result?.quality_flags?.length > 0 && (
+          {artifact && <StepOutput artifact={artifact} />}
+          {artifact?.quality_flags?.length > 0 && (
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
-              {step.result.quality_flags.map(f => (
+              {artifact.quality_flags.map(f => (
                 <span key={f} style={{ fontSize: '0.63rem', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', borderRadius: 10, padding: '2px 7px' }}>
                   {f.replace(/_/g, ' ')}
                 </span>
               ))}
             </div>
           )}
-          {step.error && (
+          {errorText && (
             <div style={{ fontSize: '0.76rem', color: '#f87171', marginTop: 8, fontFamily: 'JetBrains Mono,monospace' }}>
-              ⚠ {step.error}
+              ⚠ {String(errorText)}
             </div>
           )}
         </div>
