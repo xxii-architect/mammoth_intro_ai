@@ -469,6 +469,7 @@ class ResearchAgent(BaseAgent):
             "intent": intent,
             **result_fields,
             "sources": normalized_sources,
+            "ranked_sources": normalized_sources,
             "focus": "curriculum" if any(term in prompt_text.lower() for term in ("lesson", "curriculum", "learning")) else mode,
             "citations": citations,
             "references": [{"title": source["title"], "url": source["url"]} for source in normalized_sources if source["url"]],
@@ -481,6 +482,7 @@ class ResearchAgent(BaseAgent):
                 "contradiction_count": contradiction_count,
                 "alignment_score": 0.0 if contradiction_count else 1.0,
             },
+            "workflow_hints": {"contradiction_scan_enabled": True},
             "sources_retrieved": len(top_sources),
             "sources_filtered": [
                 {"title": str(src.get("title") or ""), "url": str(src.get("url") or ""), "reason": src.get("drop_reason")}
@@ -970,6 +972,9 @@ class ResearchAgent(BaseAgent):
             for _ck in ("content", "instructions", "operator_note"):
                 if prompt.get(_ck) and _ck not in ctx:
                     ctx[_ck] = prompt[_ck]
+            for key, value in prompt.items():
+                if key not in {"goal", "prompt", "topic", "task", "query", "intent", "mode", "context"}:
+                    ctx.setdefault(key, value)
         else:
             text_raw = str(prompt or "").strip()
             # ── try JSON-string payload unwrap ────────────────────────────────

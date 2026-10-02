@@ -215,8 +215,6 @@ class CodingAgent(BaseAgent):
         return False
 
     def _has_real_context(self, prompt_text: str, target: str, context: Optional[Dict[str, Any]] = None, files: Any = None) -> bool:
-        if prompt_text and not self._is_placeholder_target(prompt_text):
-            return True
         if not self._is_placeholder_target(target):
             return True
         if isinstance(context, dict):

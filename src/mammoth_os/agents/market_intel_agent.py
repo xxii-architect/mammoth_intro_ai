@@ -136,7 +136,8 @@ class MarketIntelAgent(BaseAgent):
     ) -> Dict[str, Any]:
         from mammoth_os.llm_client import get_llm_client
         client = get_llm_client()
-        supplied_sources = context.get("sources") if isinstance(context.get("sources"), list) else []
+        raw_sources = context.get("sources")
+        supplied_sources: List[Dict[str, Any]] = raw_sources if isinstance(raw_sources, list) else []
         if supplied_sources:
             web_snippets = [
                 {
@@ -230,6 +231,13 @@ class MarketIntelAgent(BaseAgent):
             if has_evidence
             else ["llm_synthesized", "prompt_responsive", "no_live_web_data", "missing_external_sources"]
         )
+        summary = (
+            f"Market intel complete — {len(trends)} trends, "
+            f"{len(competitors)} competitors, "
+            f"{len(web_snippets)} live sources: {prompt_text[:80]}"
+        )
+        if not has_evidence:
+            summary += f". Practical production focus: {opportunities[0]}"
         return {
             "status": "ok",
             "agent": self.name,
@@ -242,7 +250,7 @@ class MarketIntelAgent(BaseAgent):
             "demand_signals": parsed.get("demand_signals", []),
             "white_space": parsed.get("white_space", ""),
             "strategic_moves": parsed.get("strategic_moves", []),
-            "risks": parsed.get("risks", []),
+            "risks": risks,
             "sources": normalized_sources,
             "opportunities": opportunities,
             "next_actions": next_actions,
@@ -261,11 +269,7 @@ class MarketIntelAgent(BaseAgent):
             "web_retrieval_errors": web_errors,
             "confidence": confidence,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "summary": (
-                f"Market intel complete — {len(trends)} trends, "
-                f"{len(competitors)} competitors, "
-                f"{len(web_snippets)} live sources: {prompt_text[:80]}"
-            ),
+            "summary": summary,
             "quality_flags": quality_flags,
         }
 
