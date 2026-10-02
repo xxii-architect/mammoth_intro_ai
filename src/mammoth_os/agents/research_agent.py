@@ -751,7 +751,14 @@ class ResearchAgent(BaseAgent):
             "duplicate_paragraphs_removed": duplicate_paragraphs_removed,
             "sources_filtered": len(dropped_sources),
         }
-        return {"artifact_type": "long_form_research", "title": title, "abstract": abstract, "sections": completed_sections, "conclusion": conclusion, "sources": normalized_sources, "word_count": word_count, "docx_filename": docx_filename, "retrieval_errors": retrieval_errors or [], "executive_summary": abstract, "quality": quality}
+        sections_ok = sum(1 for sec in completed_sections if sec.get("status") != "failed")
+        if sections_ok == 0:
+            status = "error"
+        elif quality["sections_failed"]:
+            status = "partial"
+        else:
+            status = "ok"
+        return {"status": status, "artifact_type": "long_form_research", "title": title, "abstract": abstract, "sections": completed_sections, "conclusion": conclusion, "sources": normalized_sources, "word_count": word_count, "docx_filename": docx_filename, "retrieval_errors": retrieval_errors or [], "executive_summary": abstract, "quality": quality}
 
     def _generate_docx(self, title, abstract, sections, conclusion, sources, query):
         try:

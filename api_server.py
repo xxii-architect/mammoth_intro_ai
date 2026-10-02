@@ -3359,6 +3359,7 @@ _BACKGROUND_MAX_CHARS = 8000
 # Every other agent keeps its prompt verbatim; earlier turns reach the model through
 # llm_client.conversation_context so agent templates never echo the transcript.
 _HISTORY_QUERY_AGENTS = {"research", "search"}
+_FOLLOW_UP_MAX_WORDS = 12
 
 
 def _normalize_conversation_history(raw: Any) -> List[Dict[str, str]]:
@@ -3403,7 +3404,9 @@ def _apply_conversation_history(payload: Dict[str, Any], turns: List[Dict[str, s
     context["conversation"] = _render_conversation_history(turns)
     updated["context"] = context
     prompt = str(updated.get("prompt") or "").strip()
-    if prompt and runtime_agent in _HISTORY_QUERY_AGENTS:
+    # Only short prompts lean on the earlier topic; a full question stands on its own.
+    is_follow_up = 0 < len(prompt.split()) <= _FOLLOW_UP_MAX_WORDS
+    if is_follow_up and runtime_agent in _HISTORY_QUERY_AGENTS:
         subject = next((turn["text"] for turn in turns if turn["role"] == "user"), "")
         if subject and subject.lower() not in prompt.lower():
             updated["prompt"] = f"{prompt} (follow-up on: {_clip_words(subject, 160)})"

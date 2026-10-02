@@ -184,6 +184,11 @@ def test_history_shapes_payload_per_agent_kind():
     topic = api_server._apply_conversation_history({"prompt": "water sources"}, turns, "research")
     assert topic["prompt"] == "water sources (follow-up on: Plan a 3 day Sawtooth trip)"
 
+    standalone_prompt = "tactical MOLLE backpacks versus backcountry camping backpacks: which is more dependable and what do they cost?"
+    standalone = api_server._apply_conversation_history({"prompt": standalone_prompt}, turns, "research")
+    assert standalone["prompt"] == standalone_prompt
+    assert "Sawtooth" in standalone["context"]["conversation"]
+
     coding = api_server._apply_conversation_history({"prompt": "/create a.txt\nhi", "context": {"files": []}}, turns, "coding")
     assert coding["prompt"] == "/create a.txt\nhi"
     assert "afternoon storms" in coding["context"]["conversation"]

@@ -239,6 +239,30 @@ def test_long_form_pipeline_dedupes_trims_retries_and_reports_quality(scripted, 
     assert quality["sections_retried"] == 1
     assert quality["sections_failed"] == len(failed)
     assert quality["sources_filtered"] == 1
+    assert result["status"] == "partial"
+
+
+def test_long_form_output_passes_run_execution_contract(scripted, monkeypatch):
+    import api_server
+
+    agent = ResearchAgent()
+    monkeypatch.setattr(agent, "_retrieve_sources", lambda queries: ([
+        {"title": "Tent guide", "snippet": "Ultralight tent comparison", "source": "Web", "url": "https://t.com"},
+    ], []))
+    monkeypatch.setattr(agent, "_generate_docx", lambda *args, **kwargs: None)
+
+    def responder(msg, system, n):
+        if "outline" in msg.lower():
+            return json.dumps({"title": "Ultralight tents", "abstract": "Abstract.", "sections": [{"heading": "Weight", "brief": ""}]})
+        return "Ultralight tents trade durability for weight savings on long trails."
+
+    scripted(responder)
+    result = agent._run_async(agent._long_form_pipeline("Ultralight tent comparison", {}))
+    assert result["status"] == "ok"
+
+    policy = api_server._execution_policy_for_run({}, {}, runtime_agent="research")
+    envelope = api_server._normalize_agent_output("research", result)
+    assert api_server._verify_execution_contract(envelope, policy)["passed"] is True
 
 
 def test_relevance_uses_light_stemming():

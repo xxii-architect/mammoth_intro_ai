@@ -59,7 +59,11 @@ function digestArtifact(artifact) {
 
 function errorText(res) {
   const result = res?.result
-  return String(result?.error || result?.message || res?.error || result?.output?.error || 'The agent could not complete this request.')
+  const explicit = result?.error || result?.message || res?.error || result?.output?.error
+  if (explicit) return String(explicit)
+  const failedChecks = result?.execution_loop?.verification?.failed_checks
+  const detail = Array.isArray(failedChecks) ? failedChecks.map(check => check?.detail).filter(Boolean).join('; ') : ''
+  return detail ? `The agent could not complete this request (${detail}).` : 'The agent could not complete this request.'
 }
 
 const chipStyle = (active) => ({
