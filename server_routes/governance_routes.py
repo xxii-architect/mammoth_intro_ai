@@ -599,6 +599,7 @@ async def export_account_data(request: Request):
     notes = [n for n in _load_json_file(NOTES_FILE) if str(n.get("user_id") or "") == uid]
     activities = [a for a in _load_json_file(AGENT_ACTIVITY_FILE) if str(a.get("user_id") or "") == uid]
     notifs = [n for n in _load_notifications() if n.get("user_id") == uid or n.get("user_id") is None]
+    ratings = [r for r in _load_message_feedback() if str(r.get("user_id") or "") == uid]
 
     export = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -613,7 +614,8 @@ async def export_account_data(request: Request):
         "notes": notes[:200],
         "notifications": notifs[:100],
         "activity": activities[:100],
-        "deletion_requests": _load_deletion_requests(),
+        "message_feedback": ratings[-500:],
+        "deletion_requests": [r for r in _load_deletion_requests() if r.get("user_id") == uid],
     }
     _append_audit_event(
         kind="account_data_exported",

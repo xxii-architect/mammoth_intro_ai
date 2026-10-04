@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Bug, CheckCircle2, ClipboardList, RefreshCw, ShieldCheck } from 'lucide-react'
 import { api } from '../api/client'
+import ReplyRatingsPanel from '../components/ReplyRatingsPanel'
 
 const AREAS = [
   'Authentication',
@@ -248,6 +249,7 @@ export default function BetaFeedbackPage() {
           ))}
         </div>
       </div>
+      {canManage && <ReplyRatingsPanel />}
     </div>
   )
 }

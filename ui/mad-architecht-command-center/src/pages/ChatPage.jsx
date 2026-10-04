@@ -13,6 +13,7 @@ import ChatThreadSidebar from '../components/ChatThreadSidebar'
 import FileAttachmentPanel from '../components/FileAttachmentPanel'
 import { TrustBadgeRow } from '../components/TrustSurfaces'
 import RepoSourcesPanel from '../components/RepoSourcesPanel'
+import MessageRating, { isRateable, messageFeedbackKey } from '../components/MessageRating'
 
 const TASK_CARD_STORAGE_KEY = 'mammoth_chat_task_cards_v1'
 
@@ -316,7 +317,7 @@ function ThoughtTrail({ steps, busy, expandedIndex, onToggle, compact = false })
   )
 }
 
-function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard, onOpenHandoff, onRunDecision }) {
+function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard, onOpenHandoff, onRunDecision, rating, onRate }) {
   const [copied, setCopied] = useState(false)
   const isUser = entry.role === 'user'
   const isStreamingBubble = !isUser && entry.stream
@@ -492,6 +493,13 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
               Open handoff →
             </button>
           )}
+          {onRate && isRateable(entry) && (
+            <MessageRating
+              key={messageFeedbackKey(entry)}
+              rating={rating}
+              onRate={(direction, extra) => onRate(entry, direction, extra)}
+            />
+          )}
         </div>
       )}
     </div>
@@ -566,6 +574,59 @@ export default function ChatPage({ setPage }) {
   const historySnapshotRef = useRef([])
   const { user } = useAuth()
   const scopeUserId = user?.id || 'local'
+  const [ratings, setRatings] = useState({})
+
+  useEffect(() => {
+    let cancelled = false
+    setRatings({})
+    api('/message-feedback')
+      .then((data) => {
+        if (cancelled) return
+        const map = {}
+        for (const item of Array.isArray(data?.ratings) ? data.ratings : []) {
+          if (item?.message_key) map[item.message_key] = item
+        }
+        setRatings(map)
+      })
+      .catch(() => { /* ratings are optional; anonymous viewers get 401 */ })
+    return () => { cancelled = true }
+  }, [scopeUserId])
+
+  const rateMessage = useCallback(async (entry, direction, extra = {}) => {
+    const key = messageFeedbackKey(entry)
+    if (!key) return
+    let previous
+    setRatings((current) => {
+      previous = current[key]
+      const next = { ...current }
+      if (direction === 'none') delete next[key]
+      else next[key] = { ...(current[key] || {}), message_key: key, direction, ...extra }
+      return next
+    })
+    try {
+      const runId = entry.run_id || entry.run?.id
+      const data = await api('/message-feedback', {
+        method: 'POST',
+        body: {
+          ...(runId ? { run_id: runId } : { created_at: entry.created_at }),
+          direction,
+          thread_id: activeThreadId || '',
+          ...extra,
+        },
+      })
+      if (data?.rating && direction !== 'none') {
+        setRatings((current) => ({ ...current, [key]: data.rating }))
+      }
+    } catch (err) {
+      setRatings((current) => {
+        const next = { ...current }
+        if (previous) next[key] = previous
+        else delete next[key]
+        return next
+      })
+      throw err
+    }
+  }, [activeThreadId])
 
   const publishSuccessToast = useCallback((payload) => {
     if (!payload) return
@@ -1403,6 +1464,8 @@ export default function ChatPage({ setPage }) {
                 onSaveCard={() => saveTaskCardFromEntry(entry, { prompt: history[idx - 1]?.role === 'user' ? history[idx - 1].message : '' })}
                 onOpenHandoff={() => setPage?.('agent')}
                 onRunDecision={decideRun}
+                rating={ratings[messageFeedbackKey(entry)]}
+                onRate={rateMessage}
               />
             ))}
             {busy && !history[history.length - 1]?.run && (

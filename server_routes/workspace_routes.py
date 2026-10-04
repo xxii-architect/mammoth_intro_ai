@@ -284,6 +284,82 @@ async def update_beta_feedback_status(feedback_id: str, body: Dict[str, Any]):
 
     return {"status": "error", "error": "Feedback record not found."}
 
+@app.get("/api/message-feedback")
+async def list_message_feedback():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    user_id = _current_request_user_id()
+    account_id = _active_account_id(_load_atlas_state())
+    ratings = message_feedback.for_user(_load_message_feedback(), user_id=user_id, account_id=account_id)
+    return {
+        "status": "ok",
+        "contract_version": message_feedback.CONTRACT_VERSION,
+        "reasons": list(message_feedback.REASONS),
+        "ratings": [message_feedback.public_view(item) for item in ratings],
+    }
+
+@app.post("/api/message-feedback")
+async def rate_chat_message(body: Dict[str, Any]):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    body = body if isinstance(body, dict) else {}
+    try:
+        direction = message_feedback.normalize_direction(body.get("direction"))
+        key = message_feedback.message_key(run_id=body.get("run_id"), created_at=body.get("created_at"))
+        reason = message_feedback.normalize_reason(body.get("reason"))
+    except message_feedback.FeedbackError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+
+    user_id = _current_request_user_id()
+    account_id = _active_account_id(_load_atlas_state())
+    thread_id = str(body.get("thread_id") or "").strip()
+    found = _find_rated_chat_exchange(
+        user_id, account_id, run_id=body.get("run_id"), created_at=body.get("created_at"), thread_id=thread_id,
+    )
+    if found is None:
+        return JSONResponse({"status": "error", "error": "Message not found in your conversations."}, status_code=404)
+    assistant_entry, prompt = found
+
+    records = _load_message_feedback()
+    if direction == "none":
+        records, removed = message_feedback.remove(records, user_id=user_id, account_id=account_id, key=key)
+        if removed:
+            _write_json(MESSAGE_FEEDBACK_FILE, records)
+        return {"status": "ok", "rating": {"message_key": key, "direction": "none"}}
+
+    existing = message_feedback.find_rating(records, user_id=user_id, account_id=account_id, key=key)
+    record = message_feedback.build_record(
+        user_id=user_id,
+        account_id=account_id,
+        key=key,
+        direction=direction,
+        assistant_entry=assistant_entry,
+        prompt=prompt,
+        thread_id=thread_id,
+        reason=reason,
+        comment=body.get("comment"),
+        existing=existing,
+    )
+    _write_json(MESSAGE_FEEDBACK_FILE, message_feedback.upsert(records, record))
+    return {"status": "ok", "rating": message_feedback.public_view(record)}
+
+@app.get("/api/message-feedback/summary")
+async def message_feedback_summary():
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    return {"status": "ok", **message_feedback.summarize(_load_message_feedback())}
+
+@app.get("/api/message-feedback/regression-cases")
+async def message_feedback_regression_cases(limit: int = 200):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    cases = message_feedback.build_regression_cases(_load_message_feedback(), limit=max(1, min(int(limit), 1000)))
+    return {"status": "ok", "contract_version": message_feedback.REGRESSION_CONTRACT_VERSION, "cases": cases}
+
 @app.get("/api/buildlog")
 async def get_buildlog():
     blocked = _require_workspace_tier_api("pro")

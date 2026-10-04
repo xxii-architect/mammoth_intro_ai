@@ -28,7 +28,7 @@ import uuid
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 from dotenv import dotenv_values, load_dotenv
 
 # ── ensure src/ is on path ──────────────────────────────────────────────────
@@ -52,6 +52,7 @@ from mammoth_os.learner_model import build_learner_context, build_lesson_plan, l
 from mammoth_os.runtime_contracts import build_observability_run, build_runtime_notice, new_trace_id
 from mammoth_os.rag_retrieval import get_retriever
 from mammoth_os import tutor_delivery
+from mammoth_os import message_feedback
 from mammoth_os.supabase_client import get_supabase
 from mammoth_os.memory_engine import MemoryEngine
 from mammoth_os.rag_context_store import get_rag_context_store
@@ -116,8 +117,9 @@ ACCOUNT_DELETIONS_FILE = MAMMOTH_DIR / "account_deletion_requests.json"
 ONBOARDING_FILE = MAMMOTH_DIR / "onboarding_state.json"
 EXECUTION_LOG_FILE = MAMMOTH_DIR / "execution_log.json"
 TRUST_METRICS_FILE = MAMMOTH_DIR / "trust_metrics.json"
+MESSAGE_FEEDBACK_FILE = MAMMOTH_DIR / "message_feedback.json"
 
-for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE, NOTIFICATIONS_FILE, ACCOUNT_DELETIONS_FILE, EXECUTION_LOG_FILE, TRUST_METRICS_FILE]:
+for _f in [NOTES_FILE, BUILDLOG_FILE, SALES_FILE, AGENT_ACTIVITY_FILE, TASKS_FILE, SNAPSHOTS_FILE, ATLAS_EVALS_FILE, AUDIT_LOG_FILE, BETA_FEEDBACK_FILE, NOTIFICATIONS_FILE, ACCOUNT_DELETIONS_FILE, EXECUTION_LOG_FILE, TRUST_METRICS_FILE, MESSAGE_FEEDBACK_FILE]:
     if not _f.exists():
         _f.write_text("[]")
 if not AUTH_ADMIN_POLICY_FILE.exists():
@@ -6254,6 +6256,59 @@ def _load_thread_messages(user_id: str, thread_id: str) -> List[Dict[str, Any]]:
 
 def _save_thread_messages(user_id: str, thread_id: str, messages: List[Dict[str, Any]]) -> None:
     _thread_msg_path(user_id, thread_id).write_text(json.dumps(messages, indent=2, default=str), encoding="utf-8")
+
+
+def _find_rated_chat_exchange(
+    user_id: str,
+    account_id: str,
+    *,
+    run_id: str = "",
+    created_at: str = "",
+    thread_id: str = "",
+) -> Optional[Tuple[Dict[str, Any], str]]:
+    """Locate an assistant reply the requester owns, plus the user prompt before it.
+
+    Only the requester's own scoped chat history and thread files are searched, so a
+    rating can never attach to (or reveal) another user's conversation.
+    """
+    run_id = str(run_id or "").strip()
+    created_at = str(created_at or "").strip()
+    if not run_id and not created_at:
+        return None
+
+    def _matches(item: Dict[str, Any]) -> bool:
+        if item.get("role") != "assistant":
+            return False
+        if run_id:
+            return str(item.get("run_id") or "") == run_id
+        return str(item.get("created_at") or "") == created_at
+
+    candidates: List[List[Dict[str, Any]]] = []
+    if thread_id:
+        candidates.append([m for m in _load_thread_messages(user_id, thread_id) if isinstance(m, dict)])
+    state = _load_atlas_state()
+    history = state.get("mammoth_chat_history") if isinstance(state.get("mammoth_chat_history"), list) else []
+    candidates.append([
+        item for item in history
+        if isinstance(item, dict)
+        and str(item.get("user_id") or "") == user_id
+        and _normalize_account_id(item.get("account_id") or "default") == account_id
+    ])
+    for messages in candidates:
+        for index in range(len(messages) - 1, -1, -1):
+            if not _matches(messages[index]):
+                continue
+            prompt = next(
+                (str(messages[j].get("message") or "") for j in range(index - 1, -1, -1) if messages[j].get("role") == "user"),
+                "",
+            )
+            return messages[index], prompt
+    return None
+
+
+def _load_message_feedback() -> List[Dict[str, Any]]:
+    records = _read_json(MESSAGE_FEEDBACK_FILE, default=[])
+    return [item for item in records if isinstance(item, dict)] if isinstance(records, list) else []
 
 
 def _upsert_thread_index_entry(user_id: str, thread_id: str, *, title: str = "", agent_id: str = "assistant", message_count: int = 0) -> None:

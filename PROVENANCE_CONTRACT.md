@@ -347,7 +347,7 @@ pytest tests/test_provenance*.py -v
 - [ ] Semantic contradiction detection via embeddings
 - [ ] Provider reputation tracking (failure rates, response time)
 - [ ] Citation validity checking (URL verification, metadata extraction)
-- [ ] Confidence calibration via user feedback
+- [ ] Confidence calibration via user feedback — *signal now collected:* reply thumbs up/down (`mammoth.feedback.v1`, `src/mammoth_os/message_feedback.py`) with per-model approval and a thumbs-down regression set. The confidence scores are not yet calibrated from it.
 - [ ] Machine learning-based anomaly detection
 - [ ] Integration with approval workflows for low-confidence outputs
 - [ ] Dashboard for trust metrics visualization

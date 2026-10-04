@@ -89,6 +89,22 @@ Rules the loop enforces:
 - Runs are stored per user under `.mammoth/agent_runs/` (last 50); other users get 404.
 - `/api/internet/*` fetches refuse private, loopback, and link-local targets, including on redirects (SSRF guard).
 
+## Reply ratings (`mammoth.feedback.v1`)
+
+Every stored Mammoth Mind reply shows 👍 / 👎 next to Copy. Clicking the active thumb again clears it, and a thumbs-down can add an optional reason (`incorrect`, `incomplete`, `off_topic`, `unsafe`, `formatting`, `too_long`, `other`) and a short comment.
+
+| Endpoint | Who | Purpose |
+| --- | --- | --- |
+| `GET /api/message-feedback` | signed-in user | Your own ratings (no excerpts) |
+| `POST /api/message-feedback` | signed-in user | `{run_id \| created_at, direction: up\|down\|none, reason, comment, thread_id}` |
+| `GET /api/message-feedback/summary` | owner/admin | Totals and approval by provider/model and agent, plus down-vote reasons |
+| `GET /api/message-feedback/regression-cases?limit=` | owner/admin | Thumbs-downs deduped by prompt (`mammoth.feedback.regression.v1`) |
+
+- **Rate only your own replies.** The server finds the message in *your* threads or chat history (404 otherwise), and takes the prompt and reply excerpts from its own copy. Client-sent text is ignored. There is one rating per user per message, and the store keeps the latest 5,000 ratings in `.mammoth/message_feedback.json`.
+- **Ratings are signal, not self-modification.** Nothing retrains or reroutes the model automatically. Owners see the aggregate and the regression cases under **Beta Feedback → Reply ratings**. Download the cases JSON and replay it for side-by-side human review:
+  `python -m mammoth_os.feedback_replay --input cases.json --out replay.md` (add `--no-replay` to only list the cases). The replay never grades on its own.
+- Ratings are included in the account data export.
+
 ## MCP Browser Bridge + Repo Access
 
 MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.

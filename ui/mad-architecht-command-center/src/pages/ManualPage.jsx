@@ -27,6 +27,7 @@ const liveNow = [
   'Mammoth Mind Agent mode streams a run timeline: plan, short reasoning summaries, tool calls, proposed diffs, and inline Approve / Reject cards. Stop cancels a run at any time.',
   'The Mammoth Mind pill is in the top-right header, next to notifications. It opens a quick panel with a link to the full Mammoth Mind page.',
   'Mammoth Mind adapts response depth: short and natural for simple asks, structured and thorough when the work calls for it. Runtime health is a color-coded, expandable header pill, and the chat composer has no divider above it.',
+  'Rate any Mammoth Mind reply with thumbs up or down (click again to clear). A thumbs-down can add a reason and a note. Owners see totals and the thumbs-down regression cases on Beta Feedback. Ratings are signal only and never retrain the model.',
   'Research output is cleaner. Model reasoning is moved into a separate trace, off-topic and disambiguation sources are filtered out, repeated paragraphs are removed, and cut-off sections are trimmed or retried. Long-form reports include a quality summary.',
   'Lessons now show a manifest (what to know first, sample input, expected output, done-when). Stuck detection suggests one concrete next move. Next checks that the exercise passed, and you can always choose Continue anyway.',
   'Mammoth Paths is the new workspace SDK (Python `MammothPaths`, JS `@mammothos/paths`) for embedding agent runs, your repos, notes, and the build log in other software. The tutor SDK is now called Mammoth Mind (formerly ATLAS FAB).',

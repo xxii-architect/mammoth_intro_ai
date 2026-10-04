@@ -81,6 +81,12 @@ Use this file when wiring or extending MammothOS agents.
 - Every `mcp/*.json` declares `access: admin|tenant`. Admin repo-category servers are only offered with platform scope. Never expose `git_push`.
 - Reasoning events carry short model-written summaries only. Do not fabricate progress (for example, marking plan steps done that were never verified).
 
+## Reply rating rules
+- `src/mammoth_os/message_feedback.py` (`mammoth.feedback.v1`) is pure; the API owns storage and access. Replay lives in `mammoth_os.feedback_replay` (CLI only, no route).
+- Rating excerpts come from the server's stored copy of the requester's own conversation. Never trust client-sent prompt or reply text.
+- Ratings are user-scoped; aggregates and regression cases are admin-only.
+- Ratings never change model, prompt, or routing behavior automatically. Any future consumer (calibration, critic) is an app-layer bridge, reviewed by a human, and never wired inside `src/mammoth_os/recursive/`.
+
 ## Production tenant/auth rules
 - Treat `.mammoth\supabase_tenant_auth.sql` as the baseline blueprint for tenant ownership, membership, billing usage, and audit trails.
 - Do not duplicate existing `atlas` or `mammoth` product tables when adding auth; wrap them with tenant/account ownership and RLS instead.
