@@ -7,6 +7,7 @@ import ResearchArtifactPanel from '../ResearchArtifactPanel'
 import CodingArtifactPanel from '../CodingArtifactPanel'
 import { normalizeCodingArtifact, normalizeResearchArtifact } from './artifacts'
 import { AGENT_CATALOG, CATALOG_BY_ID, TEAM_FITS, agentDisplay, agentStatusLabel, parseMention } from './agentCatalog'
+import useIsMobile from '../../lib/useIsMobile'
 
 // Calm palette: neutral surfaces, one warm accent (same token as Mammoth Mind's agent toggle).
 const GOLD = 'var(--mm-color-agent-default, #d08a52)'
@@ -20,6 +21,8 @@ const THREADS_KEY = 'mammoth_agent_threads_v1'
 const THREAD_LIMIT = 30
 const HISTORY_TURNS = 8
 const MAX_STORED_ARTIFACT_CHARS = 40000
+// Keeps auto-scrolled messages clear of the sticky composer and the page header.
+const SCROLL_MARGIN = { scrollMarginTop: 16, scrollMarginBottom: 180 }
 
 function loadThreads() {
   try {
@@ -84,7 +87,7 @@ const primaryButton = (disabled) => ({
   cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1,
 })
 
-function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam }) {
+function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compact }) {
   const [showOthers, setShowOthers] = useState(false)
   const registry = useMemo(() => Object.fromEntries(agents.map(agent => [agent.id, agent])), [agents])
   const known = AGENT_CATALOG.filter(entry => registry[entry.id] || !agents.length)
@@ -108,8 +111,33 @@ function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam }) {
     )
   }
 
+  if (compact) {
+    const chip = (key, active, label, onClick, dotColor, title) => (
+      <button key={key} onClick={onClick} title={title} aria-pressed={active}
+        style={{ ...chipStyle(active), flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', whiteSpace: 'nowrap' }}>
+        {dotColor && <span style={{ width: 6, height: 6, borderRadius: 999, background: dotColor, opacity: 0.85 }} />}
+        {label}
+      </button>
+    )
+    const agentChip = (agentId, entry) => {
+      const status = agentStatusLabel(registry[agentId]?.status, busyAgentId === agentId)
+      return chip(agentId, mode === 'chat' && selectedId === agentId, entry.name, () => onSelect(agentId), status.color, `${entry.blurb} (${status.label})`)
+    }
+    return (
+      <nav aria-label="Agents" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10, borderBottom: `1px solid ${BORDER}`, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
+        {chip('team', mode === 'team', <><Users size={12} /> Team run</>, onTeam)}
+        {known.map(entry => agentChip(entry.id, entry))}
+        {others.length > 0 && chip('others', showOthers, showOthers ? 'Hide system' : `+${others.length} system`, () => setShowOthers(open => !open))}
+        {showOthers && others.map(agent => agentChip(agent.id, agentDisplay(agent.id, agent)))}
+      </nav>
+    )
+  }
+
   return (
-    <nav aria-label="Agents" style={{ flex: '0 0 200px', minWidth: 180, borderRight: `1px solid ${BORDER}`, paddingRight: 10, overflowY: 'auto' }}>
+    <nav aria-label="Agents" style={{
+      flex: '0 0 200px', minWidth: 180, alignSelf: 'flex-start', position: 'sticky', top: 12,
+      maxHeight: 'calc(100dvh - 140px)', overflowY: 'auto', borderRight: `1px solid ${BORDER}`, paddingRight: 10,
+    }}>
       <button onClick={onTeam}
         style={{
           display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 10px', borderRadius: 8, cursor: 'pointer', marginBottom: 10,
@@ -151,7 +179,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying }) {
   } else if (message.status === 'pending_approval') {
     body = (
       <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
-        Prepared a change that needs your approval. Review it under <strong style={{ color: 'var(--txt-pri)' }}>Pending Approvals</strong> on the right.
+        Prepared a change that needs your approval. Review it under <strong style={{ color: 'var(--txt-pri)' }}>Pending Approvals</strong>.
       </p>
     )
   } else if (showRaw) {
@@ -169,8 +197,8 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying }) {
   }
 
   return (
-    <div style={{ padding: '12px 14px', borderRadius: 10, background: RAISED, border: `1px solid ${BORDER}` }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+    <div style={{ ...SCROLL_MARGIN, minWidth: 0, padding: '12px 14px', borderRadius: 10, background: RAISED, border: `1px solid ${BORDER}` }}>
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: '0.74rem', fontWeight: 600, color: GOLD }}>{entry.name}</span>
         {message.task && <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>· {message.task}</span>}
         {message.duration_ms ? <span style={{ fontSize: '0.66rem', color: 'var(--txt-mut)', fontFamily: 'var(--mm-font-mono, monospace)' }}>· {(message.duration_ms / 1000).toFixed(1)}s</span> : null}
@@ -192,7 +220,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying }) {
   )
 }
 
-function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy }) {
+function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy, compact }) {
   const entry = agentDisplay(agentId, agents.find(agent => agent.id === agentId))
   const [threads, setThreads] = useState(loadThreads)
   const [taskIntent, setTaskIntent] = useState(entry.tasks[0]?.intent || '')
@@ -212,7 +240,20 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
     inputRef.current?.focus()
   }, [draft?.nonce])
   useEffect(() => { saveThreads(threads) }, [threads])
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: 'smooth' }) }, [messages.length, sending])
+
+  // The page scrolls now (the card grows with its content), so bring the newest turn into view
+  // on change: a fresh question or pending reply sits just above the composer, while a finished
+  // reply is shown from its top so long reports read naturally.
+  const seenRef = useRef({ count: messages.length, sending })
+  useEffect(() => {
+    const seen = seenRef.current
+    seenRef.current = { count: messages.length, sending }
+    if (messages.length === seen.count && sending === seen.sending) return
+    const last = listRef.current?.lastElementChild
+    if (!last || !messages.length) return
+    const finished = !sending && seen.sending && messages[messages.length - 1]?.role === 'agent'
+    last.scrollIntoView({ behavior: 'smooth', block: finished ? 'start' : 'nearest' })
+  }, [messages.length, sending])
 
   const updateThread = (fn) => setThreads(prev => ({ ...prev, [agentId]: fn(prev[agentId] || []).slice(-THREAD_LIMIT) }))
 
@@ -288,6 +329,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   }
 
   const onKeyDown = (event) => {
+    if (compact) return
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault()
       if (mentionOptions.length === 1) setText(`@${mentionOptions[0].handle} `)
@@ -296,7 +338,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   }
 
   return (
-    <section aria-label={`${entry.name} conversation`} style={{ flex: '1 1 380px', minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <section aria-label={`${entry.name} conversation`} style={{ flex: '1 1 380px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       <header style={{ display: 'flex', alignItems: 'flex-start', gap: 10, paddingBottom: 10, borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--txt-pri)' }}>{entry.name}</div>
@@ -309,7 +351,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
         )}
       </header>
 
-      <div ref={listRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '14px 2px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div ref={listRef} style={{ flex: 1, padding: '14px 2px', display: 'flex', flexDirection: 'column', gap: 12 }}>
         {messages.length === 0 && (
           <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--txt-mut)', fontSize: '0.8rem', lineHeight: 1.7, maxWidth: 380 }}>
             <MessageSquare size={18} color="var(--txt-mut)" style={{ marginBottom: 6 }} />
@@ -318,7 +360,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
           </div>
         )}
         {messages.map((message, index) => message.role === 'user' ? (
-          <div key={message.id || index} style={{ alignSelf: 'flex-end', maxWidth: '82%', padding: '9px 13px', borderRadius: 10, background: SUNKEN, border: `1px solid ${BORDER}` }}>
+          <div key={message.id || index} style={{ ...SCROLL_MARGIN, alignSelf: 'flex-end', maxWidth: '82%', padding: '9px 13px', borderRadius: 10, background: SUNKEN, border: `1px solid ${BORDER}` }}>
             {(message.task || message.mention) && (
               <div style={{ fontSize: '0.64rem', color: 'var(--txt-mut)', marginBottom: 3 }}>{message.mention ? `→ ${message.mention}` : ''}{message.mention && message.task ? ' · ' : ''}{message.task}</div>
             )}
@@ -330,11 +372,14 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
         ))}
       </div>
 
-      <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 10 }}>
+      <div style={{
+        position: 'sticky', bottom: 0, zIndex: 2, background: 'var(--card)', borderTop: `1px solid ${BORDER}`,
+        paddingTop: 10, paddingBottom: 'max(4px, env(safe-area-inset-bottom))',
+      }}>
         {entry.tasks.length > 1 && (
-          <div role="radiogroup" aria-label="Task" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+          <div role="radiogroup" aria-label="Task" style={{ display: 'flex', flexWrap: compact ? 'nowrap' : 'wrap', overflowX: compact ? 'auto' : 'visible', gap: 6, marginBottom: 8, scrollbarWidth: 'none' }}>
             {entry.tasks.map(item => (
-              <button key={item.intent} role="radio" aria-checked={item.intent === task?.intent} onClick={() => setTaskIntent(item.intent)} style={chipStyle(item.intent === task?.intent)}>
+              <button key={item.intent} role="radio" aria-checked={item.intent === task?.intent} onClick={() => setTaskIntent(item.intent)} style={{ ...chipStyle(item.intent === task?.intent), flexShrink: 0, whiteSpace: 'nowrap' }}>
                 {item.label}
               </button>
             ))}
@@ -354,21 +399,23 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
             aria-label={`Message ${entry.name}`}
             placeholder={task?.placeholder || `Message ${entry.name}…`}
             rows={2}
-            style={{ flex: 1, resize: 'vertical', minHeight: 44, maxHeight: 200, background: SUNKEN, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', fontSize: '0.84rem', color: 'var(--txt-pri)', fontFamily: 'inherit', lineHeight: 1.5 }}
+            style={{ flex: 1, minWidth: 0, resize: 'vertical', minHeight: 44, maxHeight: 200, background: SUNKEN, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', fontSize: compact ? 16 : '0.84rem', color: 'var(--txt-pri)', fontFamily: 'inherit', lineHeight: 1.5 }}
           />
           <button onClick={send} disabled={sending || !text.trim()} style={primaryButton(sending || !text.trim())} aria-label="Send">
             {sending ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
           </button>
         </div>
-        <div style={{ fontSize: '0.64rem', color: 'var(--txt-mut)', marginTop: 5 }}>
-          Enter to send · Shift+Enter for a new line{approvalMode ? ' · file changes wait for approval' : ''}
-        </div>
+        {(!compact || approvalMode) && (
+          <div style={{ fontSize: '0.64rem', color: 'var(--txt-mut)', marginTop: 5 }}>
+            {compact ? 'File changes wait for approval' : `Enter to send · Shift+Enter for a new line${approvalMode ? ' · file changes wait for approval' : ''}`}
+          </div>
+        )}
       </div>
     </section>
   )
 }
 
-function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunComplete, draft, onBusy }) {
+function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunComplete, draft, onBusy, compact }) {
   const [objective, setObjective] = useState('')
   const [fit, setFit] = useState('balanced')
   const [preview, setPreview] = useState(null)
@@ -442,7 +489,7 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
   const chosenCount = steps.filter(step => step.kind !== 'synthesis' && selected[step.id]).length
 
   return (
-    <section aria-label="Team run" style={{ flex: '1 1 380px', minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0, overflowY: 'auto' }}>
+    <section aria-label="Team run" style={{ flex: '1 1 380px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>
       <header style={{ paddingBottom: 10, borderBottom: `1px solid ${BORDER}`, marginBottom: 12 }}>
         <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--txt-pri)' }}>Team run</div>
         <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginTop: 2 }}>
@@ -462,7 +509,7 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
           <textarea value={objective} onChange={event => { setObjective(event.target.value); if (phase === 'review') setPhase('compose') }}
             aria-label="Objective" placeholder="What should the team accomplish? One or two sentences is enough." rows={3}
             disabled={phase === 'running'}
-            style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: SUNKEN, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', fontSize: '0.84rem', color: 'var(--txt-pri)', fontFamily: 'inherit', lineHeight: 1.5, marginBottom: 10 }}
+            style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', background: SUNKEN, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', fontSize: compact ? 16 : '0.84rem', color: 'var(--txt-pri)', fontFamily: 'inherit', lineHeight: 1.5, marginBottom: 10 }}
           />
           <div role="radiogroup" aria-label="Team shape" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 4 }}>
             {TEAM_FITS.map(item => (
@@ -545,16 +592,22 @@ export default function AgentWorkspace({ agents, temperature, approvalMode, onTr
     }
   }, [replay?.nonce])
 
+  const compact = useIsMobile()
+
   return (
-    <div className="glass-card-solid" style={{ padding: 14, display: 'flex', gap: 14, flexWrap: 'wrap', height: 'calc(100vh - 210px)', minHeight: 560 }}>
-      <Roster agents={agents} selectedId={agentId} mode={mode} busyAgentId={busyAgentId}
+    <div className="glass-card-solid" style={{
+      padding: compact ? 10 : 14, display: 'flex', flexDirection: compact ? 'column' : 'row', gap: compact ? 10 : 14,
+      // Grows with the conversation (the page scrolls); the minimum keeps an empty chat full-height.
+      minHeight: compact ? 'calc(100dvh - 170px)' : 'calc(100dvh - 210px)',
+    }}>
+      <Roster agents={agents} selectedId={agentId} mode={mode} busyAgentId={busyAgentId} compact={compact}
         onSelect={(id) => { setAgentId(id); setMode('chat'); setChatDraft(null) }} onTeam={() => { setMode('team'); setTeamDraft(null) }} />
       {mode === 'team' ? (
         <TeamRunView temperature={temperature} approvalMode={approvalMode} onTrace={onTrace} onPlanRun={onPlanRun}
-          onRunComplete={onRunComplete} draft={teamDraft} onBusy={setBusyAgentId} />
+          onRunComplete={onRunComplete} draft={teamDraft} onBusy={setBusyAgentId} compact={compact} />
       ) : (
         <ChatView key={agentId} agentId={agentId} agents={agents} temperature={temperature} approvalMode={approvalMode}
-          onTrace={onTrace} onRunComplete={onRunComplete} applyPatch={applyPatch} draft={chatDraft} onBusy={setBusyAgentId} />
+          onTrace={onTrace} onRunComplete={onRunComplete} applyPatch={applyPatch} draft={chatDraft} onBusy={setBusyAgentId} compact={compact} />
       )}
     </div>
   )

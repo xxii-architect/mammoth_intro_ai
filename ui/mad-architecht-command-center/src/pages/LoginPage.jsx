@@ -313,7 +313,7 @@ export default function LoginPage() {
               Beta tester sign up can request broader safe visibility, but it only activates when that email is placed on the beta tester allowlist.
             </p>
             <p style={{ margin: 0 }}>
-              For now, the owner keeps Agent, Terminal, and Settings locked so testing stays safe. If something looks odd, start with Lessons or ATLAS Tutor, then use the Manual page for the fastest testing flow.
+              Agent opens on the Pro tier, and the owner keeps Terminal and Settings locked so testing stays safe. If something looks odd, start with Lessons or ATLAS Tutor, then use the Manual page for the fastest testing flow.
             </p>
           </div>
         </div>

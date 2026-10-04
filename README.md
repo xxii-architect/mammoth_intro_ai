@@ -562,6 +562,7 @@ The Agent page opens on a calm workspace instead of a console:
 - **Team run**: describe an objective, preview the plan (`POST /api/plan-execute` with `dry_run: true`), untick steps you don't want, then run the selected `step_ids`. Each step sees earlier results, and a final synthesis step returns one answer (`summary`). Every step expands to show its full output.
 - **Advanced**: creativity (temperature), "Preview file changes before applying", and **Classic console** (the original intent/payload console, unchanged).
 - The right-hand panel (runs, approvals, autonomous runs) stays as it was.
+- **Layout**: the workspace card grows with the conversation (the page scrolls, nothing is clipped). On desktop the roster stays pinned on the left and the composer stays docked at the bottom. On phones (under 768px) the roster becomes a swipeable chip bar, the side panels stack below, Enter inserts a new line (tap Send to send), and the app sidebar closes after you pick a page.
 
 Conversation history and earlier step results reach the model through a scoped **background channel** (`mammoth_os.llm_client.conversation_context`), never by rewriting the agent's prompt. Template-based agents (reflection, tutor flows) treat the prompt as a topic, so stuffing transcripts into it would leak them into the output.
 

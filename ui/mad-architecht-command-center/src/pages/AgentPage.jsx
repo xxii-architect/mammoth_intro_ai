@@ -13,6 +13,7 @@ import MammothEmpty from '../components/MammothEmpty'
 import AgentCommandLibrary from '../components/AgentCommandLibrary'
 import { normalizeCodingArtifact, normalizeResearchArtifact } from '../components/agent-workspace/artifacts'
 import AgentWorkspace from '../components/agent-workspace/AgentWorkspace'
+import useIsMobile from '../lib/useIsMobile'
 
 
 
@@ -187,6 +188,7 @@ export default function AgentPage({ setPage }) {
   const [lastRunMode, setLastRunMode] = useState('single')
   const [classicConsole, setClassicConsole] = useState(() => safeStorageGet('mammoth_agent_classic') === '1')
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const isMobile = useIsMobile()
   const [replayRequest, setReplayRequest] = useState(null)
 
   const refreshAgents = async () => {
@@ -688,7 +690,7 @@ export default function AgentPage({ setPage }) {
   }
 
   return (
-    <div className="page-enter" style={{ padding: 24 }}>
+    <div className="page-enter" style={{ padding: isMobile ? '12px 10px' : 24 }}>
       <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Bot size={20} color="var(--mm-color-agent-default, #d08a52)" /> Agents
         <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
@@ -910,7 +912,7 @@ export default function AgentPage({ setPage }) {
         </div>
         )}
 
-        <div style={{ width: 300, flexShrink: 0 }}>
+        <div style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { width: 300, flexShrink: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16 }}>
             <button onClick={() => setTraceOpen(o => !o)} style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: 0, marginBottom: traceOpen ? 12 : 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

@@ -7,6 +7,7 @@ import {
 
 import { useAuth, useIsAdminHost } from './lib/authContext'
 import { signOut } from './lib/supabase'
+import useIsMobile from './lib/useIsMobile'
 import { api } from './api/client'
 import RuntimeStatusBanner from './components/RuntimeStatusBanner'
 import NotificationsDropdown from './components/NotificationsDropdown'
@@ -803,7 +804,7 @@ export default function App() {
     }
   })
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768)
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768)
+  const isMobile = useIsMobile()
   const [adminAccess, setAdminAccess] = useState(null)
   const [entitlements, setEntitlements] = useState(null)
   const [backendWarning, setBackendWarning] = useState('')
@@ -819,6 +820,8 @@ export default function App() {
   const betaTesterAccess = fallbackBetaTesterFromEmail
   const canAccessProjectTools = isAdminHost || adminAccess === true
   const visibleNav = compactNavSections(NAV)
+
+  useEffect(() => { setSidebarOpen(!isMobile) }, [isMobile])
 
   useEffect(() => {
     if (onboardingLoading) return
@@ -972,7 +975,7 @@ export default function App() {
             return (
               <button
                 key={id}
-                onClick={() => setPage(id)}
+                onClick={() => { setPage(id); if (isMobile) setSidebarOpen(false) }}
                 style={{
                   width: '100%', display: 'flex', alignItems: 'center', gap: 9,
                   padding: '7px 16px', border: 'none', cursor: 'pointer', textAlign: 'left',
@@ -1026,23 +1029,23 @@ export default function App() {
 
       {/* Main Content */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ padding: isMobile ? '10px' : '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4 }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-sec)', fontSize: '1rem', padding: 4, flexShrink: 0 }}
             title="Toggle sidebar"
           >
             <PanelLeft size={18} />
           </button>
-          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--txt-pri)' }}>
+          <span style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--txt-pri)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {NAV.find(n => n.id === page)?.label || 'MammothOS'}
           </span>
-          {canAccessProjectTools && (
+          {canAccessProjectTools && !isMobile && (
             <span style={{ marginLeft: 'auto', fontSize: '0.66rem', color: '#b47cff', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               {isAdminHost ? 'Admin View' : 'Operator Access'}
             </span>
           )}
-          <div style={{ marginLeft: canAccessProjectTools ? 8 : 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ marginLeft: canAccessProjectTools && !isMobile ? 8 : 'auto', display: 'flex', alignItems: 'center', gap: isMobile ? 6 : 8, flexShrink: 0 }}>
             <MammothMindPill currentPage={page} isMobile={isMobile} setPage={setPage} />
             <RuntimeStatusBanner title="MammothOS runtime" header mobile={isMobile} />
             <NotificationsDropdown />
