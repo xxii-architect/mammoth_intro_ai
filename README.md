@@ -532,6 +532,21 @@ UI: http://localhost:5173
 
 System health only checks the Vite dev server when auth is off (local dev), using `MAMMOTH_DEV_SERVER_PORT` (default 5173). A stopped dev server shows as a warning and never blocks the runtime health gate; production does not report it at all.
 
+### Backend layout
+
+`api_server.py` is still the single entrypoint (`uvicorn api_server:app`). It holds app setup, middleware helpers, auth/access helpers, and shared state. The HTTP route handlers live in [`server_routes/`](server_routes/), grouped by feature:
+
+| File | Routes |
+| --- | --- |
+| `runtime_routes.py` | auth middleware, `/api/run`, `/api/plan`, `/api/plan-execute`, health/status, tasks, activity, approvals, snapshots, observability, terminal, memory, flashcards |
+| `atlas_routes.py` | `/api/atlas/*` tutor flows and `/agent/atlas/run` |
+| `mammoth_routes.py` | `/api/mammoth/*` chat, threads, files, repo sources, agent runs |
+| `team_routes.py` | `/api/team/*` workflow templates, approval policies, runbooks |
+| `workspace_routes.py` | workspace artifacts/run history, notes, build log, notifications, onboarding, beta feedback, sales log |
+| `governance_routes.py` | modules, MCP, RAG context, audit, operator health, entitlements, billing, account, DOCX downloads |
+
+These files are loaded into `api_server`'s own namespace at import time, so `api_server.run_agent` and other handlers stay importable and monkeypatchable from tests. They are not standalone modules: put shared helpers in `api_server.py` (or a real `mammoth_os` module) and only route handlers in `server_routes/`.
+
 ## Audit export
 
 - Backend audit API: `GET /api/audit`
