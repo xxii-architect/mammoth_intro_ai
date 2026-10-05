@@ -70,6 +70,7 @@ Use this file when wiring or extending MammothOS agents.
 - Agents that execute on or write to the backend host belong in `_PRIVILEGED_AGENT_IDS` in `api_server.py`.
 - Shared agents that *can* touch the host get a server-forced sandbox flag in `run_agent`, not a caller-supplied one:
   - CodingAgent: `host_access`.
+  - SearchAgent: `host_access` (workspace/codebase search is owner/admin-only).
   - BrowserAgent: `allow_private_network` and `session_scope`.
   Any new agent that reads host files or fetches arbitrary URLs must follow the same pattern and add tests to `tests/test_agent_sandbox.py`.
 - Pass user text to git after `-e` / `--` so it cannot be parsed as an option.
@@ -78,6 +79,8 @@ Use this file when wiring or extending MammothOS agents.
 - `src/mammoth_os/agent_loop/` owns the Mammoth Mind run loop. Its event contract is `mammoth.run.v1`; add new event types without changing existing payload fields.
 - Register tools through `ToolRegistry` with an honest tier: `read`, `network`, `write` (proposal-only), `exec` (approval required). Set `admin_only` / `needs_repo` instead of checking access inside the handler.
 - Repo tools must go through `safe_repo_path` and receive the root from `_agent_tool_context` (which uses the repo access policy).
+- Other surfaces reuse the loop instead of forking it. The Agent page's Coding lane posts `/api/mammoth/runs` with `surface: "agent_workspace"`, a `task` key, and its own `history`. Task briefs live server-side in `_AGENT_TASK_BRIEFS`; clients pick a key and never send instruction text. Agent-page runs are not written to Mammoth Mind's chat history.
+- Never hand the MCP filesystem/git servers to a shared agent. Shared agents get repo access only through the policy-checked built-in repo tools.
 - Every `mcp/*.json` declares `access: admin|tenant`. Admin repo-category servers are only offered with platform scope. Never expose `git_push`.
 - Reasoning events carry short model-written summaries only. Do not fabricate progress (for example, marking plan steps done that were never verified).
 

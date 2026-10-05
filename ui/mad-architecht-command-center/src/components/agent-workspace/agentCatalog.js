@@ -131,3 +131,24 @@ export function parseMention(text) {
   const entry = CATALOG_BY_HANDLE[match[1].toLowerCase()]
   return entry ? { agent: entry, text: match[2].trim() } : null
 }
+
+// Coding tasks that cannot be done honestly without the real file contents.
+export const REPO_GROUNDED_INTENTS = new Set(['patch_existing', 'refactor_code', 'analyze_codebase'])
+
+export function looksLikePastedCode(text) {
+  const value = String(text || '')
+  return value.includes('```') || value.split('\n').filter(line => line.trim()).length >= 4
+}
+
+/**
+ * How a message to an agent is executed:
+ * - 'loop': Coding agent with a repository selected → Mammoth Mind agent loop (reads files, proposes diffs).
+ * - 'needs_repo': a repo-grounded Coding task with neither a repository nor pasted code → ask, don't guess.
+ * - 'run': everything else → the agent's own /api/run path.
+ */
+export function codingRoute({ agentId, intent, repo, prompt }) {
+  if (agentId !== 'coding_agent') return 'run'
+  if (repo) return 'loop'
+  if (REPO_GROUNDED_INTENTS.has(intent) && !looksLikePastedCode(prompt)) return 'needs_repo'
+  return 'run'
+}

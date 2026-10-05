@@ -44,7 +44,8 @@ Enforced server-side in `src/mammoth_os/repo_access.py` (not by UI hiding):
 - **Guide uses published docs.** `/guide` answers from `docs/public/` + product guides, not live source.
 - **Host-executing agents are admin-only** (shell, filesystem, deploy, build, executor, ui_builder, database, custodial), including the `/agent/*` HTTP routes.
 - **Shared agents are sandboxed for non-admins.** The server forces these flags on every run, overriding anything the caller sends:
-  - CodingAgent (`host_access=false`): no host file reads, no codebase scans, no host test runs, no shared vector-store lookups. It only works on code the caller pastes.
+  - CodingAgent (`host_access=false`): no host file reads, no codebase scans, no host test runs, no shared vector-store lookups. On `/api/run` it only works on code the caller pastes. For real files, use a connected repository (see Agent Workspace → Coding with a repository).
+  - SearchAgent (`host_access=false`): no workspace/codebase search of the host. Only the owner/admin can search the platform source.
   - BrowserAgent (`allow_private_network=false`): only public http(s) addresses, checked on every redirect hop. No loopback, LAN, or cloud-metadata addresses, and no Lighthouse/Playwright subprocesses.
   - BrowserAgent (`session_scope`): browser sessions and replays are scoped per user.
 - Production must run with `MAMMOTH_REQUIRE_AUTH=1`; with auth off every request is treated as the local owner.
@@ -577,6 +578,7 @@ The Agent page opens on a calm workspace instead of a console:
 - **Agent chats**: each agent keeps its own thread (stored locally, last 30 messages). Follow-ups send the last 8 turns as `payload.history`, so the agent remembers the conversation. Start a message with `@reflection`, `@coding`, `@research`, etc. to send that message, with the thread's context, to another agent.
 - **Team run**: describe an objective, preview the plan (`POST /api/plan-execute` with `dry_run: true`), untick steps you don't want, then run the selected `step_ids`. Each step sees earlier results, and a final synthesis step returns one answer (`summary`). Every step expands to show its full output.
 - **Advanced**: creativity (temperature), "Preview file changes before applying", and **Classic console** (the original intent/payload console, unchanged).
+- **Coding with a repository**: the Coding agent's header has a repository picker. It shares Mammoth Mind's selection, and the platform repo is listed only for the owner. With a repository picked, coding requests run through the Mammoth Mind agent loop (`POST /api/mammoth/runs`, `surface: "agent_workspace"`, `task: <intent>`). The agent lists, reads, and searches the real files, shows its run timeline, and returns proposed diffs (user repos also get a local branch + patch). Nothing is applied or pushed. With "Preview file changes" on, every non-read tool waits for Approve/Reject. **Stop** cancels a running request. Patch / Refactor / Review with no repository and no pasted code asks you to pick one instead of guessing.
 - The right-hand panel (runs, approvals, autonomous runs) stays as it was.
 - **Layout**: the workspace card grows with the conversation (the page scrolls, nothing is clipped). On desktop the roster stays pinned on the left and the composer stays docked at the bottom. On phones (under 768px) the roster becomes a swipeable chip bar, the side panels stack below, Enter inserts a new line (tap Send to send), and the app sidebar closes after you pick a page.
 

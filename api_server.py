@@ -6650,6 +6650,57 @@ def _agent_history_text(user_id: str, account_id: str, limit: int = 6) -> str:
     return "\n".join(f"{item.get('role', 'unknown')}: {str(item.get('message') or '')[:500]}" for item in items)
 
 
+AGENT_RUN_SURFACES = {"mind", "agent_workspace"}
+
+# Server-owned task briefs for the Agent page's Coding lane. Clients pick a key; they never
+# supply instruction text, so a run cannot be re-prompted through this field.
+_AGENT_TASK_BRIEFS: Dict[str, str] = {
+    "generate_code": (
+        "Task: write new code. If a repository is connected, read neighbouring files first so the code matches "
+        "existing conventions, then propose new or changed files with repo_propose_patch."
+    ),
+    "patch_existing": (
+        "Task: patch existing files. Find and read the relevant files with the repo tools before changing anything. "
+        "Propose small exact edits with repo_propose_patch. Never guess file contents you have not read."
+    ),
+    "refactor_code": (
+        "Task: refactor. Read the target code and its callers first, keep behaviour identical, and propose the "
+        "change with repo_propose_patch. Call out anything that could change behaviour."
+    ),
+    "analyze_codebase": (
+        "Task: review code. Read the relevant files and report concrete risks with file paths and line numbers. "
+        "Do not propose patches unless the user asks for them."
+    ),
+    "run_tests": (
+        "Task: write a validation plan. Read the changed area and the existing tests, then list the exact checks "
+        "and test cases to run. Do not claim tests were executed."
+    ),
+    "write_docs": (
+        "Task: write documentation. Read the code being documented so every statement is accurate; propose doc "
+        "files with repo_propose_patch when a repository is connected."
+    ),
+}
+
+
+def _agent_task_brief(task: Any) -> str:
+    return _AGENT_TASK_BRIEFS.get(str(task or "").strip().lower(), "")
+
+
+def _client_history_text(history: Any, *, turns: int = 8, chars: int = 800) -> str:
+    """Conversation turns supplied by a client surface (the Agent page keeps its own threads)."""
+    if not isinstance(history, list):
+        return ""
+    lines: List[str] = []
+    for item in history[-turns:]:
+        if not isinstance(item, dict):
+            continue
+        role = "user" if str(item.get("role") or "") == "user" else "assistant"
+        text = str(item.get("text") or item.get("message") or "").strip()
+        if text:
+            lines.append(f"{role}: {text[:chars]}")
+    return "\n".join(lines)
+
+
 def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
     state = _load_atlas_state()
     account_id = _active_account_id(state)
@@ -6679,7 +6730,8 @@ def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "") -> Str
     async def event_stream():
         async for event in events_iter:
             yield event.to_sse()
-            if event.type == "run.completed":
+            # Agent-page runs live in that page's own threads, not Mammoth Mind's chat history.
+            if event.type == "run.completed" and run.request.get("surface") != "agent_workspace":
                 try:
                     _persist_agent_run_exchange(run, thread_id=thread_id)
                 except Exception:

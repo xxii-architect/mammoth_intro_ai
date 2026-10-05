@@ -4,11 +4,11 @@ import { api } from '../api/client'
 
 const ACTIVE_KEY = (userId) => `mammoth_active_repo_source:${userId}`
 
-function readActive(userId) {
+export function readActive(userId) {
   try { return window.localStorage.getItem(ACTIVE_KEY(userId)) || '' } catch { return '' }
 }
 
-function writeActive(userId, value) {
+export function writeActive(userId, value) {
   try {
     if (value) window.localStorage.setItem(ACTIVE_KEY(userId), value)
     else window.localStorage.removeItem(ACTIVE_KEY(userId))

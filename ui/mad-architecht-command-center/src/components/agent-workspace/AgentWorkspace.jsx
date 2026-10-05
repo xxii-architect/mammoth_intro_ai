@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Send, Loader, Users, MessageSquare, Eye, EyeOff, CornerUpRight, Trash2, Check } from 'lucide-react'
+import { Send, Loader, Users, MessageSquare, Eye, EyeOff, CornerUpRight, Trash2, Check, Square } from 'lucide-react'
 import { api } from '../../api/client'
+import { useAuth } from '../../lib/authContext'
+import { startAgentRun, resolveRunApproval, cancelAgentRun, reduceRunEvent } from '../../lib/agentRuns'
+import RunTimeline from '../RunTimeline'
+import ChatMessageBody from '../ChatMessageBody'
 import { StepOutput, artifactSections } from '../PlanExecuteResultPanel'
 import PlanExecuteResultPanel from '../PlanExecuteResultPanel'
 import ResearchArtifactPanel from '../ResearchArtifactPanel'
 import CodingArtifactPanel from '../CodingArtifactPanel'
+import RepoPicker from './RepoPicker'
 import { normalizeCodingArtifact, normalizeResearchArtifact } from './artifacts'
-import { AGENT_CATALOG, CATALOG_BY_ID, TEAM_FITS, agentDisplay, agentStatusLabel, parseMention } from './agentCatalog'
+import { AGENT_CATALOG, CATALOG_BY_ID, TEAM_FITS, agentDisplay, agentStatusLabel, parseMention, codingRoute } from './agentCatalog'
 import useIsMobile from '../../lib/useIsMobile'
 
 // Calm palette: neutral surfaces, one warm accent (same token as Mammoth Mind's agent toggle).
@@ -24,13 +29,32 @@ const MAX_STORED_ARTIFACT_CHARS = 40000
 // Keeps auto-scrolled messages clear of the sticky composer and the page header.
 const SCROLL_MARGIN = { scrollMarginTop: 16, scrollMarginBottom: 180 }
 
+const FINISHED_RUN = new Set(['completed', 'failed', 'cancelled'])
+
 function loadThreads() {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(THREADS_KEY) || '{}')
-    return parsed && typeof parsed === 'object' ? parsed : {}
+    if (!parsed || typeof parsed !== 'object') return {}
+    // A run that was still streaming when the page closed cannot resume its stream.
+    for (const messages of Object.values(parsed)) {
+      if (!Array.isArray(messages)) continue
+      for (const message of messages) {
+        if (message?.run && !FINISHED_RUN.has(message.run.status)) {
+          message.run = { ...message.run, status: 'cancelled', approval: null }
+        }
+      }
+    }
+    return parsed
   } catch {
     return {}
   }
+}
+
+function slimRun(run) {
+  if (!run || JSON.stringify(run).length <= MAX_STORED_ARTIFACT_CHARS) return run
+  // Keep the outcome (reply, plan, proposed diffs); drop bulky tool observations.
+  const events = (run.events || []).filter(event => event?.type === 'diff.proposed').slice(-3)
+  return { ...run, events }
 }
 
 function saveThreads(threads) {
@@ -41,7 +65,8 @@ function saveThreads(threads) {
         const rawSize = message.raw ? JSON.stringify(message.raw).length : 0
         const rest = rawSize > MAX_STORED_ARTIFACT_CHARS ? { ...message, raw: undefined } : message
         const size = rest.artifact ? JSON.stringify(rest.artifact).length : 0
-        return size > MAX_STORED_ARTIFACT_CHARS ? { ...rest, artifact: rest.text } : rest
+        const trimmed = size > MAX_STORED_ARTIFACT_CHARS ? { ...rest, artifact: rest.text } : rest
+        return trimmed.run ? { ...trimmed, run: slimRun(trimmed.run) } : trimmed
       })
     }
     window.localStorage.setItem(THREADS_KEY, JSON.stringify(slim))
@@ -160,15 +185,27 @@ function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compa
   )
 }
 
-function AgentMessage({ message, onHandoff, onApplyPatch, applying }) {
+function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecision, runBusy }) {
   const [showRaw, setShowRaw] = useState(false)
   const entry = agentDisplay(message.agent_id)
   const research = message.agent_id === 'research_agent' && message.raw ? normalizeResearchArtifact(message.raw) : null
   const coding = message.agent_id === 'coding_agent' && message.raw ? normalizeCodingArtifact(message.raw) : null
   if (coding && message.patchApplied) coding.applied = true
+  const run = message.run
+  const settled = message.status === 'ok' || run?.status === 'completed'
 
   let body
-  if (message.status === 'pending') {
+  if (run) {
+    body = (
+      <>
+        <RunTimeline run={run} busy={runBusy && run.status !== 'awaiting_approval'}
+          onApprove={() => onRunDecision?.(message, 'approve')} onReject={() => onRunDecision?.(message, 'reject')} />
+        {run.reply ? <ChatMessageBody text={run.reply} /> : null}
+      </>
+    )
+  } else if (message.status === 'notice') {
+    body = <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>{message.text}</p>
+  } else if (message.status === 'pending') {
     body = (
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt-sec)', fontSize: '0.8rem' }}>
         <Loader size={13} color={GOLD} style={{ animation: 'spin 1s linear infinite' }} /> Working on it…
@@ -201,8 +238,9 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying }) {
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: '0.74rem', fontWeight: 600, color: GOLD }}>{entry.name}</span>
         {message.task && <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>· {message.task}</span>}
+        {message.repo && <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>· {message.repo}</span>}
         {message.duration_ms ? <span style={{ fontSize: '0.66rem', color: 'var(--txt-mut)', fontFamily: 'var(--mm-font-mono, monospace)' }}>· {(message.duration_ms / 1000).toFixed(1)}s</span> : null}
-        {message.status === 'ok' && (
+        {settled && (
           <span style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
             {message.raw && (
               <button onClick={() => setShowRaw(open => !open)} style={ghostButton} aria-pressed={showRaw}>
@@ -222,11 +260,17 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying }) {
 
 function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy, compact }) {
   const entry = agentDisplay(agentId, agents.find(agent => agent.id === agentId))
+  const { user } = useAuth()
   const [threads, setThreads] = useState(loadThreads)
   const [taskIntent, setTaskIntent] = useState(entry.tasks[0]?.intent || '')
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [applying, setApplying] = useState(false)
+  const [repo, setRepo] = useState('')
+  const [repoLabel, setRepoLabel] = useState('')
+  const [runActive, setRunActive] = useState(false)
+  const runControllerRef = useRef(null)
+  const activeRunIdRef = useRef('')
   const listRef = useRef(null)
   const inputRef = useRef(null)
   const messages = threads[agentId] || []
@@ -256,6 +300,59 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   }, [messages.length, sending])
 
   const updateThread = (fn) => setThreads(prev => ({ ...prev, [agentId]: fn(prev[agentId] || []).slice(-THREAD_LIMIT) }))
+  const replaceMessage = (id, fn) => updateThread(prev => prev.map(message => (message.id === id ? fn(message) : message)))
+
+  // Streams a Mammoth Mind agent-loop run (start or approval resume) into one thread message.
+  const streamRun = async (messageId, targetId, invoke, meta = {}) => {
+    const controller = new AbortController()
+    runControllerRef.current = controller
+    setRunActive(true)
+    setSending(true)
+    onBusy?.(targetId)
+    const started = performance.now()
+    const onEvent = (event) => {
+      if (event?.run_id) activeRunIdRef.current = event.run_id
+      replaceMessage(messageId, message => {
+        const run = reduceRunEvent(message.run, event)
+        return { ...message, run, text: run.reply || message.text || '' }
+      })
+    }
+    try {
+      await invoke(controller.signal, onEvent)
+    } catch (error) {
+      const aborted = error?.name === 'AbortError'
+      replaceMessage(messageId, message => ({
+        ...message,
+        run: { ...(message.run || {}), status: aborted ? 'cancelled' : 'failed', error: aborted ? '' : (error?.message || 'Run failed'), approval: null },
+      }))
+    } finally {
+      replaceMessage(messageId, message => ({
+        ...message,
+        duration_ms: (message.duration_ms || 0) + Math.round(performance.now() - started),
+        run: message.run?.status === 'running' ? { ...message.run, status: 'cancelled' } : message.run,
+      }))
+      runControllerRef.current = null
+      activeRunIdRef.current = ''
+      setRunActive(false)
+      setSending(false)
+      onBusy?.('')
+      onRunComplete?.({ res: null, prompt: meta.prompt, agentId: targetId, intent: meta.intent })
+    }
+  }
+
+  const decideRun = (message, decision) => {
+    const run = message.run
+    if (!run?.id || !run.approval?.id || sending) return
+    streamRun(message.id, message.agent_id, (signal, onEvent) => resolveRunApproval(run.id, run.approval.id, decision, { signal, onEvent }))
+  }
+
+  const stopRun = async () => {
+    const runId = activeRunIdRef.current
+    runControllerRef.current?.abort()
+    if (runId) await cancelAgentRun(runId)
+  }
+
+  useEffect(() => () => runControllerRef.current?.abort(), [])
 
   const mentionQuery = /^@([a-z_]*)$/i.exec(text.trim())?.[1]
   const mentionOptions = mentionQuery !== undefined
@@ -271,11 +368,37 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
     const intent = mention ? (target.tasks[0]?.intent || '') : (task?.intent || '')
     const taskLabel = mention ? (target.tasks[0]?.label || '') : (task?.label || '')
     const history = messages
-      .filter(message => (message.role === 'user' || message.status === 'ok') && message.text)
+      .filter(message => (message.role === 'user' || message.status === 'ok' || message.run?.status === 'completed') && message.text)
       .slice(-HISTORY_TURNS)
       .map(message => ({ role: message.role, agent_id: message.agent_id, text: message.text }))
     const userMessage = { id: `u-${Date.now()}`, role: 'user', text: prompt, mention: mention ? target.name : '', task: taskLabel, ts: new Date().toISOString() }
     const pendingId = `a-${Date.now()}`
+    const route = codingRoute({ agentId: target.id, intent, repo, prompt })
+    if (route === 'needs_repo') {
+      updateThread(prev => [...prev, userMessage, {
+        id: pendingId, role: 'agent', agent_id: target.id, status: 'notice', task: taskLabel,
+        text: 'Pick a repository above so I can read the real files first, or paste the code you want changed. I won\'t guess at file contents I haven\'t seen.',
+      }])
+      setText('')
+      return
+    }
+    if (route === 'loop') {
+      updateThread(prev => [...prev, userMessage, {
+        id: pendingId, role: 'agent', agent_id: target.id, status: 'run', task: taskLabel, repo: repoLabel, text: '',
+        run: { status: 'running', events: [], plan: [], approval: null, reply: '' },
+      }])
+      setText('')
+      await streamRun(pendingId, target.id, (signal, onEvent) => startAgentRun({
+        message: prompt,
+        agent_id: target.id,
+        surface: 'agent_workspace',
+        task: intent,
+        history,
+        approval_mode: approvalMode ? 'always' : 'tools',
+        repo_context: { root: repo },
+      }, { signal, onEvent }), { prompt, intent })
+      return
+    }
     updateThread(prev => [...prev, userMessage, { id: pendingId, role: 'agent', agent_id: target.id, status: 'pending', task: taskLabel }])
     setText('')
     setSending(true)
@@ -343,6 +466,11 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: '0.92rem', fontWeight: 600, color: 'var(--txt-pri)' }}>{entry.name}</div>
           <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginTop: 2 }}>{entry.blurb}</div>
+          {agentId === 'coding_agent' && (
+            <div style={{ marginTop: 6 }}>
+              <RepoPicker userId={user?.id || 'local'} value={repo} onChange={(value, label) => { setRepo(value); setRepoLabel(label) }} />
+            </div>
+          )}
         </div>
         {messages.length > 0 && (
           <button onClick={() => setThreads(prev => ({ ...prev, [agentId]: [] }))} style={ghostButton} title="Start a fresh conversation">
@@ -368,6 +496,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
           </div>
         ) : (
           <AgentMessage key={message.id || index} message={message} applying={applying} onApplyPatch={handleApply}
+            onRunDecision={decideRun} runBusy={sending}
             onHandoff={() => { setText('@'); inputRef.current?.focus() }} />
         ))}
       </div>
@@ -401,9 +530,15 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
             rows={2}
             style={{ flex: 1, minWidth: 0, resize: 'vertical', minHeight: 44, maxHeight: 200, background: SUNKEN, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', fontSize: compact ? 16 : '0.84rem', color: 'var(--txt-pri)', fontFamily: 'inherit', lineHeight: 1.5 }}
           />
-          <button onClick={send} disabled={sending || !text.trim()} style={primaryButton(sending || !text.trim())} aria-label="Send">
-            {sending ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
-          </button>
+          {runActive ? (
+            <button onClick={stopRun} style={primaryButton(false)} aria-label="Stop run" title="Stop this run">
+              <Square size={13} />
+            </button>
+          ) : (
+            <button onClick={send} disabled={sending || !text.trim()} style={primaryButton(sending || !text.trim())} aria-label="Send">
+              {sending ? <Loader size={14} style={{ animation: 'spin 1s linear infinite' }} /> : <Send size={14} />}
+            </button>
+          )}
         </div>
         {(!compact || approvalMode) && (
           <div style={{ fontSize: '0.64rem', color: 'var(--txt-mut)', marginTop: 5 }}>

@@ -282,6 +282,13 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
     user_id = ctx.user_id
     account_id = _active_account_id(_load_atlas_state())
     approval_mode = str(body.get("approval_mode") or "tools").lower()
+    surface = str(body.get("surface") or "mind").strip().lower()
+    surface = surface if surface in AGENT_RUN_SURFACES else "mind"
+    history_text = (
+        _client_history_text(body.get("history"))
+        if surface == "agent_workspace"
+        else _agent_history_text(user_id, account_id)
+    )
     run = AgentRun(
         id=AgentRun.new_id(),
         user_id=user_id,
@@ -290,8 +297,10 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
         request={
             "repo_context": {"root": (body.get("repo_context") or {}).get("root")} if isinstance(body.get("repo_context"), dict) else None,
             "approval_mode": approval_mode if approval_mode in {"tools", "always"} else "tools",
-            "history_text": _agent_history_text(user_id, account_id),
-            "thread_id": str(body.get("thread_id") or "")[:80],
+            "history_text": history_text,
+            "thread_id": str(body.get("thread_id") or "")[:80] if surface == "mind" else "",
+            "surface": surface,
+            "extra_context": _agent_task_brief(body.get("task")),
         },
     )
     return _agent_run_stream(run, _AGENT_RUNNER.start(run, ctx), thread_id=run.request["thread_id"])
