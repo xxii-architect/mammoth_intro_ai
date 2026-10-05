@@ -106,6 +106,20 @@ Rules the loop enforces:
 - **SearchAgent** includes web results by default. Pass `allow_web: false` to skip them. With no key it returns no web results and adds the `web_search_not_configured` flag instead of a placeholder.
 - Bounds: 8 s timeout, a 10-minute cache (128 queries), at least 1 s between upstream calls, and the daily cap. Errors are coded `not_configured`, `empty_query`, `daily_limit`, `rate_limited`, `auth_failed`, `provider_error`, or `unreachable`. Keys never appear in results or errors.
 
+## Weather (`mammoth.weather.v1`)
+
+`src/mammoth_os/weather.py` wraps [Open-Meteo](https://open-meteo.com) (stdlib only). It handles geocoding, current conditions, a forecast of up to 7 days, and fixed-threshold hazard flags. Hazards cover thunderstorms, freezing precipitation, snow, fog, gusts of 35 mph or more, heat of 95 °F or more, cold of 20 °F or less, heavy precipitation, and UV of 8 or higher. No model is involved.
+
+| Env var | Purpose |
+| --- | --- |
+| `OPEN_METEO_API_KEY` | **Required for commercial use.** Open-Meteo's free API is non-commercial only. Setting a key switches to the customer endpoints. |
+| `MAMMOTH_WEATHER_UNITS` | `imperial` (default) or `metric` |
+| `MAMMOTH_WEATHER_ENABLED` | `0` turns weather off everywhere |
+
+- **Field Ops** looks up weather only when the request names a place. That means a `location` field, `latitude`/`longitude`, or a capitalized place after "in / near / at / around" (for example "near Stanley, Idaho"). It never geocodes common words like "forest". The forecast is given to the model, weather hazards count toward `risk_level` and `safety_notes`, and the result carries `forecast` and `weather` (or a coded error with the `weather_unavailable` flag). A failed lookup never fails the mission.
+- **Agent mode** gets a network-tier `weather_forecast` tool.
+- Results are cached for 15 minutes. Every result carries the CC BY 4.0 attribution "Weather data by Open-Meteo.com", and it is shown wherever the forecast is.
+
 ## Reply ratings (`mammoth.feedback.v1`)
 
 Every stored Mammoth Mind reply shows 👍 / 👎 next to Copy. Clicking the active thumb again clears it, and a thumbs-down can add an optional reason (`incorrect`, `incomplete`, `off_topic`, `unsafe`, `formatting`, `too_long`, `other`) and a short comment.

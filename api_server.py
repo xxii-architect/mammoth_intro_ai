@@ -6579,7 +6579,23 @@ async def _agent_tool_web_search(query: str, ctx: ToolContext) -> Dict[str, Any]
     return {"status": "ok", "provider": result.get("provider"), "results": result.get("results") or []}
 
 
+async def _agent_tool_weather(query: str, ctx: ToolContext) -> Dict[str, Any]:
+    from mammoth_os.weather import summarize_forecast, weather_forecast
+
+    result = await asyncio.to_thread(weather_forecast, query, days=3)
+    if result.get("status") != "ok":
+        return {"status": "error", "code": result.get("code"), "error": result.get("error") or "Weather lookup failed."}
+    return {
+        "status": "ok",
+        "location": result.get("location"),
+        "summary": summarize_forecast(result),
+        "hazards": result.get("hazards") or [],
+        "attribution": result.get("attribution"),
+    }
+
+
 def _build_agent_tool_registry() -> "tuple[ToolRegistry, MCPBridge]":
+    from mammoth_os.weather import weather_enabled
     from mammoth_os.web_search import default_web_search
 
     registry = ToolRegistry()
@@ -6593,6 +6609,15 @@ def _build_agent_tool_registry() -> "tuple[ToolRegistry, MCPBridge]":
             tier=TIER_NETWORK,
             trace_kind="searched",
             handler=_agent_tool_web_search,
+        )
+    if weather_enabled():
+        register_query_tool(
+            registry,
+            name="weather_forecast",
+            description="Current conditions, a 3-day forecast, and hazard flags for a place name (e.g. 'Stanley, Idaho').",
+            tier=TIER_NETWORK,
+            trace_kind="searched",
+            handler=_agent_tool_weather,
         )
     register_query_tool(
         registry,

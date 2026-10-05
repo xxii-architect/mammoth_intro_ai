@@ -166,6 +166,10 @@ const agentRunRules = [
     title: 'Live web search',
     body: 'When the server has a Brave or Tavily key, Agent mode gets a web_search tool, and Research and Search use the same provider before falling back to the free scrapers. Without a key, results say so plainly. Nothing is faked.',
   },
+  {
+    title: 'Live weather',
+    body: 'Name a place ("near Stanley, Idaho") and Field Ops adds a live Open-Meteo forecast. Weather hazards raise the risk level and appear in the safety notes. Agent mode also has a weather_forecast tool.',
+  },
 ]
 
 const safetyRules = [

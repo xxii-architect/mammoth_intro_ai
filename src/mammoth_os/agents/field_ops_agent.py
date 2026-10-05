@@ -98,14 +98,41 @@ class FieldOpsAgent(BaseAgent):
             payload["prompt"] = str(target or "").strip()
         return {**self.run(payload), "action": action_type, "target": target}
 
+    async def _lookup_weather(self, prompt_text: str, context: Dict[str, Any]) -> Dict[str, Any] | None:
+        """Live forecast only when the request names a place or coordinates; never guessed."""
+        from mammoth_os.weather import default_weather, extract_place, weather_enabled
+
+        if context.get("include_weather") is False or not weather_enabled():
+            return None
+        lat, lon = context.get("latitude"), context.get("longitude")
+        place = str(context.get("location") or context.get("place") or "").strip() or None
+        if place is None and (lat is None or lon is None):
+            place = extract_place(prompt_text)
+        if place is None and (lat is None or lon is None):
+            return None
+        try:
+            if place is not None:
+                return await asyncio.to_thread(default_weather().forecast, place, days=3)
+            return await asyncio.to_thread(default_weather().forecast, None, latitude=float(lat), longitude=float(lon), days=3)
+        except Exception as exc:  # weather is supplementary; never fail the mission over it
+            logger.warning(f"FieldOpsAgent weather lookup failed: {exc}")
+            return {"status": "error", "code": "unreachable", "error": "Weather provider could not be reached."}
+
     async def _generate_intel(
         self, prompt_text: str, context: Dict[str, Any]
     ) -> Dict[str, Any]:
         from mammoth_os.llm_client import get_llm_client
+        from mammoth_os.weather import summarize_forecast
+
         client = get_llm_client()
+        weather = await self._lookup_weather(prompt_text, context)
+        weather_ok = bool(weather and weather.get("status") == "ok")
+        llm_context = {k: v for k, v in context.items() if k not in {"latitude", "longitude", "include_weather"}}
         context_block = ""
-        if context:
-            context_block = f"\n\nAdditional context provided:\n{json.dumps(context, indent=2)}"
+        if llm_context:
+            context_block = f"\n\nAdditional context provided:\n{json.dumps(llm_context, indent=2, default=str)}"
+        if weather_ok:
+            context_block += f"\n\nLive forecast (use it; do not invent other weather):\n{summarize_forecast(weather)}"
         user_message = f"Field ops query: {prompt_text}{context_block}"
         raw = await client.generate(
             user_message,
@@ -119,10 +146,15 @@ class FieldOpsAgent(BaseAgent):
         environment = str(context.get("environment") or "unspecified")
         difficulty = str(context.get("difficulty") or self._extract_difficulty(prompt_text) or "medium").lower()
         hazards = context.get("hazards") if isinstance(context.get("hazards"), list) else []
-        risk_level = "high" if difficulty == "hard" or len(hazards) >= 2 else "medium" if hazards else "low"
+        weather_hazards = list(weather.get("hazards") or []) if weather_ok else []
+        hazard_count = len(hazards) + len(weather_hazards)
+        risk_level = "high" if difficulty == "hard" or hazard_count >= 2 else "medium" if hazard_count else "low"
         equipment = ["map", "compass"] if "navigat" in topic.lower() else []
         safety_notes = [f"Hazard control: {hazard}." for hazard in hazards]
+        safety_notes.extend(f"Weather hazard: {hazard}" for hazard in weather_hazards)
         abort_conditions = [f"Abort if {hazard} makes the route unsafe." for hazard in hazards]
+        if weather_hazards:
+            abort_conditions.append("Abort or reschedule if forecast weather hazards arrive earlier or stronger than expected.")
         if risk_level == "high" and not abort_conditions:
             abort_conditions.append("Abort if conditions exceed training or visibility limits.")
         mission = f"Complete a {difficulty} {topic} mission in {environment}. Confirm a bearing and report route status."
@@ -130,6 +162,11 @@ class FieldOpsAgent(BaseAgent):
             min(0.95, 0.65 + len(priorities) * 0.06 + (0.05 if parsed.get("immediate_win") else 0)),
             2,
         )
+        quality_flags = ["llm_synthesized", "business_context_aware", "prompt_responsive"]
+        if weather_ok:
+            quality_flags.append("live_weather")
+        elif weather is not None:
+            quality_flags.append("weather_unavailable")
         return {
             "status": "ok",
             "agent": self.name,
@@ -154,13 +191,19 @@ class FieldOpsAgent(BaseAgent):
             "blockers": parsed.get("blockers", []),
             "risks": parsed.get("risks", []),
             "operator_note": parsed.get("operator_note", ""),
+            "weather": weather if weather_ok else ({"status": weather.get("status"), "code": weather.get("code"), "error": weather.get("error")} if weather else None),
+            "forecast": [
+                line[2:] if line.startswith("- ") else line
+                for line in summarize_forecast(weather).splitlines()
+                if not line.startswith("- Hazard:")
+            ] if weather_ok else [],
             "confidence": confidence,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "summary": (
                 f"Field ops intel: {len(priorities)} prioritized actions — "
                 f"{priorities[0]['priority'] if priorities else 'see analysis'}."
             ),
-            "quality_flags": ["llm_synthesized", "business_context_aware", "prompt_responsive"],
+            "quality_flags": quality_flags,
         }
 
     @staticmethod

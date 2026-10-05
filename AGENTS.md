@@ -84,6 +84,7 @@ Use this file when wiring or extending MammothOS agents.
 - Every `mcp/*.json` declares `access: admin|tenant`. Admin repo-category servers are only offered with platform scope. Never expose `git_push`.
 - Reasoning events carry short model-written summaries only. Do not fabricate progress (for example, marking plan steps done that were never verified).
 - Web search goes through `mammoth_os.web_search` only (Brave/Tavily keys stay server-side). Never return placeholder "results" when no provider is configured; report `not_configured` instead.
+- Weather goes through `mammoth_os.weather` only. Look it up only for an explicitly named place, keep the Open-Meteo attribution with the data, and require `OPEN_METEO_API_KEY` for commercial deployments.
 
 ## Reply rating rules
 - `src/mammoth_os/message_feedback.py` (`mammoth.feedback.v1`) is pure; the API owns storage and access. Replay lives in `mammoth_os.feedback_replay` (CLI only, no route).

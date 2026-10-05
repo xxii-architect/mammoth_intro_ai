@@ -59,7 +59,7 @@ const HIDDEN_KEYS = new Set([
   'quality_flags', 'citations', 'references', 'sources', 'ranked_sources', 'source_coverage', 'sources_filtered',
   'sources_retrieved', 'retrieval_errors', 'web_retrieval_errors', 'web_sources_used', 'reasoning_trace',
   'workflow_hints', 'execution_loop', 'runtime_agent', 'confidence', 'signal_confidence', 'intent', 'focus',
-  'tone', 'audience', 'lesson_title', 'title', 'progress_score', 'follow_up_tags', 'signals', 'environment', 'equipment', 'method',
+  'tone', 'audience', 'lesson_title', 'title', 'progress_score', 'follow_up_tags', 'signals', 'environment', 'equipment', 'method', 'weather',
 ])
 
 function humanizeKey(key) {

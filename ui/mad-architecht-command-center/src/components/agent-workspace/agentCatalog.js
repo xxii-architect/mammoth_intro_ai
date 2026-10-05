@@ -56,7 +56,7 @@ export const AGENT_CATALOG = [
     name: 'Field Ops',
     handle: 'fieldops',
     blurb: 'Practical checklists and step-by-step operating plans.',
-    tasks: [{ label: 'Build a checklist', intent: 'field_ops', placeholder: 'What mission, trip, or rollout?' }],
+    tasks: [{ label: 'Build a checklist', intent: 'field_ops', placeholder: 'What mission, trip, or rollout? Name a place for live weather.' }],
   },
   {
     id: 'brand_voice_agent',
