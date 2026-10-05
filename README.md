@@ -90,6 +90,22 @@ Rules the loop enforces:
 - Runs are stored per user under `.mammoth/agent_runs/` (last 50); other users get 404.
 - `/api/internet/*` fetches refuse private, loopback, and link-local targets, including on redirects (SSRF guard).
 
+## Web search (`mammoth.websearch.v1`)
+
+`src/mammoth_os/web_search.py` is the single licensed web-search client (stdlib only).
+
+| Env var | Purpose |
+| --- | --- |
+| `BRAVE_SEARCH_API_KEY` | Brave Search API key |
+| `TAVILY_API_KEY` | Tavily Search API key |
+| `MAMMOTH_WEB_SEARCH_PROVIDER` | `auto` (default: Brave, then Tavily), `brave`, or `tavily` |
+| `MAMMOTH_WEB_SEARCH_DAILY_LIMIT` | Upstream calls per day per process (default `1000`) |
+
+- **Agent mode** gets a network-tier `web_search` tool, but only when a key is configured (restart after changing `.env`). `GET /api/mammoth/tools` reports `web_search.configured` and `web_search.provider`.
+- **ResearchAgent** spends one API call per request, on the primary query. When it returns hits, DuckDuckGo scraping is skipped. Wikipedia always runs.
+- **SearchAgent** includes web results by default. Pass `allow_web: false` to skip them. With no key it returns no web results and adds the `web_search_not_configured` flag instead of a placeholder.
+- Bounds: 8 s timeout, a 10-minute cache (128 queries), at least 1 s between upstream calls, and the daily cap. Errors are coded `not_configured`, `empty_query`, `daily_limit`, `rate_limited`, `auth_failed`, `provider_error`, or `unreachable`. Keys never appear in results or errors.
+
 ## Reply ratings (`mammoth.feedback.v1`)
 
 Every stored Mammoth Mind reply shows 👍 / 👎 next to Copy. Clicking the active thumb again clears it, and a thumbs-down can add an optional reason (`incorrect`, `incomplete`, `off_topic`, `unsafe`, `formatting`, `too_long`, `other`) and a short comment.

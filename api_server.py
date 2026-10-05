@@ -6570,9 +6570,30 @@ async def _agent_tool_fetch(args: Dict[str, Any], ctx: ToolContext) -> Dict[str,
     return {"status": "ok", "url": result.get("url"), "title": result.get("title"), "content": str(result.get("summary") or "")[:8000]}
 
 
+async def _agent_tool_web_search(query: str, ctx: ToolContext) -> Dict[str, Any]:
+    from mammoth_os.web_search import web_search
+
+    result = await asyncio.to_thread(web_search, query, 6)
+    if result.get("status") != "ok":
+        return {"status": "error", "code": result.get("code"), "error": result.get("error") or "Web search failed."}
+    return {"status": "ok", "provider": result.get("provider"), "results": result.get("results") or []}
+
+
 def _build_agent_tool_registry() -> "tuple[ToolRegistry, MCPBridge]":
+    from mammoth_os.web_search import default_web_search
+
     registry = ToolRegistry()
     register_repo_tools(registry)
+    # Registered only when a licensed provider key is configured (env change → restart).
+    if default_web_search().configured():
+        register_query_tool(
+            registry,
+            name="web_search",
+            description="Search the public web. Returns titles, URLs, and snippets; use web_fetch to read a result.",
+            tier=TIER_NETWORK,
+            trace_kind="searched",
+            handler=_agent_tool_web_search,
+        )
     register_query_tool(
         registry,
         name="docs_search",

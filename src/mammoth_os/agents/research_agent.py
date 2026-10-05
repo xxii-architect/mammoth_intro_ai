@@ -500,18 +500,52 @@ class ResearchAgent(BaseAgent):
     def _retrieve_sources(
         self, queries: List[str]
     ) -> Tuple[List[Dict], List[str]]:
+        from mammoth_os.web_search import default_web_search
+
         sources: List[Dict] = []
         errors: List[str] = []
-        for query in queries[:3]:
+        searcher = default_web_search()
+        api_ok = False
+        for index, query in enumerate(queries[:3]):
             wiki_hits, wiki_err = self._fetch_wikipedia(query)
             sources.extend(wiki_hits)
             if wiki_err:
                 errors.append(wiki_err)
+            # One licensed-API call per request (primary query) keeps cost bounded.
+            if index == 0 and searcher.configured():
+                api_hits, api_err = self._fetch_search_api(searcher, query)
+                sources.extend(api_hits)
+                api_ok = bool(api_hits)
+                if api_err:
+                    errors.append(api_err)
+            if api_ok:
+                continue
             ddg_hits, ddg_err = self._fetch_duckduckgo(query)
             sources.extend(ddg_hits)
             if ddg_err:
                 errors.append(ddg_err)
         return sources, errors
+
+    @staticmethod
+    def _fetch_search_api(searcher: Any, query: str) -> Tuple[List[Dict], Optional[str]]:
+        result = searcher.search(query, 6)
+        if result.get("status") != "ok":
+            return [], f"web_search: {result.get('code') or 'error'}"
+        hits = [
+            {
+                "id": f"web-{hashlib.md5(str(item.get('url')).encode()).hexdigest()[:8]}",
+                "title": str(item.get("title") or "")[:200],
+                "snippet": str(item.get("snippet") or "")[:600],
+                "source": str(item.get("publisher") or result.get("provider") or "web"),
+                "publisher": str(item.get("publisher") or ""),
+                "url": str(item.get("url") or ""),
+                "source_type": "web",
+                "relevance_score": 0.0,
+            }
+            for item in result.get("results") or []
+            if isinstance(item, dict)
+        ]
+        return hits, None
 
     def _fetch_wikipedia(self, query: str) -> Tuple[List[Dict], Optional[str]]:
         results: List[Dict] = []
@@ -876,6 +910,7 @@ class ResearchAgent(BaseAgent):
                     "snippet": snippet[:600],
                     "source": "DuckDuckGo",
                     "url": url_hint,
+                    "source_type": "web",
                     "relevance_score": 0.0,
                 })
         except Exception as exc:

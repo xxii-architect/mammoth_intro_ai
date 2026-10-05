@@ -23,6 +23,7 @@ class SearchAgent(BaseAgent):# type: ignore
     def __init__(self, router: Any = None):
         super().__init__(router)
         self._repo_root = Path(__file__).resolve().parents[3]
+        self._last_web_status = "skipped"
 
     def log(self, level: str, message: str) -> None:
         print(f"[{self.name}:{level}] {message}")
@@ -72,13 +73,25 @@ class SearchAgent(BaseAgent):# type: ignore
 
 
     async def web_search(self, query: str, limit: int = 10) -> list[dict]:
-        return [{
-            "title": "External web search not configured",
-            "snippet": f"Provide fetched sources for '{query}' or integrate a search provider.",
-            "source": "web",
-            "url": "",
-            "score": 0.15,
-        }][: max(1, limit)]
+        """Public web results from the configured licensed provider; empty when none is configured."""
+        import asyncio
+
+        from mammoth_os.web_search import default_web_search
+
+        result = await asyncio.to_thread(default_web_search().search, query, min(max(1, limit), 10))
+        self._last_web_status = str(result.get("status") or "error")
+        return [
+            {
+                "title": str(item.get("title") or ""),
+                "snippet": str(item.get("snippet") or "")[:220],
+                "source": "web",
+                "url": str(item.get("url") or ""),
+                "publisher": str(item.get("publisher") or ""),
+                "score": 0.6,
+            }
+            for item in result.get("results") or []
+            if isinstance(item, dict)
+        ]
 
     async def internal_search(self, query: str, limit: int = 10) -> list[dict]:
         lowered = str(query or "").strip().lower()
@@ -129,7 +142,7 @@ class SearchAgent(BaseAgent):# type: ignore
         top = results[0]
         return f"Top match for {query}: {top.get('title')} from {top.get('source')}."
 
-    async def search(self, query: str, sources: list[str] = None, *, host_access: bool = False) -> dict:# type: ignore
+    async def search(self, query: str, sources: list[str] = None, *, host_access: bool = False, allow_web: bool = True) -> dict:# type: ignore
         provided = []
         for item in sources or []:
             text = str(item or "").strip()
@@ -137,29 +150,36 @@ class SearchAgent(BaseAgent):# type: ignore
                 provided.append({"title": "Provided source", "snippet": text[:220], "source": "provided", "score": 0.55})
         # The workspace is the platform repo, so only owner/admin callers may search it.
         internal = await self.internal_search(query, limit=8) if host_access else []
-        results = await self.rank([*provided, *internal], query)
+        self._last_web_status = "skipped"
+        web = await self.web_search(query, limit=6) if allow_web else []
+        results = await self.rank([*provided, *web, *internal], query)
         summary = await self.summarize(results[:8], query)
+        flags = ["grounded_search"] if results else ["no_results"]
+        if allow_web and self._last_web_status == "not_configured":
+            flags.append("web_search_not_configured")
         return {
             "query": query,
             "results": results[:8],
             "summary": summary,
             "sources": sorted({str(item.get("source") or "unknown") for item in results[:8]}),
-            "quality_flags": ["grounded_search"] if results else ["no_results"],
+            "quality_flags": flags,
         }
 
     async def run(self, payload: Any) -> Dict[str, Any]:
         """``host_access`` must be explicitly True (server-set for owner/admin) to search the workspace."""
         host_access = False
+        allow_web = True
         if isinstance(payload, dict):
             query = str(payload.get("query") or payload.get("prompt") or "").strip()
             sources = payload.get("sources") if isinstance(payload.get("sources"), list) else []
             host_access = payload.get("host_access") is True
+            allow_web = payload.get("allow_web") is not False
         else:
             query = str(payload or "").strip()
             sources = []
         if not query:
             return {"status": "needs_context", "agent": self.name, "summary": "Provide a search query.", "results": [], "quality_flags": ["missing_query"]}
-        result = await self.search(query, sources=sources, host_access=host_access)
+        result = await self.search(query, sources=sources, host_access=host_access, allow_web=allow_web)
         return {"status": "ok", "agent": self.name, **result}
 
     async def emit_event(self, event_type: str, payload: Any) -> None:

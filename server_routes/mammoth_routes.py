@@ -260,11 +260,14 @@ async def mammoth_gitops_propose(body: Dict[str, Any]):
 async def mammoth_agent_tools(repo: str = ""):
     """Tools and MCP servers the caller can use. Platform-rooted MCP servers are admin-only."""
     ctx, notice = _agent_tool_context({"root": repo} if repo else None)
+    from mammoth_os.web_search import web_search_status
+
     return {
         "status": "ok",
         "contract": EVENT_CONTRACT_VERSION,
         "tools": _AGENT_TOOLS.catalog(ctx),
         "mcp_servers": _AGENT_MCP.describe(ctx),
+        "web_search": {k: v for k, v in web_search_status().items() if k in {"configured", "provider"}},
         "repo": {"scope": ctx.repo_scope, "slug": ctx.repo_slug} if ctx.has_repo else None,
         "repo_access_notice": notice or None,
     }

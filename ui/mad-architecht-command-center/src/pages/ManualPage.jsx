@@ -162,6 +162,10 @@ const agentRunRules = [
     title: 'Classic mode is still there',
     body: 'Slash commands (/guide, /research, /web, /plan) and messages with attachments use the classic chat path automatically. Switch to Classic in the header to use it for everything.',
   },
+  {
+    title: 'Live web search',
+    body: 'When the server has a Brave or Tavily key, Agent mode gets a web_search tool, and Research and Search use the same provider before falling back to the free scrapers. Without a key, results say so plainly. Nothing is faked.',
+  },
 ]
 
 const safetyRules = [
