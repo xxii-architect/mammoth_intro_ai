@@ -159,3 +159,13 @@ def test_cache_search_self_heal_and_evolution_agents_are_usable():
     assert search_result["status"] == "ok"
     assert evolution_result["status"] == "ok"
     assert self_heal_result["status"] == "ok"
+
+
+def test_search_agent_workspace_search_requires_explicit_host_access():
+    denied = asyncio.run(SearchAgent().run({"query": "PlannerAgent"}))
+    assert not any(item.get("source") == "workspace" for item in denied["results"])
+    assert not any("path" in item for item in denied["results"])
+    allowed = asyncio.run(SearchAgent().run({"query": "PlannerAgent", "host_access": True}))
+    assert any(item.get("source") == "workspace" for item in allowed["results"])
+    as_string = asyncio.run(SearchAgent().run("PlannerAgent"))
+    assert not any(item.get("source") == "workspace" for item in as_string["results"])

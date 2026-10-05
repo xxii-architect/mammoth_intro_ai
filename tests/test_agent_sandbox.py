@@ -206,6 +206,17 @@ def test_api_forces_coding_host_access(capture_dispatch, monkeypatch, is_admin):
 
 
 @pytest.mark.parametrize("is_admin", [False, True])
+def test_api_forces_search_host_access(capture_dispatch, monkeypatch, is_admin):
+    tokens = _as_user(monkeypatch, is_admin=is_admin)
+    try:
+        asyncio.run(api_server.run_agent({"agent_id": "search_agent", "intent": "search", "payload": {"query": "api_server", "host_access": True}}))
+    finally:
+        _reset(tokens)
+    assert capture_dispatch["agent"] == "search"
+    assert capture_dispatch["payload"]["host_access"] is is_admin
+
+
+@pytest.mark.parametrize("is_admin", [False, True])
 def test_api_forces_browser_sandbox(capture_dispatch, monkeypatch, is_admin):
     tokens = _as_user(monkeypatch, is_admin=is_admin)
     try:

@@ -1345,6 +1345,9 @@ async def run_agent(body: Dict[str, Any]):
                     if coding_intent:
                         payload_for_agent["context"]["coding_intent"] = coding_intent
                         payload_for_agent["intent"] = coding_intent
+                if runtime_agent == "search":
+                    # Server-forced: workspace search reads the platform repo, so it is owner/admin-only.
+                    payload_for_agent["host_access"] = _mutation_allowed()
                 if runtime_agent == "browser":
                     # Server-forced: non-admins can't reach private/metadata addresses or other users' sessions.
                     privileged = _mutation_allowed()

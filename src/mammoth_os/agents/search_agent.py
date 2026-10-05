@@ -129,13 +129,14 @@ class SearchAgent(BaseAgent):# type: ignore
         top = results[0]
         return f"Top match for {query}: {top.get('title')} from {top.get('source')}."
 
-    async def search(self, query: str, sources: list[str] = None) -> dict:# type: ignore
+    async def search(self, query: str, sources: list[str] = None, *, host_access: bool = False) -> dict:# type: ignore
         provided = []
         for item in sources or []:
             text = str(item or "").strip()
             if text:
                 provided.append({"title": "Provided source", "snippet": text[:220], "source": "provided", "score": 0.55})
-        internal = await self.internal_search(query, limit=8)
+        # The workspace is the platform repo, so only owner/admin callers may search it.
+        internal = await self.internal_search(query, limit=8) if host_access else []
         results = await self.rank([*provided, *internal], query)
         summary = await self.summarize(results[:8], query)
         return {
@@ -147,15 +148,18 @@ class SearchAgent(BaseAgent):# type: ignore
         }
 
     async def run(self, payload: Any) -> Dict[str, Any]:
+        """``host_access`` must be explicitly True (server-set for owner/admin) to search the workspace."""
+        host_access = False
         if isinstance(payload, dict):
             query = str(payload.get("query") or payload.get("prompt") or "").strip()
             sources = payload.get("sources") if isinstance(payload.get("sources"), list) else []
+            host_access = payload.get("host_access") is True
         else:
             query = str(payload or "").strip()
             sources = []
         if not query:
             return {"status": "needs_context", "agent": self.name, "summary": "Provide a search query.", "results": [], "quality_flags": ["missing_query"]}
-        result = await self.search(query, sources=sources)
+        result = await self.search(query, sources=sources, host_access=host_access)
         return {"status": "ok", "agent": self.name, **result}
 
     async def emit_event(self, event_type: str, payload: Any) -> None:
