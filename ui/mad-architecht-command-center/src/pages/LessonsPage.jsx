@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, CheckCircle2, Circle, ChevronDown, ChevronUp, Sparkles, Wand2, Code2, AlignLeft, List, Map, Radio, HeartPulse, Dumbbell, DollarSign, Mic2, Wrench, Leaf, Brain, Camera, ChefHat, Scale, Globe2, Music2, Zap, ToggleRight, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
 import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
@@ -132,7 +132,7 @@ function formatSourceLabel(source = '') {
 const CATEGORIES = ['Outdoors', 'Emergency', 'Business', 'Health', 'Human Systems', 'Technology', 'Creative', 'Life Skills']
 const CATEGORY_ICONS = { Outdoors: '🏕️', Emergency: '🚑', Business: '💼', Health: '💪', 'Human Systems': '🧠', Technology: '💻', Creative: '🎨', 'Life Skills': '🔑' }
 
-export default function LessonsPage({ setPage }) {
+export default function LessonsPage({ setPage, embedded = false, sharedState, loadSharedState }) {
   const [atlasState, setAtlasState] = useState(null)
   const [topic, setTopic]           = useState('')
   const [code, setCode]             = useState('')
@@ -145,7 +145,7 @@ export default function LessonsPage({ setPage }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
   const [expandedModules, setExpandedModules] = useState({})
-  const [adaptiveUI, setAdaptiveUI] = useState(false)
+  const [adaptiveUI, setAdaptiveUI] = useState(embedded)
   const [activeTrack, setActiveTrack] = useState(null)
   const [lastSelectedModuleId, setLastSelectedModuleId] = useState('')
   const [checklistState, setChecklistState] = useState({})
@@ -153,6 +153,27 @@ export default function LessonsPage({ setPage }) {
   const [atlasLibrary, setAtlasLibrary] = useState(null)
   const [billingUsage, setBillingUsage] = useState(null)
   const [journeyStageOverride, setJourneyStageOverride] = useState(null)
+  const [stateError, setStateError] = useState('')
+  const draftLessonId = useRef(null)
+  const draftExerciseKey = useRef('')
+  useEffect(() => {
+    if (!sharedState) return
+    setAtlasState(sharedState)
+    setActiveTrack(sharedState.active_module ? normalizeModuleTrack(sharedState.active_module) : null)
+    const lessonId = sharedState.lesson_id || null
+    const exercise = sharedState.current_exercise
+    const exerciseKey = JSON.stringify(exercise || null)
+    if (lessonId !== draftLessonId.current || exerciseKey !== draftExerciseKey.current) {
+      draftExerciseKey.current = exerciseKey
+      setCode(exercise?.starter_response || Object.values(exercise?.starter_files || {})[0] || '')
+      setChecklistState({})
+    }
+    if (lessonId !== draftLessonId.current) {
+      draftLessonId.current = lessonId
+      setResult(null)
+      setLessonGate(null)
+    }
+  }, [sharedState])
   const [showTopOverview, setShowTopOverview] = useState(() => {
     try {
       const stored = window.localStorage.getItem('atlas.lesson.showTopOverview')
@@ -217,10 +238,11 @@ export default function LessonsPage({ setPage }) {
       window.localStorage.setItem('atlas.lesson.lastModuleId', activeTrack.id)
     } catch (_) {}
   }, [activeTrack?.id])
-  const loadState = async () => {
+  const loadState = async (refresh = false) => {
     try {
-      const s = await api('/atlas/status')
+      const s = loadSharedState ? await loadSharedState(refresh === true) : await api('/atlas/status')
       setAtlasState(s)
+      setStateError('')
       if (s?.active_module) {
         setActiveTrack(normalizeModuleTrack(s.active_module))
       }
@@ -228,13 +250,15 @@ export default function LessonsPage({ setPage }) {
         setModuleCatalog(s.available_modules.map(normalizeModuleTrack))
       }
       if (s.current_exercise?.starter_response) {
-        if (!code.trim()) setCode(s.current_exercise.starter_response)
+        setCode(current => current.trim() ? current : s.current_exercise.starter_response)
       } else if (s.current_exercise?.starter_files) {
         const files = s.current_exercise.starter_files
         const first = Object.values(files)[0] || ''
-        if (!code.trim()) setCode(first)
+        setCode(current => current.trim() ? current : first)
       }
-    } catch (_) {}
+    } catch (error) {
+      setStateError(error instanceof Error ? error.message : 'Could not load lesson state.')
+    }
   }
   const loadLibrary = async () => {
     try {
@@ -287,7 +311,7 @@ export default function LessonsPage({ setPage }) {
         const first = Object.values(res.exercise.starter_files)[0] || ''
         setCode(first)
       }
-      await loadState()
+      await loadState(true)
       await loadLibrary()
     } catch (e) {
       setResult({ error: e.message })
@@ -303,6 +327,7 @@ export default function LessonsPage({ setPage }) {
       setLessonGate(null)
       const res = await api('/atlas/submit', { method: 'POST', body: { code, response: code } })
       setResult(res.result || res)
+      if (loadSharedState) await loadState(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -319,11 +344,12 @@ export default function LessonsPage({ setPage }) {
         return
       }
       setLessonGate(null)
-      await loadState()
+      setCode('')
+      await loadState(true)
       await loadLibrary()
       setResult(null)
-      setCode('')
-    } catch (_) {
+    } catch (error) {
+      setResult({ error: error instanceof Error ? error.message : 'Could not advance the lesson.' })
     } finally {
       setLoading(false)
     }
@@ -453,12 +479,13 @@ export default function LessonsPage({ setPage }) {
   }, [exercise?.prompt])
 
   return (
-    <div className="page-enter" style={{ padding: 24, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+    <div className="page-enter" style={{ padding: embedded ? 12 : 24, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      {stateError && <div role="alert" style={{ color: '#fca5a5', fontSize: '0.78rem', marginBottom: 8 }}>{stateError} <button onClick={loadState}>Retry</button></div>}
       {/* Hero header */}
       <div style={{ marginBottom: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
           <h1 style={{ fontSize: '1.1rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-            <GraduationCap size={20} color="var(--photon)" /> Lessons
+            <GraduationCap size={20} color="var(--photon)" /> {embedded ? 'Lesson & practice' : 'Lessons'}
           </h1>
           <p style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', margin: '4px 0 0' }}>
             Interactive operator curriculum · ATLAS-powered tutor
@@ -625,18 +652,18 @@ export default function LessonsPage({ setPage }) {
       </>
       )}
 
-      <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: embedded && isMobile && !sidebarCollapsed ? 'column' : 'row', gap: 16, minHeight: 0 }}>
         {/* Mobile: floating module button when sidebar is collapsed */}
         {isMobile && sidebarCollapsed && (
           <button
             onClick={() => setSidebarCollapsed(false)}
-            style={{ position: 'fixed', bottom: 88, left: 16, zIndex: 50, display: 'flex', alignItems: 'center', gap: 8, padding: '12px 16px', borderRadius: 999, border: 'none', background: 'linear-gradient(135deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.82rem', boxShadow: '0 4px 24px rgba(77,166,255,0.4)', cursor: 'pointer' }}
+            style={{ position: embedded ? 'static' : 'fixed', bottom: 88, left: 16, zIndex: 50, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--txt-sec)', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', alignSelf: 'flex-start' }}
           >
             📚 Modules
           </button>
         )}
         {/* Left sidebar */}
-        <div style={{ width: sidebarCollapsed ? (isMobile ? 0 : 40) : 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, transition: 'width 0.2s', overflow: 'hidden' }}>
+        <div style={{ width: sidebarCollapsed ? (isMobile ? 0 : 40) : (embedded && isMobile ? '100%' : 240), flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, transition: 'width 0.2s', overflow: 'hidden' }}>
           <button onClick={() => setSidebarCollapsed(c => !c)} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronRight size={14} style={{ transform: sidebarCollapsed ? 'none' : 'rotate(180deg)', transition: 'transform 0.2s' }} />

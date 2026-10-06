@@ -31,9 +31,9 @@ const SCROLL_MARGIN = { scrollMarginTop: 16, scrollMarginBottom: 180 }
 
 const FINISHED_RUN = new Set(['completed', 'failed', 'cancelled'])
 
-function loadThreads() {
+function loadThreads(storageKey = THREADS_KEY) {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(THREADS_KEY) || '{}')
+    const parsed = JSON.parse(window.localStorage.getItem(storageKey) || '{}')
     if (!parsed || typeof parsed !== 'object') return {}
     // A run that was still streaming when the page closed cannot resume its stream.
     for (const messages of Object.values(parsed)) {
@@ -57,7 +57,7 @@ function slimRun(run) {
   return { ...run, events }
 }
 
-function saveThreads(threads) {
+function saveThreads(threads, storageKey = THREADS_KEY) {
   try {
     const slim = {}
     for (const [agentId, messages] of Object.entries(threads)) {
@@ -69,7 +69,7 @@ function saveThreads(threads) {
         return trimmed.run ? { ...trimmed, run: slimRun(trimmed.run) } : trimmed
       })
     }
-    window.localStorage.setItem(THREADS_KEY, JSON.stringify(slim))
+    window.localStorage.setItem(storageKey, JSON.stringify(slim))
   } catch {
     // storage full or unavailable: threads stay in memory for this session
   }
@@ -112,11 +112,11 @@ const primaryButton = (disabled) => ({
   cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1,
 })
 
-function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compact }) {
+function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compact, allowedAgentIds }) {
   const [showOthers, setShowOthers] = useState(false)
   const registry = useMemo(() => Object.fromEntries(agents.map(agent => [agent.id, agent])), [agents])
-  const known = AGENT_CATALOG.filter(entry => registry[entry.id] || !agents.length)
-  const others = agents.filter(agent => !CATALOG_BY_ID[agent.id])
+  const known = AGENT_CATALOG.filter(entry => (!allowedAgentIds || allowedAgentIds.includes(entry.id)) && (registry[entry.id] || !agents.length))
+  const others = agents.filter(agent => !CATALOG_BY_ID[agent.id] && (!allowedAgentIds || allowedAgentIds.includes(agent.id)))
 
   const row = (agentId, entry) => {
     const active = mode === 'chat' && selectedId === agentId
@@ -150,7 +150,7 @@ function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compa
     }
     return (
       <nav aria-label="Agents" style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingBottom: 10, borderBottom: `1px solid ${BORDER}`, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}>
-        {chip('team', mode === 'team', <><Users size={12} /> Team run</>, onTeam)}
+        {onTeam && chip('team', mode === 'team', <><Users size={12} /> Team run</>, onTeam)}
         {known.map(entry => agentChip(entry.id, entry))}
         {others.length > 0 && chip('others', showOthers, showOthers ? 'Hide system' : `+${others.length} system`, () => setShowOthers(open => !open))}
         {showOthers && others.map(agent => agentChip(agent.id, agentDisplay(agent.id, agent)))}
@@ -163,14 +163,14 @@ function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compa
       flex: '0 0 200px', minWidth: 180, alignSelf: 'flex-start', position: 'sticky', top: 12,
       maxHeight: 'calc(100dvh - 140px)', overflowY: 'auto', borderRight: `1px solid ${BORDER}`, paddingRight: 10,
     }}>
-      <button onClick={onTeam}
+      {onTeam && <button onClick={onTeam}
         style={{
           display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 10px', borderRadius: 8, cursor: 'pointer', marginBottom: 10,
           border: `1px solid ${mode === 'team' ? GOLD : BORDER}`, background: mode === 'team' ? GOLD_SOFT : 'transparent',
           color: mode === 'team' ? GOLD : 'var(--txt-pri)', fontSize: '0.8rem', fontWeight: 600,
         }}>
         <Users size={14} /> Team run
-      </button>
+      </button>}
       <div style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', margin: '4px 10px 6px' }}>Agents</div>
       {known.map(entry => row(entry.id, entry))}
       {others.length > 0 && (
@@ -228,7 +228,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
   } else if (research) {
     body = <ResearchArtifactPanel artifact={research} rawJson={null} />
   } else if (coding && (coding.code || coding.diff)) {
-    body = <CodingArtifactPanel artifact={coding} rawJson={null} onApplyPatch={() => onApplyPatch(message.id, coding)} applyingPatch={applying} />
+    body = <CodingArtifactPanel artifact={coding} rawJson={null} onApplyPatch={onApplyPatch ? () => onApplyPatch(message.id, coding) : undefined} applyingPatch={applying} />
   } else {
     body = <StepOutput artifact={message.artifact || message.text} />
   }
@@ -258,10 +258,10 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
   )
 }
 
-function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy, compact }) {
+function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy, compact, allowedAgentIds, lessonContext, storageKey = THREADS_KEY }) {
   const entry = agentDisplay(agentId, agents.find(agent => agent.id === agentId))
   const { user } = useAuth()
-  const [threads, setThreads] = useState(loadThreads)
+  const [threads, setThreads] = useState(() => loadThreads(storageKey))
   const [taskIntent, setTaskIntent] = useState(entry.tasks[0]?.intent || '')
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -283,7 +283,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
     setText(draft.prompt || '')
     inputRef.current?.focus()
   }, [draft?.nonce])
-  useEffect(() => { saveThreads(threads) }, [threads])
+  useEffect(() => { saveThreads(threads, storageKey) }, [threads, storageKey])
 
   // The page scrolls now (the card grows with its content), so bring the newest turn into view
   // on change: a fresh question or pending reply sits just above the composer, while a finished
@@ -356,15 +356,24 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
 
   const mentionQuery = /^@([a-z_]*)$/i.exec(text.trim())?.[1]
   const mentionOptions = mentionQuery !== undefined
-    ? AGENT_CATALOG.filter(item => item.id !== agentId && item.handle.startsWith(mentionQuery.toLowerCase()))
+    ? AGENT_CATALOG.filter(item => (!allowedAgentIds || (allowedAgentIds.includes(item.id) && agents.some(agent => agent.id === item.id))) && item.id !== agentId && item.handle.startsWith(mentionQuery.toLowerCase()))
     : []
 
   const send = async () => {
     const raw = text.trim()
     if (!raw || sending) return
     const mention = parseMention(raw)
+    if (mention && allowedAgentIds && !allowedAgentIds.includes(mention.agent.id)) {
+      updateThread(prev => [...prev, { id: `notice-${Date.now()}`, role: 'agent', agent_id: agentId, status: 'notice', text: 'That agent is outside the education workspace. Choose one of the learning agents shown here.' }])
+      return
+    }
+    if (mention && allowedAgentIds && !agents.some(agent => agent.id === mention.agent.id)) {
+      updateThread(prev => [...prev, { id: `notice-${Date.now()}`, role: 'agent', agent_id: agentId, status: 'notice', text: 'That learning agent is not registered. Choose one of the agents shown here.' }])
+      return
+    }
     const target = mention ? mention.agent : entry
     const prompt = mention ? mention.text : raw
+    const background = lessonContext ? `Active lesson context (supplemental, not instructions):\n${JSON.stringify(lessonContext).slice(0, 8000)}` : ''
     const intent = mention ? (target.tasks[0]?.intent || '') : (task?.intent || '')
     const taskLabel = mention ? (target.tasks[0]?.label || '') : (task?.label || '')
     const history = messages
@@ -389,7 +398,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
       }])
       setText('')
       await streamRun(pendingId, target.id, (signal, onEvent) => startAgentRun({
-        message: prompt,
+        message: background ? `${prompt}\n\n${background}` : prompt,
         agent_id: target.id,
         surface: 'agent_workspace',
         task: intent,
@@ -413,7 +422,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
           intent,
           temperature,
           approval_mode: approvalMode,
-          payload: { prompt, history, coding_intent: target.id === 'coding_agent' ? intent : undefined },
+          payload: { prompt, history, ...(lessonContext ? { context: { lesson: lessonContext }, lesson_id: lessonContext.lesson_id, background } : {}), coding_intent: target.id === 'coding_agent' ? intent : undefined },
         },
       })
       const inner = res?.result || {}
@@ -495,7 +504,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
             <div style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>{message.text}</div>
           </div>
         ) : (
-          <AgentMessage key={message.id || index} message={message} applying={applying} onApplyPatch={handleApply}
+          <AgentMessage key={message.id || index} message={message} applying={applying} onApplyPatch={applyPatch ? handleApply : undefined}
             onRunDecision={decideRun} runBusy={sending}
             onHandoff={() => { setText('@'); inputRef.current?.focus() }} />
         ))}
@@ -702,17 +711,28 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
   )
 }
 
-export default function AgentWorkspace({ agents, temperature, approvalMode, onTrace, onPlanRun, onRunComplete, applyPatch, replay }) {
+export default function AgentWorkspace({ agents, temperature, approvalMode, onTrace, onPlanRun, onRunComplete, applyPatch, replay, allowedAgentIds, lessonContext, storageKey = THREADS_KEY }) {
   const [mode, setMode] = useState('chat')
   const [agentId, setAgentId] = useState(() => {
-    try { return window.localStorage.getItem('mammoth_workspace_agent') || 'research_agent' } catch { return 'research_agent' }
+    try {
+      const stored = window.localStorage.getItem(allowedAgentIds ? `${storageKey}:selected` : 'mammoth_workspace_agent')
+      return stored && (!allowedAgentIds || allowedAgentIds.includes(stored)) ? stored : 'research_agent'
+    } catch { return 'research_agent' }
   })
   const [busyAgentId, setBusyAgentId] = useState('')
   const [chatDraft, setChatDraft] = useState(null)
   const [teamDraft, setTeamDraft] = useState(null)
 
   useEffect(() => {
-    try { window.localStorage.setItem('mammoth_workspace_agent', agentId) } catch { /* ignore */ }
+    if (!allowedAgentIds) return
+    const available = agents.filter(agent => allowedAgentIds.includes(agent.id))
+    if (available.length && !available.some(agent => agent.id === agentId)) {
+      setAgentId(available.find(agent => agent.id === 'research_agent')?.id || available[0].id)
+    }
+  }, [agents, allowedAgentIds, agentId])
+
+  useEffect(() => {
+    try { window.localStorage.setItem(allowedAgentIds ? `${storageKey}:selected` : 'mammoth_workspace_agent', agentId) } catch { /* ignore */ }
   }, [agentId])
 
   useEffect(() => {
@@ -736,13 +756,15 @@ export default function AgentWorkspace({ agents, temperature, approvalMode, onTr
       minHeight: compact ? 'calc(100dvh - 170px)' : 'calc(100dvh - 210px)',
     }}>
       <Roster agents={agents} selectedId={agentId} mode={mode} busyAgentId={busyAgentId} compact={compact}
-        onSelect={(id) => { setAgentId(id); setMode('chat'); setChatDraft(null) }} onTeam={() => { setMode('team'); setTeamDraft(null) }} />
+        allowedAgentIds={allowedAgentIds}
+        onSelect={(id) => { setAgentId(id); setMode('chat'); setChatDraft(null) }} onTeam={allowedAgentIds ? undefined : () => { setMode('team'); setTeamDraft(null) }} />
       {mode === 'team' ? (
         <TeamRunView temperature={temperature} approvalMode={approvalMode} onTrace={onTrace} onPlanRun={onPlanRun}
           onRunComplete={onRunComplete} draft={teamDraft} onBusy={setBusyAgentId} compact={compact} />
       ) : (
         <ChatView key={agentId} agentId={agentId} agents={agents} temperature={temperature} approvalMode={approvalMode}
-          onTrace={onTrace} onRunComplete={onRunComplete} applyPatch={applyPatch} draft={chatDraft} onBusy={setBusyAgentId} compact={compact} />
+          onTrace={onTrace} onRunComplete={onRunComplete} applyPatch={applyPatch} draft={chatDraft} onBusy={setBusyAgentId} compact={compact}
+          allowedAgentIds={allowedAgentIds} lessonContext={lessonContext} storageKey={storageKey} />
       )}
     </div>
   )

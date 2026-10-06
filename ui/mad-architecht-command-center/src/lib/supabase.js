@@ -51,6 +51,8 @@ const USER_SCOPED_CACHE_KEYS = [
 export async function signOut() {
   try {
     USER_SCOPED_CACHE_KEYS.forEach((key) => localStorage.removeItem(key))
+    Object.keys(localStorage).filter(key => key.startsWith('mammoth_education_threads_v1:'))
+      .forEach(key => localStorage.removeItem(key))
   } catch {
     // Storage may be unavailable (private mode); sign-out must still proceed.
   }

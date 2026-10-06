@@ -26,11 +26,10 @@ const NotesPage = lazy(() => import('./pages/NotesPage'))
 const ModulesPage = lazy(() => import('./pages/ModulesPage'))
 const HealthPage = lazy(() => import('./pages/HealthPage'))
 const TelemetryPage = lazy(() => import('./pages/TelemetryPage'))
-const LessonsPage = lazy(() => import('./pages/LessonsPage'))
+const AtlasWorkspacePage = lazy(() => import('./pages/AtlasWorkspacePage'))
 const BuildLogPage = lazy(() => import('./pages/BuildLogPage'))
 const LogSalePage = lazy(() => import('./pages/LogSalePage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const AtlasTutorPage = lazy(() => import('./pages/AtlasTutorPage'))
 const FlashcardsPage = lazy(() => import('./pages/FlashcardsPage'))
 const LandingPage = lazy(() => import('./pages/LandingPage'))
 const CompliancePage = lazy(() => import('./pages/CompliancePage'))
@@ -117,8 +116,7 @@ const NAV = [
   { id: 'compliance', label: 'Legal & Compliance', Icon: ShieldCheck },
 
   { section: 'Learn' },
-  { id: 'lessons',    label: 'Lessons',     Icon: BookOpen },
-  { id: 'atlas',      label: 'ATLAS Tutor', Icon: GraduationCap, accent: 'var(--violet)' },
+  { id: 'atlas',      label: 'ATLAS', Icon: GraduationCap, accent: 'var(--mm-color-agent-default, #d08a52)' },
   { id: 'flashcards', label: 'Flashcards',  Icon: Brain, accent: 'var(--violet)' },
   { id: 'lessonnotes', label: 'Lesson Notes', Icon: FileText, accent: 'var(--cyan)' },
   { id: 'projects',    label: 'Projects',     Icon: ClipboardList, accent: 'var(--photon)' },
@@ -142,8 +140,8 @@ const PAGE_COMPONENTS = {
   health:      HealthPage,
   telemetry:   TelemetryPage,
   logsale:     LogSalePage,
-  lessons:     LessonsPage,
-  atlas:       AtlasTutorPage,
+  lessons:     AtlasWorkspacePage,
+  atlas:       AtlasWorkspacePage,
   flashcards:  FlashcardsPage,
   buildlog:    BuildLogPage,
   lessonnotes: LessonNotesPage,

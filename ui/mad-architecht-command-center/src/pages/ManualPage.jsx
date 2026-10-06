@@ -120,6 +120,10 @@ const promptPatterns = [
 
 const repoContextRules = [
   {
+    title: 'ATLAS is one learning workspace',
+    body: 'Lesson & practice brings lesson content, exercises, and corrections into the main field. Consult ATLAS Tutor beside the lesson on desktop, or switch views on mobile. Learning agents includes Tutor, Curriculum, Research, Reflection, Coding, and Browser when registered, using your active lesson as context. Advanced tutor tools remain available. Lecture audio is planned, not enabled yet.',
+  },
+  {
     title: 'Review reply ratings by agent and date',
     body: 'Owners/admins can filter Beta Feedback reply ratings by agent and an inclusive UTC date range. Dates refer to the latest rating update. The summary and Cases JSON use the same filters; ratings remain review signals, not automatic model training.',
   },

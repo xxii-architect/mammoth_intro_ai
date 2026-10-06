@@ -96,7 +96,7 @@ function MonacoReadOnlyBlock({ value, language = 'plaintext', height = 220 }) {
   )
 }
 
-export default function AtlasTutorPage() {
+export default function AtlasTutorPage({ conversationOnly = false, sharedState, loadSharedState }) {
   const [atlasState, setAtlasState] = useState(null)
   const [topic, setTopic]           = useState('')
   const [code, setCode]             = useState('')
@@ -105,7 +105,7 @@ export default function AtlasTutorPage() {
   const [loading, setLoading]       = useState(false)
   const [chatInput, setChatInput]   = useState('')
   const [chatBusy, setChatBusy]     = useState(false)
-  const [chatMode, setChatMode]     = useState('assistant')
+  const [chatMode, setChatMode]     = useState(conversationOnly ? 'tutor' : 'assistant')
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
   const [studyAid, setStudyAid]     = useState(null)
@@ -136,6 +136,27 @@ export default function AtlasTutorPage() {
   })
   const chatBottomRef = useRef(null)
   const onboardingSeededRef = useRef(false)
+  const [stateError, setStateError] = useState('')
+  const draftLessonId = useRef(null)
+  const draftExerciseKey = useRef('')
+
+  useEffect(() => {
+    if (!sharedState) return
+    setAtlasState(sharedState)
+    const lessonId = sharedState.lesson_id || null
+    const exercise = sharedState.current_exercise
+    const exerciseKey = JSON.stringify(exercise || null)
+    if (lessonId !== draftLessonId.current || exerciseKey !== draftExerciseKey.current) {
+      draftExerciseKey.current = exerciseKey
+      setCode(exercise?.starter_response || Object.values(exercise?.starter_files || {})[0] || '')
+    }
+    if (lessonId !== draftLessonId.current) {
+      draftLessonId.current = lessonId
+      setResult(null)
+      setLessonGate(null)
+      setStudyAid(null)
+    }
+  }, [sharedState])
 
   useEffect(() => {
     try {
@@ -163,19 +184,22 @@ export default function AtlasTutorPage() {
     } catch (_) {}
   }, [showAdvancedTools])
 
-  const loadState = async () => {
+  const loadState = async (refresh = false) => {
     try {
-      const s = await api('/atlas/status')
+      const s = loadSharedState ? await loadSharedState(refresh === true) : await api('/atlas/status')
       setAtlasState(s)
+      setStateError('')
       if (s.current_exercise?.starter_files) {
         const first = Object.values(s.current_exercise.starter_files)[0] || ''
-        if (!code.trim()) setCode(first)
+        setCode(current => current.trim() ? current : first)
       }
-    } catch (_) {}
+    } catch (error) {
+      setStateError(error instanceof Error ? error.message : 'Could not load ATLAS state.')
+    }
   }
 
   useEffect(() => { loadState() }, [])
-  useInterval(loadState, 15000)
+  useInterval(loadSharedState ? () => {} : loadState, 15000)
 
   useEffect(() => {
     api('/models').then(m => {
@@ -213,7 +237,7 @@ export default function AtlasTutorPage() {
         const first = Object.values(res.exercise.starter_files)[0] || ''
         setCode(first)
       }
-      await loadState()
+      await loadState(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -237,6 +261,7 @@ export default function AtlasTutorPage() {
         const first = Object.values(res.regenerated_exercise.starter_files)[0] || ''
         if (first) setCode(first)
       }
+      if (loadSharedState) await loadState(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -253,11 +278,12 @@ export default function AtlasTutorPage() {
         return
       }
       setLessonGate(null)
-      await loadState()
-      setResult(null)
       setCode('')
+      await loadState(true)
+      setResult(null)
       setStudyAid(null)
-    } catch (_) {
+    } catch (error) {
+      setResult({ error: error instanceof Error ? error.message : 'Could not advance the lesson.' })
     } finally {
       setLoading(false)
     }
@@ -270,11 +296,14 @@ export default function AtlasTutorPage() {
       if (res && res.status === 'ok') {
         setAtlasState(prev => ({ ...(prev || {}), ...res }))
       }
-      await loadState()
+      await loadState(true)
       setResult(null)
       setStudyAid(null)
-    } catch (_) {}
-    setLoading(false)
+    } catch (error) {
+      setResult({ error: error instanceof Error ? error.message : 'Could not return to the previous lesson.' })
+    } finally {
+      setLoading(false)
+    }
   }
 
   const loadRecap = async () => {
@@ -327,6 +356,7 @@ export default function AtlasTutorPage() {
         }
       }
       setResult(null)
+      if (loadSharedState) await loadState(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -373,6 +403,7 @@ export default function AtlasTutorPage() {
           focus_areas: Array.isArray(onboarding.focus_areas) ? onboarding.focus_areas.join(', ') : '',
         })
       }
+      if (loadSharedState) await loadState(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -390,6 +421,7 @@ export default function AtlasTutorPage() {
         plan_history: res.plan_history || prev?.plan_history || [],
         observability: res.observability || prev?.observability || null,
       }))
+      if (loadSharedState) await loadState(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -407,6 +439,7 @@ export default function AtlasTutorPage() {
         eval_history: res.history || prev?.eval_history || [],
         observability: res.observability || prev?.observability || null,
       }))
+      if (loadSharedState) await loadState(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -449,6 +482,7 @@ export default function AtlasTutorPage() {
             : { chat_history: res.chat_history }),
         }))
       }
+      if (loadSharedState) await loadState(true)
     } catch (e) {
       setAtlasState(prev => ({
         ...(prev || {}),
@@ -574,8 +608,9 @@ export default function AtlasTutorPage() {
   ])
 
   return (
-    <div className="page-enter" style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0, overflow: 'hidden' }}>
-      <div style={{ flexShrink: 0 }}>
+    <div className="page-enter" style={{ padding: conversationOnly ? 0 : 20, display: 'flex', flexDirection: 'column', gap: 16, height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      {stateError && <div role="alert" style={{ color: '#fca5a5', fontSize: '0.78rem' }}>{stateError} <button onClick={loadState}>Retry</button></div>}
+      {!conversationOnly && <div style={{ flexShrink: 0 }}>
         {isMobile && (
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button
@@ -592,9 +627,9 @@ export default function AtlasTutorPage() {
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
-      {billingWarning.show && (
+      {!conversationOnly && billingWarning.show && (
         <div className="glass-card-solid" style={{ padding: '12px 14px', border: `1px solid ${billingWarning.color}55`, background: `${billingWarning.color}14` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -611,7 +646,7 @@ export default function AtlasTutorPage() {
         </div>
       )}
 
-      {(result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
+      {!conversationOnly && (result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
         <div className="glass-card-solid" style={{ padding: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(0,245,212,0.8)' }}>
           {result?.error ? (
             <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>Tutor action failed: {result.error}</div>
@@ -637,7 +672,7 @@ export default function AtlasTutorPage() {
       <div style={{ flex: 1, display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 16, minHeight: 0, overflow: isMobile ? 'auto' : 'hidden' }}>
 
       {/* Left: Curriculum */}
-      {(!isMobile || showLeftPanel) && (
+      {!conversationOnly && (!isMobile || showLeftPanel) && (
       <div style={{ width: isMobile ? '100%' : 240, flexShrink: 0, overflowY: 'auto', minHeight: 0 }}>
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <p style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--txt-sec)', marginBottom: 12, fontWeight: 600 }}>
@@ -826,7 +861,7 @@ export default function AtlasTutorPage() {
       )}
 
       {/* Center: Exercise + Editor */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
+      {!conversationOnly && <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, minHeight: 0, overflowY: 'auto' }}>
         {exercise ? (
           <>
             <TutorJourneyRail
@@ -1201,9 +1236,10 @@ export default function AtlasTutorPage() {
         )}
       </div>
 
+      }
       {/* Right: Chat (280px) */}
-      {(!isMobile || showRightPanel) && (
-      <div style={{ width: isMobile ? '100%' : 280, flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+      {(conversationOnly || !isMobile || showRightPanel) && (
+      <div style={{ width: conversationOnly || isMobile ? '100%' : 280, flexShrink: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
@@ -1335,7 +1371,7 @@ export default function AtlasTutorPage() {
       </div>
 
       {/* ATLAS Learning Materials Library — collapsible panel */}
-      <div style={{ marginTop: 14 }}>
+      <div style={{ marginTop: conversationOnly ? 0 : 14, flexShrink: 0, maxHeight: conversationOnly ? '40%' : undefined, overflowY: 'auto' }}>
         <button
           type="button"
           onClick={() => setAtlasLibraryOpen(p => !p)}

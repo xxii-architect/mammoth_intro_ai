@@ -400,6 +400,31 @@ async def atlas_back():
         "lesson_manifest": state.get("lesson_manifest"),
     }
 
+
+@app.get("/api/atlas/agents")
+async def atlas_learning_agents():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    allowed = {"tutor_agent", "curriculum_agent", "research_agent", "reflection_agent", "coding_agent", "browser_agent"}
+    if not _agent_registry_ok:
+        return JSONResponse({"status": "error", "error": "The learning agent registry is unavailable."}, status_code=503)
+    try:
+        manifests = await agent_registry.list_agents()
+    except Exception:
+        logging.getLogger("mammoth.atlas").exception("Could not load learning agent catalog")
+        return JSONResponse({"status": "error", "error": "Could not load the learning agent catalog."}, status_code=503)
+    return {"status": "ok", "agents": [
+        {
+            "id": manifest.agent_id,
+            "name": manifest.name,
+            "status": manifest.status.value if hasattr(manifest.status, "value") else str(manifest.status),
+            "capabilities": manifest.capabilities,
+        }
+        for manifest in manifests if manifest.agent_id in allowed
+    ]}
+
+
 @app.get("/api/atlas/recap")
 async def atlas_recap():
     state = _load_atlas_state()
@@ -1143,4 +1168,3 @@ async def ingest_atlas_lesson(payload: dict, request: Request):
         "user_id": user_id,
         "grounded": True,
     }
-

@@ -6,6 +6,17 @@ The current agent-readable reliability backlog is
 [Platform upgrade roadmap](PLATFORM_UPGRADE_ROADMAP.md). It separates confirmed
 gaps from investigation candidates and defines phased acceptance criteria.
 
+ATLAS now combines the lesson/practice renderer and tutor in a learning workspace.
+Use **Lesson & practice**, **ATLAS Tutor**, or **Learning agents** without leaving
+the page; the optional desktop tutor pane sits alongside the lesson. The old
+`lessons` page key opens the same workspace. Advanced tutor tools remain available.
+The signed-in `/api/atlas/agents` catalog exposes only education agents and no host
+endpoints. Research supports existing long-form reports and authenticated DOCX
+downloads; it remains supplemental to the active lesson.
+
+Lecture mode is not implemented yet. Its tracked delivery plan is
+[ATLAS workspace and lecture backlog](ATLAS_WORKSPACE_ROADMAP.md).
+
 ## Current upgrade wave (SDK optimization + Mammoth Mind)
 
 | Phase | What shipped |

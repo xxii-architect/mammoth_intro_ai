@@ -6,6 +6,10 @@ For platform reliability work, read [PLATFORM_UPGRADE_ROADMAP.md](PLATFORM_UPGRA
 first. Verify each finding against current code, preserve access boundaries,
 and check off an item only after its acceptance criteria pass.
 
+For learning workspace and lecture work, use [ATLAS_WORKSPACE_ROADMAP.md](ATLAS_WORKSPACE_ROADMAP.md).
+ATLAS composes existing lesson and tutor flows; do not fork mastery gates or
+replace lesson content with research. The education roster never grants host access.
+
 ## Working rules
 - Treat `src/mammoth_os/agent_registry.py` as the canonical registry for agent manifests, capabilities, and health state.
 - Treat `api_server.py` as the integration surface for UI and workflow wiring. Do not hard-code agent statuses in the frontend when the backend can provide them.
