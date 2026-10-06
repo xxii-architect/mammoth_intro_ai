@@ -154,6 +154,15 @@ AUDIO-04 and SDK-01 follow validated AUDIO-03 behavior.
   The prior learning release's CI also exposed a route-helper placement error
   and an outdated curriculum payload expectation; both were corrected and the
   route-layout and registry-contract regressions passed.
+- Curriculum failure follow-up: reproduced a 450-word / 20-minute lesson being
+  rejected by the old character-based duration heuristic. Replaced it with a
+  word-based reading floor while keeping depth/examples/all-lesson gates.
+  Added safe failure categories and one bounded schema/teaching repair per
+  lesson, without retrying provider exceptions. A real-provider nutrition course
+  subsequently passed all nine lessons (411-542 teaching words each); two
+  lessons required their permitted schema correction. This verifies authoring
+  shape and readiness, not subject-expert factual review. Course/module time
+  estimates now follow authored lesson estimates. Old drafts need regeneration.
 
 ## Repeating the workspace checks
 

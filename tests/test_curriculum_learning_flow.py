@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 import api_server
 import mammoth_os.atlas_session as session_module
-from mammoth_os.agents.curriculum_agent import CurriculumAgent
+from mammoth_os.agents.curriculum_agent import CurriculumAgent, LessonAuthoringError
 from mammoth_os.agents.curriculum_validation_v2 import validate_curriculum
 from mammoth_os.curriculum_library import prepare_curriculum, save_curriculum, list_curricula
 from mammoth_os.learner_model import build_learner_context, build_lesson_plan, set_onboarding_profile
@@ -116,6 +116,7 @@ def test_generation_failure_returns_honest_draft_without_provider_errors(monkeyp
     assert result["quality"]["status"] == "draft"
     assert result["validation"]["valid"] is False
     assert "insufficient_quota" not in str(result)
+    assert all(item["code"] == "provider_or_runtime_error" for item in result["curriculum"]["generation_diagnostics"])
     assert all(not lesson["content"] for module in result["curriculum"]["modules"] for lesson in module["lessons"])
 
 
@@ -143,6 +144,103 @@ def test_authored_lesson_uses_profile_and_strips_reasoning(monkeypatch, course):
     assert "Worked examples" in captured["prompt"]
     assert captured["max_tokens"] == 3200
     assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_full_course_accepts_requested_teaching_depth_and_twenty_minute_lessons(monkeypatch, course):
+    import json
+    import mammoth_os.agents.curriculum_agent as module
+
+    agent = CurriculumAgent(None)
+    monkeypatch.setattr(agent, "_load_from_mammoth_supabase", lambda *args: None)
+    monkeypatch.setattr(agent, "_inject_chunks_into_lessons", lambda value: value)
+    requested_titles = []
+
+    class Client:
+        async def generate(self, prompt, **kwargs):
+            title = prompt.split("Lesson title seed: ", 1)[1].split("\n", 1)[0]
+            requested_titles.append(title)
+            lesson = deepcopy(course["modules"][0]["lessons"][0])
+            lesson["title"] = title
+            lesson["content"] = title + ". " + lesson["content"] + " " + lesson["content"]
+            lesson["estimated_minutes"] = 20
+            assert 350 <= len(lesson["content"].split()) <= 600
+            return json.dumps(lesson)
+
+    monkeypatch.setattr(module, "get_llm_client", lambda: Client())
+    result = agent.run("Create a curriculum for Python")
+    assert len(requested_titles) == 9
+    assert result["quality"]["ready"], result["quality"]
+    assert result["validation"]["valid"]
+    assert result["curriculum"]["estimated_total_minutes"] == 180
+    assert all(module["estimated_minutes"] == 60 for module in result["curriculum"]["modules"])
+    assert not result["curriculum"].get("generation_warnings")
+    assert all(lesson["status"] == "ready" and lesson["estimated_minutes"] == 20
+               for item in result["curriculum"]["modules"] for lesson in item["lessons"])
+
+
+def test_safe_authoring_diagnostics_distinguish_json_and_teaching_failures(monkeypatch, course):
+    import json
+    import mammoth_os.agents.curriculum_agent as module
+
+    agent = CurriculumAgent(None)
+    payload = deepcopy(course["modules"][0]["lessons"][0])
+    class Client:
+        async def generate(self, prompt, **kwargs):
+            return json.dumps(payload)
+    monkeypatch.setattr(module, "get_llm_client", lambda: Client())
+    payload["content"] = "A thin Python outline."
+    with pytest.raises(LessonAuthoringError) as failure:
+        asyncio.run(agent._author_lesson_with_llm(
+            {**payload, "source": "template"}, subject="Python", module_title="Foundations", curriculum_title="Python"))
+    assert failure.value.code == "teaching_checks_failed"
+    assert any("180 words" in issue for issue in failure.value.issues)
+    monkeypatch.setattr(agent, "_load_from_mammoth_supabase", lambda *args: None)
+    monkeypatch.setattr(agent, "_inject_chunks_into_lessons", lambda value: value)
+    result = agent.run("Create a curriculum for Python")
+    assert not result["quality"]["ready"]
+    assert result["curriculum"]["generation_diagnostics"][0]["code"] == "teaching_checks_failed"
+    assert "180 words" in result["curriculum"]["generation_warnings"][0]
+
+    class InvalidClient:
+        async def generate(self, prompt, **kwargs):
+            return '{"content": "Truncated'
+    monkeypatch.setattr(module, "get_llm_client", lambda: InvalidClient())
+    result = agent.run("Create a curriculum for Python")
+    assert result["curriculum"]["generation_diagnostics"][0]["code"] == "invalid_json"
+
+
+def test_authoring_repairs_schema_once_without_relaxing_content_checks(monkeypatch, course):
+    import json
+    import mammoth_os.agents.curriculum_agent as module
+    payload = deepcopy(course["modules"][0]["lessons"][0])
+    prompts = []
+    class Client:
+        async def generate(self, prompt, **kwargs):
+            prompts.append(prompt)
+            return json.dumps({**payload, "content": {"Introduction": "wrong shape"}} if len(prompts) == 1 else payload)
+    monkeypatch.setattr(module, "get_llm_client", lambda: Client())
+    result = asyncio.run(CurriculumAgent(None)._author_lesson_with_llm(
+        {**payload, "source": "template", "generation_warning": "Old failed draft"},
+        subject="Python", module_title="Foundations", curriculum_title="Python"))
+    assert len(prompts) == 2
+    assert "top-level string" in prompts[1]
+    assert result["authoring_attempts"] == 2
+    assert result["status"] == "ready"
+    assert "generation_warning" not in result
+
+
+def test_provider_failure_does_not_trigger_extra_authoring_spend(monkeypatch, course):
+    import mammoth_os.agents.curriculum_agent as module
+    calls = []
+    class Client:
+        async def generate(self, prompt, **kwargs):
+            calls.append(prompt)
+            raise RuntimeError("insufficient_quota private detail")
+    monkeypatch.setattr(module, "get_llm_client", lambda: Client())
+    with pytest.raises(RuntimeError):
+        asyncio.run(CurriculumAgent(None)._author_lesson_with_llm(
+            course["modules"][0]["lessons"][0], subject="Python", module_title="Foundations", curriculum_title="Python"))
+    assert len(calls) == 1
 
 
 @pytest.fixture

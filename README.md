@@ -35,6 +35,14 @@ including minimum teaching depth, worked examples, unique IDs, and distinct
 content. These checks do not establish factual accuracy. Drafts can be saved
 and exported but cannot be started; regenerate inadequate drafts with the
 Curriculum agent. Existing saved conversations can still contain older outputs.
+Lesson authoring makes at most two model calls per lesson: one initial attempt
+and one correction for invalid JSON/schema or failed teaching checks. Provider
+exceptions use the existing provider fallback chain, not another authoring
+retry. Safe generation diagnostics distinguish those failure classes without
+embedding raw provider errors. Duration checks use a 200-word/minute reading
+floor plus the declared practice estimate, not characters as minutes; module
+and course estimates are recalculated from lesson estimates. A corrected attempt
+can add latency and cost. Existing failed drafts are not silently rewritten.
 
 Written practice uses lesson-grounded AI rubric feedback (concepts, application,
 reasoning) when available. If assessment fails, the UI labels the local fallback

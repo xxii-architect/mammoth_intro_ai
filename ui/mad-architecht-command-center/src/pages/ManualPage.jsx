@@ -156,6 +156,10 @@ const repoContextRules = [
     body: 'Artifacts groups saved outputs into Curricula, Lessons, Research & reports, Notes, Flashcards, Code & patch proposals, Plans, and Uncategorized. Combine search, agent, status, and local-date filters; expand a preview or download text/JSON and available authenticated DOCX files. Ready means declared output readiness, not factual verification, mastery, or safe-to-apply code. Old outputs without metadata remain Uncategorized / Not assessed. Saved ATLAS curricula are linked from their own library; clearing saved outputs never deletes those courses or the live Notes and Flashcards libraries. Origin buttons open the workspace and show recorded run/lesson IDs, not an automatic replay. Backend failures stay visible; unscoped browser caches are not shown.',
   },
   {
+    title: 'When curriculum authoring fails',
+    body: 'Generation warnings distinguish invalid lesson JSON, missing or incorrectly typed fields, failed teaching checks, and provider/runtime failures. Authoring allows one correction attempt for lesson-output failures; provider exceptions use the runtime fallback chain instead. Corrections can add time and model usage. Lesson durations include practice and are checked against a word-based reading floor. Failed drafts stay blocked from starting and are never replaced with filler. Regenerate the curriculum after a fix; saved old drafts do not update automatically.',
+  },
+  {
     title: 'Queries determine what code gets surfaced',
     body: 'Generic chat like “do you see the code?” may return empty snippets. Ask for a file, symbol, route, or behavior you want inspected.',
   },

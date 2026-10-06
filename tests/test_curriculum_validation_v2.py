@@ -123,6 +123,23 @@ def test_validate_duration_valid():
     assert is_valid, errors
 
 
+@pytest.mark.parametrize("words", [350, 450, 600])
+def test_duration_accepts_substantive_lesson_with_practice(words):
+    content = " ".join(["macronutrients"] * words)
+    valid, errors = _validate_duration_estimates({"content": content, "estimated_minutes": 20})
+    assert valid, errors
+
+
+def test_duration_rejects_estimate_below_reading_floor():
+    valid, errors = _validate_duration_estimates({"content": "nutrition " * 2000, "estimated_minutes": 5})
+    assert not valid
+    assert any("reading floor" in error for error in errors)
+
+
+def test_duration_rejects_boolean():
+    assert not _validate_duration_estimates({"estimated_minutes": True})[0]
+
+
 def test_validate_duration_rejects_zero():
     """Test that zero duration is rejected."""
     lesson = {"estimated_minutes": 0}

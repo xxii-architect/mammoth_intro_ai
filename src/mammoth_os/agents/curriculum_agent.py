@@ -18,6 +18,13 @@ from mammoth_os.tutor_delivery import curriculum_readiness
 from mammoth_os.research_quality import strip_reasoning, trim_to_last_sentence, dedupe_items
 
 
+class LessonAuthoringError(ValueError):
+    def __init__(self, code: str, issues: List[str]):
+        self.code = code
+        self.issues = issues
+        super().__init__("; ".join(issues))
+
+
 class CurriculumAgent(BaseAgent):
     """
     CurriculumAgent
@@ -312,17 +319,41 @@ class CurriculumAgent(BaseAgent):
             "- Include at least three specific teaching points and two worked examples with steps and explanations, not prompts to invent examples.\n"
             "- Each lesson must teach a distinct subtopic appropriate to its module and lesson position, not repeat the same generic overview.\n"
             "- Stay safety-first and educational for medical, emergency, legal, or field topics.\n"
+            "- Estimate total minutes for reading, worked examples, and guided practice; use an integer between 5 and 480.\n"
             "- Return only valid JSON."
         )
-        raw = await client.generate(prompt, temperature=0.3, max_tokens=3200, response_format={"type": "json_object"})
+        for attempt in range(2):
+            raw = await client.generate(prompt, temperature=0.3, max_tokens=3200, response_format={"type": "json_object"})
+            try:
+                authored = self._parse_authored_lesson(raw, lesson, subject=subject, learner_context=learner_context)
+                authored["authoring_attempts"] = attempt + 1
+                return authored
+            except LessonAuthoringError as exc:
+                if attempt == 1:
+                    raise
+                self.log("WARN", f"Retrying lesson {lesson.get('lesson_id')} once after {exc.code}: {exc}")
+                prompt += (
+                    "\nThe previous attempt failed these checks: " + json.dumps(exc.issues) +
+                    "\nReturn a corrected COMPLETE lesson using the exact top-level schema above. "
+                    "Do not nest the lesson in a wrapper. content must be one JSON string containing the teaching text, "
+                    "not an object or array. Retain every required field and meet all content and example requirements."
+                )
+
+    def _parse_authored_lesson(
+        self, raw: str, lesson: Dict[str, Any], *, subject: str,
+        learner_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         clean, trace = strip_reasoning(raw)
-        payload = self._extract_json_object(clean)
+        try:
+            payload = self._extract_json_object(clean)
+        except ValueError as exc:
+            raise LessonAuthoringError("invalid_json", ["The model did not return a complete valid lesson JSON object."]) from exc
         for key in ("title", "summary", "content"):
             if not isinstance(payload.get(key), str) or not payload[key].strip():
-                raise ValueError(f"Authored lesson is missing {key}")
+                raise LessonAuthoringError("invalid_schema", [f"Authored lesson needs non-empty {key} as a top-level string."])
         for key in ("objectives", "teaching_points", "examples"):
             if not isinstance(payload.get(key), list) or not all(isinstance(item, str) for item in payload[key]):
-                raise ValueError(f"Authored lesson has invalid {key}")
+                raise LessonAuthoringError("invalid_schema", [f"Authored lesson has invalid {key}."])
             payload[key] = dedupe_items(payload[key])
         content, content_trace = strip_reasoning(payload["content"])
         payload["content"], _ = trim_to_last_sentence(content)
@@ -332,9 +363,11 @@ class CurriculumAgent(BaseAgent):
                     "difficulty": (learner_context or {}).get("recommended_difficulty", "beginner")}
         authored["source"] = "llm_generated" if str(lesson.get("source") or "").strip().lower() == "template" else "llm_enriched"
         authored["status"] = "ready"
+        authored.pop("generation_warning", None)
         quality = curriculum_readiness({"subject": subject, "modules": [{"lessons": [authored]}]})
         if not quality["ready"]:
-            raise ValueError("Authored lesson did not meet teaching-readiness checks")
+            issues = quality["errors"] + [issue for result in quality["lessons"] for issue in result["errors"]]
+            raise LessonAuthoringError("teaching_checks_failed", issues or ["Authored lesson did not meet teaching-readiness checks."])
         return authored
 
     def _enrich_curriculum_lessons(self, curriculum: Dict[str, Any], subject: str, learner_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -342,6 +375,7 @@ class CurriculumAgent(BaseAgent):
         if not isinstance(modules, list):
             return curriculum
         warnings: List[str] = []
+        diagnostics: List[Dict[str, Any]] = []
         for module in modules:
             module_title = str(module.get("title") or "Module").strip()
             lessons = module.get("lessons")
@@ -367,15 +401,28 @@ class CurriculumAgent(BaseAgent):
                     )
                 except Exception as exc:
                     self.log("WARN", f"Lesson authoring failed for {lesson.get('lesson_id')}: {exc}")
-                    warnings.append(f"{lesson.get('lesson_id') or 'lesson'}: Lesson authoring failed; review or regenerate this draft.")
+                    if isinstance(exc, LessonAuthoringError):
+                        code, issues = exc.code, exc.issues
+                    else:
+                        code, issues = "provider_or_runtime_error", ["Lesson generation could not complete. Check provider availability and server diagnostics."]
+                    warning = f"{lesson.get('lesson_id') or 'lesson'}: {code}: {' '.join(issues)}"
+                    warnings.append(warning)
+                    diagnostics.append({"lesson_id": lesson.get("lesson_id"), "code": code, "issues": issues})
                     fallback = dict(lesson)
                     fallback["source"] = "template"
                     fallback["status"] = "failed"
                     fallback["content"] = ""
                     fallback["generation_warning"] = "Lesson authoring failed. No teaching content was substituted."
                     lessons[index] = fallback
+            module["estimated_minutes"] = sum(
+                lesson["estimated_minutes"] for lesson in lessons
+                if isinstance(lesson, dict) and isinstance(lesson.get("estimated_minutes"), int)
+                and not isinstance(lesson["estimated_minutes"], bool) and lesson["estimated_minutes"] > 0
+            )
+        curriculum["estimated_total_minutes"] = sum(module.get("estimated_minutes", 0) for module in modules if isinstance(module, dict))
         if warnings:
             curriculum["generation_warnings"] = warnings
+            curriculum["generation_diagnostics"] = diagnostics
         if str(curriculum.get("source") or "").strip().lower() == "template":
             curriculum["source"] = "llm_or_template_fallback"
         return curriculum

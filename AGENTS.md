@@ -69,6 +69,7 @@ mastery increases. Topic-specific learner evidence drives difficulty recommendat
 - Manifests must be derived from real lesson/exercise data. Leave a field empty rather than generating filler.
 - The gate must always offer an explicit override, and overrides must be audit-logged. SDK `next_lesson()` stays ungated unless `require_mastery=True`.
 - Keep `lesson_telemetry` bounded (80 lessons) and clear it on learner reset.
+- Curriculum authoring allows one bounded correction for schema/teaching-check failures, never extra authoring retries for provider errors. Keep safe diagnostics separate from raw provider logs. Duration validation uses word-based reading time, not a character-count proxy that rejects substantive lessons.
 
 ## Mammoth Paths workspace SDK rules
 - Python client: `src/mammoth_os/paths/` (stdlib only). JS client: `packages/mammoth-paths/` (zero dependencies). Keep both method sets and the `mammoth.paths.v1` contract in sync, and add tests on both sides.

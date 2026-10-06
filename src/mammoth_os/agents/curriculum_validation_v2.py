@@ -12,6 +12,7 @@ Key hardening areas:
 """
 
 import re
+import math
 from typing import Dict, Any, List, Tuple
 
 
@@ -150,7 +151,7 @@ def _validate_duration_estimates(lesson: Dict[str, Any]) -> Tuple[bool, List[str
     estimated_minutes = lesson.get("estimated_minutes")
     if estimated_minutes is None:
         errors.append("Missing estimated_minutes")
-    elif not isinstance(estimated_minutes, int):
+    elif isinstance(estimated_minutes, bool) or not isinstance(estimated_minutes, int):
         errors.append(f"estimated_minutes not an integer: {type(estimated_minutes)}")
     elif estimated_minutes <= 0:
         errors.append(f"estimated_minutes invalid: {estimated_minutes}")
@@ -159,11 +160,11 @@ def _validate_duration_estimates(lesson: Dict[str, Any]) -> Tuple[bool, List[str
     elif estimated_minutes < 5:
         errors.append(f"estimated_minutes too short: {estimated_minutes} (min 5)")
     else:
-        # Heuristic: estimated_minutes should roughly correlate with content length
-        content_len = len(str(lesson.get("content") or "").strip())
-        expected_minutes = max(10, min(120, content_len // 50))  # ~50 chars per minute of reading
-        if estimated_minutes < expected_minutes * 0.5:
-            errors.append(f"estimated_minutes seems low ({estimated_minutes}) for content length ({content_len} chars)")
+        # A lesson includes practice time; only reject estimates below its reading floor.
+        word_count = len(str(lesson.get("content") or "").split())
+        reading_minutes = math.ceil(word_count / 200)
+        if estimated_minutes < reading_minutes:
+            errors.append(f"estimated_minutes seems low ({estimated_minutes}) for {word_count} words (reading floor {reading_minutes} min)")
     
     return len(errors) == 0, errors
 
