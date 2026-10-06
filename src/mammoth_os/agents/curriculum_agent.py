@@ -14,6 +14,8 @@ import concurrent.futures
 from mammoth_os.rag_retrieval import get_retriever
 from mammoth_os.llm_client import get_llm_client
 from .curriculum_validation_v2 import validate_curriculum
+from mammoth_os.tutor_delivery import curriculum_readiness
+from mammoth_os.research_quality import strip_reasoning, trim_to_last_sentence, dedupe_items
 
 
 class CurriculumAgent(BaseAgent):
@@ -47,10 +49,10 @@ class CurriculumAgent(BaseAgent):
         import json as _json
         # ── normalize dict / JSON-string payloads ──────────────────────────────
         if isinstance(prompt, dict):
-            return str(
+            return self._extract_subject(str(
                 prompt.get("topic") or prompt.get("subject") or
                 prompt.get("prompt") or prompt.get("task") or "Untitled Subject"
-            ).strip()
+            ).strip())
         if isinstance(prompt, str):
             s = prompt.strip()
             if s.startswith("{"):
@@ -62,11 +64,14 @@ class CurriculumAgent(BaseAgent):
                             d.get("prompt") or d.get("task") or ""
                         ).strip()
                         if extracted:
-                            return extracted
+                            return self._extract_subject(extracted)
                 except Exception:
                     pass
         # ── original heuristic extraction (unchanged) ──────────────────────────
         prompt = str(prompt or "").strip()
+        prompt = re.sub(r"^(?:please\s+)?(?:generate|create|build|design|make)\s+(?:me\s+)?(?:a\s+|an\s+)?(?:curriculum|course|lesson plan)\s+(?:for|on|about)\s+", "", prompt, flags=re.IGNORECASE)
+        prompt = re.split(r"\s+(?:for\s+(?:a|an)\s+(?:beginner|intermediate|advanced|expert)|with\s+(?:a\s+)?(?:thorough|detailed)\s+introduction)", prompt, maxsplit=1, flags=re.IGNORECASE)[0]
+        prompt = re.sub(r"\s+please[!.]*$", "", prompt, flags=re.IGNORECASE).strip(" !.")
         lesson_track_match = re.search(
             r"lesson track for\s+(.+?)(?:\s+with\s+|\s+emphasis\s+on:|[.;]|$)",
             prompt,
@@ -88,6 +93,11 @@ class CurriculumAgent(BaseAgent):
     def _build_template_curriculum(self, subject: str, curriculum_id: str, now: str) -> Dict[str, Any]:
         # Generate 3 modules with subject-aware beginner lessons when richer data is unavailable.
         phase_names = ["Foundations", "Core Skills", "Application"]
+        lesson_roles = [
+            ["Orientation and vocabulary", "Core ideas explained", "Guided first application"],
+            ["Comparing methods", "Interpreting evidence", "Common mistakes and correction"],
+            ["Integrated scenario", "Independent practice", "Review and transfer"],
+        ]
         modules = []
         for m in range(1, 4):
             lessons = []
@@ -100,7 +110,7 @@ class CurriculumAgent(BaseAgent):
                 ]
                 lessons.append({
                     "lesson_id": lesson_id,
-                    "title": f"{subject} — {phase} Lesson {l}",
+                    "title": f"{subject} — {lesson_roles[m - 1][l - 1]}",
                     "objectives": practical_focus,
                     "estimated_minutes": 15 + (m * 5) + (l * 2),
                     "source": "template",
@@ -246,9 +256,9 @@ class CurriculumAgent(BaseAgent):
         examples = [str(item).strip() for item in (lesson.get("examples") or []) if str(item).strip()]
         if str(lesson.get("source") or "").strip().lower() == "template":
             return True
-        if len(content) < 220:
+        if len(content.split()) < 180 or content.endswith(("...", "\u2026")):
             return True
-        if len(teaching_points) < 3 or len(examples) < 1:
+        if len(teaching_points) < 3 or len(examples) < 2:
             return True
         subject_terms = self._subject_terms(subject)
         if subject_terms and self._text_relevance_score(f"{lesson.get('title', '')} {content}", subject_terms) == 0:
@@ -262,6 +272,7 @@ class CurriculumAgent(BaseAgent):
         subject: str,
         module_title: str,
         curriculum_title: str,
+        learner_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         fallback_lesson = self._build_structured_lesson_fallback(lesson, subject=subject, module_title=module_title)
         title = fallback_lesson["title"]
@@ -272,7 +283,7 @@ class CurriculumAgent(BaseAgent):
         client = get_llm_client()
         prompt = (
             "You are ATLAS, a curriculum author inside MammothOS.\n"
-            "Generate a grounded, beginner-friendly lesson in STRICT JSON only.\n"
+            "Generate a complete, subject-specific teaching lesson in STRICT JSON only.\n"
             "Schema:\n"
             "{\n"
             '  "title": "string",\n'
@@ -287,37 +298,46 @@ class CurriculumAgent(BaseAgent):
             f"Module title: {module_title}\n"
             f"Lesson title seed: {title}\n"
             f"Subject: {subject}\n"
+            f"Learner profile: {json.dumps(learner_context or {}, default=str)}\n"
             f"Objectives seed: {json.dumps(objectives)}\n"
             f"Existing content seed: {existing_content or fallback_lesson['summary']}\n"
             "Retrieved grounding chunks (use when relevant, but do not fabricate citations):\n"
             f"{grounding_block}\n\n"
             "Requirements:\n"
             "- Keep the lesson truly about the subject, not about programming unless the subject itself is programming.\n"
-            "- Make the tone practical, clear, and beginner-friendly.\n"
-            "- Include concrete real-world examples or first actions.\n"
+            "- Use the learner's recommended_difficulty (beginner by default), goals, pacing, and preferred examples.\n"
+            "- For beginners assume no prior subject knowledge: define vocabulary before using it, explain why each step works, and teach before asking for practice.\n"
+            "- For intermediate/advanced/expert learners state prerequisites and explain tradeoffs, limitations, and evidence. Expert study is not certification.\n"
+            "- Write 350-600 words of complete teaching content with headings: Introduction, Key concepts, Worked examples, Guided practice, and Recap and next step.\n"
+            "- Include at least three specific teaching points and two worked examples with steps and explanations, not prompts to invent examples.\n"
+            "- Each lesson must teach a distinct subtopic appropriate to its module and lesson position, not repeat the same generic overview.\n"
             "- Stay safety-first and educational for medical, emergency, legal, or field topics.\n"
             "- Return only valid JSON."
         )
-        raw = await client.generate(prompt, temperature=0.3, max_tokens=1600)
-        payload = self._extract_json_object(raw)
-        authored = self._build_structured_lesson_fallback(
-            {
-                **fallback_lesson,
-                "title": payload.get("title") or fallback_lesson["title"],
-                "objectives": payload.get("objectives") or fallback_lesson["objectives"],
-                "summary": payload.get("summary") or fallback_lesson["summary"],
-                "content": payload.get("content") or fallback_lesson["content"],
-                "teaching_points": payload.get("teaching_points") or fallback_lesson["teaching_points"],
-                "examples": payload.get("examples") or fallback_lesson["examples"],
-                "estimated_minutes": payload.get("estimated_minutes") or fallback_lesson["estimated_minutes"],
-            },
-            subject=subject,
-            module_title=module_title,
-        )
+        raw = await client.generate(prompt, temperature=0.3, max_tokens=3200, response_format={"type": "json_object"})
+        clean, trace = strip_reasoning(raw)
+        payload = self._extract_json_object(clean)
+        for key in ("title", "summary", "content"):
+            if not isinstance(payload.get(key), str) or not payload[key].strip():
+                raise ValueError(f"Authored lesson is missing {key}")
+        for key in ("objectives", "teaching_points", "examples"):
+            if not isinstance(payload.get(key), list) or not all(isinstance(item, str) for item in payload[key]):
+                raise ValueError(f"Authored lesson has invalid {key}")
+            payload[key] = dedupe_items(payload[key])
+        content, content_trace = strip_reasoning(payload["content"])
+        payload["content"], _ = trim_to_last_sentence(content)
+        authored = {**lesson, **payload, "reasoning_trace": "\n\n".join(item for item in (trace, content_trace) if item),
+                    "lesson_id": lesson.get("lesson_id"),
+                    "exercise_generation_mode": "llm_preferred",
+                    "difficulty": (learner_context or {}).get("recommended_difficulty", "beginner")}
         authored["source"] = "llm_generated" if str(lesson.get("source") or "").strip().lower() == "template" else "llm_enriched"
+        authored["status"] = "ready"
+        quality = curriculum_readiness({"subject": subject, "modules": [{"lessons": [authored]}]})
+        if not quality["ready"]:
+            raise ValueError("Authored lesson did not meet teaching-readiness checks")
         return authored
 
-    def _enrich_curriculum_lessons(self, curriculum: Dict[str, Any], subject: str) -> Dict[str, Any]:
+    def _enrich_curriculum_lessons(self, curriculum: Dict[str, Any], subject: str, learner_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         modules = curriculum.get("modules")
         if not isinstance(modules, list):
             return curriculum
@@ -331,7 +351,7 @@ class CurriculumAgent(BaseAgent):
                 if not isinstance(lesson, dict):
                     continue
                 if not self._lesson_needs_authoring(lesson, subject):
-                    normalized = self._build_structured_lesson_fallback(lesson, subject=subject, module_title=module_title)
+                    normalized = dict(lesson)
                     normalized["source"] = str(lesson.get("source") or curriculum.get("source") or "mammoth.supabase").strip() or "mammoth.supabase"
                     lessons[index] = normalized
                     continue
@@ -342,13 +362,17 @@ class CurriculumAgent(BaseAgent):
                             subject=subject,
                             module_title=module_title,
                             curriculum_title=str(curriculum.get("title") or subject).strip(),
+                            learner_context=learner_context,
                         )
                     )
                 except Exception as exc:
-                    warnings.append(f"{lesson.get('lesson_id') or lesson.get('title') or 'lesson'}: {exc}")
-                    fallback = self._build_structured_lesson_fallback(lesson, subject=subject, module_title=module_title)
+                    self.log("WARN", f"Lesson authoring failed for {lesson.get('lesson_id')}: {exc}")
+                    warnings.append(f"{lesson.get('lesson_id') or 'lesson'}: Lesson authoring failed; review or regenerate this draft.")
+                    fallback = dict(lesson)
                     fallback["source"] = "template"
-                    fallback["generation_warning"] = str(exc)
+                    fallback["status"] = "failed"
+                    fallback["content"] = ""
+                    fallback["generation_warning"] = "Lesson authoring failed. No teaching content was substituted."
                     lessons[index] = fallback
         if warnings:
             curriculum["generation_warnings"] = warnings
@@ -516,12 +540,6 @@ class CurriculumAgent(BaseAgent):
                     estimated_minutes = lesson.get("estimated_minutes")
                     if not isinstance(estimated_minutes, (int, float)) or int(estimated_minutes) <= 0:
                         lesson["estimated_minutes"] = max(15, min(120, (len(content) // 60) + 10))
-                    for marker in ["todo", "tbd", "placeholder", "{{", "[example]", "insert example"]:
-                        if marker in str(content).lower():
-                            fallback = self._build_structured_lesson_fallback(lesson, subject=subject, module_title=str(module.get("title") or "Module"))
-                            fallback["source"] = str(lesson.get("source") or "template").strip() or "template"
-                            lessons[idx] = fallback
-                            break
 
         is_valid, result = validate_curriculum(curriculum)
         curriculum["validation"] = result
@@ -532,7 +550,7 @@ class CurriculumAgent(BaseAgent):
                 curriculum["generation_warnings"] = limited_errors
         return curriculum
 
-    def run(self, prompt: str) -> Dict[str, Any]:
+    def run(self, prompt: Any) -> Dict[str, Any]:
         """
         Main entry point for CurriculumAgent.
         Returns a structured curriculum object generated from a natural-language prompt.
@@ -541,6 +559,9 @@ class CurriculumAgent(BaseAgent):
         other agents (PlannerAgent, OrchestratorAgent) can consume structured output.
         """
         subject = self._extract_subject(prompt)
+        learner_context = prompt.get("learner_context", {}) if isinstance(prompt, dict) else {}
+        if not isinstance(learner_context, dict):
+            learner_context = {}
 
         curriculum_id = uuid.uuid4().hex
         now = datetime.now(timezone.utc).isoformat()
@@ -551,8 +572,10 @@ class CurriculumAgent(BaseAgent):
 
         # Inject RAG-retrieved lesson chunks for tutor context
         curriculum = self._inject_chunks_into_lessons(curriculum)
-        curriculum = self._enrich_curriculum_lessons(curriculum, subject)
+        curriculum = self._enrich_curriculum_lessons(curriculum, subject, learner_context)
         curriculum = self._apply_validation_gate(curriculum, subject)
+        curriculum["quality"] = curriculum_readiness(curriculum)
+        curriculum["difficulty"] = learner_context.get("recommended_difficulty", "beginner")
 
         summary = f"{curriculum.get('title', subject)} — {len(curriculum.get('modules', []))} modules, {curriculum.get('estimated_total_minutes', 0)} min estimated"
         if not curriculum.get("validation_valid", True):
@@ -565,7 +588,8 @@ class CurriculumAgent(BaseAgent):
             "summary": summary,
             "curriculum": curriculum,
             "validation": curriculum.get("validation"),
-            "quality_flags": ["curriculum_grounded", "validation_gate_active"] if curriculum.get("validation") else ["curriculum_grounded"],
+            "quality": curriculum["quality"],
+            "quality_flags": ["validation_gate_active", "automated_quality_checks", "draft_requires_review"] if not curriculum["quality"]["ready"] else ["validation_gate_active", "automated_quality_checks"],
         }
 
     def execute_action(self, action_type: str, target: str, details: Dict[str, Any]):
@@ -638,4 +662,3 @@ class CurriculumAgent(BaseAgent):
             "prior_context_entries": len(prior),
         }
         return {**lesson_data, "difficulty": suggested_difficulty, "rag_enrichment": enrichment}
-

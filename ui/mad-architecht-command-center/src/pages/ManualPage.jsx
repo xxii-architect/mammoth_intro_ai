@@ -120,6 +120,10 @@ const promptPatterns = [
 
 const repoContextRules = [
   {
+    title: 'Set your learning profile, then review and start a course',
+    body: 'ATLAS onboarding lets you choose beginner through expert study, pacing, learning preference, goals, and focus areas; you can defer or edit it. Pacing is not mastery. The Curriculum learning agent shows modules and lesson content: review, Save to my curricula, then Start this curriculum. My curricula stores your private snapshots. Starting begins at lesson one and replaces the active course; continue the current course through Lesson & practice. Draft courses can be saved or exported but cannot start until authored content passes the shared checks. These checks do not verify factual accuracy or confer certification. Written practice uses lesson-grounded rubric feedback when available; coverage-only fallback feedback does not increase mastery. Profile changes apply to new teaching/exercises, not silent rewrites of existing content.',
+  },
+  {
     title: 'ATLAS is one learning workspace',
     body: 'Lesson & practice brings lesson content, exercises, and corrections into the main field. Consult ATLAS Tutor beside the lesson on desktop, or switch views on mobile. Learning agents includes Tutor, Curriculum, Research, Reflection, Coding, and Browser when registered, using your active lesson as context. Advanced tutor tools remain available. Lecture audio is planned, not enabled yet.',
   },

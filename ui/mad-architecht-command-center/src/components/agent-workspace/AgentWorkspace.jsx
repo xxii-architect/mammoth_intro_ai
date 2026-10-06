@@ -6,6 +6,7 @@ import { startAgentRun, resolveRunApproval, cancelAgentRun, reduceRunEvent } fro
 import RunTimeline from '../RunTimeline'
 import ChatMessageBody from '../ChatMessageBody'
 import { StepOutput, artifactSections } from '../PlanExecuteResultPanel'
+import CurriculumArtifactPanel from '../CurriculumArtifactPanel'
 import PlanExecuteResultPanel from '../PlanExecuteResultPanel'
 import ResearchArtifactPanel from '../ResearchArtifactPanel'
 import CodingArtifactPanel from '../CodingArtifactPanel'
@@ -185,7 +186,7 @@ function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compa
   )
 }
 
-function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecision, runBusy }) {
+function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecision, runBusy, onStartCurriculum, onCurriculumSaved }) {
   const [showRaw, setShowRaw] = useState(false)
   const entry = agentDisplay(message.agent_id)
   const research = message.agent_id === 'research_agent' && message.raw ? normalizeResearchArtifact(message.raw) : null
@@ -193,6 +194,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
   if (coding && message.patchApplied) coding.applied = true
   const run = message.run
   const settled = message.status === 'ok' || run?.status === 'completed'
+  const curriculum = message.agent_id === 'curriculum_agent' ? message.artifact?.curriculum : null
 
   let body
   if (run) {
@@ -225,6 +227,8 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
         {JSON.stringify(message.raw || message.artifact, null, 2)}
       </pre>
     )
+  } else if (curriculum) {
+    body = <CurriculumArtifactPanel key={curriculum.curriculum_id} curriculum={curriculum} onStart={onStartCurriculum} onSaved={onCurriculumSaved} />
   } else if (research) {
     body = <ResearchArtifactPanel artifact={research} rawJson={null} />
   } else if (coding && (coding.code || coding.diff)) {
@@ -258,7 +262,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
   )
 }
 
-function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy, compact, allowedAgentIds, lessonContext, storageKey = THREADS_KEY }) {
+function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy, compact, allowedAgentIds, lessonContext, storageKey = THREADS_KEY, onStartCurriculum, onCurriculumSaved }) {
   const entry = agentDisplay(agentId, agents.find(agent => agent.id === agentId))
   const { user } = useAuth()
   const [threads, setThreads] = useState(() => loadThreads(storageKey))
@@ -505,6 +509,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
           </div>
         ) : (
           <AgentMessage key={message.id || index} message={message} applying={applying} onApplyPatch={applyPatch ? handleApply : undefined}
+            onStartCurriculum={onStartCurriculum} onCurriculumSaved={onCurriculumSaved}
             onRunDecision={decideRun} runBusy={sending}
             onHandoff={() => { setText('@'); inputRef.current?.focus() }} />
         ))}
@@ -711,7 +716,7 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
   )
 }
 
-export default function AgentWorkspace({ agents, temperature, approvalMode, onTrace, onPlanRun, onRunComplete, applyPatch, replay, allowedAgentIds, lessonContext, storageKey = THREADS_KEY }) {
+export default function AgentWorkspace({ agents, temperature, approvalMode, onTrace, onPlanRun, onRunComplete, applyPatch, replay, allowedAgentIds, lessonContext, storageKey = THREADS_KEY, onStartCurriculum, onCurriculumSaved }) {
   const [mode, setMode] = useState('chat')
   const [agentId, setAgentId] = useState(() => {
     try {
@@ -764,7 +769,8 @@ export default function AgentWorkspace({ agents, temperature, approvalMode, onTr
       ) : (
         <ChatView key={agentId} agentId={agentId} agents={agents} temperature={temperature} approvalMode={approvalMode}
           onTrace={onTrace} onRunComplete={onRunComplete} applyPatch={applyPatch} draft={chatDraft} onBusy={setBusyAgentId} compact={compact}
-          allowedAgentIds={allowedAgentIds} lessonContext={lessonContext} storageKey={storageKey} />
+          allowedAgentIds={allowedAgentIds} lessonContext={lessonContext} storageKey={storageKey}
+          onStartCurriculum={onStartCurriculum} onCurriculumSaved={onCurriculumSaved} />
       )}
     </div>
   )

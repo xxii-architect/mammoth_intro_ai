@@ -9,6 +9,11 @@ and check off an item only after its acceptance criteria pass.
 For learning workspace and lecture work, use [ATLAS_WORKSPACE_ROADMAP.md](ATLAS_WORKSPACE_ROADMAP.md).
 ATLAS composes existing lesson and tutor flows; do not fork mastery gates or
 replace lesson content with research. The education roster never grants host access.
+Saved course ownership comes from the authenticated request, never payload user IDs.
+Use `tutor_delivery.curriculum_readiness` for course activation; do not trust
+model-written `quality.ready` flags. Failed authoring remains a draft.
+Keep pacing separate from experience/mastery, and coverage-only feedback out of
+mastery increases. Topic-specific learner evidence drives difficulty recommendations.
 
 ## Working rules
 - Treat `src/mammoth_os/agent_registry.py` as the canonical registry for agent manifests, capabilities, and health state.

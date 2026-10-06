@@ -65,7 +65,10 @@ async def atlas_onboard(body: Dict[str, Any]):
             details={"approval_id": approval["id"]},
         )
         return {"status": "ok", "approval": approval, "preview": preview}
-    return _apply_atlas_onboarding_update(body)
+    try:
+        return _apply_atlas_onboarding_update(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 @app.post("/api/atlas/learner/reset")
 async def atlas_learner_reset(body: Optional[Dict[str, Any]] = None):
@@ -117,10 +120,12 @@ async def atlas_lesson(body: Dict[str, Any]):
             _hydrate_learner_state(state, user_id=learner_user_id)
             learner_context = state.get("learner_context") or {}
         lesson_plan = build_lesson_plan(state, topic)
+        difficulty = str(lesson_plan.get("difficulty") or learner_context.get("recommended_difficulty") or "beginner").strip().lower() or "beginner"
+        curriculum_topic = _compose_module_curriculum_topic(topic, module_track, difficulty)
         if module_track:
             lesson_plan["module_track"] = _serialize_module_track(module_track)
             lesson_plan["curriculum_topic"] = curriculum_topic
-        learner_context = {**learner_context, "lesson_plan": lesson_plan}
+        learner_context = {**learner_context, "lesson_plan": lesson_plan, "recommended_difficulty": difficulty}
         if module_track:
             learner_context["module_track"] = _serialize_module_track(module_track)
         difficulty = str(lesson_plan.get("difficulty") or learner_context.get("recommended_difficulty") or "beginner").strip().lower() or "beginner"
@@ -137,6 +142,7 @@ async def atlas_lesson(body: Dict[str, Any]):
             "curriculum":       session.curriculum,
             "current_lesson":   session.current_lesson,
             "curriculum_id":    session._curriculum_id,
+            "curriculum_origin": "generated",
             "lesson_id":        session._lesson_id,
             "lesson_plan":      lesson_plan,
             "module_id":        (module_track or {}).get("id"),
@@ -164,8 +170,9 @@ async def atlas_lesson(body: Dict[str, Any]):
             "curriculum_topic": curriculum_topic,
             "lesson_manifest": state.get("lesson_manifest"),
         }
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+    except Exception:
+        logging.getLogger("mammoth.atlas").exception("Could not prepare a teaching-ready lesson")
+        raise HTTPException(status_code=503, detail="Could not complete lesson preparation. Check your current lesson before retrying. Use the Curriculum learning agent to review drafts.")
 
 @app.post("/api/atlas/submit")
 async def atlas_submit(body: Dict[str, Any]):
@@ -189,13 +196,15 @@ async def atlas_submit(body: Dict[str, Any]):
 
         if submission_mode == "text":
             response_text = str(body.get("response") or code or "").strip()
-            result = _evaluate_text_submission(
-                response_text,
-                lesson=current_lesson if isinstance(current_lesson, dict) else {},
-                exercise=current_exercise if isinstance(current_exercise, dict) else {},
-                track=active_track,
-                lesson_id=str(state.get("lesson_id") or ""),
-            )
+            from mammoth_os.lesson_assessment import assess_text_response
+            try:
+                result = await assess_text_response(response_text, current_lesson, current_exercise, str(state.get("lesson_id") or ""))
+            except Exception:
+                logging.getLogger("mammoth.atlas").exception("Lesson-grounded assessment unavailable; using labeled coverage feedback")
+                result = _evaluate_text_submission(
+                    response_text, lesson=current_lesson, exercise=current_exercise,
+                    track=active_track, lesson_id=str(state.get("lesson_id") or ""),
+                )
         else:
             files = {"solution.py": code}
             result = await session.submit(files)
@@ -235,7 +244,7 @@ async def atlas_submit(body: Dict[str, Any]):
         try:
             _topic = str(state.get("topic") or "")
             _lesson_title = str(current_lesson.get("title") or current_lesson.get("objective") or "lesson")
-            _outcome_label = "passed" if bool(result.get("passed")) else "attempted"
+            _outcome_label = "coverage checked (not verified mastery)" if result.get("mastery_evidence") is False else "passed" if bool(result.get("passed")) else "attempted"
             store_result = _MEMORY_ENGINE.store(
                 f"Lesson '{_lesson_title}' on topic '{_topic}': {_outcome_label}. Score: {result.get('score') or 0}.",
                 memory_type="atlas_outcome",
@@ -322,15 +331,12 @@ async def atlas_next(body: Optional[Dict[str, Any]] = None):
         return {"status": "ok", "message": "No more lessons in current module"}
 
     next_module_id = str((next_module or {}).get("module_id") or (next_module or {}).get("id") or state.get("module_id") or "").strip()
-    active_track = _resolve_module_track(next_module_id, state.get("topic"))
-    if active_track is None:
+    active_track = None if state.get("curriculum_origin") == "saved" else _resolve_module_track(next_module_id, state.get("topic"))
+    if active_track is None and state.get("curriculum_origin") != "saved":
         active_track = _resolve_module_track((next_module or {}).get("title"), state.get("topic"))
     next_lesson = _decorate_lesson_for_module_track(next_lesson, active_track)
 
-    state["current_lesson"] = next_lesson
-    state["lesson_id"] = next_lesson["lesson_id"]
-    state["module_id"] = next_module_id or state.get("module_id")
-    state["active_module"] = _serialize_module_track(active_track) or {
+    next_active_module = _serialize_module_track(active_track) or {
         "id": next_module_id,
         "label": str((next_module or {}).get("title") or "Next module").strip(),
         "topic": str(state.get("topic") or "").strip(),
@@ -343,11 +349,26 @@ async def atlas_next(body: Optional[Dict[str, Any]] = None):
     }
     try:
         from mammoth_os.exercise_generator import generate_exercises_for_lesson
-        generated = generate_exercises_for_lesson(next_lesson, count=1)
-        if generated:
-            state["current_exercise"] = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
+        _hydrate_learner_state(state, user_id=_atlas_user_id(state))
+        context = state.get("learner_context") or {}
+        plan = build_lesson_plan(state, state.get("topic"))
+        context = {**context, "recommended_difficulty": plan["difficulty"], "lesson_plan": plan}
+        generated = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: generate_exercises_for_lesson(next_lesson, count=1, difficulty=context.get("recommended_difficulty", "beginner"), learner_context=context)
+        )
+        if not generated:
+            raise RuntimeError("No exercise generated")
+        next_exercise = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
     except Exception:
-        pass
+        logging.getLogger("mammoth.atlas").exception("Could not prepare next lesson exercise")
+        raise HTTPException(status_code=503, detail="Could not prepare the next exercise. Your current lesson was not changed.")
+    state["current_lesson"] = next_lesson
+    state["lesson_id"] = next_lesson["lesson_id"]
+    state["module_id"] = next_module_id or state.get("module_id")
+    state["active_module"] = next_active_module
+    state["current_exercise"] = next_exercise
+    state["last_submission"] = None
+    state["lesson_plan"] = build_lesson_plan(state, state.get("topic"))
 
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _append_lesson_history(state, next_lesson, state.get("current_exercise") or {})
@@ -423,6 +444,106 @@ async def atlas_learning_agents():
         }
         for manifest in manifests if manifest.agent_id in allowed
     ]}
+
+
+def _curriculum_library_path():
+    atlas_path = _atlas_state_file_for_request()
+    return atlas_path.with_name(f"{atlas_path.stem}_curricula.json")
+
+
+@app.get("/api/atlas/curricula")
+async def atlas_curricula():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    from mammoth_os.curriculum_library import list_curricula
+    try:
+        return {"status": "ok", "curricula": list_curricula(_curriculum_library_path())}
+    except (OSError, ValueError):
+        logging.getLogger("mammoth.atlas").exception("Could not read curriculum library")
+        raise HTTPException(status_code=503, detail="Could not read your curriculum library.")
+
+
+@app.post("/api/atlas/curricula")
+async def atlas_save_curriculum(body: Dict[str, Any]):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    from mammoth_os.curriculum_library import prepare_curriculum, save_curriculum, list_curricula
+    try:
+        course = prepare_curriculum(body.get("curriculum"))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    try:
+        list_curricula(_curriculum_library_path())
+    except (OSError, ValueError):
+        logging.getLogger("mammoth.atlas").exception("Could not read curriculum library before save")
+        raise HTTPException(status_code=503, detail="Could not read your curriculum library.")
+    try:
+        record = save_curriculum(_curriculum_library_path(), course)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OSError:
+        logging.getLogger("mammoth.atlas").exception("Could not save curriculum")
+        raise HTTPException(status_code=503, detail="Could not save your curriculum.")
+    return {"status": "ok", **record}
+
+
+@app.post("/api/atlas/curricula/start")
+async def atlas_start_curriculum(body: Dict[str, Any]):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    from mammoth_os.atlas_session import ATLASSession
+    from mammoth_os.curriculum_library import list_curricula, prepare_curriculum
+    curriculum_id = str(body.get("curriculum_id") or "").strip()
+    if not curriculum_id:
+        raise HTTPException(status_code=400, detail="Choose a saved curriculum.")
+    try:
+        records = list_curricula(_curriculum_library_path())
+    except (OSError, ValueError):
+        logging.getLogger("mammoth.atlas").exception("Could not read curriculum for activation")
+        raise HTTPException(status_code=503, detail="Could not read your curriculum library.")
+    record = next((item for item in records if item["curriculum"].get("curriculum_id") == curriculum_id), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Curriculum not found in your library.")
+    try:
+        course = prepare_curriculum(record["curriculum"])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="Saved curriculum needs review.") from exc
+    if not course["quality"]["ready"]:
+        return JSONResponse({"status": "draft", "error": "This curriculum needs authored lessons before it can start.", "quality": course["quality"]}, status_code=409)
+    state = _load_atlas_state()
+    user_id = _atlas_user_id(state)
+    _hydrate_learner_state(state, user_id=user_id)
+    context = state.get("learner_context") or {}
+    session = ATLASSession(user_id=user_id)
+    plan = build_lesson_plan(state, course["subject"])
+    context = {**context, "recommended_difficulty": plan["difficulty"], "lesson_plan": plan}
+    try:
+        exercise = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: session.start_curriculum(course, difficulty=context.get("recommended_difficulty", "beginner"), learner_context=context)
+        )
+    except (ValueError, RuntimeError):
+        logging.getLogger("mammoth.atlas").exception("Could not activate curriculum exercise")
+        raise HTTPException(status_code=503, detail="Could not prepare the first exercise. Your active lesson was not changed.")
+    state.update({
+        "status": "active", "topic": course["subject"], "curriculum_topic": course["subject"],
+        "curriculum": session.curriculum, "curriculum_id": session._curriculum_id,
+        "curriculum_origin": "saved",
+        "current_lesson": session.current_lesson, "lesson_id": session._lesson_id,
+        "current_exercise": exercise, "active_module": None, "module_id": None,
+        "last_submission": None, "lesson_plan": plan,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    _append_lesson_history(state, session.current_lesson or {}, exercise)
+    tutor_delivery.touch_lesson(_lesson_telemetry(state), str(state["lesson_id"]))
+    _attach_delivery_state(state)
+    _sync_resume_packet(state, state["lesson_id"])
+    _save_atlas_state(state)
+    _append_audit_event(kind="atlas_curriculum_start", message="Saved curriculum activated",
+                        details={"curriculum_id": curriculum_id}, source="atlas", actor="learner")
+    return {"status": "ok", "curriculum_id": curriculum_id, "lesson_id": state["lesson_id"]}
 
 
 @app.get("/api/atlas/recap")

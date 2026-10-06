@@ -3,18 +3,26 @@ const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const agentIds = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
-async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false } = {}) {
+async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false } = {}) {
   const requests = []
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   let lessonId = 'lesson-1'
   let starterResponse = ''
   let chatHistory = []
+  let onboarding = { experience_level: 'beginner', preferred_pacing: 'gentle', learning_style: 'guided', goals: [], focus_areas: [], completed_at: profileComplete ? '2026-10-05' : null }
+  let savedCurricula = []
+  const course = {
+    curriculum_id: 'saved-course', title: 'Nutrition foundations', subject: 'Nutrition',
+    quality: { ready: curriculumReady, status: curriculumReady ? 'ready' : 'draft', lessons: [{ lesson_id: 'nutrition-one', ready: curriculumReady, errors: curriculumReady ? [] : ['Lesson content is too brief.'] }] },
+    modules: [{ module_id: 'nutrition-module', title: 'Food and energy', lessons: [{ lesson_id: 'nutrition-one', title: 'Understanding macronutrients', summary: 'Learn the roles of carbohydrates, protein, and fats.', objectives: ['Explain macronutrient roles'], content: 'Nutrition lesson preview content.' }] }],
+  }
   const snapshot = () => ({
     lesson_id: lessonId,
     current_lesson: { title: lessonId === 'lesson-1' ? 'Reliable research' : 'Check your sources', content: 'Compare primary sources before drawing conclusions.', summary: 'Evaluate evidence.' },
     current_exercise: { exercise_type: 'writing', prompt: 'Explain how you verify a claim.', starter_response: starterResponse },
     lesson_history: [], available_modules: [], learner: {}, comprehension_gate: {}, chat_history: chatHistory,
+    learner_model: { onboarding }, learner_context: { starting_level: onboarding.experience_level, recommended_difficulty: onboarding.experience_level, adaptation_reason: 'Using your selected starting level until there is practice evidence.' },
   })
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
   await page.route(url => url.pathname.startsWith('/api/'), async route => {
@@ -23,6 +31,22 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     requests.push({ path, body, headers: route.request().headers() })
     let result = {}
     if (path === '/api/atlas/status') result = snapshot()
+    if (path === '/api/atlas/onboard') {
+      onboarding = { ...body, goals: body.goals.split(',').filter(Boolean), focus_areas: body.focus_areas.split(',').filter(Boolean), completed_at: '2026-10-05' }
+      result = { status: 'ok', learner_model: { onboarding } }
+    }
+    if (path === '/api/atlas/curricula') {
+      if (route.request().method() === 'POST') {
+        const record = { curriculum: body.curriculum, saved_at: '2026-10-05' }
+        savedCurricula = [record]
+        result = { status: 'ok', ...record }
+      } else result = { status: 'ok', curricula: savedCurricula }
+    }
+    if (path === '/api/atlas/curricula/start') {
+      if (activationFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Could not prepare the first exercise.' }) })
+      lessonId = 'nutrition-one'
+      result = { status: 'ok' }
+    }
     if (path === '/api/atlas/agents') {
       if (catalogFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Catalog unavailable' }) })
       result = { agents: agents.map(id => ({ id, name: id, status: 'ready', capabilities: [] })) }
@@ -44,7 +68,7 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
       if (!body?.override) result = { status: 'gated', gate: { message: 'Practice first.', allowed: false } }
       else { lessonId = 'lesson-2'; result = { status: 'ok' } }
     }
-    if (path === '/api/run') result = { status: 'ok', result: { output: {
+    if (path === '/api/run') result = { status: 'ok', result: { output: body.agent_id === 'curriculum_agent' ? { curriculum: course } : {
       artifact_type: 'long_form_research', title: 'Source validation report', abstract: 'Research findings from the lesson.',
       sections: [{ order: 0, heading: 'Evidence', content: 'Check primary evidence.' }],
       sources: [], docx_filename: 'lesson-research.docx',
@@ -221,5 +245,82 @@ test('mentions cannot target an unregistered learning agent', async ({ page }) =
   await region.locator('textarea').last().press('Enter')
   await expect(region.getByText('That learning agent is not registered. Choose one of the agents shown here.')).toBeVisible()
   expect(requests.some(request => request.path === '/api/run')).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('onboarding is visible, saves level independently of pace, and remains editable', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page, { profileComplete: false })
+  const profile = page.getByRole('region', { name: 'Learning profile' })
+  await expect(profile.getByRole('button', { name: 'Save learning profile' })).toBeVisible()
+  await profile.getByRole('combobox', { name: 'Starting level', exact: true }).selectOption('expert')
+  await profile.getByRole('combobox', { name: 'Pacing', exact: true }).selectOption('gentle')
+  await profile.getByLabel('Goals', { exact: true }).fill('Understand nutrition evidence')
+  await profile.getByRole('button', { name: 'Save learning profile' }).click()
+  await expect(profile).toContainText('Learning profile saved.')
+  await expect(profile).toContainText('Current recommendation: expert')
+  expect(requests.find(request => request.path === '/api/atlas/onboard').body.experience_level).toBe('expert')
+  await profile.getByRole('button', { name: 'Edit learning profile' }).click()
+  await expect(profile.getByLabel('Goals', { exact: true })).toHaveValue('Understand nutrition evidence')
+  expect(errors).toEqual([])
+})
+
+async function generateCourse(page) {
+  await page.getByRole('button', { name: 'Learning agents', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Agents', exact: true }).getByRole('button', { name: /Curriculum/ }).click()
+  const region = page.getByRole('region', { name: 'Education agents' })
+  await region.locator('textarea').last().fill('Create a curriculum for Nutrition')
+  await region.locator('textarea').last().press('Enter')
+  const preview = region.getByRole('article', { name: 'Curriculum preview' })
+  await expect(preview.getByRole('heading', { name: 'Nutrition foundations' })).toBeVisible()
+  return preview
+}
+
+test('review, save and start a generated course without losing its exact identity', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page)
+  const preview = await generateCourse(page)
+  await expect(preview.getByRole('button', { name: 'Start this curriculum' })).toBeDisabled()
+  await preview.getByText('Food and energy (1 lessons)', { exact: true }).click()
+  await preview.getByText('Understanding macronutrients', { exact: true }).click()
+  await expect(preview.getByText('Nutrition lesson preview content.', { exact: true })).toBeVisible()
+  await preview.getByRole('button', { name: 'Save to my curricula' }).click()
+  await expect(preview.getByText('Saved to your curricula.', { exact: true })).toBeVisible()
+  await preview.getByRole('button', { name: 'Start this curriculum' }).click()
+  await expect(page.getByRole('region', { name: 'Lesson and practice' })).toBeVisible()
+  expect(requests.find(request => request.path === '/api/atlas/curricula/start').body.curriculum_id).toBe('saved-course')
+  await page.getByRole('button', { name: 'My curricula', exact: true }).click()
+  await page.getByRole('region', { name: 'Saved curricula' }).getByText('Nutrition foundations', { exact: true }).first().click()
+  await expect(page.getByRole('region', { name: 'Saved curricula' }).getByRole('button', { name: 'Start this curriculum' })).toBeEnabled()
+  expect(errors).toEqual([])
+})
+
+test('draft curriculum stays saveable for review but cannot be started', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page, { curriculumReady: false })
+  const preview = await generateCourse(page)
+  await expect(preview).toContainText('Draft: teaching content needs review')
+  await preview.getByRole('button', { name: 'Save to my curricula' }).click()
+  await expect(preview.getByRole('button', { name: 'Start this curriculum' })).toBeDisabled()
+  expect(requests.some(request => request.path === '/api/atlas/curricula/start')).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('activation errors remain visible without changing the learning surface', async ({ page }) => {
+  await mountWorkspace(page, { activationFailure: true })
+  const preview = await generateCourse(page)
+  await preview.getByRole('button', { name: 'Save to my curricula' }).click()
+  await preview.getByRole('button', { name: 'Start this curriculum' }).click()
+  await expect(preview.getByRole('alert')).toContainText('Could not prepare the first exercise.')
+  await expect(page.getByRole('region', { name: 'Education agents' })).toBeVisible()
+})
+
+test('portrait onboarding can be deferred without covering the learning-agent composer', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const { errors } = await mountWorkspace(page, { profileComplete: false })
+  const profile = page.getByRole('region', { name: 'Learning profile' })
+  await profile.getByRole('button', { name: 'Not now', exact: true }).click()
+  await page.getByRole('button', { name: 'Learning agents', exact: true }).click()
+  const composer = page.getByRole('region', { name: 'Education agents' }).locator('textarea').last()
+  await composer.fill('Help me learn')
+  await expect(composer).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
 })

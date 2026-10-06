@@ -407,6 +407,13 @@ class AtlasFAB:
             difficulty=difficulty,
             learner_context=resolved_context or None,
         )
+        return self._record_lesson_snapshot(raw, topic=topic, module_idx=module_idx, lesson_idx=lesson_idx,
+                                            exercise_count=exercise_count, difficulty=difficulty)
+
+    def _record_lesson_snapshot(
+        self, raw: Dict[str, Any], *, topic: str, module_idx: int = 0, lesson_idx: int = 0,
+        exercise_count: int = 1, difficulty: str = "beginner",
+    ) -> AtlasLessonSnapshot:
         self._lesson_starts += 1
         self._last_topic = str(topic or "").strip()
         self._last_lesson_id = str(raw.get("lesson_id") or "").strip()
@@ -434,7 +441,7 @@ class AtlasFAB:
             exercise_count=exercise_count,
             difficulty=difficulty,
             lesson=_copy_dict(raw.get("lesson")),
-            curriculum=_copy_dict(raw.get("curriculum")),
+            curriculum=_copy_dict(raw.get("curriculum") or getattr(self.session, "curriculum", None)),
             exercise={k: v for k, v in raw.items() if k not in {"lesson", "curriculum"}},
             curriculum_id=str(raw.get("curriculum_id") or "").strip(),
             lesson_id=str(raw.get("lesson_id") or "").strip(),
@@ -468,6 +475,17 @@ class AtlasFAB:
 
     def status(self) -> Dict[str, Any]:
         return self.session.status()
+
+    def start_curriculum(
+        self, curriculum: Dict[str, Any], *, difficulty: str = "beginner",
+        learner_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Start the exact reviewed course; drafts are rejected by the shared gate."""
+        resolved_context = dict(self.config.metadata.get("learner_context") or {})
+        resolved_context.update(learner_context or {})
+        raw = self.session.start_curriculum(curriculum, difficulty=difficulty, learner_context=resolved_context or None)
+        return self._record_lesson_snapshot(raw, topic=str(curriculum.get("subject") or ""),
+                                            difficulty=difficulty).as_dict()
 
     def lesson_manifest(self) -> Dict[str, Any]:
         """Prerequisites, sample data, expected output and success criteria for the active lesson."""

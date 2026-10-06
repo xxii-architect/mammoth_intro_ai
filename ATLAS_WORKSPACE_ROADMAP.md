@@ -30,7 +30,77 @@ source-aware research, document exports, and public SDK contracts.
 - [ ] SDK-01: expose validated lecture/session APIs additively through the
   tutor SDK; retain AtlasFAB aliases and unchanged mastery defaults.
 
+## Additional learning-workspace recommendations
+
+### Current curriculum and adaptation delivery
+
+- [x] COURSE-01: show readable module/lesson previews and explicit generation
+  warnings; save private course snapshots and activate the exact reviewed course.
+- [x] COURSE-02: reject whole-course ready claims when any lesson is invalid;
+  stop substituting generic teaching text for failed model generation. Require
+  substantive content, examples, distinct lessons, and unique lesson IDs.
+- [x] PROFILE-01: visible, deferrable onboarding with beginner/intermediate/
+  advanced/expert starting level, pacing, learning preference, goals, and focus.
+  Preserve the existing learner model; separate pacing from evidence and show
+  the reason for topic-specific difficulty recommendations.
+- [x] ASSESS-01: lesson-grounded written-response rubric with explicit
+  coverage-only fallback; unverified fallback feedback cannot increase mastery.
+- [x] FLOW-01: use the current learner profile on new exercises, preserve saved
+  teaching content, and prepare the next exercise before switching lessons.
+  Add reviewed-course activation to the public tutor SDK without alias changes.
+
+These improvements do not rewrite stored curriculum content on profile changes,
+certify expertise, or guarantee factual correctness. Provider failures can still
+prevent course authoring; the UI reports drafts rather than pretending success.
+Durable exercise drafts, multi-course progress switching, and expert-reviewed
+subject assessments remain separate follow-ups.
+
+These recommendations are saved for review, not implemented or approved for
+execution merely by appearing here. Prefer learning continuity and trustworthy
+feedback over adding more agents or permanent panels.
+
+- [ ] LEARN-01: durable "resume where I left off." Save the active lesson,
+  exercise draft, tutor conversation, and selected view per learner. Recover
+  after refresh or a dropped connection. Show Saved / Saving / Couldn't save
+  explicitly. Current tab-switch draft preservation is not durable recovery.
+- [ ] LEARN-02: contextual "Explain this" actions. Select lesson text, exercise
+  instructions, or correction feedback and request a simpler explanation,
+  worked example, or practice question. Send the exact selection and its lesson
+  context to the tutor without introducing another permanent panel.
+- [ ] LEARN-03: source-linked notes and flashcards. Extend the existing study
+  tools rather than creating a second notes system. Link saved items to their
+  lesson, section, and source; distinguish learner-written from AI-generated
+  content. Let learners review generated cards before saving. Build this
+  foundation independently of audio, then reuse it for lecture commands.
+- [ ] LEARN-04: evidence-based remediation. Offer a smaller explanation or
+  targeted exercise addressing the actual mistake instead of regenerating the
+  whole lesson by default. Distinguish attempted, completed, and demonstrated
+  understanding. Reading, listening, or liking an answer never implies mastery.
+- [ ] LEARN-05: accessibility and focused reading. Add a distraction-reduced
+  lesson view, adjustable text size, comfortable line spacing, keyboard
+  navigation, and captions/transcripts when audio arrives. On mobile, prioritize
+  the current task and collapse secondary tools.
+- [ ] LEARN-06: cost and privacy controls. Show estimates before expensive
+  research or narration only when they can be calculated reliably. Add per-user
+  limits, cancellation, and clear retention/export/delete controls for learning
+  history. Ratings inform reviewed evaluations, not silent lesson changes or
+  training on private learner content.
+
+Recommended sequence: LEARN-01 recovery, LEARN-02 contextual tutoring,
+LEARN-03 connected study materials, LEARN-04 remediation, LEARN-05 accessibility,
+then the lecture pilot. Apply LEARN-06 privacy and cost controls alongside every
+new persistent or paid feature rather than postponing them until the end.
+
 ## Dependencies and acceptance
+
+- [ ] LIBRARY-01 (requested follow-up after the current learning-flow work):
+  organize the artifact library by explicit artifact type. Candidate categories:
+  curricula, lessons, research/reports, notes, flashcards, code/patch proposals,
+  and plans. Inspect existing contracts before choosing final wire values.
+  Add search and type/agent/date filters, clear draft/ready/failed states, and
+  links back to the originating lesson or run. Preserve existing artifacts,
+  downloads, ownership boundaries, and an explicit uncategorized legacy bucket;
+  do not infer permission or teaching readiness from a category.
 
 EDU-03 verifies EDU-01/02 before release. AUDIO-01 follows stable lesson delivery;
 AUDIO-02 requires provider selection and AUDIO-01. AUDIO-03 builds on AUDIO-02;
@@ -60,6 +130,13 @@ AUDIO-04 and SDK-01 follow validated AUDIO-03 behavior.
 - Validation used local auth/API fixtures, not live provider calls or a deployed
   sign-in test. The local fixture server is not a place to enter real credentials.
   Catalog health is registry-reported, not a provider availability probe.
+- Curriculum/onboarding follow-up: 107 targeted backend/SDK/retrieval tests and
+  15 browser scenarios passed. Coverage includes private exact-course activation,
+  draft rejection, model-output hygiene, starting level and topic-specific
+  adaptation, rubric assessment, next-lesson failure safety, onboarding, previews,
+  save/start, exports, and portrait layout. Content quality still needs ongoing
+  real-provider and subject-expert evaluation; automated fixtures cannot prove
+  that every generated course teaches its subject correctly.
 
 ## Repeating the workspace checks
 

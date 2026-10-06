@@ -51,6 +51,19 @@
 .atlas-workspace-lesson { border: 1px solid var(--border); border-radius: 12px; background: var(--mm-color-surface-raised, #161b22); }
 .atlas-workspace-agents { overflow-y: auto; }
 .atlas-workspace-error { color: #fca5a5; font-size: 0.78rem; }
+.atlas-learning-profile {
+  flex-shrink: 0; border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; font-size: 0.76rem;
+  max-height: 45dvh; overflow-y: auto;
+}
+.atlas-learning-profile p { margin: 6px 0; color: var(--txt-sec); }
+.atlas-profile-form { display: grid; gap: 8px; }
+.atlas-profile-form label { display: grid; gap: 4px; }
+.atlas-profile-form input, .atlas-profile-form select {
+  width: 100%; min-width: 0; box-sizing: border-box; padding: 7px;
+  background: var(--mm-color-surface-raised, #161b22); color: var(--txt-pri);
+  border: 1px solid var(--border); border-radius: 6px;
+}
 @media (max-width: 767px) {
   .atlas-workspace { padding: 10px; }
   .atlas-workspace-header { gap: 8px; }

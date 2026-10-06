@@ -317,6 +317,7 @@ def test_curriculum_agent_ignores_irrelevant_supabase_modules(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_ANON_KEY", "anon-key")
     monkeypatch.setattr("mammoth_os.agents.curriculum_agent.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(CurriculumAgent, "_enrich_curriculum_lessons", lambda self, curriculum, *args: curriculum)
 
     result = CurriculumAgent(router=None).run("Wilderness navigation survival and safety fundamentals")
     curriculum = result["curriculum"]
@@ -327,10 +328,10 @@ def test_curriculum_agent_ignores_irrelevant_supabase_modules(monkeypatch):
     assert "Python Setup" not in curriculum["modules"][0]["title"]
 
 
-def test_curriculum_agent_llm_enriches_template_lessons(monkeypatch):
+def test_curriculum_agent_rejects_thin_model_lesson_instead_of_claiming_enrichment(monkeypatch):
     class FakeClient:
         async def generate(self, prompt: str, **kwargs) -> str:
-            assert "Generate a grounded, beginner-friendly lesson" in prompt
+            assert "Generate a complete, subject-specific teaching lesson" in prompt
             return """{
   "title": "Wilderness Navigation + Survival — Foundations Lesson 1",
   "objectives": ["Explain terrain association basics", "Use a map and compass safely"],
@@ -342,14 +343,17 @@ def test_curriculum_agent_llm_enriches_template_lessons(monkeypatch):
 }"""
 
     monkeypatch.setattr("mammoth_os.agents.curriculum_agent.get_llm_client", lambda: FakeClient())
+    monkeypatch.setattr(CurriculumAgent, "_load_from_mammoth_supabase", lambda *args: None)
+    monkeypatch.setattr(CurriculumAgent, "_inject_chunks_into_lessons", lambda self, curriculum: curriculum)
 
     result = CurriculumAgent(router=None).run("Wilderness navigation survival and safety fundamentals")
     first_lesson = result["curriculum"]["modules"][0]["lessons"][0]
 
-    assert first_lesson["source"] == "llm_generated"
-    assert "terrain association" in first_lesson["content"].lower()
-    assert len(first_lesson["teaching_points"]) >= 3
-    assert first_lesson["examples"]
+    assert first_lesson["source"] == "template"
+    assert first_lesson["status"] == "failed"
+    assert first_lesson["content"] == ""
+    assert result["quality"]["ready"] is False
+    assert result["curriculum"]["generation_warnings"]
 
 
 def test_structured_lesson_fallback_rewrites_irrelevant_python_seed():

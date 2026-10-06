@@ -399,12 +399,56 @@ def clean_chunks(
     return kept
 
 
+
+
+def curriculum_readiness(curriculum: Dict[str, Any]) -> Dict[str, Any]:
+    """Check saved/imported courses without trusting model-written quality flags."""
+    from mammoth_os.agents.curriculum_validation_v2 import validate_curriculum
+
+    valid, validation = validate_curriculum(curriculum)
+    issues = list(validation.get("errors") or [])
+    seen_ids = set()
+    seen_content = set()
+    results = []
+    for module in curriculum.get("modules", []):
+        if not isinstance(module, dict) or not isinstance(module.get("lessons"), list):
+            continue
+        for lesson in module["lessons"]:
+            if not isinstance(lesson, dict):
+                continue
+            lesson_id = str(lesson.get("lesson_id") or "").strip()
+            errors = []
+            if not lesson_id or lesson_id in seen_ids:
+                errors.append("Each lesson needs a unique, non-empty id.")
+            seen_ids.add(lesson_id)
+            content = str(lesson.get("content") or "").strip()
+            if len(content.split()) < 180:
+                errors.append("Lesson needs at least 180 words of teaching content, not just an outline.")
+            if content.endswith(("...", "\u2026")):
+                errors.append("Lesson content appears truncated.")
+            normalized = " ".join(content.lower().split())
+            if normalized and normalized in seen_content:
+                errors.append("Lesson duplicates another lesson's content.")
+            seen_content.add(normalized)
+            if len(lesson.get("examples") or []) < 2:
+                errors.append("Provide at least two worked examples.")
+            if len(lesson.get("teaching_points") or []) < 3:
+                errors.append("Provide at least three concrete teaching points.")
+            validation_result = next((item for item in validation.get("lesson_results", []) if item["lesson_id"] == lesson_id), {})
+            errors = list(validation_result.get("errors") or []) + errors
+            results.append({"lesson_id": lesson_id, "ready": not errors, "errors": errors})
+    ready = valid and bool(results) and all(item["ready"] for item in results)
+    return {"status": "ready" if ready else "draft", "ready": ready, "errors": issues, "lessons": results,
+            "note": "Automated checks are not factual verification or professional certification."}
+
+
 __all__ = [
     "MANIFEST_CONTRACT",
     "TELEMETRY_CONTRACT",
     "build_lesson_manifest",
     "clean_chunks",
     "comprehension_gate",
+    "curriculum_readiness",
     "error_fingerprint",
     "record_attempt",
     "stall_signal",

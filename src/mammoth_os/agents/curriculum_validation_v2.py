@@ -96,8 +96,6 @@ def _validate_lesson_content_depth(lesson: Dict[str, Any], subject: str) -> Tupl
         "[example]",
         "{{",
         "}}",
-        "assume",
-        "suppose",
     ]
     for marker in placeholder_markers:
         if marker in content.lower():
@@ -240,6 +238,8 @@ def validate_curriculum_lesson(lesson: Dict[str, Any], subject: str = "") -> Tup
     
     # Source tracking
     source = str(lesson.get("source") or "unknown").strip().lower()
+    if source == "template" or lesson.get("generation_warning"):
+        errors.append("Lesson is an unauthored draft, not teaching-ready content")
     if source not in {"template", "llm_generated", "llm_enriched", "grounded", "authored"}:
         warnings.append(f"Unknown source type: '{source}'")
     checks["source"] = source in {"llm_generated", "llm_enriched", "grounded", "authored"}
@@ -296,11 +296,19 @@ def validate_curriculum(curriculum: Dict[str, Any]) -> Tuple[bool, Dict[str, Any
     total_lessons = 0
     valid_lessons = 0
     for module in modules:
+        if not isinstance(module, dict):
+            errors.append("Module must be an object")
+            continue
         lessons = module.get("lessons") or []
         if not isinstance(lessons, list):
-            warnings.append(f"Module '{module.get('module_id')}' lessons is not a list")
+            errors.append(f"Module '{module.get('module_id')}' lessons is not a list")
             continue
+        if not lessons:
+            errors.append(f"Module '{module.get('module_id')}' has no lessons")
         for lesson in lessons:
+            if not isinstance(lesson, dict):
+                errors.append("Lesson must be an object")
+                continue
             total_lessons += 1
             is_valid, result = validate_curriculum_lesson(lesson, subject)
             if is_valid:
@@ -312,8 +320,8 @@ def validate_curriculum(curriculum: Dict[str, Any]) -> Tuple[bool, Dict[str, Any
     
     if total_lessons == 0:
         errors.append("Curriculum has no lessons")
-    elif valid_lessons < total_lessons * 0.7:
-        errors.append(f"Too many invalid lessons ({total_lessons - valid_lessons}/{total_lessons})")
+    elif valid_lessons != total_lessons:
+        errors.append(f"Invalid lessons ({total_lessons - valid_lessons}/{total_lessons})")
     
     # Validate duration estimates
     total_minutes = curriculum.get("estimated_total_minutes")

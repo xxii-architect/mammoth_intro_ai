@@ -58,6 +58,8 @@ class ATLASSession:
         self._lesson_id: Optional[str] = None
         # per-lesson attempt/stall telemetry (see mammoth_os.tutor_delivery)
         self.lesson_telemetry: Dict[str, Any] = {}
+        self._difficulty = "beginner"
+        self._learner_context: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Step 1 — Start a lesson on a topic
@@ -90,11 +92,13 @@ class ATLASSession:
         """
         # 1. Generate curriculum
         agent = CurriculumAgent(router=None)
-        result = agent.run(topic)
+        result = agent.run({"topic": topic, "learner_context": learner_context}) if learner_context else agent.run(topic)
         if result.get("status") != "ok":
             raise RuntimeError(f"CurriculumAgent failed: {result}")
 
         self.curriculum = result["curriculum"]
+        if "quality" in self.curriculum and not self.curriculum["quality"].get("ready"):
+            raise RuntimeError("Curriculum is a draft: lesson authoring did not meet teaching-readiness checks. Review or regenerate it before starting.")
         self._curriculum_id = self.curriculum["curriculum_id"]
 
         # 2. Pick lesson (clamp indices to avoid IndexError)
@@ -120,6 +124,8 @@ class ATLASSession:
             learner_context=learner_context,
         )
         self.current_exercise = exercises[0]
+        self._difficulty = difficulty
+        self._learner_context = dict(learner_context or {})
 
         return {
             **self.current_exercise,
@@ -127,6 +133,32 @@ class ATLASSession:
             "curriculum_id": self._curriculum_id,
             "lesson_id": self._lesson_id,
         }
+
+    def start_curriculum(
+        self, curriculum: Dict[str, Any], *, difficulty: str = "beginner",
+        learner_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Activate a reviewed curriculum snapshot without generating another course."""
+        from mammoth_os.curriculum_library import prepare_curriculum
+
+        course = prepare_curriculum(curriculum)
+        if not course["quality"]["ready"]:
+            raise ValueError("Curriculum is a draft and cannot be started yet.")
+        lesson = course["modules"][0]["lessons"][0]
+        exercises = generate_exercises_for_lesson(
+            lesson, count=1, difficulty=difficulty, learner_context=learner_context,
+        )
+        if not exercises:
+            raise RuntimeError("Exercise generation returned no exercises.")
+        self.curriculum = course
+        self._curriculum_id = course["curriculum_id"]
+        self.current_lesson = lesson
+        self._lesson_id = lesson["lesson_id"]
+        self.current_exercise = exercises[0]
+        self._difficulty = difficulty
+        self._learner_context = dict(learner_context or {})
+        tutor_delivery.touch_lesson(self.lesson_telemetry, self._lesson_id)
+        return {**self.current_exercise, "lesson": lesson, "curriculum_id": self._curriculum_id, "lesson_id": self._lesson_id}
 
     # ------------------------------------------------------------------
     # Step 2 — Submit a solution
@@ -149,6 +181,16 @@ class ATLASSession:
         """
         if self.current_exercise is None:
             raise RuntimeError("No active exercise. Call start_lesson() first.")
+        if self.current_exercise.get("submission_mode") == "text":
+            from mammoth_os.lesson_assessment import assess_text_response
+
+            outcome = await assess_text_response(
+                "\n\n".join(files.values()), self.current_lesson or {},
+                self.current_exercise, self._lesson_id or "",
+            )
+            entry = tutor_delivery.record_attempt(self.lesson_telemetry, self._lesson_id or "", outcome)
+            outcome["stall"] = tutor_delivery.stall_signal(entry)
+            return outcome
 
         # Merge the expected test into the submission files so the sandbox can run it
         merged_files = dict(files)
@@ -306,10 +348,13 @@ class ATLASSession:
 
     def _load_lesson(self, lesson: Dict[str, Any]) -> Dict[str, Any]:
         """Internal: switch to a lesson and generate its first exercise."""
+        exercises = generate_exercises_for_lesson(lesson, count=1, difficulty=self._difficulty,
+                                                  learner_context=self._learner_context or None)
+        if not exercises:
+            raise RuntimeError("Exercise generation returned no exercises.")
         self.current_lesson = lesson
         self._lesson_id = lesson["lesson_id"]
         tutor_delivery.touch_lesson(self.lesson_telemetry, self._lesson_id)
-        exercises = generate_exercises_for_lesson(lesson, count=1)
         self.current_exercise = exercises[0]
         return {
             **self.current_exercise,

@@ -1020,6 +1020,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
               )}
 
               {/* Exercise card — shows adaptive type badge when enabled */}
+              {exercise.generation_warning && <p role="status" style={{ fontSize: '0.78rem', color: 'var(--txt-sec)' }}>{exercise.generation_warning}</p>}
               <div className="glass-card-solid" style={{ padding: 20, borderLeft: `3px solid ${adaptiveUI ? typeConfig.color : 'var(--photon)'}`, flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -1134,10 +1135,12 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                     {result.passed ? <CheckCircle2 size={16} color="#22c55e" /> : null}
                     <p style={{ fontSize: '0.82rem', fontWeight: 700, color: result.passed ? '#22c55e' : result.error ? '#f87171' : '#ef4444', margin: 0 }}>
-                      {result.passed ? '✓ Passed' : result.error ? 'Error' : '✗ Failed'}
+                      {result.mastery_evidence === false ? 'Coverage feedback (not mastery)' : result.passed ? '✓ Passed' : result.error ? 'Error' : '✗ Failed'}
                     </p>
                   </div>
                   {result.hint && <p style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', lineHeight: 1.65, margin: 0 }}>{result.hint}</p>}
+                  {result.assessment_note && <p style={{ fontSize: '0.74rem', color: 'var(--txt-sec)' }}>{result.assessment_note}</p>}
+                  {result.criteria?.length > 0 && <ul>{result.criteria.map(criterion => <li key={criterion.id}>{criterion.id}: {criterion.feedback}</li>)}</ul>}
                   {result.error && <pre style={{ fontSize: '0.76rem', fontFamily: 'JetBrains Mono,monospace', color: '#f87171', whiteSpace: 'pre-wrap', margin: 0 }}>{result.error}</pre>}
                   {result.recommendation && (
                     <p style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginTop: 8, margin: '8px 0 0' }}>

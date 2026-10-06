@@ -5,8 +5,13 @@ from mammoth_os.agents.curriculum_agent import CurriculumAgent
 from mammoth_os.agents.planner_agent import PlannerAgent
 
 
-def test_curriculum_agent_validates_generated_curriculum():
+def test_curriculum_agent_validates_generated_curriculum(monkeypatch):
     agent = CurriculumAgent(router=None)
+    monkeypatch.setattr(agent, "_load_from_mammoth_supabase", lambda *args: None)
+    monkeypatch.setattr(agent, "_inject_chunks_into_lessons", lambda curriculum: curriculum)
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("Test-only unavailable author")
+    monkeypatch.setattr(agent, "_author_lesson_with_llm", unavailable)
     result = agent.run("Create a lesson track for lesson")
     curriculum = result["curriculum"]
 

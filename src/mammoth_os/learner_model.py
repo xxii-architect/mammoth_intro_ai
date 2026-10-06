@@ -296,6 +296,12 @@ def set_onboarding_profile(
     merged["experience_level"] = str(merged.get("experience_level") or "unknown").strip().lower() or "unknown"
     merged["preferred_pacing"] = str(merged.get("preferred_pacing") or "gentle").strip().lower() or "gentle"
     merged["learning_style"] = str(merged.get("learning_style") or "guided").strip().lower() or "guided"
+    if merged["experience_level"] not in {"unknown", "beginner", "intermediate", "advanced", "expert"}:
+        raise ValueError("Choose beginner, intermediate, advanced, or expert experience.")
+    if merged["preferred_pacing"] not in {"gentle", "steady", "challenge"}:
+        raise ValueError("Choose gentle, steady, or challenge pacing.")
+    if merged["learning_style"] not in {"guided", "examples", "practice", "visual", "independent", "hands-on", "exploratory"}:
+        raise ValueError("Choose a supported learning preference.")
     merged["goals"] = _normalize_text_list(merged.get("goals"))
     merged["focus_areas"] = _normalize_text_list(merged.get("focus_areas"))
     if any(merged.get(key) for key in ("experience_level", "preferred_pacing", "learning_style")):
@@ -303,7 +309,7 @@ def set_onboarding_profile(
     learner_state["onboarding"] = merged
     if state is not None:
         state["learner_model"] = learner_state
-        state["learner_context"] = build_learner_context(learner_state)
+        state["learner_context"] = build_learner_context(learner_state, topic=state.get("topic"))
         state["learner_profile"] = {
             "streak": state["learner_context"].get("streak", 0),
             "attempts": state["learner_context"].get("attempts", 0),
@@ -388,12 +394,18 @@ def update_learner_model(
 
     next_mastery = _clamp(prior_mastery + mastery_delta)
     next_confidence = _clamp(prior_confidence + confidence_delta)
+    mastery_evidence = (result or {}).get("mastery_evidence", True) is True
+    if not mastery_evidence:
+        next_mastery = prior_mastery
+        next_confidence = prior_confidence
     state.setdefault("mastery", {})[concept] = next_mastery
     state.setdefault("confidence", {})[concept] = next_confidence
     _record_memory_graph(state, lesson=lesson, exercise=exercise, result=raw_result, topic=topic)
 
     state.setdefault("recent_outcomes", []).append({
         "concept": concept,
+        "topic": _slugify(topic),
+        "mastery_evidence": mastery_evidence,
         "passed": passed,
         "mastery_before": round(prior_mastery, 3),
         "mastery_after": round(next_mastery, 3),
@@ -489,11 +501,19 @@ def _build_learning_outcome_summary(recent_outcomes: List[Dict[str, Any]]) -> Di
     }
 
 
-def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def build_learner_context(state: Optional[Dict[str, Any]] = None, *, topic: Optional[str] = None) -> Dict[str, Any]:
     model = _ensure_model_shape(state, (state or {}).get("user_id") or "default_user")
     mastery = model.get("mastery") or {}
     confidence = model.get("confidence") or {}
     recent_outcomes = list(model.get("recent_outcomes") or [])
+    if topic:
+        topic_key = _slugify(topic)
+        recent_outcomes = [item for item in recent_outcomes if isinstance(item, dict) and (
+            item.get("topic") == topic_key or (not item.get("topic") and topic_key in str(item.get("concept") or ""))
+        )]
+        concepts = {item.get("concept") for item in recent_outcomes}
+        mastery = {key: value for key, value in mastery.items() if key in concepts or topic_key in key}
+        confidence = {key: value for key, value in confidence.items() if key in concepts or topic_key in key}
     error_patterns = dict(model.get("error_patterns") or {})
     sorted_mastery = sorted(mastery.items(), key=lambda item: item[1])
     sorted_confidence = sorted(confidence.items(), key=lambda item: item[1], reverse=True)
@@ -501,21 +521,27 @@ def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, A
     onboarding = model.get("onboarding") or _default_onboarding_profile()
     graph_summary = _memory_graph_summary(model.get("memory_graph"))
 
-    if onboarding.get("preferred_pacing") == "challenge":
-        recommended_difficulty = "advanced"
-        preferred_pacing = "challenge"
-    elif onboarding.get("preferred_pacing") == "steady":
-        recommended_difficulty = "intermediate" if average_mastery >= 0.45 else "beginner"
-        preferred_pacing = "steady"
-    elif average_mastery < 0.45:
-        recommended_difficulty = "beginner"
-        preferred_pacing = "gentle"
-    elif average_mastery < 0.7:
-        recommended_difficulty = "intermediate"
-        preferred_pacing = "steady"
-    else:
-        recommended_difficulty = "advanced"
-        preferred_pacing = "challenge"
+    levels = ["beginner", "intermediate", "advanced", "expert"]
+    starting_level = onboarding.get("experience_level")
+    if starting_level not in levels:
+        starting_level = "beginner"
+    recent = [item for item in recent_outcomes[-3:] if isinstance(item, dict)]
+    level_index = levels.index(starting_level)
+    adaptation_reason = "Using your selected starting level until there is enough practice evidence."
+    consecutive_passes = 0
+    for outcome in reversed(recent_outcomes):
+        if not isinstance(outcome, dict) or not outcome.get("passed") or outcome.get("mastery_evidence") is False:
+            break
+        consecutive_passes += 1
+    if consecutive_passes >= 3 and average_mastery >= 0.7:
+        stretch = 3 if consecutive_passes >= 9 and average_mastery >= 0.9 else 2 if consecutive_passes >= 6 and average_mastery >= 0.8 else 1
+        level_index = min(3, level_index + stretch)
+        adaptation_reason = f"{consecutive_passes} consecutive passes and stronger mastery support {levels[level_index]} study."
+    elif len(recent) >= 2 and sum(not bool(item.get("passed")) and item.get("mastery_evidence") is not False for item in recent) >= 2:
+        level_index = max(0, level_index - 1)
+        adaptation_reason = "Recent attempts suggest more foundational support before increasing difficulty."
+    recommended_difficulty = levels[level_index]
+    preferred_pacing = onboarding.get("preferred_pacing") or "gentle"
 
     weakest = [{"concept": concept, "mastery": round(value, 3)} for concept, value in sorted_mastery[:3]]
     strongest = [{"concept": concept, "confidence": round(value, 3)} for concept, value in sorted_confidence[:3]]
@@ -540,6 +566,8 @@ def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, A
         "weakest_concepts": weakest,
         "strongest_concepts": strongest,
         "recommended_difficulty": recommended_difficulty,
+        "starting_level": starting_level,
+        "adaptation_reason": adaptation_reason,
         "preferred_pacing": preferred_pacing,
         "adaptive_coaching": adaptive_coaching,
         "latest_mastery_delta": latest_delta.get("mastery_delta") if isinstance(latest_delta, dict) else None,
@@ -555,7 +583,8 @@ def build_learner_context(state: Optional[Dict[str, Any]] = None) -> Dict[str, A
 
 
 def build_lesson_plan(state: Optional[Dict[str, Any]] = None, topic: Optional[str] = None) -> Dict[str, Any]:
-    learner_context = build_learner_context(state)
+    model = (state or {}).get("learner_model") if isinstance((state or {}).get("learner_model"), dict) else state
+    learner_context = build_learner_context(model, topic=topic)
     weakest = learner_context.get("weakest_concepts") or []
     onboarding = learner_context.get("onboarding") or {}
     focus_concept = weakest[0].get("concept") if weakest else None

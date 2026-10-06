@@ -4,6 +4,7 @@ import json
 import os
 import re
 import uuid
+import logging
 from typing import Dict, Any, List
 
 from mammoth_os.llm_client import get_llm_client
@@ -65,8 +66,8 @@ def _template_exercises(lesson: Dict[str, Any], count: int = 1) -> List[Dict[str
             objective_lines = "\n".join(f"- {item}" for item in objectives if str(item).strip()) or "- Explain the main ideas clearly.\n- Include one practical example."
             prompt = (
                 f"Lesson focus: '{base_title}'.\n"
-                "Teach this topic in plain language for a beginner.\n"
-                "Respond as a practical lesson summary, not as a coding exercise.\n"
+                "Using the lesson you just studied, explain the following ideas in your own words.\n"
+                "Apply one idea to a concrete example and explain your reasoning. This is practice, not a request to author a lesson.\n"
                 "Use the ideas below to shape your answer:\n"
                 f"{objective_lines}\n\n"
                 "Write 3-5 short points or a brief paragraph covering: what the topic is, why it matters, the key principles, and one real-world example or first action step."
@@ -88,6 +89,8 @@ def _template_exercises(lesson: Dict[str, Any], count: int = 1) -> List[Dict[str
                 "starter_files": starter_files,
                 "expected_test": expected_test,
                 "generation_method": "template",
+                "lesson_type": "code" if coding_lesson else _lesson_type(lesson),
+                "submission_mode": "code" if coding_lesson else "text",
             }
         )
 
@@ -154,6 +157,8 @@ def _normalize_llm_exercises(payload: Dict[str, Any], lesson: Dict[str, Any], co
                 "starter_response": starter_response.strip() if isinstance(starter_response, str) else "",
                 "expected_test": expected_test.strip(),
                 "generation_method": "llm",
+                "lesson_type": lesson_type,
+                "submission_mode": "code" if lesson_type == "code" else "text",
             }
         )
     return normalized
@@ -276,5 +281,8 @@ def generate_exercises_for_lesson(
             )
         )
     except Exception:
-        # Deterministic fallback keeps ATLAS functional if LLM output is malformed/unavailable.
-        return _template_exercises(lesson, count=count)
+        logging.getLogger("mammoth.atlas").exception("Personalized exercise generation failed; using explicit lesson-objective practice")
+        exercises = _template_exercises(lesson, count=count)
+        for exercise in exercises:
+            exercise["generation_warning"] = "Personalized exercise generation was unavailable. This is basic practice based on the lesson objectives."
+        return exercises

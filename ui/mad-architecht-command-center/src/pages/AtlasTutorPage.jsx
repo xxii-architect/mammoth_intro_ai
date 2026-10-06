@@ -215,7 +215,9 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
 
   useEffect(() => {
     const onboarding = atlasState?.learner_model?.onboarding
-    if (!onboarding || onboardingSeededRef.current) return
+    if (!onboarding) return
+    const revision = JSON.stringify(onboarding)
+    if (onboardingSeededRef.current === revision) return
     setOnboardingDraft({
       experience_level: onboarding.experience_level || 'unknown',
       preferred_pacing: onboarding.preferred_pacing || 'gentle',
@@ -223,7 +225,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
       goals: Array.isArray(onboarding.goals) ? onboarding.goals.join(', ') : '',
       focus_areas: Array.isArray(onboarding.focus_areas) ? onboarding.focus_areas.join(', ') : '',
     })
-    onboardingSeededRef.current = true
+    onboardingSeededRef.current = revision
   }, [atlasState?.learner_model?.onboarding])
 
   const startLesson = async () => {
@@ -720,6 +722,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
                 <option value="beginner">Beginner</option>
                 <option value="intermediate">Intermediate</option>
                 <option value="advanced">Advanced</option>
+                <option value="expert">Expert study (not certification)</option>
               </select>
               <select value={onboardingDraft.preferred_pacing} onChange={e => setOnboardingDraft(prev => ({ ...prev, preferred_pacing: e.target.value }))}
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem' }}>
@@ -732,6 +735,10 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
                 <option value="guided">Guided</option>
                 <option value="hands-on">Hands-on</option>
                 <option value="exploratory">Exploratory</option>
+                <option value="examples">Worked examples</option>
+                <option value="practice">Practice</option>
+                <option value="visual">Visual explanations</option>
+                <option value="independent">Independent</option>
               </select>
               <textarea value={onboardingDraft.goals} onChange={e => setOnboardingDraft(prev => ({ ...prev, goals: e.target.value }))}
                 placeholder="Goals, comma-separated"

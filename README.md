@@ -14,6 +14,41 @@ The signed-in `/api/atlas/agents` catalog exposes only education agents and no h
 endpoints. Research supports existing long-form reports and authenticated DOCX
 downloads; it remains supplemental to the active lesson.
 
+### Learning profile and curriculum handoff
+
+ATLAS exposes onboarding in the workspace: starting level (beginner through
+expert study), pacing, learning preference, goals, and focus areas. Learners can
+defer it or edit it later. Pacing does not imply mastery. Practice evidence for
+the current topic can adjust difficulty; the recommendation includes its reason.
+Expert study is not professional certification.
+
+The Curriculum learning agent now renders modules and lesson previews, not just
+metadata. Review the output, **Save to my curricula**, then **Start this
+curriculum**. **My curricula** holds private saved course snapshots. Starting
+begins at the first lesson and replaces the active course; use **Lesson &
+practice** to continue the current course. Saved courses are scoped to the
+authenticated learner; caller-supplied user IDs do not select their owner.
+
+Generation failures leave explicit drafts, not substitute teaching material.
+Whole-course readiness requires all lessons to pass automated content checks,
+including minimum teaching depth, worked examples, unique IDs, and distinct
+content. These checks do not establish factual accuracy. Drafts can be saved
+and exported but cannot be started; regenerate inadequate drafts with the
+Curriculum agent. Existing saved conversations can still contain older outputs.
+
+Written practice uses lesson-grounded AI rubric feedback (concepts, application,
+reasoning) when available. If assessment fails, the UI labels the local fallback
+as coverage-only: it does not increase mastery or justify a difficulty increase.
+The existing navigation gate and explicit audited override remain available.
+New lessons and exercises use the learner profile; profile edits do not silently
+rewrite existing course content. Preset modules use the same authoring path.
+
+API: `GET/POST /api/atlas/curricula`, `POST /api/atlas/curricula/start` with
+`curriculum_id`, and the existing `POST /api/atlas/onboard`.
+SDK: `MammothMind.start_curriculum(curriculum, difficulty="beginner",
+learner_context=...)` starts a reviewed snapshot additively; AtlasFAB aliases and
+ungated `next_lesson()` defaults remain unchanged.
+
 Lecture mode is not implemented yet. Its tracked delivery plan is
 [ATLAS workspace and lecture backlog](ATLAS_WORKSPACE_ROADMAP.md).
 

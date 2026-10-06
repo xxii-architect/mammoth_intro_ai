@@ -44,7 +44,7 @@ if (ROOT / ".env.admin").exists():
 
 logger = logging.getLogger("mammoth_os.api")
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
@@ -912,7 +912,7 @@ def _resolve_module_track(module_id: Any = None, topic: Any = None) -> Optional[
     return None
 
 
-def _compose_module_curriculum_topic(requested_topic: str, track: Optional[Dict[str, Any]]) -> str:
+def _compose_module_curriculum_topic(requested_topic: str, track: Optional[Dict[str, Any]], difficulty: str = "beginner") -> str:
     base_topic = str(requested_topic or "").strip()
     if not track:
         return base_topic or "Python basics"
@@ -921,7 +921,7 @@ def _compose_module_curriculum_topic(requested_topic: str, track: Optional[Dict[
     outcomes = [str(item).strip() for item in (track.get("outcomes") or []) if str(item).strip()]
     emphasis = "; ".join(outcomes[:3])
     return (
-        f"{base_topic}. Build a practical beginner-friendly lesson track for {track['label']} "
+        f"{base_topic}. Build a practical {difficulty}-level lesson track for {track['label']} "
         f"with safety-aware, real-world scenarios and emphasis on: {emphasis}."
     )
 
@@ -995,7 +995,7 @@ def _decorate_lesson_for_module_track(lesson: Optional[Dict[str, Any]], track: O
             f"{track.get('label', 'This lesson')} focuses on {track.get('topic', title)} in a practical, beginner-friendly way. "
             "It covers the core ideas, the reasoning behind them, and a realistic action step learners can apply right away."
         )
-    teaching_points = [
+    teaching_points = [str(item).strip() for item in (decorated.get("teaching_points") or []) if str(item).strip()] or [
         item for item in (objectives + outcomes)[:6]
         if str(item).strip()
     ]
@@ -1223,6 +1223,9 @@ def _evaluate_text_submission(
             "lesson_id": lesson_id,
             "submission_mode": "text",
             "score": 0.0,
+            "assessment_method": "coverage_only",
+            "mastery_evidence": False,
+            "assessment_note": "No response was available to assess.",
         }
 
     keywords = _extract_text_submission_keywords(lesson, exercise, track)
@@ -1248,10 +1251,10 @@ def _evaluate_text_submission(
 
     if passed:
         hint = (
-            "Strong response. You stayed on-topic and connected the lesson to practical use. "
-            "For the next pass, tighten your explanation into clearer steps or examples."
+            "Your response meets the basic coverage check. This does not verify correctness or mastery. "
+            "Ask the tutor to review your reasoning, or retry when lesson-grounded assessment is available."
         )
-        recommendation = "increase"
+        recommendation = "same"
     else:
         missing_keywords = [word for word in keywords[:4] if word not in keyword_hits][:3]
         hint_parts = [
@@ -1276,6 +1279,9 @@ def _evaluate_text_submission(
         "lesson_id": lesson_id,
         "submission_mode": "text",
         "score": round(score, 2),
+        "assessment_method": "coverage_only",
+        "mastery_evidence": False,
+        "assessment_note": "Lesson-grounded assessment was unavailable. This checks coverage only and does not increase mastery.",
     }
 
 
@@ -4136,6 +4142,7 @@ _ACCOUNT_SESSION_KEYS = (
     "curriculum",
     "current_lesson",
     "curriculum_id",
+    "curriculum_origin",
     "lesson_id",
     "lesson_plan",
     "module_id",
@@ -4476,7 +4483,7 @@ def _hydrate_learner_state(state: Dict[str, Any], *, user_id: str = "default_use
             topic=topic,
             metadata=metadata,
         )
-    learner_context = build_learner_context(learner_state)
+    learner_context = build_learner_context(learner_state, topic=topic or state.get("topic"))
     state["learner_model"] = learner_state
     state["learner_context"] = learner_context
     state["learner_profile"] = {
@@ -5033,7 +5040,11 @@ def _build_submit_adaptation(learner_context: Dict[str, Any], submission_result:
     mastery_delta = learner_context.get("latest_mastery_delta")
     confidence_delta = learner_context.get("latest_confidence_delta")
 
-    if passed and challenge_level == "stretch":
+    if submission_result.get("mastery_evidence") is False:
+        next_step = "This was a coverage check, not verified understanding. Review your reasoning with the tutor before increasing difficulty."
+    elif submission_result.get("submission_mode") == "text":
+        next_step = "Explain the key idea in your own words, then apply it to a new example." if passed else "Review the criterion feedback, correct one misconception, and retry the same exercise."
+    elif passed and challenge_level == "stretch":
         next_step = "You passed. Increase challenge: add edge-case tests and refactor for clarity."
     elif passed:
         next_step = "You passed. Lock in understanding by explaining your approach in one paragraph."

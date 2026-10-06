@@ -1082,6 +1082,12 @@ async def run_agent(body: Dict[str, Any]):
     temperature = body.get("temperature", 0.7)
     requested_agent_id = str(body.get("agent_id", "")).strip()
     tracked_agent_id = requested_agent_id or _agent_id_from_intent(intent)
+    if tracked_agent_id == "curriculum_agent":
+        from mammoth_os.agents.curriculum_agent import CurriculumAgent
+        learner_state = _load_atlas_state()
+        _hydrate_learner_state(learner_state, user_id=_atlas_user_id(learner_state))
+        subject = CurriculumAgent(None)._extract_subject(payload_dict)
+        payload_dict["learner_context"] = build_learner_context(learner_state.get("learner_model"), topic=subject)
     prompt_text = str(payload_dict.get("prompt", "") or "").strip()
     display_prompt = prompt_text
     history_turns = _normalize_conversation_history(payload_dict.get("history"))
@@ -2053,4 +2059,3 @@ async def get_runtime_context_snapshot(request: Request):
             "uptime_seconds": int(time.time() - _START_TIME),
         },
     }
-
