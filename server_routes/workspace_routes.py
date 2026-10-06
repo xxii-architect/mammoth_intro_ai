@@ -346,18 +346,33 @@ async def rate_chat_message(body: Dict[str, Any]):
     return {"status": "ok", "rating": message_feedback.public_view(record)}
 
 @app.get("/api/message-feedback/summary")
-async def message_feedback_summary():
+async def message_feedback_summary(agent_id: str = "", date_from: str = "", date_to: str = ""):
     blocked = _require_admin_api()
     if blocked is not None:
         return blocked
-    return {"status": "ok", **message_feedback.summarize(_load_message_feedback())}
+    records = _load_message_feedback()
+    try:
+        filtered = message_feedback.filter_records(records, agent_id=agent_id, date_from=date_from, date_to=date_to)
+    except message_feedback.FeedbackError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+    available_agents = sorted({
+        str(item.get("agent_id") or "assistant") for item in records
+        if isinstance(item, dict) and item.get("direction") in message_feedback.DIRECTIONS
+    })
+    return {"status": "ok", **message_feedback.summarize(filtered), "available_agents": available_agents}
 
 @app.get("/api/message-feedback/regression-cases")
-async def message_feedback_regression_cases(limit: int = 200):
+async def message_feedback_regression_cases(limit: int = 200, agent_id: str = "", date_from: str = "", date_to: str = ""):
     blocked = _require_admin_api()
     if blocked is not None:
         return blocked
-    cases = message_feedback.build_regression_cases(_load_message_feedback(), limit=max(1, min(int(limit), 1000)))
+    try:
+        records = message_feedback.filter_records(
+            _load_message_feedback(), agent_id=agent_id, date_from=date_from, date_to=date_to,
+        )
+    except message_feedback.FeedbackError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+    cases = message_feedback.build_regression_cases(records, limit=max(1, min(int(limit), 1000)))
     return {"status": "ok", "contract_version": message_feedback.REGRESSION_CONTRACT_VERSION, "cases": cases}
 
 @app.get("/api/buildlog")
@@ -604,4 +619,3 @@ async def create_notification(request: Request):
         actor=user.get("email") or user.get("id", "admin"),
     )
     return {"status": "ok", "notification": note}
-

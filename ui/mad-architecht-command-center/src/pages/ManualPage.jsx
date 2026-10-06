@@ -120,6 +120,10 @@ const promptPatterns = [
 
 const repoContextRules = [
   {
+    title: 'Review reply ratings by agent and date',
+    body: 'Owners/admins can filter Beta Feedback reply ratings by agent and an inclusive UTC date range. Dates refer to the latest rating update. The summary and Cases JSON use the same filters; ratings remain review signals, not automatic model training.',
+  },
+  {
     title: 'No repository selected means no repo context',
     body: 'Mammoth Mind never falls back to a default repository. Pick a repo in the Repo Context panel or the agents answer without code context.',
   },

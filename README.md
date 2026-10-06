@@ -140,6 +140,12 @@ Every stored Mammoth Mind reply shows 👍 / 👎 next to Copy. Clicking the act
   `python -m mammoth_os.feedback_replay --input cases.json --out replay.md` (add `--no-replay` to only list the cases). The replay never grades on its own.
 - Ratings are included in the account data export.
 
+The owner/admin Reply ratings panel supports agent and inclusive UTC date-range
+filters. Dates use the rating's latest update, not the reply's creation date.
+Both admin endpoints accept `agent_id`, `date_from`, and `date_to` (`YYYY-MM-DD`);
+invalid date ranges return HTTP 400. Filtering happens before aggregation and
+regression-case deduplication, so Cases JSON matches the selected scope.
+
 ## MCP Browser Bridge + Repo Access
 
 MammothOS now ships three MCP server configs in `mcp/` that give Mammoth Mind real browser automation, repo read/write access, and git awareness.

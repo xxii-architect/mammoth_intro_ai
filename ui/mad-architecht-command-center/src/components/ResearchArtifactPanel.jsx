@@ -38,12 +38,11 @@ function SourceCard({ source, kind }) {
 }
 
 export default function ResearchArtifactPanel({ artifact, rawJson }) {
-  if (artifact) {
-    var at=artifact.artifact_type
-    if (at==='long_form_research') { return <LongFormResearchPanel artifact={artifact} rawJson={rawJson} /> }
-  }
   const [showRaw, setShowRaw] = useState(false)
   if (!artifact) return null
+  if (artifact.artifact_type === 'long_form_research') {
+    return <LongFormResearchPanel artifact={artifact} rawJson={rawJson} />
+  }
 
   // ── Research agent schema ────────────────────────────────────────────────
   const title       = artifact.title || artifact.summary || 'Research Brief'

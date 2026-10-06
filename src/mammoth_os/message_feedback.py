@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 CONTRACT_VERSION = "mammoth.feedback.v1"
@@ -166,6 +166,47 @@ def public_view(record: Dict[str, Any]) -> Dict[str, Any]:
 def _ratio(up: int, down: int) -> Optional[float]:
     total = up + down
     return round(up / total, 3) if total else None
+
+
+def filter_records(
+    records: Iterable[Dict[str, Any]], *,
+    agent_id: str = "", date_from: str = "", date_to: str = "",
+) -> List[Dict[str, Any]]:
+    """Filter before aggregation/deduplication, by latest rating date (inclusive UTC)."""
+    def parse_date(value: str, name: str) -> Optional[date]:
+        if not value:
+            return None
+        try:
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                raise ValueError
+            return date.fromisoformat(value)
+        except ValueError as exc:
+            raise FeedbackError(f"{name} must be a valid YYYY-MM-DD date.") from exc
+
+    start = parse_date(date_from, "date_from")
+    end = parse_date(date_to, "date_to")
+    if start and end and start > end:
+        raise FeedbackError("date_from must not be after date_to.")
+    selected_agent = str(agent_id or "").strip()
+    filtered = []
+    for record in records:
+        if not isinstance(record, dict) or record.get("direction") not in DIRECTIONS:
+            continue
+        if selected_agent and str(record.get("agent_id") or "assistant") != selected_agent:
+            continue
+        if start or end:
+            stamp = str(record.get("updated_at") or record.get("created_at") or "")
+            try:
+                rated_at = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if rated_at.tzinfo is None:
+                rated_at = rated_at.replace(tzinfo=timezone.utc)
+            rated_date = rated_at.astimezone(timezone.utc).date()
+            if (start and rated_date < start) or (end and rated_date > end):
+                continue
+        filtered.append(record)
+    return filtered
 
 
 def summarize(records: Iterable[Dict[str, Any]]) -> Dict[str, Any]:

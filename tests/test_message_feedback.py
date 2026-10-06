@@ -74,6 +74,48 @@ def test_summary_groups_by_model_and_reason():
     assert summary["down_reasons"] == {"incorrect": 1, "unspecified": 1}
 
 
+def test_filters_combine_agent_and_inclusive_utc_dates():
+    records = [
+        _record(key="a", agent_id="coding_agent", now="2026-10-04T18:00:00-06:00"),
+        _record(key="b", agent_id="coding_agent", now="2026-10-05T23:59:59Z"),
+        _record(key="c", agent_id="coding_agent", now="2026-10-06T00:00:00Z"),
+        _record(key="d", agent_id="research_agent", now="2026-10-05T12:00:00Z"),
+        {**_record(key="e", agent_id="coding_agent"), "updated_at": "invalid"},
+    ]
+    filtered = fb.filter_records(records, agent_id="coding_agent", date_from="2026-10-05", date_to="2026-10-05")
+    assert [item["message_key"] for item in filtered] == ["a", "b"]
+    assert len(fb.filter_records(records)) == 5
+
+
+def test_filters_use_latest_update_and_allow_one_sided_dates():
+    record = {**_record(now="2026-10-01T00:00:00Z"), "updated_at": "2026-10-05T12:00:00"}
+    assert fb.filter_records([record], date_from="2026-10-05") == [record]
+    assert fb.filter_records([record], date_to="2026-10-04") == []
+    record["updated_at"] = ""
+    assert fb.filter_records([record], date_to="2026-10-01") == [record]
+    assert fb.filter_records([None, {**record, "direction": "none"}]) == []
+
+
+@pytest.mark.parametrize("filters", [
+    {"date_from": "2026-02-30"},
+    {"date_to": "20261005"},
+    {"date_from": "2026-10-06", "date_to": "2026-10-05"},
+])
+def test_invalid_filters_raise(filters):
+    with pytest.raises(fb.FeedbackError):
+        fb.filter_records([], **filters)
+
+
+def test_filtering_happens_before_regression_deduplication():
+    records = [
+        _record(key="a", agent_id="coding_agent", reply="coding"),
+        _record(key="b", agent_id="research_agent", reply="research"),
+    ]
+    cases = fb.build_regression_cases(fb.filter_records(records, agent_id="coding_agent"))
+    assert len(cases) == 1 and cases[0]["reports"] == 1
+    assert cases[0]["rejected_reply"] == "coding"
+
+
 def test_regression_cases_dedupe_by_prompt_and_skip_upvotes():
     records = [
         {**_record(key="a", prompt="Explain  X", reply="old"), "updated_at": "2025-01-01"},
@@ -87,6 +129,38 @@ def test_regression_cases_dedupe_by_prompt_and_skip_upvotes():
 
 
 # ── API ─────────────────────────────────────────────────────────────────────
+
+def test_http_filters_apply_to_summary_and_cases(chat, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    records = [
+        _record(key="a", agent_id="coding_agent", now="2026-10-05T12:00:00Z"),
+        _record(key="b", agent_id="research_agent", now="2026-10-05T12:00:00Z"),
+        _record(key="c", agent_id="coding_agent", now="2026-10-04T12:00:00Z"),
+    ]
+    chat.write_text(json.dumps(records), encoding="utf-8")
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+    with TestClient(api_server.app) as client:
+        params = {"agent_id": "coding_agent", "date_from": "2026-10-05", "date_to": "2026-10-05"}
+        summary = client.get("/api/message-feedback/summary", params=params)
+        assert summary.status_code == 200
+        assert summary.json()["totals"]["total"] == 1
+        assert summary.json()["available_agents"] == ["coding_agent", "research_agent"]
+        cases = client.get("/api/message-feedback/regression-cases", params=params)
+        assert cases.status_code == 200
+        assert cases.json()["cases"][0]["reports"] == 1
+        for path in ("/api/message-feedback/summary", "/api/message-feedback/regression-cases"):
+            invalid = client.get(path, params={"date_from": "wrong"})
+            assert invalid.status_code == 400
+            assert "YYYY-MM-DD" in invalid.json()["error"]
+
+
+def test_filtered_endpoints_still_require_admin(chat, as_user):
+    as_user("user-a")
+    filters = {"agent_id": "coding_agent", "date_from": "2026-10-05"}
+    assert asyncio.run(api_server.message_feedback_summary(**filters)).status_code == 403
+    assert asyncio.run(api_server.message_feedback_regression_cases(**filters)).status_code == 403
+
 
 @pytest.fixture()
 def chat(monkeypatch, tmp_path):
