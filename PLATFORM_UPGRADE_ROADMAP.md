@@ -1,7 +1,9 @@
 # MammothOS platform reliability and upgrade roadmap
 
-Audit date: 2026-10-05  
-Source baseline: `5d7e772` on `main`  
+Audit date: 2026-10-05
+
+Source baseline: `5d7e772` on `main`
+
 Status: planning only; the fixes below have not been implemented.
 
 ## Purpose and boundaries
