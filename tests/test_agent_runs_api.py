@@ -77,6 +77,24 @@ def test_run_streams_typed_events_and_persists_history(isolated, as_user):
     assert "request" not in fetched["run"]
 
 
+def test_run_retains_attached_document_context_in_agent_prompt(isolated, as_user, monkeypatch):
+    _, use_llm = isolated
+    as_user("tenant-a")
+    llm = use_llm([{"final": "Source: textbook.pdf, page 120."}])
+    calls = []
+    generate = llm.generate
+    async def capture(prompt, **kwargs):
+        calls.append(prompt)
+        return await generate(prompt, **kwargs)
+    monkeypatch.setattr(llm, "generate", capture)
+    monkeypatch.setattr(api_server, "_attached_chat_document_context", lambda user, ids, query: "textbook.pdf [page 120] Cardiac progenitor cells." if user == "tenant-a" and ids == ["private-file"] else "")
+    response = asyncio.run(api_server.mammoth_agent_run_start({"message": "Explain cardiac regeneration", "attached_file_ids": ["private-file"]}))
+    events = asyncio.run(_drain(response))
+    assert "page 120" in calls[0]
+    assert "Cardiac progenitor" in calls[0]
+    assert any(event["type"] == "run.completed" for event in events)
+
+
 def test_run_is_private_to_its_owner(isolated, as_user):
     _, use_llm = isolated
     as_user("tenant-a")

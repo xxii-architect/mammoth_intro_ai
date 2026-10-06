@@ -6,6 +6,38 @@ source-aware research, document exports, and public SDK contracts.
 
 ## Delivery checklist
 
+### Document-ingestion upgrade
+
+- [x] FILE-01: shared chat/ATLAS capability-driven policy, 50 MiB default,
+  hashed private storage, streaming/multipart bounds and transactional quotas.
+- [x] FILE-02: proper PDF/DOCX/PPTX/XLSX/HTML/text/code readers with real
+  page/slide/sheet/block/line locations, bounded processing and visible warnings.
+- [x] FILE-03: source-section retrieval across the extracted document for chat,
+  Mammoth Mind runs, and ATLAS; do not equate lexical matches with verified claims.
+- [x] FILE-04: upload progress, processing status, cancellation/retry, format/limit
+  display, extraction previews and truthful delete errors.
+- [x] FILE-05: validate isolation, quotas, malformed formats, late textbook-page
+  retrieval, mobile UI and regressions; update manuals and deployment wiring.
+- [ ] FILE-OCR: opt-in local/cloud OCR with explicit page limits, cost/privacy
+  review, page provenance and visible recognition errors. Not part of the
+  text-document release; scans report `needs_ocr`.
+- [ ] FILE-MEDIA: separate resumable large-media upload and opt-in transcription.
+  No external OCR or transcription calls are made by the current readers.
+
+Document validation includes a compressed 120-page synthetic PDF with final-page
+retrieval and a mocked tutor response carrying `textbook.pdf, page 120`; real
+DOCX/PPTX/XLSX readers; greater-than-4-MiB uploads; malformed/empty/encrypted
+inputs; archive expansion/XML checks; parser timeout; concurrent combined quotas;
+private metadata and cross-user rejection; multipart-body bounds; and legacy
+migration. The actual 50-MiB boundary is accepted, and 50 MiB plus one byte is
+rejected without a success record. A final 124-test backend/SDK selector and
+34 browser scenarios passed, including chat-file quota reclamation and account
+changes discarding private upload/previews.
+The full local suite surfaced two compatibility regressions (empty run context
+and inline exception-handler placement), both corrected and verified by the final
+selector. Nginx configuration tests preserve existing higher limits and unrelated
+routes. This is not a live textbook factual benchmark or enabled OCR.
+
 - [x] EDU-01: compose the existing Lessons renderer and ATLAS Tutor in one calm,
   responsive workspace. Keep the old `lessons` page key as a compatibility alias.
 - [x] EDU-02: show a backend-curated education roster (Tutor, Curriculum,

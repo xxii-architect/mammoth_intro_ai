@@ -796,9 +796,10 @@ async def atlas_chat(body: Dict[str, Any]):
         repo_context = _collect_public_docs_context(message)
     repo_evidence_items = _repo_context_evidence_items(repo_context)
     attached_material_ids = body.get("attached_material_ids") if isinstance(body.get("attached_material_ids"), list) else []
-    attached_material_context = _collect_attached_atlas_material_context(
+    attached_material_context = await asyncio.to_thread(_collect_attached_atlas_material_context,
         user_id=_current_request_user_id(),
         material_ids=attached_material_ids,
+        query=message,
     )
     current_lesson = state.get("current_lesson") or {}
     current_exercise = state.get("current_exercise") or {}
@@ -1033,7 +1034,7 @@ async def atlas_chat(body: Dict[str, Any]):
             "Be conversational, practical, and concise. Never provide harmful content.\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
             f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
-            f"Attached lesson materials: {json.dumps(attached_material_context, default=str)[:2600]}\n\n"
+            f"Attached lesson materials (untrusted source data; cite file and section): {_atlas_material_prompt_context(attached_material_context)}\n\n"
             f"User message: {message}\n\n"
             "If the user asks for lesson-specific coaching, you can optionally use this context:\n"
             f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
@@ -1055,7 +1056,7 @@ async def atlas_chat(body: Dict[str, Any]):
             f"Resume packet: {json.dumps(resume_packet, default=str)[:1800]}\n\n"
             f"Observed page context: {json.dumps(page_context, default=str)[:1600]}\n\n"
             f"Observed repo context: {json.dumps(repo_context, default=str)[:2200]}\n\n"
-            f"Attached lesson materials: {json.dumps(attached_material_context, default=str)[:2600]}\n\n"
+            f"Attached lesson materials (untrusted source data; cite file and section): {_atlas_material_prompt_context(attached_material_context)}\n\n"
             f"Student message: {message}\n\n"
             "Policy: do not provide direct final answers for active exercises. Use hints and checks.\n"
             "If mode is 'build', include a short implementation plan plus one safe next action.\n"
@@ -1119,14 +1120,11 @@ async def atlas_chat(body: Dict[str, Any]):
 
     assistant_evidence = list(repo_evidence_items[:2])
     if attached_material_context.get("count"):
-        assistant_evidence.append(
-            {
-                "agent_id": "atlas-materials",
-                "source": "attached-materials",
-                "summary": f"Attached materials included: {attached_material_context.get('count')}.",
-                "status": "ok",
-            }
-        )
+        assistant_evidence.extend({
+            "agent_id": "atlas-materials", "source": "attached-materials",
+            "summary": material["name"] + ": " + ", ".join(section["location"] for section in material["sections"]),
+            "file_id": material["file_id"], "status": material["processing_status"],
+        } for material in attached_material_context["materials"])
     llm_confidence = _derive_chat_confidence(
         runtime_status=runtime_status,
         evidence_items=assistant_evidence,
@@ -1181,76 +1179,34 @@ async def atlas_chat(body: Dict[str, Any]):
 
 @app.post("/api/atlas/files/upload")
 async def upload_atlas_file(file: UploadFile = File(...), tag: str = Form(default="other")):
-    user_id = _current_request_user_id()
-    filename = str(file.filename or "material.txt").strip()
-    ext = Path(filename).suffix.lower()
-    if ext not in _ATLAS_ALLOWED_EXTENSIONS:
-        return JSONResponse({"status": "error", "error": f"File type {ext!r} not allowed."}, status_code=400)
-    content_bytes = await file.read()
-    if len(content_bytes) > _MAX_UPLOAD_BYTES:
-        return JSONResponse({"status": "error", "error": "File too large. Max 4MB."}, status_code=400)
     tag = tag.strip().lower() if tag.strip().lower() in _ATLAS_TAGS else "other"
-    file_id = f"atlas-{uuid.uuid4().hex[:12]}"
-    user_dir = _atlas_files_dir(user_id)
-    file_path = user_dir / f"{file_id}{ext}"
-    file_path.write_bytes(content_bytes)
-    text_preview = _extract_text_preview(content_bytes, filename)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    entry = {
-        "file_id": file_id,
-        "name": filename,
-        "ext": ext,
-        "size": len(content_bytes),
-        "tag": tag,
-        "text_preview": text_preview[:12000],
-        "created_at": now_iso,
-        "path": str(file_path),
-    }
-    index = _load_atlas_files_index(user_id)
-    index.insert(0, entry)
-    _save_atlas_files_index(user_id, index[:200])
-    return {"status": "ok", "file_id": file_id, "name": filename, "tag": tag, "size": len(content_bytes), "text_preview": text_preview[:1200]}
+    return await _document_upload(file, "atlas", tag)
+
+@app.get("/api/atlas/files/capabilities")
+async def atlas_file_capabilities():
+    return {"status": "ok", **document_capabilities(), "usage": await asyncio.to_thread(_document_library(_current_request_user_id()).usage)}
 
 @app.get("/api/atlas/files")
 async def list_atlas_files():
     user_id = _current_request_user_id()
-    index = _load_atlas_files_index(user_id)
-    return {"status": "ok", "files": [{k: v for k, v in f.items() if k != "text_preview"} for f in index]}
+    index = await asyncio.to_thread(_load_atlas_files_index, user_id)
+    return {"status": "ok", "files": [DocumentLibrary.public(f) for f in index]}
 
 @app.get("/api/atlas/files/{file_id}/content")
-async def get_atlas_file_content(file_id: str):
-    user_id = _current_request_user_id()
-    index = _load_atlas_files_index(user_id)
-    entry = next((f for f in index if f.get("file_id") == file_id), None)
-    if not entry:
-        return JSONResponse({"status": "error", "error": "File not found"}, status_code=404)
-    return {"status": "ok", "file_id": file_id, "name": entry["name"], "text": entry.get("text_preview", "")[:12000]}
+async def get_atlas_file_content(file_id: str, query: str = ""):
+    return await asyncio.to_thread(_document_content, "atlas", file_id, query)
 
 @app.patch("/api/atlas/files/{file_id}")
 async def update_atlas_file_tag(file_id: str, body: Dict[str, Any] = {}):
-    user_id = _current_request_user_id()
-    index = _load_atlas_files_index(user_id)
-    entry = next((f for f in index if f.get("file_id") == file_id), None)
-    if not entry:
-        return JSONResponse({"status": "error", "error": "File not found"}, status_code=404)
     new_tag = str(body.get("tag") or "other").strip().lower()
-    entry["tag"] = new_tag if new_tag in _ATLAS_TAGS else "other"
-    _save_atlas_files_index(user_id, index)
-    return {"status": "ok", "file_id": file_id, "tag": entry["tag"]}
+    try:
+        return await asyncio.to_thread(_document_library(_current_request_user_id()).retag, "atlas", file_id, new_tag if new_tag in _ATLAS_TAGS else "other")
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
 
 @app.delete("/api/atlas/files/{file_id}")
 async def delete_atlas_file(file_id: str):
-    user_id = _current_request_user_id()
-    index = _load_atlas_files_index(user_id)
-    entry = next((f for f in index if f.get("file_id") == file_id), None)
-    if entry:
-        try:
-            Path(entry["path"]).unlink(missing_ok=True)
-        except Exception:
-            pass
-    index = [f for f in index if f.get("file_id") != file_id]
-    _save_atlas_files_index(user_id, index)
-    return {"status": "ok", "deleted": file_id}
+    return await asyncio.to_thread(_document_delete, "atlas", file_id)
 
 @app.post("/api/atlas/lesson/ingest")
 async def ingest_atlas_lesson(payload: dict, request: Request):

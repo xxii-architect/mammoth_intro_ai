@@ -132,62 +132,32 @@ async def rename_chat_thread(thread_id: str, body: Dict[str, Any] = {}):
     _save_thread_index(user_id, index)
     return {"status": "ok", "thread_id": thread_id, "title": new_title}
 
+@app.exception_handler(DocumentError)
+async def document_error_handler(request: Request, exc: DocumentError):
+    logger.warning("Document request failed at %s: %s", request.url.path, exc)
+    return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+
 @app.post("/api/mammoth/files/upload")
 async def upload_chat_file(file: UploadFile = File(...)):
-    user_id = _current_request_user_id()
-    filename = str(file.filename or "upload.txt").strip()
-    ext = Path(filename).suffix.lower()
-    if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
-        return JSONResponse({"status": "error", "error": f"File type {ext!r} not allowed. Allowed: {sorted(_ALLOWED_UPLOAD_EXTENSIONS)}"}, status_code=400)
-    content_bytes = await file.read()
-    if len(content_bytes) > _MAX_UPLOAD_BYTES:
-        return JSONResponse({"status": "error", "error": "File too large. Max 4MB."}, status_code=400)
-    file_id = f"file-{uuid.uuid4().hex[:12]}"
-    user_dir = _user_uploads_dir(user_id)
-    file_path = user_dir / f"{file_id}{ext}"
-    file_path.write_bytes(content_bytes)
-    text_preview = _extract_text_preview(content_bytes, filename)
-    now_iso = datetime.now(timezone.utc).isoformat()
-    entry = {
-        "file_id": file_id,
-        "name": filename,
-        "ext": ext,
-        "size": len(content_bytes),
-        "text_preview": text_preview[:8000],
-        "created_at": now_iso,
-        "path": str(file_path),
-        "scope": "chat",
-    }
-    index = _load_uploads_index(user_id)
-    index.insert(0, entry)
-    _save_uploads_index(user_id, index[:100])
-    return {
-        "status": "ok",
-        "file_id": file_id,
-        "name": filename,
-        "size": len(content_bytes),
-        "text_preview": text_preview[:1200],
-    }
+    return await _document_upload(file, "chat")
+
+@app.get("/api/mammoth/files/capabilities")
+async def chat_file_capabilities():
+    return {"status": "ok", **document_capabilities(), "usage": await asyncio.to_thread(_document_library(_current_request_user_id()).usage)}
+
+@app.get("/api/mammoth/files/{file_id}/content")
+async def get_chat_file_content(file_id: str, query: str = ""):
+    return await asyncio.to_thread(_document_content, "chat", file_id, query)
 
 @app.get("/api/mammoth/files")
 async def list_chat_files():
     user_id = _current_request_user_id()
-    index = _load_uploads_index(user_id)
-    return {"status": "ok", "files": [{k: v for k, v in f.items() if k != "text_preview"} for f in index]}
+    index = await asyncio.to_thread(_load_uploads_index, user_id)
+    return {"status": "ok", "files": [DocumentLibrary.public(f) for f in index]}
 
 @app.delete("/api/mammoth/files/{file_id}")
 async def delete_chat_file(file_id: str):
-    user_id = _current_request_user_id()
-    index = _load_uploads_index(user_id)
-    entry = next((f for f in index if f.get("file_id") == file_id), None)
-    if entry:
-        try:
-            Path(entry["path"]).unlink(missing_ok=True)
-        except Exception:
-            pass
-    index = [f for f in index if f.get("file_id") != file_id]
-    _save_uploads_index(user_id, index)
-    return {"status": "ok", "deleted": file_id}
+    return await asyncio.to_thread(_document_delete, "chat", file_id)
 
 @app.post("/api/mammoth/repo-context")
 async def mammoth_repo_context(body: Dict[str, Any]):
@@ -294,6 +264,10 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
         if surface == "agent_workspace"
         else _agent_history_text(user_id, account_id)
     )
+    document_context = await asyncio.to_thread(_attached_chat_document_context, user_id, body.get("attached_file_ids"), message)
+    extra_context = _agent_task_brief(body.get("task"))
+    if document_context:
+        extra_context += "\n\n" + document_context
     run = AgentRun(
         id=AgentRun.new_id(),
         user_id=user_id,
@@ -305,7 +279,7 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
             "history_text": history_text,
             "thread_id": str(body.get("thread_id") or "")[:80] if surface == "mind" else "",
             "surface": surface,
-            "extra_context": _agent_task_brief(body.get("task")),
+            "extra_context": extra_context,
         },
     )
     return _agent_run_stream(run, _AGENT_RUNNER.start(run, ctx), thread_id=run.request["thread_id"])
@@ -369,17 +343,9 @@ async def mammoth_chat(body: Dict[str, Any]):
         return {"status": "error", "error": "message is required"}
 
     # Inject attached file contents as additional context
-    attached_file_ids = body.get("attached_file_ids") or []
-    if attached_file_ids and isinstance(attached_file_ids, list):
-        _uid_for_files = _current_request_user_id()
-        _file_index = _load_uploads_index(_uid_for_files)
-        _file_texts = []
-        for _fid in attached_file_ids[:4]:
-            _entry = next((f for f in _file_index if f.get("file_id") == _fid), None)
-            if _entry and _entry.get("text_preview"):
-                _file_texts.append(f"--- Attached file: {_entry['name']} ---\n{_entry['text_preview'][:4000]}")
-        if _file_texts:
-            message = message + "\n\n[ATTACHED FILES]\n" + "\n\n".join(_file_texts)
+    attached_context = await asyncio.to_thread(_attached_chat_document_context, _current_request_user_id(), body.get("attached_file_ids"), message)
+    if attached_context:
+        message += "\n\n[ATTACHED FILES]\n" + attached_context
 
     trace_id = str(body.get("trace_id") or new_trace_id("chat"))
     initial_repo_request = _normalize_repo_context_request(body.get("repo_context"))
@@ -915,4 +881,3 @@ async def mammoth_chat(body: Dict[str, Any]):
         final_response["guide_steps"] = guide_steps_result
         final_response["guide_branch"] = guide_branch_result or "main"
     return final_response
-

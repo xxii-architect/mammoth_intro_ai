@@ -65,6 +65,32 @@ echo "✓ Frontend deployed"
 echo ""
 echo "[4/6] Restarting backend service '${BACKEND_SERVICE}'..."
 cd "$APP_ROOT"
+BACKEND_PID="$(sudo systemctl show "$BACKEND_SERVICE" --property=MainPID --value)"
+if [ -z "${MAMMOTH_PYTHON:-}" ]; then
+  if [ "$BACKEND_PID" = "0" ]; then
+    echo "Backend is not running. Set MAMMOTH_PYTHON to its Python environment."
+    exit 1
+  fi
+  BACKEND_EXECUTABLE="$(sudo cat "/proc/${BACKEND_PID}/cmdline" | tr '\0' '\n' | head -n 1)"
+  case "$(basename "$BACKEND_EXECUTABLE")" in
+    python*) MAMMOTH_PYTHON="$BACKEND_EXECUTABLE" ;;
+    uvicorn|gunicorn) MAMMOTH_PYTHON="$(dirname "$BACKEND_EXECUTABLE")/python" ;;
+    *) echo "Cannot identify backend Python. Set MAMMOTH_PYTHON explicitly."; exit 1 ;;
+  esac
+fi
+if [ ! -x "$MAMMOTH_PYTHON" ]; then
+  echo "Backend Python is not executable: ${MAMMOTH_PYTHON}"
+  exit 1
+fi
+echo "Installing backend dependencies in its existing Python environment..."
+"$MAMMOTH_PYTHON" -m pip install -r requirements.txt
+echo "Configuring Mammoth-only document upload proxy limits..."
+UPLOAD_MAX_BYTES="$("$MAMMOTH_PYTHON" -c "import sys; sys.path.insert(0, 'src'); from dotenv import load_dotenv; load_dotenv('.env', override=False); from mammoth_os.documents import capabilities; print(capabilities()['max_file_bytes'])")"
+PROXY_ARGS=(--ui-root "$UI_DEPLOY_DIR" --max-bytes "$UPLOAD_MAX_BYTES")
+if [ -n "${MAMMOTH_NGINX_SITE:-}" ]; then
+  PROXY_ARGS+=(--site "$MAMMOTH_NGINX_SITE")
+fi
+sudo "$MAMMOTH_PYTHON" scripts/configure_upload_proxy.py "${PROXY_ARGS[@]}"
 sudo systemctl restart "$BACKEND_SERVICE"
 sleep 2
 if sudo systemctl is-active --quiet "$BACKEND_SERVICE"; then

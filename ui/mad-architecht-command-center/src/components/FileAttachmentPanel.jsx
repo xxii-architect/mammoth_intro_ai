@@ -1,6 +1,9 @@
 import { useRef, useState } from 'react'
-import { Paperclip, X, FileText, Code, FileJson, Loader, Upload } from 'lucide-react'
-import { authorizedFetch } from '../api/client'
+import { Paperclip, X, FileText, Code, FileJson, Loader } from 'lucide-react'
+import useDocumentUpload from './useDocumentUpload'
+import DocumentUploadStatus from './DocumentUploadStatus'
+import { useAuth } from '../lib/authContext'
+import AtlasMaterialsLibrary from './AtlasMaterialsLibrary'
 
 const EXT_ICONS = {
   '.py': Code, '.js': Code, '.jsx': Code, '.ts': Code, '.tsx': Code,
@@ -26,33 +29,24 @@ function formatSize(bytes) {
  *   onAttach(file): adds a file to attached list
  *   onRemove(file_id): removes from attached list
  */
-export default function FileAttachmentPanel({ attached = [], onAttach, onRemove }) {
-  const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState('')
+export default function FileAttachmentPanel(props) {
+  const auth = useAuth()
+  return <AttachmentPanel key={auth?.user?.id || 'local'} {...props} />
+}
+
+function AttachmentPanel({ attached = [], onAttach, onRemove }) {
   const inputRef = useRef(null)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const upload = useDocumentUpload('mammoth', data => {
+    if (!['needs_ocr', 'empty'].includes(data.processing_status)) onAttach(data)
+  })
+  const uploading = upload.busy
 
   const handleFileChange = async (e) => {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
     e.target.value = ''
-    setError('')
-    setUploading(true)
-    for (const file of files.slice(0, 4)) {
-      try {
-        const form = new FormData()
-        form.append('file', file)
-        const resp = await authorizedFetch('/mammoth/files/upload', { method: 'POST', body: form })
-        const data = await resp.json()
-        if (data.status === 'ok') {
-          onAttach({ file_id: data.file_id, name: data.name, size: data.size })
-        } else {
-          setError(data.error || 'Upload failed')
-        }
-      } catch {
-        setError('Upload failed')
-      }
-    }
-    setUploading(false)
+    await upload.upload(files)
   }
 
   return (
@@ -75,24 +69,31 @@ export default function FileAttachmentPanel({ attached = [], onAttach, onRemove 
       {/* Upload trigger */}
       <button
         type="button"
-        title="Attach a file for context (.py, .ts, .md, .txt, .json, .pdf…)"
+        title="Attach a document or source file; retrieved sections provide context"
         onClick={() => inputRef.current?.click()}
-        disabled={uploading}
+        disabled={uploading || !upload.policy}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: uploading ? 'var(--txt-mut)' : 'var(--txt-sec)', cursor: uploading ? 'default' : 'pointer', fontSize: '0.72rem' }}
       >
         {uploading ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Paperclip size={12} />}
         {uploading ? 'Uploading…' : 'Attach'}
       </button>
 
-      {error && (
-        <span style={{ fontSize: '0.68rem', color: '#f87171' }}>{error}</span>
-      )}
+      <DocumentUploadStatus upload={upload} />
+      <button type="button" onClick={() => setLibraryOpen(value => !value)}>{libraryOpen ? 'Close file library' : 'Manage saved files'}</button>
+      {libraryOpen && <div style={{ width: '100%', minWidth: 0 }}><AtlasMaterialsLibrary
+        scope="mammoth"
+        attached={attached.map(file => file.file_id)}
+        onToggleAttach={(file, attach) => attach ? onAttach(file) : onRemove(file.file_id)}
+        onLibraryChange={upload.loadPolicy}
+      /></div>}
+      {attached.map(file => file.warnings?.length > 0 && <div key={file.file_id} style={{ width: '100%', fontSize: '0.72rem' }}>{file.name}: {file.processing_status} — {file.warnings.join(' ')}</div>)}
+      {attached.length > 4 && <div role="alert">Only the first four attached files are used in each chat request. Remove extras or send separate requests.</div>}
 
       <input
         ref={inputRef}
         type="file"
         style={{ display: 'none' }}
-        accept=".py,.ts,.tsx,.js,.jsx,.md,.txt,.json,.toml,.yaml,.yml,.csv,.html,.css,.sh,.sql,.pdf"
+        accept={upload.policy?.extensions.join(',') || ''}
         multiple
         onChange={handleFileChange}
       />

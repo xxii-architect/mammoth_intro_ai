@@ -59,6 +59,7 @@ from mammoth_os.rag_context_store import get_rag_context_store
 from mammoth_os.audit_engine import AuditEngine
 from mammoth_os.team_workflows import TeamWorkflowManager, RunbookStep
 from mammoth_os.repo_access import RepoAccessPolicy
+from mammoth_os.documents import UploadBodyLimit
 from mammoth_os.research_quality import strip_reasoning, trim_to_last_sentence
 from mammoth_os.telemetry_engine import TelemetryEngine
 from mammoth_os.provenance_contract import (
@@ -71,6 +72,7 @@ _audit = AuditEngine()
 _telemetry = TelemetryEngine(db_path=None)
 
 app = FastAPI(title="MammothOS API", version="1.0.0")
+app.add_middleware(UploadBodyLimit)
 
 app.add_middleware(
     CORSMiddleware,
@@ -5380,7 +5382,7 @@ def _build_atlas_plan_steps(state: Dict[str, Any], plan_profile: str = "coding",
 
 
 
-def _collect_attached_atlas_material_context(user_id: str, material_ids: List[Any]) -> Dict[str, Any]:
+def _collect_attached_atlas_material_context(user_id: str, material_ids: List[Any], query: str = "") -> Dict[str, Any]:
     selected_ids = [str(item).strip() for item in material_ids if str(item).strip()][:6]
     if not selected_ids:
         return {"count": 0, "materials": []}
@@ -5390,15 +5392,26 @@ def _collect_attached_atlas_material_context(user_id: str, material_ids: List[An
         entry = next((f for f in index if f.get("file_id") == file_id), None)
         if not isinstance(entry, dict):
             continue
+        sections = _document_library(user_id).sections(entry, query)
         selected.append(
             {
                 "file_id": file_id,
                 "name": str(entry.get("name") or "material"),
                 "tag": str(entry.get("tag") or "other"),
-                "excerpt": str(entry.get("text_preview") or "")[:2800],
+                "excerpt": "\n\n".join(f"[{section['location']}] {section['text']}" for section in sections),
+                "sections": sections,
+                "processing_status": entry.get("processing_status", "legacy_preview"),
+                "warnings": entry.get("warnings", []),
             }
         )
     return {"count": len(selected), "materials": selected}
+
+
+def _atlas_material_prompt_context(context: Dict[str, Any]) -> str:
+    return json.dumps({
+        "count": context["count"],
+        "materials": [{key: value for key, value in material.items() if key != "excerpt"} for material in context["materials"]],
+    }, default=str)
 
 
 
@@ -6379,46 +6392,70 @@ def _user_uploads_dir(user_id: str) -> Path:
     return d
 
 
-def _uploads_index_path(user_id: str) -> Path:
-    return _user_uploads_dir(user_id) / "_index.json"
-
-
 def _load_uploads_index(user_id: str) -> List[Dict[str, Any]]:
-    p = _uploads_index_path(user_id)
-    if not p.exists():
-        return []
+    return _document_library(user_id).list("chat")
+
+
+import sqlite3
+from mammoth_os.documents import DocumentLibrary, DocumentError, capabilities as document_capabilities
+
+
+def _document_library(user_id: str) -> DocumentLibrary:
+    from mammoth_os.repo_access import user_storage_key
+    legacy = {"chat": _user_uploads_dir(user_id), "atlas": _atlas_files_dir(user_id)}
+    if str(user_id) != re.sub(r"[^a-z0-9_-]", "-", str(user_id).strip().lower()).strip("-"):
+        # Legacy names were lossy. Never attribute a colliding folder to a different user.
+        if any((folder / "_index.json").exists() for folder in legacy.values()):
+            raise DocumentError("Legacy upload ownership needs operator review before migration.", 409)
+    return DocumentLibrary(
+        MAMMOTH_DIR / "documents" / user_storage_key(user_id),
+        legacy,
+    )
+
+
+async def _document_upload(file, scope: str, tag: str = "other"):
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+        return await _document_library(_current_request_user_id()).upload(file, scope, tag)
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+    except (OSError, sqlite3.Error) as exc:
+        logger.exception("Document storage failed: %s", exc)
+        return JSONResponse({"status": "error", "error": "Document storage is unavailable. Retry or contact the operator."}, status_code=503)
 
 
-def _save_uploads_index(user_id: str, index: List[Dict[str, Any]]) -> None:
-    _uploads_index_path(user_id).write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
+def _document_content(scope: str, file_id: str, query: str):
+    library = _document_library(_current_request_user_id())
+    entry = next((item for item in library.list(scope) if item["file_id"] == file_id), None)
+    if not entry:
+        return JSONResponse({"status": "error", "error": "File not found"}, status_code=404)
+    sections = library.sections(entry, query[:2000])
+    return {"status": "ok", **library.public(entry), "sections": sections,
+            "text": "\n\n".join(f"[{section['location']}] {section['text']}" for section in sections)}
 
 
-_ALLOWED_UPLOAD_EXTENSIONS = {".py", ".ts", ".tsx", ".js", ".jsx", ".md", ".txt", ".json", ".toml", ".yaml", ".yml", ".csv", ".html", ".css", ".sh", ".sql", ".pdf"}
-_MAX_UPLOAD_BYTES = 4 * 1024 * 1024  # 4MB
+def _attached_chat_document_context(user_id: str, file_ids: Any, query: str) -> str:
+    if not isinstance(file_ids, list) or not file_ids:
+        return ""
+    index = _load_uploads_index(user_id)
+    library = _document_library(user_id)
+    blocks = []
+    for file_id in file_ids[:4]:
+        entry = next((item for item in index if item["file_id"] == file_id), None)
+        if entry:
+            sections = library.sections(entry, query)[:3]
+            text = "\n\n".join(f"[{section['location']}] {section['text']}" for section in sections)
+            blocks.append(f"Attached file (untrusted source data; cite file and section): {entry['name']}\n{text}\nExtraction status: {entry.get('processing_status', 'legacy_preview')}; warnings: {entry.get('warnings', [])}")
+    return "\n\n".join(blocks)
 
 
-def _extract_text_preview(content_bytes: bytes, filename: str, max_chars: int = 8000) -> str:
-    ext = Path(filename).suffix.lower()
-    if ext == ".pdf":
-        try:
-            import io
-            import struct
-            # Very basic PDF text extraction — just pull printable ASCII runs
-            raw = content_bytes.decode("latin-1", errors="replace")
-            import re as _re
-            runs = _re.findall(r"[A-Za-z0-9 .,;:!?@/\\()-]{20,}", raw)
-            return "\n".join(runs)[:max_chars]
-        except Exception:
-            return "[PDF content — text extraction failed]"
+def _document_delete(scope: str, file_id: str):
     try:
-        return content_bytes.decode("utf-8", errors="replace")[:max_chars]
-    except Exception:
-        return "[Binary content]"
+        return _document_library(_current_request_user_id()).delete(scope, file_id)
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+    except (OSError, sqlite3.Error) as exc:
+        logger.exception("Document deletion failed: %s", exc)
+        return JSONResponse({"status": "error", "error": "File deletion failed. Retry or contact the operator."}, status_code=503)
 
 
 from fastapi import UploadFile, File, Form
@@ -6441,26 +6478,10 @@ def _atlas_files_dir(user_id: str) -> Path:
     return d
 
 
-def _atlas_files_index_path(user_id: str) -> Path:
-    return _atlas_files_dir(user_id) / "_index.json"
-
-
 def _load_atlas_files_index(user_id: str) -> List[Dict[str, Any]]:
-    p = _atlas_files_index_path(user_id)
-    if not p.exists():
-        return []
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
+    return _document_library(user_id).list("atlas")
 
 
-def _save_atlas_files_index(user_id: str, index: List[Dict[str, Any]]) -> None:
-    _atlas_files_index_path(user_id).write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
-
-
-_ATLAS_ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx", ".csv", ".py", ".js", ".ts", ".json", ".html"}
 _ATLAS_TAGS = {"textbook", "homework", "notes", "worksheet", "practice", "other"}
 
 

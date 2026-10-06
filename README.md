@@ -694,6 +694,63 @@ The Agent page opens on a calm workspace instead of a console:
 
 Conversation history and earlier step results reach the model through a scoped **background channel** (`mammoth_os.llm_client.conversation_context`), never by rewriting the agent's prompt. Template-based agents (reflection, tutor flows) treat the prompt as a topic, so stuffing transcripts into it would leak them into the output.
 
+## Private document uploads and learning materials
+
+Chat and ATLAS share `mammoth.documents.v1` ingestion. Both capability endpoints
+(`GET /api/mammoth/files/capabilities`, `GET /api/atlas/files/capabilities`) expose
+the actual supported extensions, limits, and the caller's combined raw-file usage.
+Defaults are **50 MiB per file**, **500 MiB raw-file storage per user**, and
+**200 files** across both libraries. Configure positive values with
+`MAMMOTH_UPLOAD_MAX_BYTES`, `MAMMOTH_UPLOAD_STORAGE_BYTES`, and
+`MAMMOTH_UPLOAD_MAX_FILES`. Reverse proxies must permit at least the configured
+file limit plus 1 MiB multipart overhead and sufficient processing time.
+The droplet deploy script installs dependencies in the running backend's Python
+environment and updates only the uniquely identified Mammoth site's `/api`
+nginx proxy location, preserving its upstream. It validates nginx and restores
+its own changes on validation failure. Set `MAMMOTH_PYTHON` or
+`MAMMOTH_NGINX_SITE` when discovery is ambiguous; deployment fails explicitly
+rather than modifying unrelated sites.
+
+Supported readers: PDF, DOCX, PPTX, XLSX, HTML/HTM, UTF-8/BOM-marked UTF-16
+text, Markdown, CSV, JSON, YAML, TOML, RST, logs, and the listed source-code
+formats. PDFs retain page numbers, slides retain slide numbers, spreadsheets
+retain sheet/row locations, DOCX retains ordered paragraph/table blocks, and
+text retains line ranges. Formulas are not recalculated; spreadsheets expose
+saved cached values. Embedded images are not transcribed, and DOCX block numbers
+are not rendered page numbers.
+
+Uploads stream into private staging files, with multipart-body limits before
+spooling, transactional SQLite quotas, two concurrent ingestion slots per server
+process, and separate reader processes with a 60-second timeout. Linux readers
+also have a 1 GiB address-space limit. Extraction is bounded to 2 million
+characters / 2,000 units; ZIP containers have expansion, encryption, macro,
+and XML-entity checks. These are resource bounds, not a complete malware scanner
+or an OS sandbox. Never execute uploaded code or active HTML.
+
+The whole extracted document is split into source-located sections. Chat,
+Mammoth Mind runs, and ATLAS retrieve relevant sections by lexical matching
+(or opening sections when no terms match), instead of only using the first
+8,000 characters. Ask about a concrete topic or `page 120` / `slide 12`.
+This is bounded retrieval, not semantic search or proof that the model's answer
+is accurate. Chat uses up to four attached files; ATLAS uses up to six.
+
+The UI shows transfer progress, processing, extraction warnings, cancellation,
+and retry. ATLAS offers searchable section previews; chat's **Manage saved files**
+opens the same scoped preview/reuse/delete library so detached files can be
+removed to reclaim quota. Removing an attachment alone does not delete storage.
+`ready` describes text
+extraction, not factual quality; `partial`, `needs_ocr`, `empty`, and
+`legacy_preview` remain visible. Scan-only PDFs need OCR, **not enabled in this
+release**. Neither OCR, audio/video transcription, nor external document services
+are invoked or billed. Cancellation after server processing starts may finish
+server-side: refresh the library before retrying.
+
+Old upload indexes migrate without rewriting their saved previews. Re-upload
+legacy files for full extraction. Corrupt indexes or ambiguous legacy user-folder
+ownership require operator repair, never a silent empty library. New storage
+uses hashed user folders, and list responses do not expose host filesystem paths.
+Back up `.mammoth/documents/` along with legacy upload folders before deployment.
+
 ## Safety-first agent workflow
 
 - In the Agent page (Advanced → Preview file changes before applying, or Preview first in the classic console), keep previews enabled for coding edits.

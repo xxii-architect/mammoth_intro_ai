@@ -4,7 +4,7 @@ const os = require('node:os')
 
 module.exports = defineConfig({
   testDir: __dirname,
-  testMatch: ['atlas-workspace.spec.js', 'artifact-library.spec.js'],
+  testMatch: ['atlas-workspace.spec.js', 'artifact-library.spec.js', 'document-uploads.spec.js'],
   workers: 1,
   reporter: 'line',
   outputDir: path.join(os.tmpdir(), `mammoth-atlas-ui-${process.pid}`),

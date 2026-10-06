@@ -576,6 +576,8 @@ export default function ChatPage({ setPage }) {
   const scopeUserId = user?.id || 'local'
   const [ratings, setRatings] = useState({})
 
+  useEffect(() => { setAttachedFiles([]) }, [scopeUserId])
+
   useEffect(() => {
     let cancelled = false
     setRatings({})
@@ -1106,7 +1108,7 @@ export default function ChatPage({ setPage }) {
     }
 
     const effectiveAgentId = overrideAgentId || agentId
-    const useAgentLoop = agentMode && !message.startsWith('/') && attachedFiles.length === 0
+    const useAgentLoop = agentMode && !message.startsWith('/')
     if (useAgentLoop) {
       setError('')
       if (!override) setInput('')
@@ -1123,8 +1125,10 @@ export default function ChatPage({ setPage }) {
         message,
         agent_id: effectiveAgentId,
         thread_id: activeThreadId || undefined,
+        attached_file_ids: attachedFiles.map(file => file.file_id),
         repo_context: activeRepoValue ? { root: activeRepoValue } : undefined,
       }
+      setAttachedFiles([])
       await runWithStream(localId, effectiveAgentId, (signal, onEvent) => startAgentRun(body, { signal, onEvent }))
       return
     }

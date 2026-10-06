@@ -74,6 +74,11 @@ mastery increases. Topic-specific learner evidence drives difficulty recommendat
 - Keep `lesson_telemetry` bounded (80 lessons) and clear it on learner reset.
 - Curriculum authoring allows one bounded correction for schema/teaching-check failures, never extra authoring retries for provider errors. Keep safe diagnostics separate from raw provider logs. Duration validation uses word-based reading time, not a character-count proxy that rejects substantive lessons.
 
+## Document ingestion rules
+- `src/mammoth_os/documents.py` owns the shared chat/ATLAS format policy, extraction limits, private SQLite metadata/quotas, and source-section retrieval. Upload success is not extraction readiness; retain `partial`, `needs_ocr`, `empty`, and `legacy_preview` with warnings and real page/slide/sheet/block/line locations.
+- Parse staged spreadsheets through an open binary stream: readers may reject the staging `.upload` suffix even when the original `.xlsx` is valid. Bound multipart spooling before parsing, keep readers off the event loop, and never run uploaded code, fetch HTML resources, or treat uploaded instructions as trusted system instructions.
+- New files use hashed user folders; lossy legacy folder names cannot establish ownership. Test content near the end of a compressed textbook and both chat/ATLAS paths, not just the upload acknowledgment. Deployment must install readers in the actual backend environment and align only Mammoth's own proxy limits.
+
 ## Mammoth Paths workspace SDK rules
 - Python client: `src/mammoth_os/paths/` (stdlib only). JS client: `packages/mammoth-paths/` (zero dependencies). Keep both method sets and the `mammoth.paths.v1` contract in sync, and add tests on both sides.
 - The app imports run-state logic from `@mammothos/paths` (Vite alias). Change the reducer there, not in the app.

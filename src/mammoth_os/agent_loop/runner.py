@@ -361,7 +361,7 @@ class AgentRunner:
             "Tool catalog:\n" + json.dumps(catalog, default=str),
         ]
         if run.request.get("extra_context"):
-            parts.append("Additional context:\n" + str(run.request["extra_context"])[:6000])
+            parts.append("Additional context:\n" + str(run.request["extra_context"])[:24000])
         if history:
             parts.append("Recent conversation:\n" + history[:4000])
         parts.append(f"User request:\n{run.message}")
