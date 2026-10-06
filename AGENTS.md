@@ -2,6 +2,10 @@
 
 Use this file when wiring or extending MammothOS agents.
 
+For platform reliability work, read [PLATFORM_UPGRADE_ROADMAP.md](PLATFORM_UPGRADE_ROADMAP.md)
+first. Verify each finding against current code, preserve access boundaries,
+and check off an item only after its acceptance criteria pass.
+
 ## Working rules
 - Treat `src/mammoth_os/agent_registry.py` as the canonical registry for agent manifests, capabilities, and health state.
 - Treat `api_server.py` as the integration surface for UI and workflow wiring. Do not hard-code agent statuses in the frontend when the backend can provide them.

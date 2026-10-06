@@ -2,6 +2,10 @@
 
 This repo contains the ATLAS CLI, FastAPI backend, and the Mad Architecht Command Center UI.
 
+The current agent-readable reliability backlog is
+[Platform upgrade roadmap](PLATFORM_UPGRADE_ROADMAP.md). It separates confirmed
+gaps from investigation candidates and defines phased acceptance criteria.
+
 ## Current upgrade wave (SDK optimization + Mammoth Mind)
 
 | Phase | What shipped |
