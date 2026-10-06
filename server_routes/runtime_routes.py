@@ -1573,9 +1573,18 @@ async def run_agent(body: Dict[str, Any]):
                         str(_auto_out.get("document") or ""),
                         str(_auto_out.get("report") or ""),
                         str(_auto_out.get("text") or ""),
+                        str(_auto_out.get("code") or ""),
+                        str(_auto_out.get("tests") or ""),
+                        str(_auto_out.get("docs") or ""),
+                        str(_auto_out.get("diff") or ""),
+                        "\n\n".join(
+                            str(section.get("heading") or "") + "\n" + str(section.get("content") or "")
+                            for section in (_auto_out.get("sections") or []) if isinstance(section, dict)
+                        ),
+                        str(_auto_out.get("conclusion") or ""),
                     ]))
                     _auto_title = str(_auto_out.get("title") or runtime_agent)
-                    _auto_type = str(_auto_out.get("artifact_type") or "document")
+                    _auto_type = str(_auto_out.get("artifact_type") or {"coding": "coding_report", "planner": "plan", "research": "research", "reflection": "report"}.get(runtime_agent, "document"))
                 elif isinstance(_auto_out, str):
                     _auto_text, _auto_title, _auto_type = _auto_out, runtime_agent, "document"
                 else:
@@ -1585,10 +1594,16 @@ async def run_agent(body: Dict[str, Any]):
                         import uuid as _uuid
                         from datetime import datetime as _adt, timezone as _atz
                         _auto_payload = {
-                            "id": _uuid.uuid5(_uuid.NAMESPACE_URL, _auto_title).hex,
+                            "id": _uuid.uuid5(_uuid.NAMESPACE_URL, trace_id).hex,
                             "title": _auto_title,
-                            "body": _auto_text[:4000],
+                            "body": _auto_text,
                             "artifact_type": _auto_type,
+                            "agent_id": tracked_agent_id,
+                            "status": result.get("status"),
+                            "artifact_status": _auto_out.get("status") if isinstance(_auto_out, dict) else "",
+                            "quality": _auto_out.get("quality") if isinstance(_auto_out, dict) else {},
+                            "docx_filename": _auto_out.get("docx_filename") if isinstance(_auto_out, dict) else "",
+                            "origin": {"page": "agent", "trace_id": trace_id, "task_id": task_id},
                             "source_url": "",
                             "created_at": _adt.now(_atz.utc).isoformat(),
                         }

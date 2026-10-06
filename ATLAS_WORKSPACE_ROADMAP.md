@@ -93,7 +93,7 @@ new persistent or paid feature rather than postponing them until the end.
 
 ## Dependencies and acceptance
 
-- [ ] LIBRARY-01 (requested follow-up after the current learning-flow work):
+- [x] LIBRARY-01 (requested follow-up after the current learning-flow work):
   organize the artifact library by explicit artifact type. Candidate categories:
   curricula, lessons, research/reports, notes, flashcards, code/patch proposals,
   and plans. Inspect existing contracts before choosing final wire values.
@@ -101,6 +101,16 @@ new persistent or paid feature rather than postponing them until the end.
   links back to the originating lesson or run. Preserve existing artifacts,
   downloads, ownership boundaries, and an explicit uncategorized legacy bucket;
   do not infer permission or teaching readiness from a category.
+
+  Implemented: backend-owned type taxonomy and additive artifact metadata;
+  search/category/agent/status/local-date filters, previews, text/JSON exports,
+  authenticated DOCX downloads, private curriculum references, and confirmed
+  server-first removals. Unknown legacy metadata remains explicitly unassessed.
+  Notes and flashcards are categories for saved outputs, not an unpermissioned
+  merge of their separately gated live stores. Origin navigation opens the
+  workspace with recorded provenance visible; historical replay is not added.
+  Browser-only legacy caches without a known owner are left untouched but never
+  displayed or reassigned to whichever account happens to sign in.
 
 EDU-03 verifies EDU-01/02 before release. AUDIO-01 follows stable lesson delivery;
 AUDIO-02 requires provider selection and AUDIO-01. AUDIO-03 builds on AUDIO-02;
@@ -137,6 +147,13 @@ AUDIO-04 and SDK-01 follow validated AUDIO-03 behavior.
   save/start, exports, and portrait layout. Content quality still needs ongoing
   real-provider and subject-expert evaluation; automated fixtures cannot prove
   that every generated course teaches its subject correctly.
+- LIBRARY-01 completed: 60 targeted backend/producer/tenant/SDK checks and all
+  22 browser scenarios (15 ATLAS + 7 artifact-library) passed, with a production
+  UI build. Automatic saves preserve full report text and distinct run IDs
+  instead of truncating at 4,000 characters or overwriting same-title runs.
+  The prior learning release's CI also exposed a route-helper placement error
+  and an outdated curriculum payload expectation; both were corrected and the
+  route-layout and registry-contract regressions passed.
 
 ## Repeating the workspace checks
 

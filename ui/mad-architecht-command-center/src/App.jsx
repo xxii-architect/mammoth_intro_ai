@@ -456,28 +456,13 @@ async function persistArtifactRecord(entry) {
     path: entry.path || '',
     source: entry.source || 'workspace',
     format: entry.format || 'txt',
+    artifact_type: entry.artifact_type || '',
+    agent_id: entry.agent_id || '',
+    origin: entry.origin || {},
     meta: entry.meta && typeof entry.meta === 'object' ? entry.meta : {},
   }
   if (!item.body) return
-  try {
-    await api('/workspace/artifacts', {
-      method: 'POST',
-      body: item,
-    })
-    localStorage.removeItem('mammoth_artifact_library_v1')
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    console.warn(`[artifact-library] Backend persist failed, using local cache: ${message}`)
-    try {
-      const raw = localStorage.getItem('mammoth_artifact_library_v1')
-      const existing = raw ? JSON.parse(raw) : []
-      const next = Array.isArray(existing) ? existing : []
-      localStorage.setItem('mammoth_artifact_library_v1', JSON.stringify([item, ...next].slice(0, 30)))
-    } catch (storageError) {
-      const storageMessage = storageError instanceof Error ? storageError.message : String(storageError)
-      console.warn(`[artifact-library] Local cache persist failed: ${storageMessage}`)
-    }
-  }
+  await api('/workspace/artifacts', { method: 'POST', body: item })
 }
 
 const LESSON_SURFACE_PAGES = new Set(['lessons', 'atlas', 'flashcards', 'lessonnotes', 'projects'])
@@ -586,6 +571,9 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
         path: result?.result?.path || filePath,
         source: isMammothMindSurface ? 'mammoth-mind' : 'atlas-fab',
         format: ext,
+        artifact_type: 'report',
+        agent_id: isMammothMindSurface ? '' : 'tutor_agent',
+        origin: { page: isMammothMindSurface ? 'chat' : 'atlas' },
       })
       setSaveStatus(`Saved ${ext.toUpperCase()} report to ${result?.result?.path || filePath}`)
       window.setTimeout(() => setSaveStatus(''), 2600)

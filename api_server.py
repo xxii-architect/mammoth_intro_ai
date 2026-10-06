@@ -709,6 +709,11 @@ def _atlas_state_file_for_request() -> Path:
     return ATLAS_STATE_DIR / f"atlas_state_{user_key}.json"
 
 
+def _curriculum_library_path() -> Path:
+    atlas_path = _atlas_state_file_for_request()
+    return atlas_path.with_name(f"{atlas_path.stem}_curricula.json")
+
+
 def _request_is_admin() -> bool:
     if not _AUTH_REQUIRED:
         return True
@@ -4329,6 +4334,8 @@ def _persist_active_account_collections(state: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    from mammoth_os.workspace_artifacts import artifact_metadata
+
     if not isinstance(raw, dict):
         return None
     created_at = str(raw.get("created_at") or now or datetime.now(timezone.utc).isoformat())
@@ -4348,6 +4355,7 @@ def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None)
         "source": str(raw.get("source") or "workspace").strip() or "workspace",
         "format": str(raw.get("format") or "txt").strip().lower() or "txt",
         "meta": raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
+        **artifact_metadata(raw),
     }
 
 

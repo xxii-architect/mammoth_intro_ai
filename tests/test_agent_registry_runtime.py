@@ -13,21 +13,22 @@ class DummyAgent:
             assert isinstance(payload, dict)
             assert payload["topic"] == "coach"
         if self.name == "curriculum":
-            assert payload == "build lesson"
+            assert payload["prompt"] == "build lesson"
         return {"agent": self.name, "payload": payload}
 
 
 def test_run_agent_normalizes_payloads(monkeypatch):
     monkeypatch.setattr(agent_registry_mod, "load_agent", lambda agent_name, router=None: DummyAgent(agent_name))
 
-    curriculum_result = agent_registry_mod.run_agent("curriculum", {"prompt": "build lesson"})
+    curriculum_result = agent_registry_mod.run_agent("curriculum", {"prompt": "build lesson", "learner_context": {"starting_level": "advanced"}})
     tutor_result = agent_registry_mod.run_agent("tutor", {"prompt": "coach"})
     plant_result = agent_registry_mod.run_agent("plant_the_seed", {"prompt": "hello"})
     field_ops_result = agent_registry_mod.run_agent("field_ops", {"topic": "navigation", "environment": "forest", "hazards": ["fog"]})
     browser_result = agent_registry_mod.run_agent("browser", {"url": "https://example.com", "follow_links": False})
     task_queue_result = agent_registry_mod.run_agent("task_queue", {"action": "status", "prompt": "show queue"})
 
-    assert curriculum_result["payload"] == "build lesson"
+    assert curriculum_result["payload"]["prompt"] == "build lesson"
+    assert curriculum_result["payload"]["learner_context"]["starting_level"] == "advanced"
     assert tutor_result["payload"]["topic"] == "coach"
     assert plant_result["payload"]["topic"] == "hello"
     assert field_ops_result["payload"]["environment"] == "forest"

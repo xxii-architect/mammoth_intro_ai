@@ -3,12 +3,14 @@
 
 @app.get("/api/workspace/artifacts")
 async def list_workspace_artifacts():
+    from mammoth_os.workspace_artifacts import ARTIFACT_CATEGORIES
+
     state = _load_atlas_state()
     artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
     if artifacts != state.get("workspace_artifacts"):
         state["workspace_artifacts"] = artifacts
         _save_atlas_state(state)
-    return {"status": "ok", "artifacts": artifacts}
+    return {"status": "ok", "artifacts": artifacts, "categories": ARTIFACT_CATEGORIES}
 
 @app.post("/api/workspace/artifacts")
 async def create_workspace_artifact(body: Dict[str, Any]):

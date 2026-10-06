@@ -446,11 +446,6 @@ async def atlas_learning_agents():
     ]}
 
 
-def _curriculum_library_path():
-    atlas_path = _atlas_state_file_for_request()
-    return atlas_path.with_name(f"{atlas_path.stem}_curricula.json")
-
-
 @app.get("/api/atlas/curricula")
 async def atlas_curricula():
     blocked = _require_signed_in_api()

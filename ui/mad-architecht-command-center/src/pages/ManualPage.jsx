@@ -152,6 +152,10 @@ const repoContextRules = [
     body: 'The Agent Workbench (Pro), Task Inbox, and Artifacts only show items you created. Shared agents run sandboxed for your account: they cannot read the host machine, run host tests, or fetch private-network addresses. The Terminal stays owner-only.',
   },
   {
+    title: 'Find and review saved artifacts',
+    body: 'Artifacts groups saved outputs into Curricula, Lessons, Research & reports, Notes, Flashcards, Code & patch proposals, Plans, and Uncategorized. Combine search, agent, status, and local-date filters; expand a preview or download text/JSON and available authenticated DOCX files. Ready means declared output readiness, not factual verification, mastery, or safe-to-apply code. Old outputs without metadata remain Uncategorized / Not assessed. Saved ATLAS curricula are linked from their own library; clearing saved outputs never deletes those courses or the live Notes and Flashcards libraries. Origin buttons open the workspace and show recorded run/lesson IDs, not an automatic replay. Backend failures stay visible; unscoped browser caches are not shown.',
+  },
+  {
     title: 'Queries determine what code gets surfaced',
     body: 'Generic chat like “do you see the code?” may return empty snippets. Ask for a file, symbol, route, or behavior you want inspected.',
   },

@@ -74,6 +74,8 @@ mastery increases. Topic-specific learner evidence drives difficulty recommendat
 - Python client: `src/mammoth_os/paths/` (stdlib only). JS client: `packages/mammoth-paths/` (zero dependencies). Keep both method sets and the `mammoth.paths.v1` contract in sync, and add tests on both sides.
 - The app imports run-state logic from `@mammothos/paths` (Vite alias). Change the reducer there, not in the app.
 - Clients never enforce access; the backend does. Workspace surfaces must stay user-scoped, and tier-gated surfaces use `_require_workspace_tier_api`.
+- Saved output taxonomy and metadata live in `src/mammoth_os/workspace_artifacts.py`; keep legacy types and bodies intact. Categories and an `ok` run never imply assessed readiness or permission.
+- The Artifact library links private ATLAS curricula without duplicating their store. Clearing outputs must not delete curricula or the tier-gated Notes/Flashcards stores. Never display an unowned browser cache as a signed-in user's library.
 
 ## Repo access rules
 - `src/mammoth_os/repo_access.py` is the single policy for repository context. Never resolve repo roots anywhere else.

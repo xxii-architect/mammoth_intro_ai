@@ -68,7 +68,8 @@ Details for each are in the sections below and in `ATLAS_MANUAL.md`.
 ## Phase 3/4 productization highlights
 
 - UI story surfaces are now workflow-first:
-  - Artifact Library for saved generated reports
+  - Artifact Library with type categories, search, agent/status/date filters,
+    full-text previews and exports, and linked private ATLAS curricula
   - Task Inbox for queued workflow cards
   - Structured Coding Artifact panel in Agent Console (overview/code/tests/docs/diff)
 - Observability surfaces are now tighter:

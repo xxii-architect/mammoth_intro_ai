@@ -1,0 +1,24 @@
+.artifact-library { padding: 24px; max-width: 1280px; margin: 0 auto; width: 100%; min-width: 0; box-sizing: border-box; }
+.artifact-library header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+.artifact-library h1 { margin: 0; font-size: 1.5rem; color: var(--txt-pri); }
+.artifact-library p { line-height: 1.6; overflow-wrap: anywhere; }
+.artifact-library button, .artifact-library input, .artifact-library select { color: var(--txt-pri); background: var(--shell); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; max-width: 100%; box-sizing: border-box; }
+.artifact-library button { cursor: pointer; font-size: .76rem; }
+.artifact-library button:disabled { opacity: .5; cursor: default; }
+.artifact-library button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+.artifact-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.artifact-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; margin: 20px 0; align-items: end; }
+.artifact-filters label { display: grid; gap: 6px; font-size: .76rem; min-width: 0; }
+.artifact-filters input, .artifact-filters select { width: 100%; }
+.artifact-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+.artifact-card { padding: 16px; min-width: 0; display: flex; flex-direction: column; gap: 12px; overflow-wrap: anywhere; }
+.artifact-card h2 { margin: 0; color: var(--txt-pri); font-size: 1rem; }
+.artifact-card p { margin: 0; }
+.artifact-card > .artifact-actions { margin-top: auto; }
+.artifact-tags { display: flex; flex-wrap: wrap; gap: 6px; font-size: .7rem; }
+.artifact-tags span { padding: 4px 8px; border: 1px solid var(--border); border-radius: 999px; }
+.artifact-meta { color: var(--txt-mut); font-size: .72rem; }
+.artifact-card pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .76rem; line-height: 1.65; max-height: 360px; overflow-y: auto; }
+.artifact-confirm { padding: 16px; margin-bottom: 16px; }
+.artifact-confirm button { margin-right: 8px; }
+@media (max-width: 520px) { .artifact-library { padding: 16px; } }
