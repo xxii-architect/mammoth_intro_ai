@@ -3,6 +3,7 @@ import { BookOpen, Send, ChevronRight, ExternalLink, GraduationCap, Flame, Check
 import { api } from '../api/client'
 import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 import { LessonGateNotice, LessonManifestCard, StallNotice } from '../components/LessonDelivery'
+import LessonContent from '../components/LessonContent'
 
 // ─── Expanded module catalog ──────────────────────────────────────────────────
 const FALLBACK_MODULE_TRACKS = [
@@ -978,11 +979,11 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                     <div style={{ display: 'grid', gap: 10 }}>
                       <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>2. Content delivery</p>
                       {lessonBody && (
-                        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>{lessonBody}</p>
+                        <LessonContent content={lessonBody} navigation />
                       )}
                       {lessonTeachingPoints.length > 0 && (
                         <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
-                          {lessonTeachingPoints.slice(0, 4).map((item, index) => (
+                          {lessonTeachingPoints.map((item, index) => (
                             <li key={index} style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item}</li>
                           ))}
                         </ul>
@@ -992,9 +993,9 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                     {lessonExamples.length > 0 && (
                       <div style={{ display: 'grid', gap: 6 }}>
                         <p style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', margin: 0, fontWeight: 700 }}>Examples</p>
-                        {lessonExamples.slice(0, 2).map((item, index) => (
+                        {lessonExamples.map((item, index) => (
                           <div key={index} style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', lineHeight: 1.55, padding: '8px 10px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
-                            {item}
+                            <LessonContent content={item} />
                           </div>
                         ))}
                       </div>

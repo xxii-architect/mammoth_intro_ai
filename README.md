@@ -50,6 +50,13 @@ as coverage-only: it does not increase mastery or justify a difficulty increase.
 The existing navigation gate and explicit audited override remain available.
 New lessons and exercises use the learner profile; profile edits do not silently
 rewrite existing course content. Preset modules use the same authoring path.
+Lesson bodies and curriculum previews use a shared sanitized Markdown reader:
+headings, separate paragraphs, lists, emphasis, code blocks, and tables retain
+their structure. Standalone standard teaching headings also work in older
+plain-text lessons. The lesson pane offers section jumps when there are at least
+three headings, with a bounded reading width and mobile wrapping. Presentation
+does not regenerate stored teaching content, execute embedded HTML, or load
+embedded images; assessments, drafts, and navigation gates remain unchanged.
 
 API: `GET/POST /api/atlas/curricula`, `POST /api/atlas/curricula/start` with
 `curriculum_id`, and the existing `POST /api/atlas/onboard`.

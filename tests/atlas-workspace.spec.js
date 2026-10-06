@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const agentIds = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
-async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false } = {}) {
+async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.' } = {}) {
   const requests = []
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -15,11 +15,11 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
   const course = {
     curriculum_id: 'saved-course', title: 'Nutrition foundations', subject: 'Nutrition',
     quality: { ready: curriculumReady, status: curriculumReady ? 'ready' : 'draft', lessons: [{ lesson_id: 'nutrition-one', ready: curriculumReady, errors: curriculumReady ? [] : ['Lesson content is too brief.'] }] },
-    modules: [{ module_id: 'nutrition-module', title: 'Food and energy', lessons: [{ lesson_id: 'nutrition-one', title: 'Understanding macronutrients', summary: 'Learn the roles of carbohydrates, protein, and fats.', objectives: ['Explain macronutrient roles'], content: 'Nutrition lesson preview content.' }] }],
+    modules: [{ module_id: 'nutrition-module', title: 'Food and energy', lessons: [{ lesson_id: 'nutrition-one', title: 'Understanding macronutrients', summary: 'Learn the roles of carbohydrates, protein, and fats.', objectives: ['Explain macronutrient roles'], content: lessonContent === 'Compare primary sources before drawing conclusions.' ? 'Nutrition lesson preview content.' : lessonContent }] }],
   }
   const snapshot = () => ({
     lesson_id: lessonId,
-    current_lesson: { title: lessonId === 'lesson-1' ? 'Reliable research' : 'Check your sources', content: 'Compare primary sources before drawing conclusions.', summary: 'Evaluate evidence.' },
+    current_lesson: { title: lessonId === 'lesson-1' ? 'Reliable research' : 'Check your sources', content: lessonContent, summary: 'Evaluate evidence.' },
     current_exercise: { exercise_type: 'writing', prompt: 'Explain how you verify a claim.', starter_response: starterResponse },
     lesson_history: [], available_modules: [], learner: {}, comprehension_gate: {}, chat_history: chatHistory,
     learner_model: { onboarding }, learner_context: { starting_level: onboarding.experience_level, recommended_difficulty: onboarding.experience_level, adaptation_reason: 'Using your selected starting level until there is practice evidence.' },
@@ -269,7 +269,7 @@ async function generateCourse(page) {
   await page.getByRole('navigation', { name: 'Agents', exact: true }).getByRole('button', { name: /Curriculum/ }).click()
   const region = page.getByRole('region', { name: 'Education agents' })
   await region.locator('textarea').last().fill('Create a curriculum for Nutrition')
-  await region.locator('textarea').last().press('Enter')
+  await region.getByRole('button', { name: 'Send', exact: true }).click()
   const preview = region.getByRole('article', { name: 'Curriculum preview' })
   await expect(preview.getByRole('heading', { name: 'Nutrition foundations' })).toBeVisible()
   return preview
@@ -321,6 +321,60 @@ test('portrait onboarding can be deferred without covering the learning-agent co
   const composer = page.getByRole('region', { name: 'Education agents' }).locator('textarea').last()
   await composer.fill('Help me learn')
   await expect(composer).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+const readableLesson = [
+  'Introduction', 'Food provides **energy** and materials.\n\nA second paragraph stays separate.',
+  'Key concepts', '- Protein supports repair.\n- Fiber helps explain food quality.',
+  'Worked examples', '1. Read the serving size.\n2. Compare the amounts.',
+  '```python\nIntroduction\nprint("A code example, not a section heading")\n```',
+  'Guided practice', 'Explain one choice in your own words.',
+  'Recap and next step', 'Review the label before choosing.',
+].join('\n\n')
+
+test('lesson reader gives plain headings, paragraphs, lists and code a readable structure', async ({ page }) => {
+  const { errors } = await mountWorkspace(page, { lessonContent: readableLesson })
+  const lesson = page.getByRole('region', { name: 'Lesson and practice' })
+  await expect(lesson.getByRole('heading', { name: 'Key concepts', exact: true })).toBeVisible()
+  await expect(lesson.locator('.lesson-reader strong')).toHaveText('energy')
+  await expect(lesson.locator('.lesson-reader ul > li')).toHaveCount(2)
+  await expect(lesson.locator('.lesson-reader ol > li')).toHaveCount(2)
+  await expect(lesson.locator('.lesson-reader pre code')).toHaveText('Introduction\nprint("A code example, not a section heading")\n')
+  const navigation = lesson.getByRole('navigation', { name: 'Lesson sections' })
+  await expect(navigation.getByRole('button')).toHaveCount(5)
+  await navigation.getByRole('button', { name: 'Guided practice', exact: true }).click()
+  await expect(lesson.locator('.lesson-reader-section[aria-label="Guided practice"]')).toBeFocused()
+  await expect(lesson.locator('.lesson-reader p', { hasText: 'A second paragraph stays separate.' })).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('lesson reader sanitizes active HTML and links without fetching embedded images', async ({ page }) => {
+  const external = []
+  await page.route('https://lesson-image.example/**', route => { external.push(route.request().url()); return route.abort() })
+  const content = '## Introduction\n\nSafe teaching text.\n\n<img src="https://lesson-image.example/track" onerror="globalThis.lessonInjected=true"><script>globalThis.lessonInjected=true</script>\n\n[Unsafe](javascript:alert(1)) [Source](https://example.com/nutrition)\n\n## Key concepts\n\nRead critically.\n\n## Guided practice\n\nExplain the evidence.'
+  const { errors } = await mountWorkspace(page, { lessonContent: content })
+  const reader = page.getByRole('region', { name: 'Lesson and practice' }).locator('.lesson-reader').first()
+  await expect(reader.locator('img, script, iframe, [onerror]')).toHaveCount(0)
+  await expect(reader.getByText('Unsafe', { exact: true })).not.toHaveAttribute('href')
+  await expect(reader.getByRole('link', { name: 'Source', exact: true })).toHaveAttribute('href', 'https://example.com/nutrition')
+  expect(await page.evaluate(() => globalThis.lessonInjected)).toBeUndefined()
+  expect(external).toEqual([])
+  expect(errors).toEqual([])
+})
+
+test('curriculum previews share readable formatting and portrait lessons preserve draft and fit', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const { errors } = await mountWorkspace(page, { lessonContent: readableLesson })
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('Keep this learning draft')
+  const preview = await generateCourse(page)
+  await preview.getByText('Food and energy (1 lessons)', { exact: true }).click()
+  await preview.getByText('Understanding macronutrients', { exact: true }).click()
+  await expect(preview.getByRole('heading', { name: 'Worked examples', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Lesson & practice', exact: true }).click()
+  await expect(response).toHaveValue('Keep this learning draft')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
 })

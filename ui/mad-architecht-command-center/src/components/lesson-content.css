@@ -1,0 +1,24 @@
+.lesson-reader { min-width: 0; width: 100%; color: var(--txt-pri); }
+.lesson-reader-body { max-width: 72ch; margin: 0 auto; font-size: .94rem; line-height: 1.85; overflow-wrap: anywhere; }
+.lesson-reader-section { margin: 0 0 24px; scroll-margin-top: 16px; }
+.lesson-reader-section:last-child { margin-bottom: 0; }
+.lesson-reader-section:focus-visible { outline: 2px solid var(--photon); outline-offset: 6px; border-radius: 4px; }
+.lesson-reader h1, .lesson-reader h2, .lesson-reader h3, .lesson-reader h4, .lesson-reader h5, .lesson-reader h6 { color: var(--txt-pri); line-height: 1.35; margin: 24px 0 12px; }
+.lesson-reader h1 { font-size: 1.35rem; }
+.lesson-reader h2 { font-size: 1.12rem; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.lesson-reader h3 { font-size: 1rem; }
+.lesson-reader p { margin: 0 0 16px; }
+.lesson-reader ul, .lesson-reader ol { margin: 12px 0 20px; padding-left: 24px; }
+.lesson-reader li { padding-left: 3px; margin: 8px 0; }
+.lesson-reader li p { margin-bottom: 8px; }
+.lesson-reader a { color: var(--photon); text-decoration: underline; text-underline-offset: 3px; }
+.lesson-reader blockquote { margin: 16px 0; padding: 12px 16px; border-left: 3px solid var(--mm-color-agent-default, #d08a52); background: var(--mm-color-agent-soft, rgba(208,138,82,.08)); }
+.lesson-reader pre { max-width: 100%; overflow-x: auto; white-space: pre; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--shell); font-size: .8rem; line-height: 1.65; }
+.lesson-reader code { font-family: 'JetBrains Mono', monospace; font-size: .85em; }
+.lesson-reader :not(pre) > code { padding: 2px 5px; border-radius: 4px; background: rgba(127,127,127,.12); overflow-wrap: anywhere; }
+.lesson-reader table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 16px 0; font-size: .82rem; }
+.lesson-reader th, .lesson-reader td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+.lesson-reader-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+.lesson-reader-nav span { font-size: .7rem; color: var(--txt-mut); }
+.lesson-reader-nav button { padding: 6px 9px; border-radius: 8px; background: transparent; border: 1px solid var(--border); color: var(--txt-sec); cursor: pointer; font: inherit; font-size: .72rem; max-width: 100%; overflow-wrap: anywhere; }
+@media (max-width: 520px) { .lesson-reader-body { font-size: .9rem; line-height: 1.8; } }

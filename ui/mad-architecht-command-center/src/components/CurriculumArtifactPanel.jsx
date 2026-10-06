@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api/client'
+import LessonContent from './LessonContent'
 
 export default function CurriculumArtifactPanel({ curriculum, onStart, onSaved, alreadySaved = false }) {
   const [course, setCourse] = useState(curriculum)
@@ -53,7 +54,7 @@ export default function CurriculumArtifactPanel({ curriculum, onStart, onSaved, 
               <summary>{lesson.title}{quality?.ready === false ? ' - needs work' : ''}</summary>
               <p>{lesson.summary}</p>
               <ul>{(lesson.objectives || []).map((objective, itemIndex) => <li key={itemIndex}>{objective}</li>)}</ul>
-              {lesson.content ? <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{lesson.content}</div> : <p>No authored teaching content yet.</p>}
+              {lesson.content ? <LessonContent content={lesson.content} /> : <p>No authored teaching content yet.</p>}
               {quality?.errors?.length > 0 && <ul>{quality.errors.map((issue, itemIndex) => <li key={itemIndex}>{issue}</li>)}</ul>}
             </details>
           })}

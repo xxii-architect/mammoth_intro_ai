@@ -163,6 +163,21 @@ AUDIO-04 and SDK-01 follow validated AUDIO-03 behavior.
   lessons required their permitted schema correction. This verifies authoring
   shape and readiness, not subject-expert factual review. Course/module time
   estimates now follow authored lesson estimates. Old drafts need regeneration.
+- Lesson readability refinement: shared sanitized Markdown reader for active
+  lessons, examples, and curriculum previews; standard plain-text teaching
+  headings, section jumps, reading-width/spacing, and mobile-safe code/tables.
+  Stored content, assessment gates, and exercise drafts are unchanged.
+  Validation: 25 browser scenarios and the production build passed, including
+  readable plain headings/lists/code, section focus, unsafe HTML/link stripping,
+  no embedded-image fetches, shared previews, and portrait draft preservation.
+- User-output review follow-ups (not fixed by the readability work): contextual
+  research about nutrition retrieved Ofsted curriculum-inspection sources,
+  despite source-grounded labels. Add an evaluation for resolving "this
+  curriculum" to the active subject and reject unrelated evidence/claims.
+  Coding returned `generate_code` with `target unknown` for a minimal Health
+  Module edit; require a selected repository and an actual target/read/diff
+  before presenting such output as an integrated patch. The pasted standalone
+  prototype is not proof of file integration or validation.
 
 ## Repeating the workspace checks
 

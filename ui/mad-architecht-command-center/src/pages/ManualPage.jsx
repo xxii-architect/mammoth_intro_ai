@@ -160,6 +160,10 @@ const repoContextRules = [
     body: 'Generation warnings distinguish invalid lesson JSON, missing or incorrectly typed fields, failed teaching checks, and provider/runtime failures. Authoring allows one correction attempt for lesson-output failures; provider exceptions use the runtime fallback chain instead. Corrections can add time and model usage. Lesson durations include practice and are checked against a word-based reading floor. Failed drafts stay blocked from starting and are never replaced with filler. Regenerate the curriculum after a fix; saved old drafts do not update automatically.',
   },
   {
+    title: 'Read lessons without the wall of text',
+    body: 'The lesson pane and curriculum previews format headings, paragraphs, emphasis, lists, code, and tables. Standard plain-text teaching headings are recognized too. Use In this lesson to jump to a section without leaving the lesson or losing your exercise draft. Examples keep their formatting, and stored content is not rewritten. Embedded images and active HTML are not loaded. Readability does not imply factual verification or mastery.',
+  },
+  {
     title: 'Queries determine what code gets surfaced',
     body: 'Generic chat like “do you see the code?” may return empty snippets. Ask for a file, symbol, route, or behavior you want inspected.',
   },
