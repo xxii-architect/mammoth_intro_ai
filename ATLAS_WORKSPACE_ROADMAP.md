@@ -179,6 +179,56 @@ AUDIO-04 and SDK-01 follow validated AUDIO-03 behavior.
   before presenting such output as an integrated patch. The pasted standalone
   prototype is not proof of file integration or validation.
 
+## Agent quality upgrade delivery
+
+- [x] RESEARCH-01: preserve structured context through API/registry; resolve
+  active lesson/course references to the subject. Reject unrelated search
+  sources and missing excerpts instead of filling gaps with fabricated evidence.
+- [x] RESEARCH-02: require real labels and exact excerpt quotes for brief
+  findings; exclude unsupported claims, derive summary/facts from checked links,
+  and calculate actual link coverage. Display excerpts, safe links, and gaps.
+  Remove source-count/temperature confidence and keyword-based contradiction claims.
+- [x] CODING-01: existing-file requests under Write code require source too.
+  Multiline prose is not source. Preserve patch task type, include original
+  source in prompts, retain module interfaces, and emit applicable named diffs.
+  Python AST checks are explicit; generated tests remain unexecuted. No host
+  permissions, repository access, automatic application, or pushes were added.
+- [x] CURRICULUM-01: one bounded outline call assigns distinct subtopics and
+  objectives while validating exact IDs/order and earlier-only prerequisites.
+  Pass the real sequence to authors and derive next-lesson navigation from it.
+  Reject unlabeled fictional numerical studies; preserve bounded repairs and
+  all shared readiness/mastery/SDK contracts.
+- [ ] EVIDENCE-REVIEW-01: independently evaluate claim entailment, factual
+  accuracy, source trust/date, and contradiction reasoning against reviewed
+  domain benchmarks. Exact quotes and lexical relevance are not this review.
+  Long-form prose is explicitly a draft, not claim-verified research.
+- [ ] CODE-EXEC-01: isolated tenant-scoped behavioral validation with explicit
+  dependencies, approvals, resource limits, and verification receipts. Generated
+  tests and AST parsing do not establish correctness.
+- [ ] COURSE-REVIEW-01: expert-reviewed domain coverage and teaching evaluation
+  for beginner through expert study. Structural readiness is not pedagogy
+  certification, medical advice, or proof that every requested subtopic is taught.
+
+No numerical "9.9/10" quality guarantee is made. These changes improve observable
+contracts and failure honesty; the remaining reviewed evaluations are separate
+deliverables. Regenerate old drafts for content improvements; existing saved
+artifacts do not receive rewritten model output.
+
+Validation includes the full Python regression suite with paid model calls
+disabled, a final 148-test agent/SDK regression run, 27 browser scenarios,
+production UI build, and lint on new helpers.
+Bounded live-provider checks returned two excerpt-linked research findings and
+a Python patch preserving the existing function name, with passing AST checks.
+Live curriculum authoring produced a 462-word introductory lesson and
+manifest-derived navigation. The live test exposed forward promises despite
+prompt constraints; these are now removed into separate sequence diagnostics,
+teaching readiness is rechecked, and the actual next lesson is appended. This
+tests output contracts, not a full expert-reviewed nine-lesson nutrition course.
+The revised live outline also passed structure checks with distinct nutrition
+topics spanning macronutrients, micronutrients, balanced meals, assessment, and
+practical dietary changes. Exported long-form documents retain the draft warning
+and omit model reasoning; traces remain separate from document content.
+
 ## Repeating the workspace checks
 
 Run from the repository root with the project Python dependencies available:

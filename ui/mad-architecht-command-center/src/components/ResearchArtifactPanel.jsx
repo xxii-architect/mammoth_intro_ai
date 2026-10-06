@@ -19,19 +19,19 @@ function Pill({ children, tone = 'neutral' }) {
 
 function SourceCard({ source, kind }) {
   const title   = source?.title   || source?.label || 'Source'
-  const url     = source?.url     || source?.source || ''
-  const snippet = source?.snippet || source?.summary || source?.quote || 'No snippet provided.'
+  const url     = /^https?:\/\//i.test(source?.url || '') ? source.url : ''
+  const snippet = source?.snippet || source?.excerpt || source?.summary || source?.quote || 'No excerpt provided.'
   return (
     <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
         {kind === 'citation' ? <Link2 size={13} color="var(--cyan)" /> : <BookOpen size={13} color="var(--photon)" />}
-        <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{title}</span>
+        <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{source?.label ? `[${source.label}] ` : ''}{title}</span>
       </div>
       <div style={{ fontSize: '0.73rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>{snippet}</div>
       {url && (
-        <div style={{ fontSize: '0.64rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', marginTop: 5, overflowWrap: 'anywhere' }}>
+        <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontSize: '0.64rem', color: 'var(--photon)', fontFamily: 'JetBrains Mono,monospace', marginTop: 5, overflowWrap: 'anywhere' }}>
           {url}
-        </div>
+        </a>
       )}
     </div>
   )
@@ -59,13 +59,16 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
   const references     = Array.isArray(artifact.references)     ? artifact.references     : []
   const flags          = Array.isArray(artifact.qualityFlags)   ? artifact.qualityFlags   : []
   const retrievalErrors= Array.isArray(artifact.retrievalErrors)? artifact.retrievalErrors: []
-  const hasSourceMaterial = sources.length > 0 || citations.length > 0 || references.length > 0
+  const hasSourceMaterial = sources.length > 0 || citations.length > 0 || references.length > 0 || retrievalErrors.length > 0
 
   return (
     <div style={{ display: 'grid', gap: 12 }}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="glass-card-solid" style={{ padding: 16, borderLeft: '3px solid var(--cyan)' }}>
+        <p style={{ color: 'var(--txt-sec)', fontSize: '0.76rem', marginTop: 0 }}>
+          {artifact.status === 'insufficient_evidence' ? 'Insufficient evidence. Add sources or refine the topic.' : 'Source links are not independent fact verification. Review claims before relying on this report.'}
+        </p>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)', marginBottom: 6 }}>
@@ -76,7 +79,7 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6, flexShrink: 0 }}>
-            {findings.length > 0 && <Pill tone="success"><CheckCircle2 size={12} /> {findings.length} findings</Pill>}
+            {findings.length > 0 && <Pill tone="info"><CheckCircle2 size={12} /> {findings.length} source-linked findings</Pill>}
             {sources.length  > 0 && <Pill tone="info"><Search size={12} /> {sources.length} sources</Pill>}
           </div>
         </div>
@@ -133,11 +136,23 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
                       ))}
                     </div>
                   )}
+                  {Array.isArray(f.evidence) && f.evidence.map((e, evidenceIndex) => (
+                    <blockquote key={evidenceIndex} style={{ margin: '8px 0 0', paddingLeft: 10, borderLeft: '2px solid var(--photon)', fontSize: '0.76rem', color: 'var(--txt-sec)' }}>
+                      “{e.quote}” [{e.source_id}]
+                    </blockquote>
+                  ))}
                 </div>
               )
             })}
           </div>
         </div>
+      )}
+      {artifact.unverified_findings?.length > 0 && (
+        <details className="glass-card-solid" style={{ padding: 16 }}>
+          <summary>Excluded unverified findings ({artifact.unverified_findings.length})</summary>
+          <p>These claims did not pass excerpt-link checks. They are not research evidence.</p>
+          {artifact.unverified_findings.map((finding, index) => <p key={index}>{finding.content}</p>)}
+        </details>
       )}
 
       {/* ── Key Facts ─────────────────────────────────────────────────────── */}
@@ -213,19 +228,19 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
           </div>
           {sources.length > 0 && (
             <div style={{ display: 'grid', gap: 8, marginBottom: citations.length > 0 ? 12 : 0 }}>
-              {sources.slice(0, 4).map((s, idx) => <SourceCard key={s.id || idx} source={s} />)}
+              {sources.map((s, idx) => <SourceCard key={s.id || idx} source={s} />)}
             </div>
           )}
           {citations.length > 0 && (
             <div style={{ display: 'grid', gap: 8, marginBottom: references.length > 0 ? 12 : 0 }}>
               <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 2 }}>Citations</div>
-              {citations.slice(0, 6).map((c, idx) => <SourceCard key={c.id || idx} source={c} kind="citation" />)}
+              {citations.map((c, idx) => <SourceCard key={c.id || idx} source={c} kind="citation" />)}
             </div>
           )}
           {references.length > 0 && (
             <div style={{ display: 'grid', gap: 8 }}>
               <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 2 }}>References</div>
-              {references.slice(0, 6).map((r, idx) => <SourceCard key={r.id || idx} source={r} />)}
+              {references.map((r, idx) => <SourceCard key={r.id || idx} source={r} />)}
             </div>
           )}
           {retrievalErrors.length > 0 && (

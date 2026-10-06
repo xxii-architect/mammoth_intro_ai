@@ -120,11 +120,11 @@ def test_fallback_headings_are_topic_specific_not_market_boilerplate():
 
 # --- prompt contracts -----------------------------------------------------------------
 
-def test_summarize_and_curriculum_prompts_no_longer_demand_findings():
-    assert "findings[]" not in SUMMARIZE_SYSTEM
-    assert "findings[]" not in CURRICULUM_SYSTEM
-    assert "key_points[]" in SUMMARIZE_SYSTEM
-    assert "core_concepts[]" in CURRICULUM_SYSTEM
+def test_all_brief_modes_require_exact_evidence_not_filler():
+    assert "exact excerpt quotes" in SUMMARIZE_SYSTEM
+    assert "exact excerpt quotes" in CURRICULUM_SYSTEM
+    assert "No minimum" in SUMMARIZE_SYSTEM
+    assert "No minimum" in CURRICULUM_SYSTEM
 
 
 # --- agent pipelines with a scripted LLM ----------------------------------------------
@@ -157,8 +157,8 @@ def test_research_mode_strips_leaked_reasoning_and_filters_sources(scripted):
         "title": "Idaho outdoor retail",
         "executive_summary": "<think>should I hedge?</think>Demand is growing.",
         "findings": [
-            {"heading": "Growth", "content": "Outdoor retail sales in Idaho grew [S1]", "source_support": ["S1"]},
-            {"heading": "Growth again", "content": "In Idaho, outdoor retail sales grew [S1]", "source_support": ["S1"]},
+            {"heading": "Growth", "content": "Outdoor retail sales in Idaho grew [S1]", "source_support": ["S1"], "evidence": [{"source_id": "S1", "quote": "Outdoor retail sales in Idaho grew 6%"}]},
+            {"heading": "Growth again", "content": "In Idaho, outdoor retail sales grew [S1]", "source_support": ["S1"], "evidence": [{"source_id": "S1", "quote": "Outdoor retail sales in Idaho grew 6%"}]},
         ],
         "key_facts": ["Fact one", "Fact one"],
     }
@@ -171,21 +171,21 @@ def test_research_mode_strips_leaked_reasoning_and_filters_sources(scripted):
     })
 
     assert result["status"] == "ok"
-    assert result["executive_summary"] == "Demand is growing."
+    assert result["executive_summary"] == result["findings"][0]["content"]
     assert "planning the brief" in result["reasoning_trace"]
     assert "should I hedge?" in result["reasoning_trace"]
     assert len(result["findings"]) == 1
-    assert result["key_facts"] == ["Fact one"]
+    assert result["key_facts"] == [result["findings"][0]["content"]]
     assert "reasoning_stripped" in result["quality_flags"]
     assert "{{" not in client.calls[0]["message"]
 
 
-def test_summarize_mode_asks_for_key_points_not_findings(scripted):
+def test_summarize_mode_cannot_promote_uncited_key_points(scripted):
     client = scripted(lambda msg, sys, n: json.dumps({"tldr": "Answer.", "key_points": ["a point here", "b point there"]}))
-    result = ResearchAgent().run({"prompt": "summarize trail permits", "intent": "summarize", "context": {"allow_web_lookup": False}})
-    assert result["tldr"] == "Answer."
-    assert "key_points[]" in client.calls[0]["message"]
-    assert "findings[]" not in client.calls[0]["message"]
+    result = ResearchAgent().run({"prompt": "summarize trail permits", "intent": "summarize", "sources": [{"title": "Permit", "summary": "Trail permits are required."}]})
+    assert result["status"] == "insufficient_evidence"
+    assert result["key_points"] == []
+    assert "exact excerpt quotes" in client.calls[0]["message"]
 
 
 def test_long_form_pipeline_dedupes_trims_retries_and_reports_quality(scripted, monkeypatch):

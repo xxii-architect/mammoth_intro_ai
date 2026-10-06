@@ -44,6 +44,14 @@ floor plus the declared practice estimate, not characters as minutes; module
 and course estimates are recalculated from lesson estimates. A corrected attempt
 can add latency and cost. Existing failed drafts are not silently rewritten.
 
+New template courses first make one bounded outline call to assign distinct
+subject-specific subtopics, objectives, and earlier-only prerequisites. A failed
+outline leaves a draft without spending on nine lesson authors. Every author
+receives the real ordered sequence; next-lesson navigation comes from that
+manifest, not an invented promise. Numerical study examples without exact
+supplied grounding must be explicitly hypothetical. Structural checks do not
+independently verify factual accuracy or completeness of subject coverage.
+
 Written practice uses lesson-grounded AI rubric feedback (concepts, application,
 reasoning) when available. If assessment fails, the UI labels the local fallback
 as coverage-only: it does not increase mastery or justify a difficulty increase.
@@ -724,11 +732,29 @@ This keeps the output source-aware, easier to validate, and far less likely to d
 ### Research output hygiene (`src/mammoth_os/research_quality.py`)
 
 - **Reasoning never leaks into deliverables.** `<think>`/`<thinking>`/`<reasoning>` blocks (closed, dangling, or cut off mid-way) and task meta-lines ("Okay, let me…", "Here's the section:", "Let me know if…") are stripped from research JSON, long-form sections, and conclusions. Stripped reasoning is returned separately as `reasoning_trace` (research) or per-section `trace` (long-form).
-- **Relevance filter.** Disambiguation pages are always dropped. Sources sharing no keywords with the query (light stemming, so "learners" matches "learning") are dropped when at least two on-topic sources exist; otherwise they are kept last with `relevance: "weak"`. Provided sources are never filtered. Dropped sources are listed in `sources_filtered`.
+- **Retrieval context and relevance.** Research payloads retain their structured lesson context through API and registry routing. "This curriculum" resolves to the active subject/title; without that context it asks for the subject. The Research agent uses a strict relevance filter (`research_evidence`) and requires excerpts, rather than retaining off-topic search hits when evidence is sparse. Generic education words do not establish nutrition relevance. Provided excerpts remain explicitly user-supplied and unverified. Other consumers of the general-purpose hygiene helper retain its existing weak-source behavior.
 - **Entity disambiguation.** When the query names an entity (quoted phrase or multi-word proper noun), sources that don't mention it in full are ranked below those that do. They are never dropped, because the entity may just be a qualifier.
 - **Dedupe.** Near-duplicate findings, key facts, key points, next steps, and concepts are collapsed. Long-form documents drop paragraphs that repeat an earlier section.
 - **Completeness.** Long-form sections retry once when the model fails or returns nothing but reasoning. Text cut off mid-sentence is trimmed back to the last complete sentence. A section that still fails is marked `status: "failed"` with empty content instead of embedding an error string in the document. The `quality` block reports failed, retried, and trimmed sections, duplicates removed, and sources filtered.
-- **Prompt contracts.** Summarize and curriculum modes ask for their own schema fields (`key_points[]`, `core_concepts[]`, `learning_path[]`) instead of the research-only `findings[]`. Outline fallbacks use topic-specific headings instead of market boilerplate.
+- **Evidence contracts.** Brief, summarize, and curriculum-research modes also return `findings[]` with real source labels and exact supporting excerpt quotes. Unknown citations and invented quotes are excluded from findings and kept separately as unverified claims; summary/facts derive from accepted linked findings. Coverage measures checked links, not factual correctness. No minimum finding count, prompt-as-source, operator identity, stale query year, or training-knowledge filler. Missing evidence returns `insufficient_evidence`.
+- **Honest limits.** Exact excerpt and label checks do not prove claim entailment or independently verify sources. Contradictions are `not_assessed`, not inferred from opposing words. Long-form prose remains a review-required draft with unverified claim links; it respects supplied sources and `allow_web_lookup` just like briefs. Numerical agent confidence is not calibrated; the legacy API numeric field is zero for research/coding with `confidence_basis: "not_calibrated"`, while their artifact confidence is null. UI displays actual excerpts and safe source links, including excluded claims and evidence gaps.
+- **Task selection and supplied text.** Research a topic produces a research brief; Research a learning path retains the explicit curriculum-research mode. Summarize with `content` or a pasted multi-line/long document treats it as supplied text and never searches that text on the web.
+
+### Coding proposal quality
+
+Existing-file modifications require original source, even from **Write code**:
+select a connected repository and target, or paste a complete fenced original /
+supply file contents. Four lines of instructions are not pasted code. Repository
+requests retain the existing policy-checked proposal-only loop; there is no
+implicit platform repository or tenant host access. Source-supplied generation
+preserves `patch_existing`, includes the original in the model prompt, and derives
+a named unified diff from that exact source. Python implementation/test syntax is
+AST-parsed without executing model code; generated tests explicitly remain
+`not_run`, and integration is `not_verified`. Syntax failure or prose-only output
+is an error, not completed work. Generated test/docs blocks do not inflate a
+confidence score. Standalone tutor exercises retain their `solution()` contract;
+existing modules preserve their own interfaces. These checks do not establish
+behavioral correctness or authorize application of a patch.
 
 ## Additive agent bridge (Copilot Tasks optional)
 

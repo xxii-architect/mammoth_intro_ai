@@ -12,6 +12,9 @@ def test_curriculum_agent_validates_generated_curriculum(monkeypatch):
     async def unavailable(*args, **kwargs):
         raise RuntimeError("Test-only unavailable author")
     monkeypatch.setattr(agent, "_author_lesson_with_llm", unavailable)
+    async def outline(curriculum, *args):
+        return curriculum
+    monkeypatch.setattr(agent, "_plan_curriculum", outline)
     result = agent.run("Create a lesson track for lesson")
     curriculum = result["curriculum"]
 

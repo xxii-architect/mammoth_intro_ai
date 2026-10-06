@@ -364,9 +364,9 @@ def _normalize_runtime_payload(agent_name: str, payload: Any) -> Any:
                 if "repo_context" not in normalized:
                     normalized["repo_context"] = {}
             return normalized
-        if agent_name == "curriculum":
+        if agent_name in {"curriculum", "research"}:
             return dict(payload)
-        if agent_name in {"research", "custodial"}:
+        if agent_name == "custodial":
             # Preserve full dict when a non-default intent must reach the agent
             _long_form_intents = {"research_long_form", "long_form_research"}
             if isinstance(payload, dict) and (

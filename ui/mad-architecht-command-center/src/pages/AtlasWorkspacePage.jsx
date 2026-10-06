@@ -90,6 +90,8 @@ function LearningWorkspace() {
   const lessonContext = {
     lesson_id: state?.lesson_id || '',
     title: lesson?.title || lesson?.lesson_title || '',
+    subject: state?.curriculum?.subject || state?.topic || '',
+    curriculum_title: state?.curriculum?.title || '',
     summary: lesson?.summary || '',
     content: lesson?.content || '',
     exercise: state?.current_exercise || null,

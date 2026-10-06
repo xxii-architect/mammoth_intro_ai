@@ -55,6 +55,9 @@ mastery increases. Topic-specific learner evidence drives difficulty recommendat
 - Run model text through `mammoth_os.research_quality` (`strip_reasoning`, `trim_to_last_sentence`, `dedupe_items` / `dedupe_sections`, `filter_relevant_sources`) before it reaches a deliverable. Surface stripped reasoning as a separate trace field, never inline.
 - Never splice conversation history or earlier step results into an agent's `prompt`. Pass them as `payload.history` / `payload.background`; `run_agent` scopes them through `llm_client.conversation_context` so only the model sees them.
 - Never embed provider error strings in user-facing document content. Mark the unit `status: "failed"` and report it in a `quality` block.
+- Research retrieval must resolve lesson references from structured subject context, not conversation prose. Use `research_evidence` for strict relevance and exact excerpt/label checks; `source_linked` is not factual entailment or independent verification. No prompt-as-source or mandatory filler findings.
+- Existing-file coding tasks require original source, including under `generate_code`. Generated tests are `not_run` until executed; syntax checks, source counts, temperature, and output length are not calibrated confidence. Keep diffs applicable to the exact supplied source and preserve existing interfaces instead of imposing the standalone tutor's `solution()` convention.
+- New template curricula use one validated outline call before lesson authoring. Keep IDs/order/prerequisites stable, pass the real sequence to every author, derive next-lesson navigation from the manifest, and label fictional numerical study examples in the same paragraph.
 
 ## Mammoth Mind tutor SDK (formerly ATLAS FAB) + package commercialization rules
 - Treat `src/mammoth_os/sdk.py` and `src/mammoth_os/__init__.py` as the public SDK contract for embedders.

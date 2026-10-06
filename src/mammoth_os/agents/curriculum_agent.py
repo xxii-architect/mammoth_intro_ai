@@ -16,6 +16,7 @@ from mammoth_os.llm_client import get_llm_client
 from .curriculum_validation_v2 import validate_curriculum
 from mammoth_os.tutor_delivery import curriculum_readiness
 from mammoth_os.research_quality import strip_reasoning, trim_to_last_sentence, dedupe_items
+from mammoth_os.curriculum_sequence import remove_forward_promises
 
 
 class LessonAuthoringError(ValueError):
@@ -280,6 +281,7 @@ class CurriculumAgent(BaseAgent):
         module_title: str,
         curriculum_title: str,
         learner_context: Optional[Dict[str, Any]] = None,
+        course_sequence: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         fallback_lesson = self._build_structured_lesson_fallback(lesson, subject=subject, module_title=module_title)
         title = fallback_lesson["title"]
@@ -306,6 +308,8 @@ class CurriculumAgent(BaseAgent):
             f"Lesson title seed: {title}\n"
             f"Subject: {subject}\n"
             f"Learner profile: {json.dumps(learner_context or {}, default=str)}\n"
+            f"Actual ordered course sequence: {json.dumps(course_sequence or [], default=str)}\n"
+            f"Current lesson ID: {lesson.get('lesson_id')}\n"
             f"Objectives seed: {json.dumps(objectives)}\n"
             f"Existing content seed: {existing_content or fallback_lesson['summary']}\n"
             "Retrieved grounding chunks (use when relevant, but do not fabricate citations):\n"
@@ -318,6 +322,12 @@ class CurriculumAgent(BaseAgent):
             "- Write 350-600 words of complete teaching content with headings: Introduction, Key concepts, Worked examples, Guided practice, and Recap and next step.\n"
             "- Include at least three specific teaching points and two worked examples with steps and explanations, not prompts to invent examples.\n"
             "- Each lesson must teach a distinct subtopic appropriate to its module and lesson position, not repeat the same generic overview.\n"
+            "- Follow the actual course sequence. Use only earlier lessons as prerequisites, briefly connect prior learning, and keep this lesson's objectives and subtopic.\n"
+            "- Keep the exact lesson title seed and the planned objectives in the output; do not rename the lesson or broaden it to cover the whole course.\n"
+            "- Do not promise what the next lesson covers in teaching text; the application adds the actual next lesson from the course manifest.\n"
+            "- Label invented numerical studies, participants, percentages, or data as 'Hypothetical example' in the SAME paragraph. Never describe them as real research.\n"
+            "- For factual studies or quantitative research claims, cite an exact supplied grounding chunk. If none exists, use an explicitly hypothetical exercise or omit the claim.\n"
+            "- Explain limits and uncertainties. Nutrition and medical material is general education, not individualized treatment, diagnosis, or prescriptions.\n"
             "- Stay safety-first and educational for medical, emergency, legal, or field topics.\n"
             "- Estimate total minutes for reading, worked examples, and guided practice; use an integer between 5 and 480.\n"
             "- Return only valid JSON."
@@ -326,6 +336,23 @@ class CurriculumAgent(BaseAgent):
             raw = await client.generate(prompt, temperature=0.3, max_tokens=3200, response_format={"type": "json_object"})
             try:
                 authored = self._parse_authored_lesson(raw, lesson, subject=subject, learner_context=learner_context)
+                if course_sequence:
+                    if authored["title"] != lesson["title"]:
+                        raise LessonAuthoringError("sequence_mismatch", ["Keep the exact planned lesson title."])
+                    authored["content"], removed = remove_forward_promises(authored["content"])
+                    authored["sequence_review"] = {"removed_forward_promises": removed, "navigation_source": "course_manifest"}
+                    checked = curriculum_readiness({"subject": subject, "modules": [{"lessons": [authored]}]})
+                    if not checked["ready"]:
+                        raise LessonAuthoringError("teaching_checks_failed", ["Keep substantive teaching content after removing forward lesson promises."])
+                    position = next(index for index, row in enumerate(course_sequence) if row["lesson_id"] == lesson["lesson_id"])
+                    following = course_sequence[position + 1] if position + 1 < len(course_sequence) else None
+                    authored["course_position"] = position + 1
+                    authored["next_lesson_id"] = following["lesson_id"] if following else None
+                    authored["next_lesson_title"] = following["title"] if following else None
+                    authored["objectives"] = lesson["objectives"]
+                    authored["subtopic"] = lesson.get("subtopic", "")
+                    authored["prerequisites"] = lesson.get("prerequisites", [])
+                    authored["content"] += f"\n\nNext lesson: {following['title']}." if following else "\n\nCourse complete: review the objectives and use the final practice to check your understanding."
                 authored["authoring_attempts"] = attempt + 1
                 return authored
             except LessonAuthoringError as exc:
@@ -357,12 +384,20 @@ class CurriculumAgent(BaseAgent):
             payload[key] = dedupe_items(payload[key])
         content, content_trace = strip_reasoning(payload["content"])
         payload["content"], _ = trim_to_last_sentence(content)
+        teaching_texts = [payload["content"], *payload["examples"], *payload["teaching_points"]]
+        for paragraph in (paragraph for text in teaching_texts for paragraph in re.split(r"\n\s*\n", text)):
+            if re.search(r"\b(?:study|trial|participants|researchers)\b", paragraph, re.I) and re.search(r"\d+(?:\.\d+)?\s*(?:%|percent|participants|people)", paragraph, re.I):
+                if not re.search(r"\b(?:hypothetical|illustrative|fictional|simulated)\b", paragraph, re.I):
+                    chunks = [str(chunk) for chunk in lesson.get("_chunks", [])]
+                    if not any(paragraph.strip() in chunk for chunk in chunks):
+                        raise LessonAuthoringError("unsupported_study_claim", ["Label invented numerical studies 'Hypothetical example' in the same paragraph, or quote supplied evidence exactly."])
         authored = {**lesson, **payload, "reasoning_trace": "\n\n".join(item for item in (trace, content_trace) if item),
                     "lesson_id": lesson.get("lesson_id"),
                     "exercise_generation_mode": "llm_preferred",
                     "difficulty": (learner_context or {}).get("recommended_difficulty", "beginner")}
         authored["source"] = "llm_generated" if str(lesson.get("source") or "").strip().lower() == "template" else "llm_enriched"
         authored["status"] = "ready"
+        authored["evidence_review"] = {"status": "not_independently_verified", "grounding_chunks": len(lesson.get("_chunks", []))}
         authored.pop("generation_warning", None)
         quality = curriculum_readiness({"subject": subject, "modules": [{"lessons": [authored]}]})
         if not quality["ready"]:
@@ -374,6 +409,22 @@ class CurriculumAgent(BaseAgent):
         modules = curriculum.get("modules")
         if not isinstance(modules, list):
             return curriculum
+        if curriculum.get("source") == "template":
+            try:
+                curriculum = self._run_async(self._plan_curriculum(curriculum, subject, learner_context or {}))
+            except Exception as exc:
+                self.log("WARN", f"Curriculum sequence planning failed: {exc}")
+                curriculum["generation_warnings"] = ["Course sequence planning failed; review or regenerate this draft. No teaching content was substituted."]
+                curriculum["generation_diagnostics"] = [{"code": "sequence_planning_failed", "issues": ["The course outline could not be validated. Check runtime diagnostics and regenerate."]}]
+                return curriculum
+        sequence = [
+            {"lesson_id": lesson["lesson_id"], "title": lesson["title"],
+             "subtopic": lesson.get("subtopic", ""), "objectives": lesson.get("objectives", []),
+             "prerequisites": lesson.get("prerequisites", [])}
+            for module in modules for lesson in module.get("lessons", []) if isinstance(lesson, dict)
+        ]
+        curriculum["course_sequence"] = sequence
+        curriculum = self._inject_chunks_into_lessons(curriculum)
         warnings: List[str] = []
         diagnostics: List[Dict[str, Any]] = []
         for module in modules:
@@ -397,6 +448,7 @@ class CurriculumAgent(BaseAgent):
                             module_title=module_title,
                             curriculum_title=str(curriculum.get("title") or subject).strip(),
                             learner_context=learner_context,
+                            course_sequence=sequence,
                         )
                     )
                 except Exception as exc:
@@ -425,6 +477,52 @@ class CurriculumAgent(BaseAgent):
             curriculum["generation_diagnostics"] = diagnostics
         if str(curriculum.get("source") or "").strip().lower() == "template":
             curriculum["source"] = "llm_or_template_fallback"
+        return curriculum
+
+    async def _plan_curriculum(self, curriculum, subject, learner_context):
+        lessons = [lesson for module in curriculum["modules"] for lesson in module["lessons"]]
+        client = get_llm_client()
+        prompt = (
+            "Plan a coherent subject-specific course outline before teaching content is authored. Return STRICT JSON:\n"
+            '{"lessons":[{"lesson_id":"exact supplied ID","title":"specific lesson title","subtopic":"distinct concrete subtopic",'
+            '"objectives":["measurable specific objective","measurable specific objective"],"prerequisites":["earlier lesson ID"]}]}\n'
+            f"Subject: {subject}\nLearner profile: {json.dumps(learner_context)}\n"
+            f"Ordered lesson slots: {json.dumps([{'lesson_id': lesson['lesson_id'], 'module_stage': module['title']} for module in curriculum['modules'] for lesson in module['lessons']])}\n"
+            "Keep the supplied ID order and count. Cover every named part of the subject; do not repeat one overview "
+            "throughout the course. Begin at the learner's chosen level, define needed foundations, build practical skills, "
+            "then independent application and review. Each subtopic and title must be unique and concrete. "
+            "Allocate separate lessons to the distinct core concepts named in the request, rather than compressing "
+            "all core concepts into one lesson followed by generic learning activities. Titles must name actual domain "
+            "concepts or concrete tasks, not 'comparing methods', 'independent practice', 'review and transfer', or similar "
+            "activity-only placeholders. Make the practical lessons apply the specific concepts already taught. "
+            "Prerequisites may only reference earlier supplied IDs. Do not generate teaching content or claim factual verification."
+        )
+        raw = await client.generate(prompt, temperature=0.3, max_tokens=2600, response_format={"type": "json_object"})
+        clean, trace = strip_reasoning(raw)
+        payload = self._extract_json_object(clean)
+        planned = payload.get("lessons")
+        if not isinstance(planned, list) or len(planned) != len(lessons):
+            raise ValueError("Outline does not match the required lesson count.")
+        seen_ids, seen_topics, seen_titles = set(), set(), set()
+        for slot, row in zip(lessons, planned):
+            if not isinstance(row, dict) or row.get("lesson_id") != slot["lesson_id"]:
+                raise ValueError("Outline changed lesson identities or order.")
+            for key, seen in (("subtopic", seen_topics), ("title", seen_titles)):
+                value = row.get(key)
+                if not isinstance(value, str) or len(value.strip()) < 5 or value.strip().casefold() in seen:
+                    raise ValueError(f"Outline needs distinct concrete {key} values.")
+                seen.add(value.strip().casefold())
+            objectives = row.get("objectives")
+            prerequisites = row.get("prerequisites")
+            if not isinstance(objectives, list) or len(objectives) < 2 or not all(isinstance(value, str) and len(value.strip()) >= 10 for value in objectives):
+                raise ValueError("Outline needs specific measurable objectives.")
+            if not isinstance(prerequisites, list) or not all(isinstance(value, str) and value in seen_ids for value in prerequisites):
+                raise ValueError("Outline refers to missing or future prerequisites.")
+            seen_ids.add(row["lesson_id"])
+        for slot, row in zip(lessons, planned):
+            slot.update({key: row[key] for key in ("title", "subtopic", "objectives", "prerequisites")})
+        curriculum["outline_trace"] = trace
+        curriculum["outline_status"] = "validated_structure"
         return curriculum
 
     def _load_from_mammoth_supabase(self, subject: str, curriculum_id: str, now: str) -> Optional[Dict[str, Any]]:
@@ -617,8 +715,6 @@ class CurriculumAgent(BaseAgent):
         if curriculum is None:
             curriculum = self._build_template_curriculum(subject, curriculum_id, now)
 
-        # Inject RAG-retrieved lesson chunks for tutor context
-        curriculum = self._inject_chunks_into_lessons(curriculum)
         curriculum = self._enrich_curriculum_lessons(curriculum, subject, learner_context)
         curriculum = self._apply_validation_gate(curriculum, subject)
         curriculum["quality"] = curriculum_readiness(curriculum)

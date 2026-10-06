@@ -109,7 +109,7 @@ export default function CodingArtifactPanel({ artifact, rawJson, onApplyPatch, a
   const hasTests = Boolean(sections.tests)
   const hasDocs = Boolean(sections.docs)
   const hasDiff = Boolean(sections.diff)
-  const canApplyPatch = Boolean(onApplyPatch) && hasCode && Boolean(artifact.target)
+  const canApplyPatch = Boolean(onApplyPatch) && hasCode && hasDiff && artifact.evidence?.original_read === true && artifact.status === 'ok' && Boolean(artifact.target)
   const tabs = [
     { id: 'overview', label: 'Overview', icon: ListChecks, show: true },
     { id: 'code', label: 'Code', icon: Code2, show: hasCode },
@@ -138,7 +138,7 @@ export default function CodingArtifactPanel({ artifact, rawJson, onApplyPatch, a
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0, flex: '1 1 320px' }}>
             <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)', marginBottom: 6 }}>
-              Coding artifact ready
+              Coding proposal
             </div>
             <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--txt-pri)', lineHeight: 1.35 }}>
               {artifact.summary || 'Structured coding response'}
@@ -146,6 +146,12 @@ export default function CodingArtifactPanel({ artifact, rawJson, onApplyPatch, a
             <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', marginTop: 6, lineHeight: 1.5, wordBreak: 'break-word' }}>
               {artifact.taskKind || 'generate_code'}{artifact.target ? ` • ${artifact.target}` : ''}{artifact.agent ? ` • ${artifact.agent}` : ''}
             </div>
+            {artifact.validation && (
+              <div style={{ marginTop: 8, fontSize: '0.78rem', color: 'var(--txt-sec)' }}>
+                Tests: {artifact.validation.tests?.replace(/_/g, ' ')}. Integration: {artifact.validation.integration?.replace(/_/g, ' ') || 'not verified'}.
+                {artifact.validation.checks?.map((check, index) => <div key={index}>{check.name.replace(/_/g, ' ')}: {check.status.replace(/_/g, ' ')} — {check.detail}</div>)}
+              </div>
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>

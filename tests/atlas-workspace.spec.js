@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const agentIds = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
-async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.' } = {}) {
+async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null } = {}) {
   const requests = []
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -68,11 +68,11 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
       if (!body?.override) result = { status: 'gated', gate: { message: 'Practice first.', allowed: false } }
       else { lessonId = 'lesson-2'; result = { status: 'ok' } }
     }
-    if (path === '/api/run') result = { status: 'ok', result: { output: body.agent_id === 'curriculum_agent' ? { curriculum: course } : {
+    if (path === '/api/run') result = { status: 'ok', result: { output: agentOutput || (body.agent_id === 'curriculum_agent' ? { curriculum: course } : {
       artifact_type: 'long_form_research', title: 'Source validation report', abstract: 'Research findings from the lesson.',
       sections: [{ order: 0, heading: 'Evidence', content: 'Check primary evidence.' }],
       sources: [], docx_filename: 'lesson-research.docx',
-    } } }
+    }) } }
     if (path === '/api/download-docx/lesson-research.docx') {
       return route.fulfill({ contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', body: Buffer.from('test-only-document-download') })
     }
@@ -118,6 +118,7 @@ test('lesson drafts survive tabs; research stays scoped and receives lesson cont
   await expect.poll(() => requests.some(request => request.path === '/api/run')).toBe(true)
   const request = requests.find(request => request.path === '/api/run').body
   expect(request.agent_id).toBe('research_agent')
+  expect(request.intent).toBe('research')
   expect(request.payload.prompt).toBe('Find primary research on source validation')
   expect(request.payload.background).toContain('Reliable research')
   expect(request.payload.lesson_id).toBe('lesson-1')
@@ -377,4 +378,44 @@ test('curriculum previews share readable formatting and portrait lessons preserv
   await expect(response).toHaveValue('Keep this learning draft')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
+})
+
+test('research displays matched excerpts and safe source links without fabricated certainty', async ({ page }) => {
+  const output = {
+    status: 'partial', artifact_type: 'research', title: 'Nutrition evidence',
+    executive_summary: 'Protein provides amino acids.',
+    findings: [{ heading: 'Protein', content: 'Protein provides amino acids. [S1]', source_support: ['S1'], evidence: [{ source_id: 'S1', quote: 'Protein provides amino acids.' }] }],
+    unverified_findings: [{ content: 'Unsupported cure claim.' }],
+    sources: [{ label: 'S1', title: 'Nutrition guide', excerpt: 'Protein provides amino acids.', url: 'https://example.com/nutrition' },
+      { label: 'S2', title: 'Unsafe source', excerpt: 'Not used.', url: 'javascript:alert(1)' }],
+    citations: [], references: [], confidence_assessment: 'Exact excerpt checks are not fact verification.',
+  }
+  const { errors } = await mountWorkspace(page, { agentOutput: output })
+  await page.getByRole('button', { name: 'Learning agents', exact: true }).click()
+  const composer = page.getByRole('region', { name: 'Education agents' }).locator('textarea').last()
+  await composer.fill('@research Research protein')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByText('Nutrition evidence', { exact: true })).toBeVisible()
+  await expect(page.locator('blockquote', { hasText: 'Protein provides amino acids.' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'https://example.com/nutrition', exact: true })).toHaveAttribute('href', 'https://example.com/nutrition')
+  await expect(page.locator('a[href^="javascript:"]')).toHaveCount(0)
+  await expect(page.getByText('No snippet provided.', { exact: true })).toHaveCount(0)
+  await page.getByText('Excluded unverified findings (1)', { exact: true }).click()
+  await expect(page.getByText('Unsupported cure claim.', { exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('write code cannot bypass repository grounding and multiline prose is not source', async ({ page }) => {
+  await mountWorkspace(page)
+  const routes = await page.evaluate(async () => {
+    const { codingRoute } = await import('/src/components/agent-workspace/agentCatalog.js')
+    const route = prompt => codingRoute({ agentId: 'coding_agent', intent: 'generate_code', repo: '', prompt })
+    return [
+      route('Add a nutrition layer inside the existing Health Module and leave the rest alone.'),
+      route('Modify existing file.\nKeep imports.\nAdd validation.\nReturn tests.'),
+      route('Create a standalone Python calculator.'),
+      route('Fix this code:\n```python\ndef add(a, b):\n    return a - b\n```'),
+    ]
+  })
+  expect(routes).toEqual(['needs_repo', 'needs_repo', 'run', 'run'])
 })

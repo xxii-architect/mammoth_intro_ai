@@ -34,6 +34,8 @@ def test_run_agent_normalizes_payloads(monkeypatch):
     assert field_ops_result["payload"]["environment"] == "forest"
     assert browser_result["payload"]["url"] == "https://example.com"
     assert task_queue_result["payload"]["action"] == "status"
+    research_payload = {"prompt": "Research this lesson", "context": {"lesson": {"subject": "Nutrition"}}, "intent": "research"}
+    assert agent_registry_mod.run_agent("research", research_payload)["payload"] == research_payload
 
 
 def test_research_agent_emits_grounded_evidence_fields(monkeypatch):
@@ -69,10 +71,20 @@ def test_research_agent_emits_grounded_evidence_fields(monkeypatch):
         )
 
     monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
-    result = ResearchAgent(router=None).run("Analyze whether the coding lesson should verify the patch before we move on.")
+    class Client:
+        async def generate(self, *args, **kwargs):
+            import re
+            label, quote = re.findall(r"^\[(S\d+)\] .*?: (.+)$", args[0], re.M)[0]
+            return json.dumps({"findings": [{
+                "content": quote + f" [{label}]",
+                "source_support": [label],
+                "evidence": [{"source_id": label, "quote": quote}],
+            }]})
+    monkeypatch.setattr("mammoth_os.llm_client.get_llm_client", lambda: Client())
+    result = ResearchAgent(router=None).run("Analyze code review for coding lessons before we move on.")
 
     assert result["focus"] == "curriculum"
-    assert result["confidence"] >= 0.6
+    assert result["confidence"] is None
     assert isinstance(result["findings"], list) and result["findings"]
     assert isinstance(result["citations"], list) and result["citations"]
     assert isinstance(result["references"], list)

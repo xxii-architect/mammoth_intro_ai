@@ -19,7 +19,7 @@ import useIsMobile from '../lib/useIsMobile'
 
 const INTENTS = [
   'plant_seed', 'field_ops', 'market_intel', 'reflection', 'brand_voice',
-  'research_curriculum', 'research_survival', 'research_plants', 'research_long_form', 'compare_gear', 'browse_web', 'summarize',
+  'research', 'research_curriculum', 'research_survival', 'research_plants', 'research_long_form', 'compare_gear', 'browse_web', 'summarize',
   'lesson_curriculum', 'lesson_coaching', 'grade_submission',
   'generate_code', 'patch_existing', 'refactor_code', 'analyze_codebase', 'run_tests', 'write_docs',
 ]
@@ -31,6 +31,7 @@ const INTENT_TO_AGENT = {
   reflection:          'reflection_agent',
   brand_voice:         'brand_voice_agent',
   research_curriculum: 'research_agent',
+  research: 'research_agent',
   research_survival:   'research_agent',
   research_plants:     'research_agent',
   compare_gear:        'research_agent',
@@ -54,7 +55,7 @@ const AGENT_TO_INTENT = {
   market_intel_agent:   'market_intel',
   reflection_agent:     'reflection',
   brand_voice_agent:    'brand_voice',
-  research_agent:       'research_curriculum',
+  research_agent:       'research',
   browser_agent:        'browse_web',
   curriculum_agent:     'lesson_curriculum',
   tutor_agent:          'lesson_coaching',

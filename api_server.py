@@ -2506,20 +2506,20 @@ def _research_eval_gate_snapshot() -> Dict[str, Any]:
     findings = probe.get("findings") if isinstance(probe.get("findings"), list) else []
     quality_flags = probe.get("quality_flags") if isinstance(probe.get("quality_flags"), list) else []
     alignment_score = float(contradiction_report.get("alignment_score") or 0.0)
-    contradiction_scan_enabled = bool(probe.get("workflow_hints", {}).get("contradiction_scan_enabled"))
+    excerpt_checks_enabled = bool(probe.get("workflow_hints", {}).get("excerpt_checks_enabled"))
 
     passed = (
         source_count >= 2
         and citation_coverage >= 0.66
         and len(findings) >= 2
-        and contradiction_scan_enabled
+        and excerpt_checks_enabled
         and "evidence_ranked" in quality_flags
     )
     reason = ""
     if not passed:
         reason = (
             "Research eval gate requires >=2 sources, citation coverage >=0.66, "
-            ">=2 findings, ranked evidence, and contradiction scan support."
+            ">=2 findings, ranked evidence, and exact excerpt citation checks."
         )
 
     return {
@@ -2529,7 +2529,7 @@ def _research_eval_gate_snapshot() -> Dict[str, Any]:
             "min_sources": 2,
             "min_citation_coverage": 0.66,
             "min_findings": 2,
-            "requires_contradiction_scan": True,
+            "requires_excerpt_checks": True,
         },
         "reason": reason,
         "blocker_detail": reason or "Research quality gate is healthy enough for release.",
@@ -3975,6 +3975,8 @@ def _execution_policy_for_run(body: Dict[str, Any], payload: Dict[str, Any], *, 
         raw = payload.get("execution_policy") if isinstance(payload.get("execution_policy"), dict) else {}
     retry_on_status = raw.get("retry_on_status")
     retry_statuses = [str(item).strip().lower() for item in retry_on_status] if isinstance(retry_on_status, list) else ["error", "needs_context", "unknown_action"]
+    if runtime_agent in {"research", "coding"}:
+        retry_statuses = [status for status in retry_statuses if status != "needs_context"]
     required_fields = raw.get("required_fields")
     if isinstance(required_fields, list):
         required = [str(item).strip() for item in required_fields if str(item).strip()]

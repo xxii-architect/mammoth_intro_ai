@@ -50,6 +50,7 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
               <span style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Long-Form Research Document</span>
             </div>
             <h1 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--txt-pri)', lineHeight: 1.3, margin: '0 0 10px' }}>{title}</h1>
+            <p style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>Draft for review. Retrieved sources do not independently verify each claim; review factual statements and citations before publishing.</p>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
                 <Clock size={11} /> {mins} min read &middot; {wc.toLocaleString()} words

@@ -329,6 +329,9 @@ def test_curriculum_agent_ignores_irrelevant_supabase_modules(monkeypatch):
 
 
 def test_curriculum_agent_rejects_thin_model_lesson_instead_of_claiming_enrichment(monkeypatch):
+    async def outline(self, curriculum, *args):
+        return curriculum
+    monkeypatch.setattr(CurriculumAgent, "_plan_curriculum", outline)
     class FakeClient:
         async def generate(self, prompt: str, **kwargs) -> str:
             assert "Generate a complete, subject-specific teaching lesson" in prompt

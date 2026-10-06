@@ -39,7 +39,7 @@ def artifact_metadata(raw: dict[str, Any]) -> dict[str, Any]:
     )}
     if states & {"failed", "error", "blocked"}:
         status = "failed"
-    elif quality.get("ready") is False or states & {"draft", "pending", "pending_approval", "needs_review", "partial"}:
+    elif quality.get("ready") is False or states & {"draft", "pending", "pending_approval", "needs_review", "partial", "insufficient_evidence", "needs_context"}:
         status = "draft"
     elif quality.get("ready") is True or "ready" in states:
         status = "ready"

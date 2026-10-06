@@ -164,6 +164,18 @@ const repoContextRules = [
     body: 'The lesson pane and curriculum previews format headings, paragraphs, emphasis, lists, code, and tables. Standard plain-text teaching headings are recognized too. Use In this lesson to jump to a section without leaving the lesson or losing your exercise draft. Examples keep their formatting, and stored content is not rewritten. Embedded images and active HTML are not loaded. Readability does not imply factual verification or mastery.',
   },
   {
+    title: 'Research evidence is visible, not assumed',
+    body: 'Research resolves “this lesson/course” from the active subject. With no subject it asks for context. Irrelevant search hits and missing excerpts cannot become evidence. Brief findings carry source IDs and exact matching excerpt quotes; invented quotes and unknown citations are excluded and available separately for review. Source-linked does not mean fact-verified. Evidence gaps stay explicit, contradictions are not automatically inferred, and long-form documents remain drafts requiring claim review. Supplied sources and no-web settings are honored for both brief and long-form research.',
+  },
+  {
+    title: 'Coding produces proposals, not invented integrations',
+    body: 'For existing-file changes, select your connected repository and a target, or paste the complete original in a code fence. Write code cannot bypass this requirement; multiline instructions are not source. The agent includes the original source and returns a reviewable diff, preserving existing interfaces. Python syntax checks do not execute code. Generated tests remain not run and integration not verified until real validation is performed; generating tests or docs does not confer confidence. Nothing here grants access to the platform repository or pushes to your repository.',
+  },
+  {
+    title: 'Curricula follow their actual course sequence',
+    body: 'New template courses first plan distinct subtopics, objectives, and earlier-only prerequisites in one outline call. If the outline fails validation, the course remains a draft without authoring every lesson. Each lesson author receives the actual sequence and the application adds the real next lesson. Invented numerical studies must be labeled hypothetical rather than presented as research. Authoring retains one bounded correction attempt. These structural checks are not independent factual review, and existing saved courses are not silently rewritten.',
+  },
+  {
     title: 'Queries determine what code gets surfaced',
     body: 'Generic chat like “do you see the code?” may return empty snippets. Ask for a file, symbol, route, or behavior you want inspected.',
   },

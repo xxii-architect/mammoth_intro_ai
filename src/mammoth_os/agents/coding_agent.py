@@ -10,6 +10,7 @@ from typing import Optional, Any, Dict, Union
 
 from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
 from mammoth_os.llm_client import get_llm_client, extract_code_from_text  # type: ignore
+from mammoth_os.coding_quality import requires_existing_source, supplied_source, syntax_checks
 
 
 logger = logging.getLogger("mammoth.agents.coding")
@@ -37,7 +38,7 @@ class CodingAgent(BaseAgent):
 
     def _standardize_result(self, result: Any, *, task_kind: str, target: str, prompt: str, files: Any) -> Dict[str, Any]:
         normalized = dict(result) if isinstance(result, dict) else {"payload": result}
-        normalized.setdefault("status", "ok")
+        normalized.setdefault("status", "error" if normalized.get("error") else "ok")
         normalized.setdefault("agent", "CodingAgent")
         normalized.setdefault("mode", "coding")
         normalized.setdefault("task_kind", task_kind)
@@ -108,6 +109,12 @@ class CodingAgent(BaseAgent):
 
         prompt_lower = prompt_text.lower()
         sandboxed = not self._host_access_allowed()
+        context = dict(context)
+        context["files"] = files
+        if requires_existing_source(prompt_text) and explicit_intent in {"", "generate_code", "patch_existing"}:
+            explicit_intent = "patch_existing"
+        if explicit_intent == "refactor_code" and supplied_source(prompt_text, context, target):
+            explicit_intent = "patch_existing"
 
         if sandboxed and explicit_intent in _SANDBOXED_HOST_OPS:
             return self._sandboxed_host_op(explicit_intent, target, prompt_text, files)
@@ -118,12 +125,13 @@ class CodingAgent(BaseAgent):
                 context.setdefault("target", target)
             if files:
                 context.setdefault("files", files)
+            context["task_kind"] = explicit_intent
             if self._is_placeholder_target(target) and not self._has_real_context(prompt_text, target, context, files):
                 return {
                     "status": "needs_context",
                     "agent": "CodingAgent",
                     "mode": "coding",
-                    "task_kind": "generate_code",
+                    "task_kind": explicit_intent,
                     "target": target,
                     "prompt": prompt_text,
                     "files": files,
@@ -131,7 +139,7 @@ class CodingAgent(BaseAgent):
                     "warnings": ["Missing real source context for code generation."],
                 }
             result = self._run_async(self.generate_code(prompt_text, context=context))
-            return self._standardize_result(result, task_kind="generate_code", target=target, prompt=prompt_text, files=files)
+            return self._standardize_result(result, task_kind=explicit_intent, target=target, prompt=prompt_text, files=files)
 
         if explicit_intent == "refactor_code":
             result = self._run_async(self.refactor(target or "unknown", "default"))
@@ -260,6 +268,8 @@ class CodingAgent(BaseAgent):
         return False
 
     def _has_real_context(self, prompt_text: str, target: str, context: Optional[Dict[str, Any]] = None, files: Any = None) -> bool:
+        if supplied_source(prompt_text, {**(context or {}), "files": files or []}, target):
+            return True
         if not self._is_placeholder_target(target):
             return True
         if isinstance(context, dict):
@@ -462,7 +472,18 @@ class CodingAgent(BaseAgent):
         prompt_text = str(prompt or "").strip()
         context = dict(context or {})
         target_path = str(context.get("target") or "").strip()
-        source_text = str(context.get("source") or context.get("code") or context.get("content") or "").strip()
+        source_text = supplied_source(prompt_text, context, target_path)
+        patch = context.get("task_kind") == "patch_existing" or requires_existing_source(prompt_text)
+        if patch and not source_text and self._host_path_exists(target_path):
+            source_text = await self._read_file(target_path)
+        if patch and not source_text:
+            return {
+                "status": "needs_context", "task_kind": "patch_existing",
+                "summary": "Select a connected repository and target file, or paste the complete original file. A file name alone is not source context.",
+                "code": "", "tests": "", "docs": "", "diff": "", "confidence": None,
+                "warnings": ["Existing-file changes require the original source; no integration was generated."],
+                "validation": {"tests": "not_run", "checks": []},
+            }
         if (not prompt_text or self._is_placeholder_target(prompt_text) or self._is_placeholder_target(target_path)) and not source_text:
             return {
                 "status": "needs_context",
@@ -481,79 +502,68 @@ class CodingAgent(BaseAgent):
         except Exception as exc:
             self.log("ERROR", f"LLM client initialization failed: {exc}")
             return {
+                "status": "error",
                 "code": "", "tests": "", "docs": "", "diff": "",
                 "confidence": 0.0,
-                "warnings": [f"LLM client unavailable: {exc}"],
+                "warnings": ["The coding provider is unavailable. Retry after checking runtime health."],
             }
 
-        # Retrieve context snippets (best-effort)
         context_snippets = []
         try:
             context_snippets = await self._retrieve_context(
                 prompt,
                 collection=(context or {}).get("collection", "default"),
             )
-        except Exception:
-            context_snippets = []
+        except Exception as exc:
+            self.log("WARNING", f"Optional coding context retrieval unavailable: {exc}")
 
         # Build structured MammothOS prompt
         from mammoth_os.prompt_templates import build_code_gen_prompt, parse_structured_code_response
-        try:
-            llm_prompt = build_code_gen_prompt(prompt, context_snippets)
-        except Exception:
-            llm_prompt = prompt
+        llm_prompt = build_code_gen_prompt(prompt, context_snippets, original_source=source_text, target=target_path, patch=patch)
 
         context = dict(context or {})
         target_path = str(context.get("target") or "").strip()
-        context_files = context.get("files") if isinstance(context.get("files"), list) else []
-
         task_plan = self._build_task_plan(prompt, context)
         try:
             raw = await client.generate(llm_prompt, max_tokens=8192, temperature=0.2)
-            parsed = parse_structured_code_response(raw)
+            from mammoth_os.research_quality import strip_reasoning
+            clean, trace = strip_reasoning(raw)
+            parsed = parse_structured_code_response(clean)
             code_text = parsed.get("code", "")
             tests_text = parsed.get("tests", "")
             docs_text = parsed.get("docs", "")
             diff_text = ""
-            original_text = ""
-            if target_path:
-                try:
-                    if self._host_path_exists(target_path):
-                        original_text = await self._read_file(target_path)
-                    else:
-                        for item in context_files:
-                            if not isinstance(item, dict):
-                                continue
-                            candidate_path = str(item.get("path") or item.get("file") or item.get("target") or "").strip()
-                            if candidate_path and candidate_path == target_path:
-                                original_text = str(item.get("content") or item.get("text") or item.get("source") or "")
-                                if original_text:
-                                    break
-                    if original_text and code_text:
-                        diff_text = self._unified_diff(original_text, code_text)
-                except Exception:
-                    diff_text = ""
+            language_match = re.search(r"```(python|py|javascript|js|typescript|ts|tsx|jsx|css|html|vue|svelte)\b", clean)
+            language = language_match.group(1) if language_match else ""
+            checks = syntax_checks(code_text, tests_text, language)
+            failed = not code_text or any(check["status"] == "failed" for check in checks)
+            if patch and code_text and not failed:
+                diff_text = self._unified_diff(source_text, code_text, target_path or "provided-source")
             if str(context.get("source", "")).strip().lower() == "atlas.code.generate":
                 self._write_ai_session(
                     prompt=prompt,
                     response=raw,
                     context=context,
-                    ok=True,
+                    ok=not failed,
                 )
-            confidence = 0.7 if code_text else 0.0
-            if code_text and tests_text:
-                confidence = min(0.95, confidence + 0.15)
-            if code_text and docs_text:
-                confidence = min(0.98, confidence + 0.05)
             return {
+                "status": "error" if failed else "ok",
+                "artifact_type": "patch_proposal" if patch else "code",
+                "artifact_status": "draft",
+                "summary": "Generated code failed output validation." if failed else "Source-grounded patch proposal; tests have not been executed." if patch else "Standalone code draft; integration and tests have not been verified.",
                 "code": code_text,
                 "tests": tests_text,
                 "docs": docs_text,
                 "diff": diff_text,
-                "confidence": confidence,
+                "confidence": None,
+                "reasoning_trace": trace,
+                "validation": {"checks": checks, "tests": "not_run", "integration": "not_verified"},
+                "evidence": {"source_kind": "supplied_or_owner_file" if source_text else "none", "original_read": bool(source_text), "target": target_path},
+                "quality": {"ready": False},
                 "warnings": (
-                    ([] if code_text else ["LLM returned no code block"])
-                    + ([f"Target file not found: {target_path}"] if target_path and not original_text and not self._host_path_exists(target_path) else [])
+                    ([] if code_text else ["LLM returned no implementation code block"])
+                    + [check["detail"] for check in checks if check["status"] == "failed"]
+                    + ["Generated tests are unexecuted; syntax checks are not behavioral verification."]
                 ),
                 "task_plan": task_plan,
                 "quality_checks": task_plan.get("validation", []),
@@ -569,9 +579,10 @@ class CodingAgent(BaseAgent):
                 )
             fallback_plan = self._build_task_plan(prompt, context)
             return {
+                "status": "error",
                 "code": "", "tests": "", "docs": "", "diff": "",
                 "confidence": 0.0,
-                "warnings": [str(exc)],
+                "warnings": ["Code generation failed. Check runtime diagnostics and retry."],
                 "task_plan": fallback_plan,
                 "quality_checks": fallback_plan.get("validation", []),
             }
@@ -652,19 +663,27 @@ class CodingAgent(BaseAgent):
                     src = None
 
             if src is None:
-                # treat target as raw code
+                if not re.search(r"\b(?:def|class|function|import|const|let)\b", target):
+                    return {"status": "needs_context", "summary": "Refactoring needs the complete original source or a readable owner file.", "original": "", "refactored": "", "diff": "", "confidence": None}
                 src = target
 
             client = get_llm_client()
             prompt = f"Refactor the following Python code to improve readability, reduce complexity, and add minimal comments. Preserve behavior.\n\n{src}"
             raw = await client.generate(prompt, max_tokens=8192, temperature=0.2)
             refactored = extract_code_from_text(raw)
-            diff = self._unified_diff(src, refactored)
+            diff = self._unified_diff(src, refactored, target if self._host_path_exists(target) else "")
+            checks = syntax_checks(refactored, "", "python")
+            failed = not refactored or any(check["status"] == "failed" for check in checks)
             return {
+                "status": "error" if failed else "ok",
+                "artifact_status": "draft",
+                "summary": "Refactor failed syntax checks." if failed else "Refactor proposal; syntax checked, behavior and tests not verified.",
                 "original": src,
                 "refactored": refactored,
-                "diff": diff,
-                "confidence": 0.5,
+                "diff": "" if failed else diff,
+                "confidence": None,
+                "validation": {"checks": checks, "tests": "not_run", "integration": "not_verified"},
+                "evidence": {"original_read": True, "target": target},
             }
         except Exception as exc:
             self.log("ERROR", f"refactor failed: {exc}")
@@ -1084,9 +1103,14 @@ sys.exit(failed)
         original = await self._read_file(original_path)
         return self._unified_diff(original, new_code)
 
-    def _unified_diff(self, a: str, b: str) -> str:
+    def _unified_diff(self, a: str, b: str, target: str = "") -> str:
         import difflib
-        return "\n".join(difflib.unified_diff(a.splitlines(), b.splitlines(), lineterm=""))
+        path = target.replace("\\", "/") or "provided-source"
+        lines = difflib.unified_diff(
+            a.splitlines(keepends=True), b.splitlines(keepends=True),
+            fromfile=f"a/{path}", tofile=f"b/{path}",
+        )
+        return "".join(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n" for line in lines)
 
     async def _compute_complexity(self, ast_results: list) -> dict:
         """Compute cyclomatic complexity per function across all AST results."""

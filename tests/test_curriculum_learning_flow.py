@@ -14,6 +14,13 @@ from mammoth_os.learner_model import update_learner_model
 from mammoth_os.tutor_delivery import curriculum_readiness
 
 
+@pytest.fixture(autouse=True)
+def bypass_outline_for_legacy_lesson_tests(monkeypatch):
+    async def existing_outline(self, curriculum, *args):
+        return curriculum
+    monkeypatch.setattr(CurriculumAgent, "_plan_curriculum", existing_outline)
+
+
 @pytest.fixture
 def course():
     lesson = {

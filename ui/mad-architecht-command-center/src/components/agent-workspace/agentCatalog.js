@@ -8,7 +8,8 @@ export const AGENT_CATALOG = [
     handle: 'research',
     blurb: 'Digs into a topic and returns findings with sources.',
     tasks: [
-      { label: 'Research a topic', intent: 'research_curriculum', placeholder: 'What do you want researched?' },
+      { label: 'Research a topic', intent: 'research', placeholder: 'What do you want researched?' },
+      { label: 'Research a learning path', intent: 'research_curriculum', placeholder: 'Which subject needs a source-informed learning path?' },
       { label: 'Compare options', intent: 'compare_gear', placeholder: 'Compare A vs B for… (what matters most?)' },
       { label: 'Deep-dive report', intent: 'research_long_form', placeholder: 'Topic for a long-form report with sections…' },
       { label: 'Survival & field skills', intent: 'research_survival', placeholder: 'Which skill or scenario?' },
@@ -137,7 +138,11 @@ export const REPO_GROUNDED_INTENTS = new Set(['patch_existing', 'refactor_code',
 
 export function looksLikePastedCode(text) {
   const value = String(text || '')
-  return value.includes('```') || value.split('\n').filter(line => line.trim()).length >= 4
+  return /```(?:python|py|javascript|js|typescript|ts|tsx|jsx|css|html|vue|svelte)?[ \t]*\r?\n[\s\S]+?```/.test(value)
+}
+
+export function requiresExistingSource(text) {
+  return /\b(patch|refactor|fix|modify|update|extend|integrate)\b|\bexisting\s+(file|module|code|class|project|repository)\b|\b(inside|within)\b.{0,80}\b(module|file|codebase)\b|\bleave\b.{0,60}\b(alone|unchanged)\b/i.test(String(text || ''))
 }
 
 /**
@@ -149,6 +154,6 @@ export function looksLikePastedCode(text) {
 export function codingRoute({ agentId, intent, repo, prompt }) {
   if (agentId !== 'coding_agent') return 'run'
   if (repo) return 'loop'
-  if (REPO_GROUNDED_INTENTS.has(intent) && !looksLikePastedCode(prompt)) return 'needs_repo'
+  if ((REPO_GROUNDED_INTENTS.has(intent) || requiresExistingSource(prompt)) && !looksLikePastedCode(prompt)) return 'needs_repo'
   return 'run'
 }

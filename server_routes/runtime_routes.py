@@ -1300,7 +1300,7 @@ async def run_agent(body: Dict[str, Any]):
         elif runtime_agent and (runtime_agent == "custodial" or (_agent_registry_ok and runtime_agent in AGENTS)):
             handled_special_result = False
             payload_for_agent: Any = prompt_text or json.dumps(payload)
-            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue", "mammoth_guide", "planner", "search"}
+            payload_agents = {"plant_the_seed", "market_intel", "reflection", "brand_voice", "community_engine", "tutor", "reasoning", "coding", "browser", "task_queue", "mammoth_guide", "planner", "search", "research"}
             if runtime_agent in payload_agents:
                 payload_for_agent = dict(payload) if isinstance(payload, dict) else {}
                 if not isinstance(payload_for_agent, dict):
@@ -1659,7 +1659,7 @@ async def run_agent(body: Dict[str, Any]):
 
         if result.get("status") == "pending_approval":
             task_status = "pending_approval"
-        elif result.get("status") == "error":
+        elif result.get("status") in {"error", "needs_context", "insufficient_evidence"}:
             task_status = "failed"
         else:
             task_status = "completed"
@@ -1690,8 +1690,7 @@ async def run_agent(body: Dict[str, Any]):
                 details={"result": str(result)[:1000], "trace_id": trace_id},
             )
 
-        _think("Run complete", f"task_status={task_status!r}", "success")
-        # Score long_form_research on output quality, not temperature
+        _think("Run complete", f"task_status={task_status!r}", "error" if task_status == "failed" else "success")
         _lf_out = result.get("output") if isinstance(result, dict) else {}
         _lf_out = _lf_out if isinstance(_lf_out, dict) else {}
         _is_longform = (
@@ -1701,15 +1700,9 @@ async def run_agent(body: Dict[str, Any]):
         if _is_longform:
             if _lf_out.get("docx_filename"):
                 _record_generated_doc_owner(str(_lf_out.get("docx_filename")))
-            _secs = _lf_out.get("sections") or []
-            _wc = int(_lf_out.get("word_count") or 0)
-            _docx = bool(_lf_out.get("docx_filename"))
-            _run_confidence = round(min(0.95,
-                0.50
-                + (0.20 if len(_secs) >= 6 else len(_secs) * 0.03)
-                + (0.15 if _wc >= 4000 else _wc / 4000 * 0.15)
-                + (0.10 if _docx else 0.0)
-            ), 3)
+            _run_confidence = 0.0
+        elif runtime_agent in {"research", "coding"}:
+            _run_confidence = 0.0
         else:
             _run_confidence = round(1.0 - temperature, 3)
         response = {
@@ -1726,6 +1719,7 @@ async def run_agent(body: Dict[str, Any]):
             "thought_steps": thought_steps,
             "provider": runtime_agent or "unknown",
             "confidence": _run_confidence,
+            "confidence_basis": "not_calibrated" if _is_longform or runtime_agent in {"research", "coding"} else "legacy_temperature_proxy",
             "citations": [],  # Agent runs typically don't have citations unless specified
             "contradictions": [],
         }
