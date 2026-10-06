@@ -46,8 +46,8 @@ Then refresh the UI.
 - Avoid introducing fragile dependencies when the same goal can be done with existing endpoints.
 
 ### UI state normalization updates
-- Theme options are intentionally reduced to **Dark** and **Aurora**.
-- Legacy saved theme values (`darker`, `midnight`) are normalized to **Dark** on load.
+- Appearance is **Dark-only** while the platform is being polished; the sidebar and Settings no longer offer theme toggles.
+- Saved Aurora and legacy theme values (`darker`, `midnight`) migrate to **Dark** on load, and old inline theme colors are cleared.
 - The top runtime status bar is collapsed by default and remembers expand/collapse preference in browser storage.
 
 ### New local operator controls

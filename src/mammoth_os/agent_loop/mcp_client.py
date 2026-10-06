@@ -26,7 +26,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .tools import TIER_EXEC, TIER_NETWORK, TIER_READ, TIER_WRITE, ToolContext, ToolRegistry, ToolSpec
+from .tools import (
+    TIER_EXEC,
+    TIER_NETWORK,
+    TIER_READ,
+    TIER_WRITE,
+    ToolContext,
+    ToolRegistry,
+    ToolSpec,
+)
 
 MCP_PROTOCOL_VERSION = "2025-06-18"
 CLIENT_INFO = {"name": "mammothos", "version": "1"}
@@ -109,14 +117,19 @@ class MCPStdioClient:
         self._next_id = 0
         self._lock = asyncio.Lock()
         self.tools: Dict[str, Dict[str, Any]] = {}
+        self.initialized = False
+        self.last_error = False
 
     @property
     def running(self) -> bool:
         return self._proc is not None and self._proc.returncode is None
 
     async def start(self) -> None:
-        if self.running:
+        if self.running and self.initialized:
             return
+        if self.running:
+            await self.close()
+        self.last_error = False
         exe = shutil.which(self.command[0])
         if not exe:
             raise MCPError(f"MCP server command not found: {self.command[0]}")
@@ -137,6 +150,7 @@ class MCPStdioClient:
         await self._notify("notifications/initialized", {})
         listing = await self._request("tools/list", {})
         self.tools = {t.get("name"): t for t in listing.get("tools") or [] if isinstance(t, dict)}
+        self.initialized = True
 
     async def _write(self, message: Dict[str, Any]) -> None:
         assert self._proc is not None and self._proc.stdin is not None
@@ -182,6 +196,7 @@ class MCPStdioClient:
             except asyncio.TimeoutError:
                 self._proc.kill()
         self._proc = None
+        self.initialized = False
 
 
 def _flatten_mcp_result(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -243,7 +258,9 @@ class MCPBridge:
             client = self._client(server, cwd)
             try:
                 raw = await client.call_tool(tool_name, args)
-            except MCPError as exc:
+            except (MCPError, OSError, asyncio.TimeoutError) as exc:
+                client.last_error = True
+                await client.close()
                 return {"status": "error", "code": "mcp_error", "error": str(exc)}
             return _flatten_mcp_result(raw)
 
@@ -276,8 +293,29 @@ class MCPBridge:
                 "installed": bool(shutil.which(server.command)) if server.command else False,
                 "tools": [name for name, _ in server.exposed_tools()],
                 "approval_required_tools": list(server.approval_required_tools),
+                **self.runtime_state(server, ctx),
             })
         return out
+
+    def runtime_state(self, server: MCPServerConfig, ctx: ToolContext) -> Dict[str, Any]:
+        installed = bool(server.command and shutil.which(server.command))
+        client = self._clients.get((server.id, str(self._cwd_for(server, ctx))))
+        visible = self._visible(server)(ctx)
+        connected = bool(visible and client and client.running and client.initialized)
+        status = (
+            "disabled" if not server.enabled else
+            "needs_setup" if not installed else
+            "needs_context" if not visible else
+            "connected" if connected else
+            "error" if client and client.last_error else "configured"
+        )
+        return {
+            "status": status,
+            "connected": connected,
+            "health_verified": connected,
+            "workflow_ready": installed and visible and server.enabled,
+            "requires_repo": server.access == "tenant" or server.category == "repo",
+        }
 
     async def close(self) -> None:
         for client in list(self._clients.values()):

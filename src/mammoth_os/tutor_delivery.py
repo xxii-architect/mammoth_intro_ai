@@ -14,6 +14,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
+from mammoth_os.research_quality import dedupe_items, strip_reasoning
+
 MANIFEST_CONTRACT = "mammoth.lesson_manifest.v1"
 TELEMETRY_CONTRACT = "mammoth.lesson_telemetry.v1"
 
@@ -22,6 +24,49 @@ STALL_REPEAT_ERROR_STREAK = 2
 STALL_IDLE_MINUTES = 20
 
 _MAX_ITEMS = 5
+
+
+def build_lesson_flashcards(lesson: Any, exercise: Any = None) -> List[Dict[str, str]]:
+    """Build recall cards from teaching content, never from learning objectives."""
+    lesson = lesson if isinstance(lesson, dict) else {}
+    exercise = exercise if isinstance(exercise, dict) else {}
+    title = str(lesson.get("title") or lesson.get("lesson_title") or "this lesson")
+    instruction = re.compile(
+        r"^(?:identify|apply|explain|describe|practice|demonstrate|learn|understand)\b|"
+        r"\bin your own words\b", re.IGNORECASE,
+    )
+    points = lesson.get("teaching_points") or []
+    if not isinstance(points, list):
+        points = []
+    points = [
+        strip_reasoning(item)[0].strip() for item in points
+        if isinstance(item, str) and item not in (lesson.get("objectives") or [])
+    ]
+    points = [point for point in points if point and not instruction.search(point)]
+    if not points:
+        content = strip_reasoning(str(lesson.get("content") or ""))[0]
+        points = [part.strip() for part in re.split(r"\n\s*\n", content) if len(part.split()) >= 8]
+    cards: List[Dict[str, str]] = []
+    for point in dedupe_items(points):
+        if not point or instruction.search(point) or point in (lesson.get("objectives") or []):
+            continue
+        definition = re.match(r"^(.{2,70}?) (?:is|are|refers to|means) (.+)", point)
+        front = (
+            f"What is meant by {definition.group(1)}?"
+            if definition else f"What does {title} teach in key idea {len(cards) + 1}?"
+        )
+        cards.append({"id": f"content-{len(cards) + 1}", "front": front, "back": point})
+        if len(cards) >= 4:
+            break
+    for example in _assert_examples(str(exercise.get("expected_test") or "")):
+        cards.append({
+            "id": f"example-{len(cards) + 1}",
+            "front": f"What should `{example['input']}` return?",
+            "back": example["expected"],
+        })
+        if len(cards) >= 6:
+            break
+    return cards
 
 
 def _now() -> datetime:

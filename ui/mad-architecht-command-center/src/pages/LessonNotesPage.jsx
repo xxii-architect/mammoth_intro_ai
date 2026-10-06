@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { BookOpen, FileText } from 'lucide-react'
 
 import { api } from '../api/client'
+import { useAuth } from '../lib/authContext'
 
 function lessonTitleFromEntry(entry) {
   const lesson = entry?.lesson && typeof entry.lesson === 'object' ? entry.lesson : {}
@@ -9,16 +10,25 @@ function lessonTitleFromEntry(entry) {
 }
 
 export default function LessonNotesPage() {
+  const auth = useAuth()
+  return <LessonNotes key={auth?.user?.id || 'local'} />
+}
+
+function LessonNotes() {
   const [history, setHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
     let alive = true
-    api('/atlas/status')
+    setLoading(true)
+    setError('')
+    api('/atlas/lesson-notes')
       .then((state) => {
         if (!alive) return
-        const lessonHistory = Array.isArray(state?.lesson_history) ? state.lesson_history : []
+        if (!Array.isArray(state?.lessons)) throw new Error('The backend returned invalid lesson notes.')
+        const lessonHistory = state.lessons
         setHistory(lessonHistory)
       })
       .catch((e) => {
@@ -31,10 +41,11 @@ export default function LessonNotesPage() {
     return () => {
       alive = false
     }
-  }, [])
+  }, [reload])
 
   const normalizedLessons = useMemo(() => {
     return [...history]
+      .filter(entry => entry?.lesson_id && !/^(?:plan[-_]|atlas-plan-)/.test(entry.lesson_id))
       .map((entry) => {
         const resumePacket = entry?.resume_packet && typeof entry.resume_packet === 'object' ? entry.resume_packet : {}
         const notes = Array.isArray(resumePacket.notes) ? resumePacket.notes : []
@@ -64,6 +75,7 @@ export default function LessonNotesPage() {
           <FileText size={18} color="var(--cyan)" />
           Lesson Notes
         </h1>
+        <button type="button" disabled={loading} onClick={() => setReload(value => value + 1)}>Refresh lesson notes</button>
       </div>
 
       <div className="glass-card-solid" style={{ padding: 16 }}>
@@ -80,7 +92,7 @@ export default function LessonNotesPage() {
 
       {loading ? (
         <div className="glass-card-solid" style={{ padding: 16, color: 'var(--txt-sec)' }}>Loading notes…</div>
-      ) : normalizedLessons.length === 0 ? (
+      ) : error ? null : normalizedLessons.length === 0 ? (
         <div className="glass-card-solid" style={{ padding: 16, color: 'var(--txt-sec)' }}>
           No lesson history yet. Start a lesson and this page will track your learning snapshots.
         </div>

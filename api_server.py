@@ -4534,7 +4534,9 @@ def _append_lesson_history(state: Dict[str, Any], lesson: Dict[str, Any], exerci
             replaced = True
         normalized_history.append(normalized)
     if not replaced:
-        normalized_history.append(_normalize_lesson_history_entry(entry, len(normalized_history)) or entry)
+        normalized_entry = _normalize_lesson_history_entry(entry, len(normalized_history))
+        if normalized_entry:
+            normalized_history.append(normalized_entry)
     state["lesson_history"] = normalized_history[-80:]
 
 
@@ -4646,6 +4648,8 @@ def _normalize_lesson_history_entry(raw: Any, index: int = 0) -> Optional[Dict[s
     ).strip()
     if not lesson_id:
         return None
+    if lesson_id.startswith(("plan-", "plan_", "atlas-plan-")) or str(raw.get("artifact_type") or raw.get("type") or "lesson") not in {"lesson", "lesson_note"}:
+        return None
     created_at = raw.get("created_at") or raw.get("updated_at") or datetime.now(timezone.utc).isoformat()
     summary = str(raw.get("summary") or raw.get("resume_summary") or "").strip()
     return {
@@ -4720,45 +4724,19 @@ def _matching_history_entry(state: Dict[str, Any], lesson_id: Optional[str]) -> 
 
 
 def _build_lesson_flashcards(state: Dict[str, Any]) -> List[Dict[str, str]]:
-    lesson = state.get("current_lesson") or {}
-    exercise = state.get("current_exercise") or {}
-    objectives = [str(item).strip() for item in (lesson.get("objectives") or []) if str(item).strip()]
-    lesson_title = lesson.get("title") or lesson.get("lesson_title") or "Current lesson"
-    cards: List[Dict[str, str]] = []
-
-    for idx, objective in enumerate(objectives[:4], start=1):
-        cards.append({
-            "id": f"obj-{idx}",
-            "front": f"{lesson_title}: What does this objective mean? ({objective})",
-            "back": f"Explain {objective} in your own words, then write one tiny example that demonstrates it.",
-        })
-
-    prompt = str(exercise.get("prompt") or "").strip()
-    if prompt:
-        cards.append({
-            "id": "exercise-plan",
-            "front": "What is your plan before coding this exercise?",
-            "back": f"Summarize the input/output, then list 2-3 steps to solve this prompt: {prompt[:220]}",
-        })
-
-    return cards[:6]
+    return tutor_delivery.build_lesson_flashcards(
+        state.get("current_lesson"), state.get("current_exercise"),
+    )
 
 
 def _normalize_flashcard_item(raw: Any) -> Optional[Dict[str, Any]]:
     if isinstance(raw, str):
-        text = raw.strip()
-        if not text:
-            return None
-        return {
-            "front": text,
-            "back": "Recall the concept in your own words, then verify against lesson notes.",
-            "source": None,
-        }
+        return None
     if not isinstance(raw, dict):
         return None
-    front = str(raw.get("front") or raw.get("q") or raw.get("question") or "").strip()
-    back = str(raw.get("back") or raw.get("a") or raw.get("answer") or "").strip()
-    if not front or not back:
+    front = strip_reasoning(str(raw.get("front") or raw.get("q") or raw.get("question") or ""))[0].strip()
+    back = strip_reasoning(str(raw.get("back") or raw.get("a") or raw.get("answer") or ""))[0].strip()
+    if not front or not back or _is_placeholder_flashcard(front, back):
         return None
     source = raw.get("source")
     if isinstance(source, dict):
@@ -4773,6 +4751,19 @@ def _normalize_flashcard_item(raw: Any) -> Optional[Dict[str, Any]]:
     else:
         source = None
     return {"front": front, "back": back, "source": source}
+
+
+def _is_placeholder_flashcard(front: str, back: str) -> bool:
+    return (
+        "What does this objective mean?" in front
+        or front == "What is your plan before coding this exercise?"
+        or back.startswith((
+            "Recall the concept in your own words, then verify",
+            "Recall the underlying concept, then verify",
+            "Answer from memory, then verify",
+            "Summarize the input/output, then list 2-3 steps",
+        ))
+    )
 
 
 def _normalize_flashcard_list(raw_cards: Any) -> List[Dict[str, Any]]:
@@ -4849,7 +4840,7 @@ def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) 
     keywords = [
         str(lesson_id or "").strip().lower(),
         str(lesson.get("title") or lesson.get("lesson_title") or "").strip().lower(),
-        str(state.get("topic") or "").strip().lower(),
+        str(state.get("topic") or "").strip().lower() if str(state.get("lesson_id") or "") == str(lesson_id or "") else "",
     ]
     keywords = [k for k in keywords if k] + objectives[:2]
 
@@ -4859,8 +4850,35 @@ def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) 
             continue
         title = str(raw.get("title", "") or "")
         body = str(raw.get("body", "") or "")
+        metadata = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+        note_type = str(raw.get("type") or metadata.get("artifact_type") or "").lower()
+        linked_id = str(metadata.get("lesson_id") or raw.get("lesson_id") or "")
+        if raw.get("user_id") and str(raw["user_id"]) != _current_request_user_id():
+            continue
+        if not raw.get("user_id") and _current_request_user_id() != "local" and not _request_is_admin():
+            continue
+        if raw.get("account_id") and _normalize_account_id(raw["account_id"]) != _active_account_id(state):
+            continue
+        if note_type not in {"", "personal_note", "lesson_note", "lesson"}:
+            continue
+        if str(raw.get("id") or "").startswith(("plan-", "plan_", "atlas-plan-")):
+            continue
+        if body.lstrip().startswith("{"):
+            try:
+                payload = json.loads(body)
+            except json.JSONDecodeError:
+                payload = None
+            if isinstance(payload, dict) and (
+                payload.get("plan_id")
+                or str(payload.get("id") or "").startswith(("plan-", "plan_", "atlas-plan-"))
+                or str(payload.get("artifact_type") or payload.get("type") or "") in {"plan", "run", "task"}
+                or ("steps" in payload and any(key in payload for key in ("objective", "task_id", "agent_id")))
+            ):
+                continue
+        if linked_id and linked_id != str(lesson_id or ""):
+            continue
         haystack = f"{title}\n{body}".lower()
-        if keywords and not any(k in haystack for k in keywords):
+        if not linked_id and (not keywords or not any(k in haystack for k in keywords)):
             continue
         matches.append({
             "id": str(raw.get("id", "")),
@@ -4871,20 +4889,7 @@ def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) 
         if len(matches) >= 5:
             break
 
-    if matches:
-        return matches
-
-    fallback: List[Dict[str, Any]] = []
-    for raw in reversed(notes[-3:]):
-        if not isinstance(raw, dict):
-            continue
-        fallback.append({
-            "id": str(raw.get("id", "")),
-            "title": str(raw.get("title", "") or "Untitled"),
-            "preview": str(raw.get("body", "") or "")[:220],
-            "updated_at": raw.get("updated_at"),
-        })
-    return fallback
+    return matches
 
 
 def _flashcards_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> List[Dict[str, str]]:
@@ -4895,6 +4900,8 @@ def _flashcards_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> L
 
     cards: List[Dict[str, str]] = []
     for item in reversed(aids):
+        if not isinstance(item, dict) or not str(item.get("lesson_id") or "").strip():
+            continue
         normalized = _normalize_study_aid_entry(
             item,
             str(lesson_id or ""),
@@ -4908,26 +4915,14 @@ def _flashcards_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> L
         data = normalized.get("data")
         if aid_type == "flashcards" and isinstance(data, list):
             for card in data:
-                if isinstance(card, str) and card.strip():
-                    cards.append({
-                        "front": card.strip(),
-                        "back": "Recall the underlying concept, then verify it against your latest lesson work.",
-                    })
-                    continue
-                if not isinstance(card, dict):
-                    continue
-                front = str(card.get("front") or "").strip()
-                back = str(card.get("back") or "").strip()
-                if front and back:
-                    cards.append({"front": front, "back": back})
+                normalized_card = _normalize_flashcard_item(card)
+                if normalized_card:
+                    cards.append(normalized_card)
         elif aid_type == "quiz" and isinstance(data, list):
             for q in data:
-                question = str((q or {}).get("question") if isinstance(q, dict) else q).strip()
-                if question:
-                    cards.append({
-                        "front": question,
-                        "back": "Answer from memory, then verify against the lesson objective and your code.",
-                    })
+                normalized_card = _normalize_flashcard_item(q)
+                if normalized_card:
+                    cards.append(normalized_card)
         if len(cards) >= 10:
             break
 
@@ -4946,7 +4941,7 @@ def _flashcards_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) -> L
     fallback_state = {
         **state,
         "current_lesson": lesson,
-        "current_exercise": state.get("current_exercise") or {},
+        "current_exercise": (state.get("current_exercise") or {}) if str(state.get("lesson_id") or "") == str(lesson_id or "") else {},
     }
     return _build_lesson_flashcards(fallback_state)[:4]
     
@@ -7104,7 +7099,7 @@ def _normalize_module_status(raw_status: Any) -> str:
         "SHUTDOWN": "disabled",
         "DISABLED": "disabled",
     }
-    return mapping.get(str(raw_status), "ready")
+    return mapping.get(str(raw_status), "unknown")
 
 
 def _workflow_state_for_agent(agent_id: str) -> Dict[str, Any]:
@@ -7324,19 +7319,19 @@ def _agent_quality_snapshot(agent_id: str) -> Dict[str, Any]:
 
 
 _STATIC_MODULES = [
-    {"id": "coding_agent",      "name": "CodingAgent",      "version": "v1.2.0", "status": "active",   "description": "Code generation, refactor, review"},
-    {"id": "mammoth_guide", "name": "MammothGuideAgent", "version": "v1.0.0", "status": "active", "description": "Repo-aware onboarding and SDK/ATLAS usage guidance"},
-    {"id": "repo_context_engine", "name": "RepoContextEngine", "version": "v1.0.0", "status": "active", "description": "Repository-aware context snapshots for Mammoth Mind and FAB"},
-    {"id": "page_context_bridge", "name": "PageContextBridge", "version": "v1.0.0", "status": "active", "description": "Live page context normalization and prompt wiring"},
-    {"id": "gitops_guard", "name": "GitOpsGuard", "version": "v1.0.0", "status": "ready", "description": "Approval-gated commit/push/deploy intent routing"},
-    {"id": "field_ops_agent",   "name": "FieldOpsAgent",    "version": "v0.9.1", "status": "active",   "description": "Planting, irrigation, field data"},
-    {"id": "research_agent",    "name": "ResearchAgent",    "version": "v0.8.3", "status": "active",   "description": "Market intel, curriculum research"},
-    {"id": "memory_engine",     "name": "MemoryEngine",     "version": "v0.8.0", "status": "active",   "description": "Long-term context & session memory"},
-    {"id": "atlas_session",     "name": "ATLASSession",     "version": "v0.5.0", "status": "ready",     "description": "Progress tracking & subsystem status"},
-    {"id": "plant_seed_agent",  "name": "PlantSeedAgent",   "version": "v0.6.2", "status": "ready",     "description": "Seed sourcing, planting schedules"},
-    {"id": "market_intel_agent","name": "MarketIntelAgent", "version": "v0.3.0", "status": "ready",     "description": "Price feeds, market analysis"},
-    {"id": "cortex_router",     "name": "CortexRouter",     "version": "v1.0.0", "status": "active",   "description": "Intent-based routing layer"},
-    {"id": "engine_registry",   "name": "EngineRegistry",   "version": "v1.0.0", "status": "active",   "description": "Discovers and registers engine classes"},
+    {"id": "coding_agent", "name": "CodingAgent", "version": "v1.2.0", "description": "Code generation, refactor, review"},
+    {"id": "mammoth_guide", "name": "MammothGuideAgent", "version": "v1.0.0", "description": "Repo-aware onboarding and SDK/ATLAS usage guidance"},
+    {"id": "repo_context_engine", "name": "RepoContextEngine", "version": "v1.0.0", "description": "Repository-aware context snapshots for Mammoth Mind and FAB"},
+    {"id": "page_context_bridge", "name": "PageContextBridge", "version": "v1.0.0", "description": "Live page context normalization and prompt wiring"},
+    {"id": "gitops_guard", "name": "GitOpsGuard", "version": "v1.0.0", "description": "Approval-gated commit/push/deploy intent routing"},
+    {"id": "field_ops_agent", "name": "FieldOpsAgent", "version": "v0.9.1", "description": "Planting, irrigation, field data"},
+    {"id": "research_agent", "name": "ResearchAgent", "version": "v0.8.3", "description": "Market intel, curriculum research"},
+    {"id": "memory_engine", "name": "MemoryEngine", "version": "v0.8.0", "description": "Long-term context & session memory"},
+    {"id": "atlas_session", "name": "ATLASSession", "version": "v0.5.0", "description": "Progress tracking & subsystem status"},
+    {"id": "plant_seed_agent", "name": "PlantSeedAgent", "version": "v0.6.2", "description": "Seed sourcing, planting schedules"},
+    {"id": "market_intel_agent", "name": "MarketIntelAgent", "version": "v0.3.0", "description": "Price feeds, market analysis"},
+    {"id": "cortex_router", "name": "CortexRouter", "version": "v1.0.0", "description": "Intent-based routing layer"},
+    {"id": "engine_registry", "name": "EngineRegistry", "version": "v1.0.0", "description": "Discovers and registers engine classes"},
 ]
 
 

@@ -573,6 +573,21 @@ async def atlas_flashcards():
     _save_atlas_state(state)
     return {"status": "ok", "flashcards": flashcards}
 
+@app.get("/api/atlas/lesson-notes")
+async def atlas_lesson_notes():
+    state = _load_atlas_state()
+    lessons = []
+    for index, raw in enumerate(state.get("lesson_history") or []):
+        entry = _normalize_lesson_history_entry(raw, index)
+        if not entry:
+            continue
+        # Rebuild resources instead of serving stale, previously unscoped packets.
+        entry["resume_packet"] = {
+            "notes": _matching_notes_for_lesson(state, entry["lesson_id"]),
+        }
+        lessons.append(entry)
+    return {"status": "ok", "lessons": lessons}
+
 @app.post("/api/atlas/plan")
 async def atlas_plan(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()

@@ -14,6 +14,43 @@ The signed-in `/api/atlas/agents` catalog exposes only education agents and no h
 endpoints. Research supports existing long-form reports and authenticated DOCX
 downloads; it remains supplemental to the active lesson.
 
+### Workspace reliability and learning resources
+
+Startup, session-check, and page-render failures now show recovery controls
+instead of an empty screen. Sign-in checks time out after 15 seconds and can be
+retried without treating an authentication failure as a signed-out session.
+Frontend deployments retain previous hashed assets and publish the HTML entry
+last, so older tabs can still load their page chunks. Retained assets need
+operator-reviewed disk housekeeping; deployments do not purge them.
+Deployment also validates the required public Supabase configuration before
+building and publishing, rather than deploying a UI that cannot initialize auth.
+
+Shared controls use the platform theme, including native selects and file
+pickers. The command library uses actual CSS rather than unavailable utility
+classes. Appearance is dark-only for now: sidebar/Settings theme toggles are
+removed, saved Aurora/legacy preferences migrate to Dark, and prior inline
+theme colors are cleared so text stays readable. Native controls follow Dark.
+On mobile, Mammoth Mind has a full-width message field with one
+attachment manager below it. Upload limits are expandable; upload progress,
+warnings, cancellation and retry remain visible.
+
+Lesson Notes uses `GET /api/atlas/lesson-notes`, which rebuilds lesson-matched
+resources and excludes operational plans and unrelated recent-note fallbacks.
+Other workspace notes and run artifacts are retained in their own libraries.
+Flashcards prefer saved, answered Q/A cards for the active lesson, preserving
+sources. Fallback recall cards use existing teaching content or public exercise
+assertions, never objectives as answers. Legacy objective-only cards are ignored,
+and missing content produces an honest empty deck rather than demo cards.
+
+The owner/admin Modules page refreshes backend snapshots every 30 seconds and
+reports registry/bridge failures explicitly. Catalog-only agents are `unknown`,
+source-only agents are `discovered`, and built-in wiring is `integrated`, not
+claimed live health. MCP states distinguish `configured` (launcher present),
+`needs_setup`, `needs_context`, and `connected` (a live initialized client in
+the current context). Listing bridges does not start servers or verify package,
+browser, credential, or network availability. Repository selection and approval
+rules remain enforced by the backend; `git_push` is never exposed.
+
 ### Learning profile and curriculum handoff
 
 ATLAS exposes onboarding in the workspace: starting level (beginner through
@@ -101,7 +138,7 @@ Details for each are in the sections below and in `ATLAS_MANUAL.md`.
   - Internet command runs (`/research`, `/web`) are persisted as structured chat events with evidence metadata
   - Chat trust surfaces now consume dynamic backend metadata (`confidence`, `trust_metadata`, `evidence_items`) rather than static UI defaults.
 - UX consistency updates now live:
-  - Theme options are simplified to **Dark** and **Aurora** with legacy `darker` / `midnight` values auto-normalized to **Dark**
+  - Appearance is **Dark-only** while the platform is being polished; saved Aurora, `darker`, and `midnight` preferences migrate to Dark, with no inactive theme toggles
   - Mammoth Mind reply depth adapts to the ask: brief, conversational replies for simple questions and useful structure for complex work
   - Runtime health is a color-coded header pill beside Mammoth Mind; press it to expand provider and fallback details without taking space from page content
   - The chat feed flows directly into the composer without a separating rule

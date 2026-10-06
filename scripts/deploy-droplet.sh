@@ -51,14 +51,27 @@ if [ ! -f ".env.production" ]; then
 fi
 
 npm install --prefer-offline --no-audit
+node --input-type=module -e '
+  import { loadEnv } from "vite";
+  const env = { ...loadEnv("production", process.cwd(), "VITE_"), ...process.env };
+  if (!env.VITE_SUPABASE_URL || !env.VITE_SUPABASE_ANON_KEY) throw new Error("Missing production Supabase configuration; refusing to publish.");
+  if (!["https:", "http:"].includes(new URL(env.VITE_SUPABASE_URL).protocol)) throw new Error("Invalid production Supabase URL; refusing to publish.");
+'
 npm run build
 
 # Step 3: Deploy frontend
 echo ""
 echo "[3/6] Deploying frontend to ${UI_DEPLOY_DIR}..."
 sudo mkdir -p "$UI_DEPLOY_DIR"
-sudo rm -rf "${UI_DEPLOY_DIR:?}/"* 2>/dev/null || true
-sudo cp -r "${UI_BUILD_DIR}/." "$UI_DEPLOY_DIR/"
+# Keep hashed assets for tabs that loaded the previous release. Publish HTML last.
+sudo cp -r "${UI_BUILD_DIR}/assets" "$UI_DEPLOY_DIR/"
+for item in "${UI_BUILD_DIR}/"*; do
+  [ "$(basename "$item")" = "assets" ] && continue
+  [ "$(basename "$item")" = "index.html" ] && continue
+  sudo cp -r "$item" "$UI_DEPLOY_DIR/"
+done
+sudo install -m 644 "${UI_BUILD_DIR}/index.html" "${UI_DEPLOY_DIR}/index.html.next"
+sudo mv "${UI_DEPLOY_DIR}/index.html.next" "${UI_DEPLOY_DIR}/index.html"
 echo "✓ Frontend deployed"
 
 # Step 4: Restart backend

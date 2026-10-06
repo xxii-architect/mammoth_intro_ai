@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 import api_server
+from mammoth_os.tutor_delivery import build_lesson_flashcards
 
 
 def test_get_flashcards_returns_ui_shape_from_stored_cards(monkeypatch):
@@ -76,3 +77,47 @@ def test_create_flashcards_accepts_qa_shape_and_persists(monkeypatch):
     assert saved["lesson_title"] == "off-grid power"
     assert saved["data"]["topic"] == "off-grid power"
     assert len(saved["data"]["cards"]) == 2
+
+
+def test_lesson_cards_use_teaching_answers_not_objectives():
+    lesson = {
+        "title": "Nutrition",
+        "objectives": ["Identify macronutrients"],
+        "teaching_points": [
+            "Identify macronutrients",
+            "<think>private reasoning</think>Protein is a macronutrient used to build and repair tissue.",
+            "Carbohydrates are a source of energy for the body.",
+        ],
+    }
+    cards = build_lesson_flashcards(lesson)
+    assert len(cards) == 2
+    assert cards[0]["back"] == "Protein is a macronutrient used to build and repair tissue."
+    assert cards[0]["front"] == "What is meant by Protein?"
+    assert all("Identify" not in card["back"] and "<think>" not in card["back"] for card in cards)
+    assert build_lesson_flashcards({"objectives": ["Identify macronutrients"]}) == []
+    lesson["teaching_points"] = lesson["objectives"]
+    lesson["content"] = "Protein is a macronutrient used to build and repair tissue."
+    assert build_lesson_flashcards(lesson)[0]["back"] == lesson["content"]
+
+
+def test_active_lesson_prefers_saved_answers_and_never_uses_other_decks(monkeypatch):
+    state = {
+        "lesson_id": "nutrition",
+        "current_lesson": {"lesson_id": "nutrition", "title": "Nutrition"},
+        "study_aids": [
+            {"type": "flashcards", "lesson_id": "other", "data": {"cards": [{"q": "Other topic", "a": "Wrong deck"}]}},
+            {"type": "flashcards", "lesson_id": "nutrition", "data": {"cards": [
+                {"front": "Nutrition: What does this objective mean? (Learn protein)", "back": "Explain it in your own words."},
+                {"q": "What does protein do?", "a": "Supports tissue growth and repair.", "source": {"title": "Nutrition lesson"}},
+            ]}},
+            {"type": "quiz", "lesson_id": "nutrition", "data": [{"question": "Explain protein without an answer"}]},
+        ],
+    }
+    cards = api_server._flashcards_for_lesson(state, "nutrition")
+    assert len(cards) == 1
+    assert cards[0]["back"] == "Supports tissue growth and repair."
+    assert cards[0]["source"]["title"] == "Nutrition lesson"
+    assert api_server._normalize_flashcard_item("An objective, not a card") is None
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: {**state, "study_aids": state["study_aids"][:1]})
+    import asyncio
+    assert asyncio.run(api_server.get_flashcards())["cards"] == []

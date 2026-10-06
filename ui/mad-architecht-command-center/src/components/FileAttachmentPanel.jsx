@@ -34,7 +34,7 @@ export default function FileAttachmentPanel(props) {
   return <AttachmentPanel key={auth?.user?.id || 'local'} {...props} />
 }
 
-function AttachmentPanel({ attached = [], onAttach, onRemove }) {
+function AttachmentPanel({ attached = [], onAttach, onRemove, compact = false, trailingAction = null }) {
   const inputRef = useRef(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const upload = useDocumentUpload('mammoth', data => {
@@ -50,7 +50,7 @@ function AttachmentPanel({ attached = [], onAttach, onRemove }) {
   }
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, padding: '4px 0' }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: '4px 0', width: '100%', minWidth: 0 }}>
       {/* Attached file chips */}
       {attached.map(f => (
         <div
@@ -60,7 +60,7 @@ function AttachmentPanel({ attached = [], onAttach, onRemove }) {
           {fileIcon(f.name)}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{f.name}</span>
           <span style={{ color: 'var(--txt-mut)', flexShrink: 0 }}>{formatSize(f.size)}</span>
-          <button onClick={() => onRemove(f.file_id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: '0 1px', display: 'flex', lineHeight: 1 }}>
+          <button aria-label={`Detach ${f.name}`} onClick={() => onRemove(f.file_id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: '4px', display: 'flex', lineHeight: 1 }}>
             <X size={11} />
           </button>
         </div>
@@ -72,14 +72,15 @@ function AttachmentPanel({ attached = [], onAttach, onRemove }) {
         title="Attach a document or source file; retrieved sections provide context"
         onClick={() => inputRef.current?.click()}
         disabled={uploading || !upload.policy}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 20, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: uploading ? 'var(--txt-mut)' : 'var(--txt-sec)', cursor: uploading ? 'default' : 'pointer', fontSize: '0.72rem' }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--card-hover)', color: 'var(--txt-pri)', cursor: uploading ? 'default' : 'pointer', fontSize: '0.8rem' }}
       >
         {uploading ? <Loader size={12} style={{ animation: 'spin 1s linear infinite' }} /> : <Paperclip size={12} />}
         {uploading ? 'Uploading…' : 'Attach'}
       </button>
 
-      <DocumentUploadStatus upload={upload} />
       <button type="button" onClick={() => setLibraryOpen(value => !value)}>{libraryOpen ? 'Close file library' : 'Manage saved files'}</button>
+      {trailingAction && <div style={{ marginLeft: 'auto' }}>{trailingAction}</div>}
+      <DocumentUploadStatus upload={upload} compact={compact} />
       {libraryOpen && <div style={{ width: '100%', minWidth: 0 }}><AtlasMaterialsLibrary
         scope="mammoth"
         attached={attached.map(file => file.file_id)}

@@ -1769,7 +1769,7 @@ async def get_flashcards():
     lesson_id = str(state.get("lesson_id") or "").strip()
     lesson_cards = _flashcards_for_lesson(state, lesson_id) if lesson_id else []
     stored_cards = _latest_stored_flashcards(state, limit=12)
-    cards = lesson_cards or stored_cards or _build_lesson_flashcards(state)
+    cards = lesson_cards if lesson_id else stored_cards or _build_lesson_flashcards(state)
     ui_cards = _flashcards_to_ui_cards(cards)
     topic = str(state.get("topic") or (state.get("current_lesson") or {}).get("title") or "").strip()
     return {

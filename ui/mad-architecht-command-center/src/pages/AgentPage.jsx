@@ -700,7 +700,7 @@ export default function AgentPage({ setPage }) {
             <SlidersHorizontal size={13} /> Advanced
           </button>
           <button onClick={() => setShowCommandLibrary(true)}
-            style={{ fontSize: '0.74rem', fontWeight: 400, color: 'var(--txt-sec)', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, padding: '5px 11px', cursor: 'pointer' }}>
+            style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--txt-pri)', background: 'var(--card-hover)', border: '1px solid var(--border)', borderRadius: 10, padding: '8px 12px', cursor: 'pointer' }}>
             Commands
           </button>
         </span>

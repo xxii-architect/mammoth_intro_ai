@@ -677,7 +677,7 @@ Open **http://localhost:5173**
 | **Lessons** | Quick-access ATLAS lesson start + embedded tutor chat |
 | **ATLAS Tutor** | Full 3-column ATLAS experience: curriculum tree | exercise + code editor | live chat with model selector, lesson memory, and latest submission summary |
 | **Build Log** | Log + browse project build entries with tags, persisted to `.mammoth/buildlog.json` |
-| **Settings** | System info, env key inspector, ATLAS reset, **theme toggle** (Dark/Aurora), AI runtime status |
+| **Settings** | System info, env key inspector, ATLAS reset, Dark-only appearance status, AI runtime status |
 
 ### Agent Console safety flow
 - Turn on **Preview first** before using the coding agent for file edits.
@@ -741,12 +741,12 @@ Phase 2 upgrades now wired in the quick panel:
 - page-aware context payload (current page, selection, lesson snapshot) so ATLAS can observe what you're working on
 - usage telemetry events (`fab_usage_events`) recorded for future monetization analytics
 
-### Theme Toggle
-Settings → Theme section. Two options:
-- **Dark** `#050608` — near-black default
-- **Aurora** `#f4f7fb` — clean, light, high-contrast workspace variant
-
-Applies instantly via CSS custom properties. Legacy `darker`/`midnight` values normalize to the current Dark theme so older saved preferences still behave correctly.
+### Appearance
+**Dark** `#050608` is currently the only supported appearance while the platform
+is being polished. Aurora is paused; the sidebar selector and Settings toggles
+are removed. Saved Aurora and legacy `darker`/`midnight` preferences migrate to
+Dark automatically. Old inline theme colors are cleared to prevent unreadable
+dark-on-dark text. Settings shows the active appearance without an inactive toggle.
 
 ### Runtime Status Bar
 - Runtime health is a color-coded pill in the header beside Mammoth Mind: green for healthy, amber for degraded, and red for blocked.
@@ -816,7 +816,7 @@ Applies instantly via CSS custom properties. Legacy `darker`/`midnight` values n
 - Tutor delivery: lesson manifests, stall telemetry, comprehension gate with override, retrieval dedupe
 - Research hygiene: reasoning stripped to traces, relevance/disambiguation filtering, dedupe, truncation repair
 - Dedicated ATLAS Tutor page (3-column: curriculum | editor | chat)
-- Working theme toggle (Dark/Aurora) with CSS variable mutation + localStorage normalization for legacy values
+- Dark-only appearance with automatic migration of saved Aurora/legacy preferences and no inactive theme controls
 - Terminal WebSocket + HTTP fallback
 - All data files auto-initialized in `.mammoth/`
 - Branch pushed to origin: `ui/compliance-legal-shell`

@@ -1483,18 +1483,9 @@ export default function ChatPage({ setPage }) {
 
           <div style={{ padding: 16 }}>
             {error && <div style={{ marginBottom: 10, color: '#f87171', fontSize: '0.78rem' }}>{error}</div>}
-            {/* File attachments */}
-            {attachedFiles.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                <FileAttachmentPanel
-                  attached={attachedFiles}
-                  onAttach={(f) => setAttachedFiles(prev => [...prev.filter(x => x.file_id !== f.file_id), f])}
-                  onRemove={(id) => setAttachedFiles(prev => prev.filter(f => f.file_id !== id))}
-                />
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+            <div aria-label="Message composer" style={{ display: 'grid', gap: 10, minWidth: 0 }}>
               <textarea
+                aria-label="Message MammothOS"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => {
@@ -1505,30 +1496,31 @@ export default function ChatPage({ setPage }) {
                 }}
                 rows={isMobile ? 2 : 4}
                 placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
-                  style={{ flex: 1, resize: 'vertical', minHeight: 100, maxHeight: 240, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '14px 16px', outline: 'none', lineHeight: 1.6 }}
+                  style={{ width: '100%', minWidth: 0, resize: 'vertical', minHeight: 100, maxHeight: 240, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '14px 16px', lineHeight: 1.6 }}
               />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ minWidth: 0 }}>
                 <FileAttachmentPanel
+                  compact
                   attached={attachedFiles}
                   onAttach={(f) => setAttachedFiles(prev => [...prev.filter(x => x.file_id !== f.file_id), f])}
                   onRemove={(id) => setAttachedFiles(prev => prev.filter(f => f.file_id !== id))}
-                />
-                {busy ? (
+                  trailingAction={busy ? (
                   <button
                     onClick={stopActive}
                     aria-label="Stop the current run"
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 132, padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', fontWeight: 700, cursor: 'pointer' }}
                   >
                     <Square size={13} /> Stop
                   </button>
                 ) : (
                   <button
                     onClick={() => send()}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minWidth: 132, padding: '12px 14px', borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: 'pointer' }}
                   >
                     <Send size={15} /> Send
                   </button>
                 )}
+                />
               </div>
             </div>
           </div>

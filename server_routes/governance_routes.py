@@ -50,6 +50,8 @@ async def get_modules():
     manifest_map: Dict[str, Any] = {}
     for item in _STATIC_MODULES:
         module = dict(item)
+        module["status"] = "integrated" if module["id"] in {"repo_context_engine", "page_context_bridge", "gitops_guard"} else "unknown"
+        module["source"] = "integration" if module["status"] == "integrated" else "catalog"
         workflow = _workflow_state_for_agent(module["id"])
         module.update(workflow)
         module_map[module["id"]] = module
@@ -58,7 +60,8 @@ async def get_modules():
         try:
             manifests = await agent_registry.list_agents()
         except Exception:
-            manifests = []
+            logger.exception("Agent registry could not be read")
+            return JSONResponse({"status": "error", "error": "Agent registry unavailable; retry later."}, status_code=503)
         for manifest in manifests:
             agent_id = str(getattr(manifest, "agent_id", "") or "").strip()
             if not agent_id:
@@ -68,7 +71,7 @@ async def get_modules():
                 "id": agent_id,
                 "name": getattr(manifest, "name", agent_id),
                 "version": getattr(manifest, "version", "v1.0.0"),
-                "status": "ready",
+                "status": "registered",
                 "description": "Registered agent",
             })
             module.update({
@@ -98,7 +101,7 @@ async def get_modules():
                 "id": mid,
                 "name": "".join(w.title() for w in mid.split("_")),
                 "version": "v1.0.0",
-                "status": "ready",
+                "status": "discovered",
                 "description": f"Agent: {mid}",
                 "source": "discovered",
                 **workflow,
@@ -123,6 +126,11 @@ async def get_modules():
 @app.get("/api/mcp/servers")
 async def get_mcp_servers():
     """Return the MCP server registry with config details and availability status."""
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    ctx, _ = _agent_tool_context(None)
+    bridge_servers = {server.id: server for server in _AGENT_MCP.servers}
     index = _load_mcp_index()
     servers = []
     for entry in index.get("servers") or []:
@@ -132,15 +140,23 @@ async def get_mcp_servers():
         import shutil
         command = cfg.get("command") or entry.get("command") or "npx"
         available = shutil.which(command) is not None
+        server_id = str(entry.get("id") or "")
+        enabled = bool(entry.get("enabled", True)) and bool(cfg.get("enabled", True))
+        bridge_server = bridge_servers.get(server_id)
+        runtime = _AGENT_MCP.runtime_state(bridge_server, ctx) if bridge_server else {
+            "status": "disabled" if not enabled else "not_registered",
+            "connected": False, "health_verified": False, "workflow_ready": False,
+        }
         servers.append({
-            "id": str(entry.get("id") or ""),
+            "id": server_id,
             "label": str(entry.get("label") or cfg.get("name") or entry.get("id") or ""),
             "description": str(entry.get("description") or cfg.get("description") or ""),
             "category": str(entry.get("category") or "tool"),
-            "enabled": bool(entry.get("enabled", True)) and bool(cfg.get("enabled", True)),
+            "enabled": enabled,
             "available": available,
-            "status": "ready" if available else "needs_setup",
-            "tools": cfg.get("tools") or [],
+            **runtime,
+            "tools": [name for name, _ in bridge_server.exposed_tools()] if bridge_server else [],
+            "access": bridge_server.access if bridge_server else str(cfg.get("access") or "admin"),
             "command": command,
             "transport": cfg.get("transport") or "stdio",
             "notes": cfg.get("notes") or [],
@@ -695,4 +711,3 @@ def download_docx_file(filename: str):
     if not _generated_doc_visible(safe) or not path.is_file():
         return JSONResponse({"status": "error", "error": "Document not found."}, status_code=404)
     return FileResponse(str(path), filename=safe, media_type='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-

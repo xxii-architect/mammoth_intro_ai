@@ -6,6 +6,32 @@ source-aware research, document exports, and public SDK contracts.
 
 ## Delivery checklist
 
+### Workspace reliability and resource scope
+
+- [x] UI-BOOT: visible startup/session/render recovery; bounded session checks;
+  retain older hashed frontend chunks and publish HTML last.
+- [x] UI-CONTROLS: themed native controls, a CSS-backed command modal, and one
+  compact attachment manager beneath a full-width mobile chat input. User-approved
+  Dark-only appearance removes sidebar/Settings theme toggles and migrates old
+  Aurora/legacy preferences without retaining unreadable inline colors.
+- [x] UI-MODULES: backend module/MCP states with explicit load errors and periodic
+  refresh; launcher presence is not represented as verified MCP health.
+- [x] EDU-RESOURCES: lesson-only resource endpoint without unrelated-note
+  fallbacks or cached plan blobs; flashcard answers use teaching content or saved
+  Q/A rather than objectives, with truthful empty/error states.
+
+Regression coverage includes failed imports/renders, rejected and timed-out
+session checks with retry, portrait composer width, command modal theming,
+account-switch deck isolation, produced answers, operational-plan exclusion,
+registry failures, and MCP setup/context/handshake distinctions. These checks
+do not establish the cause of every historical first-load failure or verify
+third-party MCP packages. No new paid model calls are used for these refinements.
+Final local checks: 99 targeted backend/deployment tests, 47 browser scenarios
+across the final regression and dark-only selectors,
+production UI build, correctness-focused helper/test lint, shell syntax, and
+diff whitespace checks. The broader Python run passed 675 tests with one skip,
+four expected failures and one non-strict xpass.
+
 ### Document-ingestion upgrade
 
 - [x] FILE-01: shared chat/ATLAS capability-driven policy, 50 MiB default,

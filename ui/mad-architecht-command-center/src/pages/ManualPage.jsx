@@ -164,6 +164,22 @@ const repoContextRules = [
     body: 'The lesson pane and curriculum previews format headings, paragraphs, emphasis, lists, code, and tables. Standard plain-text teaching headings are recognized too. Use In this lesson to jump to a section without leaving the lesson or losing your exercise draft. Examples keep their formatting, and stored content is not rewritten. Embedded images and active HTML are not loaded. Readability does not imply factual verification or mastery.',
   },
   {
+    title: 'Dark mode while the platform is polished',
+    body: 'Dark is currently the only supported appearance. The sidebar and Settings no longer offer theme toggles. Saved Aurora and older theme preferences migrate to Dark automatically, and leftover inline colors are cleared to keep text readable. Settings shows the active appearance.',
+  },
+  {
+    title: 'Recover an interrupted page',
+    body: 'Startup, sign-in checks, and page-render failures show a reload or retry control instead of a blank view. Sign-in checks time out after 15 seconds without treating the error as a signed-out session. Saved backend work is retained; unsent browser-only text may be lost when reloading. Older hashed frontend assets are retained during deployment so existing tabs can still open their pages.',
+  },
+  {
+    title: 'Learning resources are not operational plans',
+    body: 'Lesson Notes rebuilds lesson-matched notes, excluding unrelated recent notes and operational plan JSON. Other saved notes and run artifacts remain in their own libraries. Flashcards use saved question-and-answer pairs for your active lesson, or recall cards drawn from its actual teaching content and public exercise examples. Objectives are not answers. An empty deck means there is no answered content yet; it never silently displays demo cards. Use Refresh deck or Refresh lesson notes to load newly saved content.',
+  },
+  {
+    title: 'Read Modules status literally',
+    body: 'The owner/admin Modules view refreshes backend snapshots every 30 seconds and reports fetch failures. Catalog-only agents are unknown; discovered source files and integrated helpers are not claimed running or healthy. An MCP launcher being present means configured, not a verified connection. Connected means a live initialized MCP client in the current context. Needs context requires an authorized repository selection; needs setup requires backend configuration. Merely viewing Modules does not launch MCP servers. Platform repository and approval restrictions are unchanged.',
+  },
+  {
     title: 'Upload and inspect learning documents',
     body: 'Chat and ATLAS use the same backend file policy: by default 50 MiB per file, 500 MiB combined raw-file storage, and 200 files per user. PDFs, DOCX, slides (PPTX), spreadsheets (XLSX), HTML, text/Markdown, CSV and supported code formats have real text readers. Transfer progress and processing are separate; extraction can be partial. Use Preview in My Learning Materials or chat’s Manage saved files to search a topic or page/slide number and inspect the extracted sections. Delete stored files to reclaim quota; removing an attachment alone does not delete them. Chat uses four attachments per request; ATLAS uses six. Retrieval searches the whole bounded extraction, not just its opening preview, but lexical matches are not factual verification. Scans need OCR, which is not enabled; embedded images and media are not transcribed. Re-upload old legacy-preview files for whole-document indexing. Cancellation may finish server-side if processing already started; use Refresh library before retrying. Delete failures retain the record rather than pretending success.',
   },

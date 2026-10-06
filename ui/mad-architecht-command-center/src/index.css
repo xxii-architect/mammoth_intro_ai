@@ -2,6 +2,7 @@
 
 /* ── Tokens ── */
 :root {
+  color-scheme: dark;
   --shell: #050608;
   --card: #0d1117;
   --card-hover: #161b22;
@@ -23,6 +24,59 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   position: relative;
 }
+
+:where(button, input, select, textarea) { font: inherit; }
+:where(button:not([style])), input::file-selector-button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-hover);
+  color: var(--txt-pri);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+:where(select, input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range])) {
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--txt-pri);
+}
+:where(select) { color-scheme: inherit; }
+:where(option, optgroup) { background: var(--card); color: var(--txt-pri); }
+:where(button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--photon);
+  outline-offset: 3px;
+}
+:where(button):disabled { opacity: 0.55; cursor: not-allowed; }
+:where(button:not([style])):hover:not(:disabled), input::file-selector-button:hover { border-color: var(--photon); }
+input::file-selector-button { margin-right: 10px; }
+
+.command-overlay {
+  position: fixed; inset: 0; z-index: 1200; background: rgba(0,0,0,0.75);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.command-dialog {
+  width: 100%; max-width: 760px; max-height: min(92dvh, 860px);
+  display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--border); border-radius: 18px; background: var(--card);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.5);
+}
+.command-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 20px; border-bottom: 1px solid var(--border); }
+.command-header p { color: var(--txt-sec); font-size: 0.8rem; margin-top: 6px; }
+.command-filters { display: flex; flex-wrap: wrap; gap: 10px; padding: 16px; border-bottom: 1px solid var(--border); }
+.command-filters input { flex: 1 1 180px; }
+.command-filters select { max-width: 100%; }
+.command-results { overflow-y: auto; min-height: 0; display: grid; gap: 10px; padding: 16px; }
+.command-item { border: 1px solid var(--border); border-radius: 12px; background: var(--shell); padding: 16px; overflow-wrap: anywhere; }
+.command-item header { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; font-size: 0.84rem; }
+.command-item header strong { color: var(--photon); }
+.command-item p { color: var(--txt-sec); font-size: 0.8rem; line-height: 1.6; margin-bottom: 8px; }
+.command-item code { display: block; color: var(--txt-sec); font-size: 0.72rem; white-space: pre-wrap; }
+.command-empty, .command-footer { color: var(--txt-sec); text-align: center; padding: 14px; font-size: 0.76rem; }
+.command-footer { border-top: 1px solid var(--border); }
 
 /* CRT scan-line overlay */
 body::before {

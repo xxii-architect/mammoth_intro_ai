@@ -1,6 +1,6 @@
 // AgentCommandLibrary.jsx
 // Searchable command library for all MammothOS agents
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 const COMMANDS = [
@@ -24,6 +24,7 @@ const COMMANDS = [
 export default function AgentCommandLibrary({ onClose }) {
   const [query, setQuery] = useState("");
   const [agentFilter, setAgentFilter] = useState("all");
+  const dialogRef = useRef(null);
 
   const agents = useMemo(() => ["all", ...new Set(COMMANDS.map(c => c.agent))], []);
 
@@ -37,13 +38,30 @@ export default function AgentCommandLibrary({ onClose }) {
   }, [query, agentFilter]);
 
   useEffect(() => {
+    const previousFocus = document.activeElement;
+    dialogRef.current?.querySelector('input')?.focus();
     const onKeyDown = (event) => {
       if (event.key === "Escape" && onClose) {
         onClose();
       }
+      if (event.key === "Tab") {
+        const controls = [...(dialogRef.current?.querySelectorAll('button, input, select') || [])].filter(node => !node.disabled);
+        const first = controls[0];
+        const last = controls[controls.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
     };
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
   }, [onClose]);
 
   useEffect(() => {
@@ -56,33 +74,34 @@ export default function AgentCommandLibrary({ onClose }) {
 
   const modal = (
     <div
-      className="fixed inset-0 bg-black/70 z-[1200] flex items-center justify-center p-2 sm:p-4 overflow-y-auto overscroll-contain"
+      className="command-overlay"
       onClick={() => onClose && onClose()}
     >
       <div
-        className="bg-[#1a1a2e] border border-[#3d3d5c] rounded-2xl w-full max-w-3xl max-h-[min(92vh,860px)] overflow-hidden flex flex-col"
+        className="command-dialog"
+        ref={dialogRef}
+        role="dialog" aria-modal="true" aria-labelledby="command-library-title"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-[#3d3d5c]">
+        <div className="command-header">
           <div>
-            <h2 className="text-white text-xl font-bold">🦣 Command Library</h2>
-            <p className="text-[#8888aa] text-sm mt-0.5">All MammothOS agent capabilities</p>
+            <h2 id="command-library-title">🦣 Command Library</h2>
+            <p>Command examples, not a live availability check. Access and approvals are enforced by the backend.</p>
           </div>
           {onClose && (
-            <button onClick={onClose} className="text-[#8888aa] hover:text-white text-xl">✕</button>
+            <button onClick={onClose} aria-label="Close command library">✕</button>
           )}
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 p-4 border-b border-[#3d3d5c]">
+        <div className="command-filters">
           <input
-            className="flex-1 bg-[#0d0d1a] border border-[#3d3d5c] rounded-lg px-3 py-2 text-white text-sm placeholder-[#555577] focus:outline-none focus:border-[#6655cc]"
+            aria-label="Search commands"
             placeholder="Search commands..."
             value={query}
             onChange={e => setQuery(e.target.value)}
-            autoFocus
           />
           <select
-            className="bg-[#0d0d1a] border border-[#3d3d5c] rounded-lg px-3 py-2 text-white text-sm focus:outline-none min-w-[140px] w-full sm:w-auto"
+            aria-label="Filter commands by agent"
             value={agentFilter}
             onChange={e => setAgentFilter(e.target.value)}
           >
@@ -90,24 +109,20 @@ export default function AgentCommandLibrary({ onClose }) {
           </select>
         </div>
 
-        <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-2">
+        <div className="command-results">
           {filtered.length === 0 && (
-            <p className="text-[#555577] text-sm text-center py-8">No commands match your search.</p>
+            <p className="command-empty">No commands match your search.</p>
           )}
           {filtered.map((c, i) => (
-            <div key={i} className="bg-[#0d0d1a] border border-[#2a2a45] rounded-xl p-4 hover:border-[#6655cc] transition-colors">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-[#6655cc] font-mono text-sm font-bold">{c.agent}</span>
-                <span className="text-[#555577]">›</span>
-                <span className="text-white font-mono text-sm">{c.cmd}</span>
-              </div>
-              <p className="text-[#aaaacc] text-sm mb-2">{c.desc}</p>
-              <code className="text-[#555577] text-xs font-mono block">{c.example}</code>
+            <div key={i} className="command-item">
+              <header><strong>{c.agent}</strong><span>›</span><span>{c.cmd}</span></header>
+              <p>{c.desc}</p>
+              <code>{c.example}</code>
             </div>
           ))}
         </div>
 
-        <div className="p-3 border-t border-[#3d3d5c] text-center text-[#555577] text-xs">
+        <div className="command-footer">
           {filtered.length} of {COMMANDS.length} commands
         </div>
       </div>

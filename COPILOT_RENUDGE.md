@@ -64,11 +64,11 @@ All 17+ endpoints bridging the React UI to the Python agents:
 8. **Lessons** — quick ATLAS lesson start + embedded chat
 9. **ATLAS Tutor** — full 3-column: curriculum tree | exercise + code editor | tutor chat + model picker
 10. **Build Log** — tagged build entry log
-11. **Settings** — system info, env keys, ATLAS reset, theme toggle, AI runtime status
+11. **Settings** — system info, env keys, ATLAS reset, Dark-only appearance status, AI runtime status
 
 **Global features:**
 - Mammoth Mind header pill (top-right next to notifications, ALL pages) opening a quick panel; replaced the old floating ATLAS FAB
-- Theme toggle: Dark / Aurora — writes CSS custom properties live, persists to localStorage, and normalizes legacy darker/midnight values to Dark
+- Dark-only appearance: Aurora is paused, theme toggles are removed, and saved Aurora/legacy preferences migrate to Dark with old inline colors cleared
 - Design system: `--shell #050608`, `--photon #4da6ff`, `--cyan #00f5d4`, `--violet #b47cff`, glass cards, CRT scanlines, JetBrains Mono
 
 ### Supabase

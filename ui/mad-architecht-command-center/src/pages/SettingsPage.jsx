@@ -18,15 +18,10 @@ import {
 } from 'lucide-react'
 import { api } from '../api/client'
 
-const THEME_OPTIONS = [
-  { id: 'dark', label: 'Dark', bg: '#050608' },
-  { id: 'aurora', label: 'Aurora', bg: '#f4f7fb' },
-]
-
 const emptyProfile = { display_name: '', email: '', organization: '' }
 const emptyWorkspaceAccount = { display_name: '', email: '', organization: '', account_id: '' }
 
-export default function SettingsPage({ theme, setTheme }) {
+export default function SettingsPage() {
   const [status, setStatus] = useState(null)
   const [health, setHealth] = useState(null)
   const [models, setModels] = useState(null)
@@ -263,33 +258,9 @@ export default function SettingsPage({ theme, setTheme }) {
             <Palette size={16} color="var(--violet)" />
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 600, margin: 0 }}>Theme</p>
           </div>
-          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-            {THEME_OPTIONS.map((t) => {
-              const active = (theme || 'dark') === t.id || (theme === 'darker' && t.id === 'dark') || (theme === 'midnight' && t.id === 'dark')
-              return (
-                <div
-                  key={t.id}
-                  onClick={() => setTheme && setTheme(t.id)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '10px 16px',
-                    borderRadius: 10,
-                    cursor: 'pointer',
-                    background: t.bg,
-                    border: `2px solid ${active ? 'var(--violet)' : 'rgba(255,255,255,0.08)'}`,
-                    boxShadow: active ? '0 0 12px rgba(168,85,247,0.35)' : 'none',
-                  }}
-                >
-                  <div style={{ width: 16, height: 16, borderRadius: '50%', background: t.bg, border: `2px solid ${active ? 'var(--violet)' : 'rgba(255,255,255,0.2)'}` }} />
-                  <span style={{ fontSize: '0.82rem', color: active ? 'var(--violet)' : 'var(--txt-pri)', fontWeight: active ? 600 : 400 }}>{t.label}</span>
-                </div>
-              )
-            })}
-          </div>
-          <p style={{ marginBottom: 0, fontSize: '0.72rem', color: 'var(--txt-mut)' }}>
-            Active: <span style={{ color: 'var(--violet)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 600 }}>{theme === 'darker' || theme === 'midnight' || !theme ? 'dark' : theme}</span>
+          <p style={{ fontSize: '0.85rem', color: 'var(--txt-pri)', marginBottom: 8 }}>Dark mode is active.</p>
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
+            Dark is currently the only supported appearance while the platform is being polished. Older saved theme preferences are migrated automatically.
           </p>
         </div>
 

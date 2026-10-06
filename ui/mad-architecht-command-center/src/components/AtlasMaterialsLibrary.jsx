@@ -170,7 +170,7 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
       {preview && (
         <section aria-label="Document extraction preview" style={{ overflowWrap: 'anywhere' }}>
           <strong>{preview.name}</strong> · {preview.processing_status}
-          <form onSubmit={event => { event.preventDefault(); showPreview(preview.file_id, previewQuery) }}>
+          <form style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '12px 0' }} onSubmit={event => { event.preventDefault(); showPreview(preview.file_id, previewQuery) }}>
             <input aria-label="Search document sections" value={previewQuery} onChange={event => setPreviewQuery(event.target.value)} placeholder="Topic, page 42, or slide 12" />
             <button type="submit">Find sections</button>
             <button type="button" onClick={() => setPreview(null)}>Close preview</button>
@@ -207,7 +207,7 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
                 onClick={() => onToggleAttach && onToggleAttach(file, !isAttached)}
                 title={isAttached ? 'Remove from session' : 'Add to this lesson session'}
                 style={{
-                  width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                  width: 22, height: 22, padding: 0, borderRadius: 6, flexShrink: 0,
                   border: `1px solid ${isAttached ? 'rgba(77,166,255,0.6)' : 'rgba(255,255,255,0.18)'}`,
                   background: isAttached ? 'rgba(77,166,255,0.2)' : 'rgba(255,255,255,0.04)',
                   cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',

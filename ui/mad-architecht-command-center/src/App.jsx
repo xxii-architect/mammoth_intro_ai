@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 
 import { useAuth, useIsAdminHost } from './lib/authContext'
+import RenderBoundary from './components/RenderBoundary'
 import { signOut } from './lib/supabase'
 import useIsMobile from './lib/useIsMobile'
 import { api } from './api/client'
@@ -69,27 +70,10 @@ function LogoMark({ src, alt, fallback, size = 20, style = {} }) {
 
 const THEME_STORAGE_KEY = 'mammoth-theme'
 
-const THEMES = {
-  dark: { '--shell': '#050608', '--card': '#0d1117', '--card-hover': '#161b22' },
-  aurora: {
-    '--shell': '#f4f7fb',
-    '--card': '#ffffff',
-    '--card-hover': '#eaf0f8',
-    '--photon': '#2563eb',
-    '--cyan': '#0ea5a4',
-    '--violet': '#7c3aed',
-    '--txt-pri': '#0f172a',
-    '--txt-sec': '#475569',
-    '--txt-mut': '#64748b',
-    '--border': 'rgba(15,23,42,0.12)',
-  },
-}
-
-const normalizeTheme = (value) => {
-  if (value === 'darker' || value === 'midnight' || value === 'dark') return 'dark'
-  if (value === 'aurora') return 'aurora'
-  return 'dark'
-}
+const THEME_COLOR_KEYS = [
+  '--shell', '--card', '--card-hover', '--photon', '--cyan', '--violet',
+  '--txt-pri', '--txt-sec', '--txt-mut', '--border',
+]
 
 const NAV = [
   { section: 'Workspace' },
@@ -780,15 +764,6 @@ export default function App() {
   const [page, setPage] = useState('home')
   const { hasSeenOnboarding, isLoading: onboardingLoading, completeOnboarding } = useOnboardingState()
   const [showOnboardingModal, setShowOnboardingModal] = useState(false)
-  const [theme, setTheme] = useState(() => {
-    if (typeof window === 'undefined') return 'dark'
-    try {
-      const saved = window.localStorage.getItem(THEME_STORAGE_KEY)
-      return normalizeTheme(saved || 'dark')
-    } catch {
-      return 'dark'
-    }
-  })
   const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 768)
   const isMobile = useIsMobile()
   const [adminAccess, setAdminAccess] = useState(null)
@@ -849,15 +824,14 @@ export default function App() {
   }, [session, isAdminHost, fallbackAdminFromEmail])
 
   useEffect(() => {
-    const safeTheme = normalizeTheme(theme)
-    const vars = THEMES[safeTheme] || THEMES.dark
-    Object.entries(vars).forEach(([k, v]) => document.documentElement.style.setProperty(k, v))
+    THEME_COLOR_KEYS.forEach(key => document.documentElement.style.removeProperty(key))
+    document.documentElement.style.colorScheme = 'dark'
     try {
-      window.localStorage.setItem(THEME_STORAGE_KEY, safeTheme)
+      window.localStorage.setItem(THEME_STORAGE_KEY, 'dark')
     } catch {
       // Ignore restricted browser storage errors.
     }
-  }, [theme])
+  }, [])
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined
@@ -986,15 +960,6 @@ export default function App() {
               {user.email || (isGuest ? 'Guest session' : 'Signed in')}
             </div>
           )}
-          <select
-            value={normalizeTheme(theme)}
-            onChange={e => setTheme(normalizeTheme(e.target.value))}
-            style={{ width: '100%', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, color: 'var(--txt-sec)', fontSize: '0.72rem', padding: '4px 6px', cursor: 'pointer' }}
-          >
-            {Object.keys(THEMES).map(t => (
-              <option key={t} value={t}>{t === 'dark' ? 'Dark' : 'Aurora'}</option>
-            ))}
-          </select>
           {/* Sign out button only shown when real Supabase session exists */}
           {session && supabaseConfigured && (
             <button
@@ -1043,9 +1008,11 @@ export default function App() {
           </div>
         )}
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
+          <RenderBoundary key={`${user?.id || 'local'}:${page}`}>
           <Suspense fallback={<div style={{ padding: 28, color: 'var(--txt-sec)' }}>Loading page…</div>}>
             {gate ? <AccessPreviewPage gate={gate} entitlements={entitlements} setPage={setPage} /> : <PageComponent setPage={setPage} />}
           </Suspense>
+          </RenderBoundary>
         </div>
       </div>
 

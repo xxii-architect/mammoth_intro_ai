@@ -16,6 +16,11 @@ Keep pacing separate from experience/mastery, and coverage-only feedback out of
 mastery increases. Topic-specific learner evidence drives difficulty recommendations.
 
 ## Working rules
+- The UI does not load Tailwind. Use theme CSS or existing inline styles; utility-looking class names alone do not style controls or modals.
+- Appearance is currently Dark-only by product decision. Do not reintroduce Aurora or inactive theme toggles; App migrates saved preferences and clears legacy inline colors back to CSS tokens.
+- Keep startup/module-import and auth failures visible and retryable. Deploy hashed assets before atomically replacing HTML, and retain prior chunks for already-open tabs.
+- `GET /api/atlas/lesson-notes` rebuilds scoped lesson resources; do not reintroduce unrelated recent-note fallbacks or serve old cached resume notes as learner content. Flashcards need real answers from saved Q/A or teaching content, never objective-only prompts or implicit demo decks.
+- MCP launcher presence means configured, not healthy. Only a live initialized MCP client verifies a connection; preserve context/access checks and never start servers just to list their status.
 - Treat `src/mammoth_os/agent_registry.py` as the canonical registry for agent manifests, capabilities, and health state.
 - Treat `api_server.py` as the integration surface for UI and workflow wiring. Do not hard-code agent statuses in the frontend when the backend can provide them.
 - Keep `api_server.py` as the public FastAPI entrypoint. Route handlers live in `server_routes/` and are executed into `api_server`'s namespace, so existing imports, monkeypatches, and `uvicorn api_server:app` stay stable. Add new routes to the matching `server_routes/*_routes.py` file; keep shared helpers out of those files.

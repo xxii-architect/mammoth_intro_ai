@@ -1,14 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Brain, ChevronLeft, ChevronRight, RotateCcw, CheckCircle, XCircle, Shuffle, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
-
-const SAMPLE_CARDS = [
-  { q: 'What is a closure in JavaScript?', a: 'A function that retains access to its outer scope variables even after the outer function has returned.' },
-  { q: 'What does async/await do in Python?', a: 'Allows writing asynchronous code that looks synchronous. async defines a coroutine, await pauses execution until the awaited coroutine completes.' },
-  { q: 'What is the difference between == and === in JavaScript?', a: '== checks value equality with type coercion. === checks value AND type equality (strict).' },
-  { q: 'What is a REST API?', a: 'An architectural style for APIs using HTTP methods (GET, POST, PUT, DELETE) to perform operations on resources identified by URLs.' },
-  { q: 'What does the box-sizing: border-box CSS property do?', a: 'Makes padding and border included in the element\'s total width and height, preventing unexpected layout overflow.' },
-]
+import { useAuth } from '../lib/authContext'
 
 function normalizeCard(raw, index) {
   if (!raw || typeof raw !== 'object') return null
@@ -24,13 +17,19 @@ function normalizeCard(raw, index) {
 }
 
 export default function FlashcardsPage() {
-  const [cards, setCards] = useState(SAMPLE_CARDS)
+  const auth = useAuth()
+  return <FlashcardDeck key={auth?.user?.id || 'local'} />
+}
+
+function FlashcardDeck() {
+  const [cards, setCards] = useState([])
   const [index, setIndex] = useState(0)
   const [flipped, setFlipped] = useState(false)
   const [score, setScore] = useState({ got: 0, missed: 0 })
   const [done, setDone] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [reload, setReload] = useState(0)
 
   const total = cards.length
   const current = cards[index] || { q: 'No cards in this deck yet.', a: 'Add or sync a lesson deck to begin review.' }
@@ -38,21 +37,26 @@ export default function FlashcardsPage() {
   const accuracy = attempted > 0 ? Math.round((score.got / attempted) * 100) : 0
 
   useEffect(() => {
+    let alive = true
     setLoading(true)
     setLoadError('')
     api('/flashcards')
       .then(data => {
-        if (!Array.isArray(data?.cards)) return
+        if (!alive) return
+        if (!Array.isArray(data?.cards)) throw new Error('The backend returned an invalid flashcard deck.')
         const normalized = data.cards
           .map((card, index) => normalizeCard(card, index))
           .filter(Boolean)
-        if (normalized.length > 0) setCards(normalized)
+        if (normalized.length !== data.cards.length) throw new Error('The deck includes cards without a question and answer.')
+        setCards(normalized)
+        reset()
       })
       .catch(err => {
-        setLoadError(err instanceof Error ? err.message : 'Could not load flashcards from the backend.')
+        if (alive) setLoadError(err instanceof Error ? err.message : 'Could not load flashcards from the backend.')
       })
-      .finally(() => setLoading(false))
-  }, [])
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [reload])
 
   const flip = () => setFlipped(f => !f)
 
@@ -98,7 +102,8 @@ export default function FlashcardsPage() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button onClick={shuffle} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.78rem' }}>
+            <button disabled={loading} onClick={() => setReload(value => value + 1)}>Refresh deck</button>
+            <button onClick={shuffle} disabled={!total || loading || Boolean(loadError)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.78rem' }}>
               <Shuffle size={14} /> Shuffle
             </button>
             <button onClick={reset} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.78rem' }}>
@@ -127,7 +132,11 @@ export default function FlashcardsPage() {
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, border: '1px solid rgba(239,68,68,0.22)', background: 'rgba(127,29,29,0.18)', color: '#fecaca', fontSize: '0.78rem' }}>{loadError}</div>
       ) : null}
 
-      {!done ? (
+      {loading || loadError || !total ? (
+        <div className="glass-card-solid" style={{ padding: 24, lineHeight: 1.7 }}>
+          {loading ? 'Loading your lesson deck...' : loadError ? 'Deck unavailable. Use Refresh deck to retry.' : 'No answered flashcards yet. Start a lesson with teaching content or save a question-and-answer deck from ATLAS.'}
+        </div>
+      ) : !done ? (
         <>
           <div onClick={flip} style={{
             minHeight: 240,

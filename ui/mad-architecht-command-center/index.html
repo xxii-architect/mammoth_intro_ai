@@ -11,7 +11,29 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root" style="min-height:100vh">
+      <div id="boot-status" role="status" style="padding:28px;font-family:system-ui;color:#e2e8f0;background:#050608;min-height:100vh">
+        Loading MammothOS...
+      </div>
+    </div>
+    <script>
+      function showBootFailure() {
+        const status = document.getElementById('boot-status')
+        if (!status) return
+        status.setAttribute('role', 'alert')
+        status.textContent = 'MammothOS could not load. Check your connection, then '
+        const retry = document.createElement('button')
+        retry.textContent = 'Reload platform'
+        retry.style.cssText = 'padding:10px 16px;color:#e2e8f0;background:#161b22;border:1px solid #4da6ff;border-radius:10px;cursor:pointer'
+        retry.onclick = () => location.reload()
+        status.appendChild(retry)
+      }
+      window.addEventListener('error', event => {
+        if (event.target instanceof HTMLScriptElement || event.error) showBootFailure()
+      }, true)
+      window.addEventListener('unhandledrejection', showBootFailure)
+      setTimeout(showBootFailure, 20000)
+    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
