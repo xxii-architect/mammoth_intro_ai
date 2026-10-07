@@ -172,7 +172,7 @@ export default function BuildLogPage() {
   const notesBlock = (label, value, Icon) => (
     <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <Icon size={14} color="var(--cyan)" />
+        <Icon size={14} color="var(--mm-color-system-default)" />
         <span style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>{label}</span>
       </div>
       <div style={{ whiteSpace: 'pre-wrap', fontSize: '0.82rem', lineHeight: 1.6, color: 'var(--txt-sec)' }}>
@@ -226,8 +226,8 @@ export default function BuildLogPage() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 18 }}>
         {statCard('Sessions logged', String(totalSessions), 'Running total of operator records')}
-        {statCard('Latest project', mostRecentProject, 'Most recent build target', 'var(--cyan)')}
-        {statCard('Avg confidence', totalSessions ? `${avgConfidence}/10` : '0/10', 'Confidence trend from debriefs', 'var(--violet)')}
+        {statCard('Latest project', mostRecentProject, 'Most recent build target', 'var(--mm-color-system-default)')}
+        {statCard('Avg confidence', totalSessions ? `${avgConfidence}/10` : '0/10', 'Confidence trend from debriefs', 'var(--mm-color-agent-default)')}
         {statCard('Future module lane', String(MODULE_ROADMAP.length), 'Domain tracks queued for curriculum expansion', 'var(--photon)')}
       </div>
 
@@ -368,7 +368,7 @@ export default function BuildLogPage() {
                 </section>
 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button type="submit" disabled={saving} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: 'var(--photon)', color: '#050608', fontWeight: 700, cursor: 'pointer' }}>
+                  <button type="submit" disabled={saving} style={{ padding: '9px 18px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, cursor: 'pointer' }}>
                     {saving ? 'Saving…' : 'Save Session Entry'}
                   </button>
                   <button type="button" onClick={() => setShowForm(false)} style={{ padding: '9px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'none', color: 'var(--txt-sec)', cursor: 'pointer' }}>
@@ -397,7 +397,7 @@ export default function BuildLogPage() {
                     <span
                       key={tag}
                       onClick={() => setFilter(tag)}
-                      style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', padding: '4px 10px', borderRadius: 20, border: `1px solid ${filter === tag ? 'var(--cyan)' : 'var(--border)'}`, background: filter === tag ? 'rgba(0,245,212,0.08)' : 'rgba(255,255,255,0.04)', color: filter === tag ? 'var(--cyan)' : 'var(--txt-sec)', cursor: 'pointer' }}
+                      style={{ fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', padding: '4px 10px', borderRadius: 20, border: `1px solid ${filter === tag ? 'var(--mm-color-system-default)' : 'var(--border)'}`, background: filter === tag ? 'rgba(var(--mm-color-system-rgb),0.08)' : 'rgba(255,255,255,0.04)', color: filter === tag ? 'var(--mm-color-system-default)' : 'var(--txt-sec)', cursor: 'pointer' }}
                     >
                       #{tag}
                     </span>
@@ -427,12 +427,12 @@ export default function BuildLogPage() {
                         </div>
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                        <span style={{ fontSize: '0.68rem', fontFamily: 'JetBrains Mono,monospace', color: entry.status === 'YES' ? '#22c55e' : entry.status === 'NO' ? '#f87171' : 'var(--cyan)' }}>
+                        <span style={{ fontSize: '0.68rem', fontFamily: 'JetBrains Mono,monospace', color: entry.status === 'YES' ? '#22c55e' : entry.status === 'NO' ? '#f87171' : 'var(--mm-color-system-default)' }}>
                           {entry.status || 'LOGGED'}
                         </span>
                         <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 4 }}>
                           {(entry.tags || []).slice(0, 4).map((tag) => (
-                            <span key={tag} style={{ fontSize: '0.62rem', fontFamily: 'JetBrains Mono,monospace', padding: '2px 6px', borderRadius: 10, background: 'rgba(0,245,212,0.08)', color: 'var(--cyan)', border: '1px solid rgba(0,245,212,0.2)' }}>
+                            <span key={tag} style={{ fontSize: '0.62rem', fontFamily: 'JetBrains Mono,monospace', padding: '2px 6px', borderRadius: 10, background: 'rgba(var(--mm-color-system-rgb),0.08)', color: 'var(--mm-color-system-default)', border: '1px solid rgba(var(--mm-color-system-rgb),0.2)' }}>
                               #{tag}
                             </span>
                           ))}

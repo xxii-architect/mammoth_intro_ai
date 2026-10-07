@@ -72,7 +72,7 @@ export default function OnboardingChecklist({ setPage }) {
         </div>
         {/* Progress bar */}
         <div style={{ width: 80, height: 5, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
-          <div style={{ width: `${percent}%`, height: '100%', background: 'var(--photon)', borderRadius: 99, transition: 'width 0.4s' }} />
+          <div style={{ width: `${percent}%`, height: '100%', background: 'var(--mm-color-action-primary)', borderRadius: 99, transition: 'width 0.4s' }} />
         </div>
         <span style={{ fontSize: '0.68rem', color: 'var(--photon)', fontWeight: 700 }}>{percent}%</span>
         {expanded ? <ChevronUp size={13} color="var(--txt-sec)" /> : <ChevronDown size={13} color="var(--txt-sec)" />}
@@ -106,7 +106,7 @@ export default function OnboardingChecklist({ setPage }) {
                   border: 'none',
                   padding: 0,
                   cursor: step.completed ? 'default' : 'pointer',
-                  color: step.completed ? 'var(--cyan)' : 'var(--txt-mut)',
+                  color: step.completed ? 'var(--mm-color-system-default)' : 'var(--txt-mut)',
                   flexShrink: 0,
                   marginTop: 1,
                 }}

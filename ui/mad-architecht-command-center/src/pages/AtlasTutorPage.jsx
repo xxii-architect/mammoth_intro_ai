@@ -623,7 +623,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
             </button>
             <button
               onClick={() => { setShowRightPanel(p => !p); setShowLeftPanel(false) }}
-              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: `1px solid ${showRightPanel ? 'rgba(180,124,255,0.5)' : 'var(--border)'}`, background: showRightPanel ? 'rgba(180,124,255,0.1)' : 'rgba(255,255,255,0.04)', color: showRightPanel ? 'var(--violet)' : 'var(--txt-sec)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
+              style={{ flex: 1, padding: '8px 10px', borderRadius: 8, border: `1px solid ${showRightPanel ? 'rgba(var(--mm-color-agent-rgb),0.5)' : 'var(--border)'}`, background: showRightPanel ? 'rgba(var(--mm-color-agent-rgb),0.1)' : 'rgba(255,255,255,0.04)', color: showRightPanel ? 'var(--mm-color-agent-default)' : 'var(--txt-sec)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}
             >
               💬 ATLAS Chat
             </button>
@@ -632,7 +632,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
       </div>}
 
       {!conversationOnly && billingWarning.show && (
-        <div className="glass-card-solid" style={{ padding: '12px 14px', border: `1px solid ${billingWarning.color}55`, background: `${billingWarning.color}14` }}>
+        <div className="glass-card-solid" style={{ padding: '12px 14px', border: `1px solid color-mix(in srgb, ${billingWarning.color} 33.33%, transparent)`, background: `color-mix(in srgb, ${billingWarning.color} 7.84%, transparent)` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <AlertTriangle size={15} color={billingWarning.color} />
@@ -649,7 +649,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
       )}
 
       {!conversationOnly && (result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
-        <div className="glass-card-solid" style={{ padding: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(0,245,212,0.8)' }}>
+        <div className="glass-card-solid" style={{ padding: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(var(--mm-color-system-rgb),0.8)' }}>
           {result?.error ? (
             <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>Tutor action failed: {result.error}</div>
           ) : (
@@ -708,7 +708,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
               placeholder="e.g. Python for loops"
               style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }} />
             <button onClick={startLesson} disabled={loading}
-              style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--photon)', color: '#050608', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+              style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 600, fontSize: '0.82rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
               {loading ? 'Loading…' : 'Start Lesson'}
             </button>
           </div>
@@ -749,7 +749,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
                 rows={2}
                 style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical' }} />
               <button onClick={saveOnboarding} disabled={loading}
-                style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--cyan)', color: '#050608', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+                style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
                 {loading ? 'Saving…' : 'Save learning profile'}
               </button>
             </div>
@@ -899,7 +899,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 10 }}>
                 <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Confidence</div>
-                  <div style={{ marginTop: 6, fontSize: '1.35rem', fontWeight: 800, color: 'var(--cyan)' }}>{confidenceSummary.confidence}%</div>
+                  <div style={{ marginTop: 6, fontSize: '1.35rem', fontWeight: 800, color: 'var(--mm-color-system-default)' }}>{confidenceSummary.confidence}%</div>
                 </div>
                 <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Difficulty</div>
@@ -946,7 +946,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={submitCode} disabled={loading}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--photon)', color: '#050608', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
                     <Send size={13} /> {loading ? 'Submitting…' : 'Submit'}
                   </button>
                   <button onClick={prevLesson} disabled={loading}
@@ -1014,7 +1014,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
                   </select>
                   <button onClick={runAtlasPlan} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.12)', color: 'var(--photon)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Build Plan</button>
                   <button onClick={runAtlasEvals} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(34,197,94,0.12)', color: '#22c55e', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>Run Evals</button>
-                  <button onClick={regenerateExercise} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.12)', color: 'var(--violet)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>New Variant</button>
+                  <button onClick={regenerateExercise} disabled={loading} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)', background: 'rgba(var(--mm-color-agent-rgb),0.12)', color: 'var(--mm-color-agent-default)', fontSize: '0.76rem', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.65 : 1 }}>New Variant</button>
                 </div>
               )}
             </div>
@@ -1251,8 +1251,8 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <MessageSquare size={14} color="var(--violet)" />
-                <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--violet)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>
+                <MessageSquare size={14} color="var(--mm-color-agent-default)" />
+                <p style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--mm-color-agent-default)', textTransform: 'uppercase', letterSpacing: '0.12em', margin: 0 }}>
                   {chatMode === 'assistant' ? 'ATLAS Assistant' : chatMode === 'build' ? 'ATLAS Build' : 'ATLAS Tutor'}
                 </p>
               </div>
@@ -1295,7 +1295,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
               const hasGuideSteps = Array.isArray(msg.guide_steps) && msg.guide_steps.length > 0
               return (
                 <div key={i}>
-                  <p style={{ fontSize: '0.68rem', color: msg.role === 'user' ? 'var(--photon)' : 'var(--cyan)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  <p style={{ fontSize: '0.68rem', color: msg.role === 'user' ? 'var(--photon)' : 'var(--mm-color-system-default)', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                     {msg.role === 'user' ? 'You' : 'ATLAS'}
                   </p>
                   <div style={{ padding: '8px 10px', borderRadius: 10, background: msg.role === 'user' ? 'rgba(77,166,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
@@ -1331,7 +1331,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
             {chatBusy && (
               <div style={{ display: 'flex', gap: 4, padding: '4px 0' }}>
                 {[0, 1, 2].map(i => (
-                  <span key={i} className="thinking-dot" style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--violet)', display: 'inline-block' }} />
+                  <span key={i} className="thinking-dot" style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--mm-color-agent-default)', display: 'inline-block' }} />
                 ))}
               </div>
             )}
@@ -1343,7 +1343,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
             {attachedMaterials.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {attachedMaterials.map((file) => (
-                  <span key={file.file_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 999, border: '1px solid rgba(180,124,255,0.3)', background: 'rgba(180,124,255,0.12)', color: 'var(--txt-sec)', fontSize: '0.66rem', padding: '3px 8px' }}>
+                  <span key={file.file_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 999, border: '1px solid rgba(var(--mm-color-agent-rgb),0.3)', background: 'rgba(var(--mm-color-agent-rgb),0.12)', color: 'var(--txt-sec)', fontSize: '0.66rem', padding: '3px 8px' }}>
                     <Paperclip size={10} />
                     <span>{file.name || file.file_id}</span>
                     <button
@@ -1367,7 +1367,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
             />
           </div>
           <button onClick={sendChat} disabled={chatBusy}
-            style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: chatBusy ? 'rgba(180,124,255,0.3)' : 'var(--violet)', color: '#fff', fontWeight: 700, cursor: chatBusy ? 'not-allowed' : 'pointer', fontSize: '0.8rem', alignSelf: 'end' }}>
+            style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: chatBusy ? 'var(--card-hover)' : 'var(--mm-color-action-primary)', color: chatBusy ? 'var(--txt-mut)' : 'var(--mm-color-action-text)', fontWeight: 700, cursor: chatBusy ? 'not-allowed' : 'pointer', fontSize: '0.8rem', alignSelf: 'end' }}>
             {chatBusy ? '…' : '↑'}
           </button>
           </div>
@@ -1384,7 +1384,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
           onClick={() => setAtlasLibraryOpen(p => !p)}
           style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.78rem', width: '100%' }}
         >
-          <BookOpen size={14} color="var(--violet)" />
+          <BookOpen size={14} color="var(--mm-color-agent-default)" />
           <span style={{ fontWeight: 600 }}>Learning Materials</span>
           <ChevronRight size={12} style={{ marginLeft: 'auto', transform: atlasLibraryOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
         </button>

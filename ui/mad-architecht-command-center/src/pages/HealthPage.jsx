@@ -31,7 +31,7 @@ export default function HealthPage() {
     <div className="page-enter" style={{ padding: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h1 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <HeartPulse size={20} color="var(--cyan)" /> System Health
+          <HeartPulse size={20} color="var(--mm-color-system-default)" /> System Health
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {lastCheck && (

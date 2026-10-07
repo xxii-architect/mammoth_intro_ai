@@ -399,7 +399,7 @@ export default function AccountPage({ setPage }) {
   const usageTone = useMemo(() => {
     if (usageWarning === 'blocked' || usageWarning === 'critical') return '#f87171'
     if (usageWarning === 'elevated') return '#f59e0b'
-    return 'var(--cyan)'
+    return 'var(--mm-color-system-default)'
   }, [usageWarning])
 
   const weeklyActivity = useMemo(() => {
@@ -441,7 +441,7 @@ export default function AccountPage({ setPage }) {
       return {
         goal,
         status: Boolean(goalMilestones[goal]) ? 'Milestone complete' : completed ? 'Momentum building' : confidenceTracked ? 'In progress' : 'Just getting started',
-        tone: completed ? 'var(--cyan)' : confidenceTracked ? 'var(--violet)' : 'var(--txt-mut)',
+        tone: completed ? 'var(--mm-color-system-default)' : confidenceTracked ? 'var(--mm-color-agent-default)' : 'var(--txt-mut)',
       }
     })
   ), [completionRate, confidenceTopics.length, goalMilestones, onboardingGoals])
@@ -574,7 +574,7 @@ export default function AccountPage({ setPage }) {
           style={{
             marginBottom: 14,
             padding: '10px 12px',
-            borderLeft: `3px solid ${error ? '#f87171' : 'var(--cyan)'}`,
+            borderLeft: `3px solid ${error ? '#f87171' : 'var(--mm-color-system-default)'}`,
             color: error ? '#fecaca' : 'var(--txt-sec)',
             fontSize: '0.77rem',
             lineHeight: 1.5,
@@ -614,7 +614,7 @@ export default function AccountPage({ setPage }) {
               <p style={{ margin: 0, fontSize: '0.68rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--txt-sec)', fontWeight: 700 }}>Progress story</p>
               <h2 style={{ margin: '6px 0 0', fontSize: '1rem', color: 'var(--txt-pri)' }}>You started here. Look how far the work has already moved.</h2>
             </div>
-            <div style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(0,245,212,0.26)', background: 'rgba(0,245,212,0.08)', color: 'var(--cyan)', fontSize: '0.72rem', fontWeight: 700 }}>
+            <div style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(var(--mm-color-system-rgb),0.26)', background: 'rgba(var(--mm-color-system-rgb),0.08)', color: 'var(--mm-color-system-default)', fontSize: '0.72rem', fontWeight: 700 }}>
               {completionRate}% lesson completion
             </div>
           </div>
@@ -707,7 +707,7 @@ export default function AccountPage({ setPage }) {
               gap: 6,
               border: 'none',
               borderRadius: 8,
-              background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+              background: 'var(--mm-color-action-primary)',
               color: '#050608',
               fontWeight: 700,
               padding: '8px 12px',
@@ -726,9 +726,9 @@ export default function AccountPage({ setPage }) {
           </div>
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--cyan)' }}>
+        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--mm-color-system-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Clock3 size={15} color="var(--cyan)" />
+            <Clock3 size={15} color="var(--mm-color-system-default)" />
             <p style={{ margin: 0, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>
               Activity snapshot
             </p>
@@ -776,7 +776,7 @@ export default function AccountPage({ setPage }) {
           <button
             onClick={saveGoals}
             disabled={goalSaving}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12, border: 'none', borderRadius: 8, background: 'linear-gradient(90deg, var(--ember), var(--amber))', color: '#050608', fontWeight: 700, padding: '8px 12px', cursor: 'pointer', opacity: goalSaving ? 0.7 : 1 }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 12, border: 'none', borderRadius: 8, background: 'var(--mm-color-action-primary)', color: 'var(--mm-color-action-text)', fontWeight: 700, padding: '8px 12px', cursor: 'pointer', opacity: goalSaving ? 0.7 : 1 }}
           >
             <Save size={13} /> {goalSaving ? 'Saving goals…' : 'Save goals'}
           </button>
@@ -807,9 +807,9 @@ export default function AccountPage({ setPage }) {
           )}
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--violet)' }}>
+        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--mm-color-agent-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Brain size={15} color="var(--violet)" />
+            <Brain size={15} color="var(--mm-color-agent-default)" />
             <p style={{ margin: 0, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>
               Learning profile
             </p>
@@ -829,7 +829,7 @@ export default function AccountPage({ setPage }) {
                   <p style={{ margin: '0 0 6px', fontSize: '0.66rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Focus areas</p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {focusAreas.map((item) => (
-                      <span key={item} style={{ fontSize: '0.68rem', border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.1)', color: 'var(--violet)', borderRadius: 999, padding: '3px 8px' }}>
+                      <span key={item} style={{ fontSize: '0.68rem', border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)', background: 'rgba(var(--mm-color-agent-rgb),0.1)', color: 'var(--mm-color-agent-default)', borderRadius: 999, padding: '3px 8px' }}>
                         {item}
                       </span>
                     ))}
@@ -841,7 +841,7 @@ export default function AccountPage({ setPage }) {
                   <p style={{ margin: '0 0 6px', fontSize: '0.66rem', color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>Coach recommends more reps on</p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {weakConcepts.map((item) => (
-                      <span key={item} style={{ fontSize: '0.68rem', border: '1px solid rgba(244,114,182,0.35)', background: 'rgba(244,114,182,0.1)', color: '#f472b6', borderRadius: 999, padding: '3px 8px' }}>
+                      <span key={item} style={{ fontSize: '0.68rem', border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)', background: 'rgba(var(--mm-color-agent-rgb),0.1)', color: 'var(--mm-color-agent-default)', borderRadius: 999, padding: '3px 8px' }}>
                         {item}
                       </span>
                     ))}
@@ -852,9 +852,9 @@ export default function AccountPage({ setPage }) {
           )}
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--cyan)' }}>
+        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--mm-color-system-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <BarChart3 size={15} color="var(--cyan)" />
+            <BarChart3 size={15} color="var(--mm-color-system-default)" />
             <p style={{ margin: 0, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>
               Streak calendar heatmap
             </p>
@@ -869,9 +869,9 @@ export default function AccountPage({ setPage }) {
                     borderRadius: 8,
                     border: '1px solid rgba(255,255,255,0.06)',
                     background: day.count
-                      ? `rgba(0,245,212,${0.15 + day.intensity * 0.75})`
+                      ? `rgba(var(--mm-color-system-rgb),${0.15 + day.intensity * 0.75})`
                       : 'rgba(255,255,255,0.04)',
-                    boxShadow: day.count ? '0 0 12px rgba(0,245,212,0.12)' : 'none',
+                    boxShadow: day.count ? '0 0 12px rgba(var(--mm-color-system-rgb),0.12)' : 'none',
                   }}
                 />
                 <span style={{ fontSize: '0.62rem', color: 'var(--txt-mut)' }}>{day.label}</span>
@@ -920,7 +920,7 @@ export default function AccountPage({ setPage }) {
                         maxWidth: 34,
                         height: `${Math.max(18, Math.round((point.confidence / 100) * 110))}px`,
                         borderRadius: 999,
-                        background: point.passed ? 'linear-gradient(180deg, var(--photon), var(--cyan))' : 'rgba(244,114,182,0.7)',
+                        background: point.passed ? 'linear-gradient(180deg, var(--photon), var(--mm-color-system-default))' : 'rgba(var(--mm-color-agent-rgb),0.7)',
                       }}
                     />
                     <span style={{ fontSize: '0.62rem', color: 'var(--txt-mut)' }}>{point.label}</span>
@@ -938,9 +938,9 @@ export default function AccountPage({ setPage }) {
           )}
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--violet)' }}>
+        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--mm-color-agent-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <GitBranch size={15} color="var(--violet)" />
+            <GitBranch size={15} color="var(--mm-color-agent-default)" />
             <p style={{ margin: 0, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>
               Memory mapping
             </p>
@@ -990,9 +990,9 @@ export default function AccountPage({ setPage }) {
           )}
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--cyan)' }}>
+        <div className="glass-card-solid" style={{ padding: 18, borderLeft: '3px solid var(--mm-color-system-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-            <Trophy size={15} color="var(--cyan)" />
+            <Trophy size={15} color="var(--mm-color-system-default)" />
             <p style={{ margin: 0, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>
               Saved wins + breakthroughs
             </p>
@@ -1000,15 +1000,15 @@ export default function AccountPage({ setPage }) {
           {winsTimeline.length > 0 ? (
             <div style={{ display: 'grid', gap: 10 }}>
               {winsTimeline.map((win) => (
-                <div key={win.id} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: win.passed ? 'rgba(0,245,212,0.06)' : 'rgba(255,255,255,0.03)' }}>
+                <div key={win.id} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: win.passed ? 'rgba(var(--mm-color-system-rgb),0.06)' : 'rgba(255,255,255,0.03)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      {win.passed ? <CheckCircle2 size={14} color="var(--cyan)" /> : <Sparkles size={14} color="var(--violet)" />}
+                      {win.passed ? <CheckCircle2 size={14} color="var(--mm-color-system-default)" /> : <Sparkles size={14} color="var(--mm-color-agent-default)" />}
                       <span style={{ color: 'var(--txt-pri)', fontWeight: 600, fontSize: '0.78rem' }}>{win.title}</span>
                     </div>
                     <button
                       onClick={() => persistSavedWins({ ...savedWins, [win.id]: !savedWins[win.id] })}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: savedWins[win.id] ? 'var(--cyan)' : 'var(--txt-sec)', padding: '5px 8px', cursor: 'pointer', fontSize: '0.68rem' }}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 4, borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: savedWins[win.id] ? 'var(--mm-color-system-default)' : 'var(--txt-sec)', padding: '5px 8px', cursor: 'pointer', fontSize: '0.68rem' }}
                     >
                       {savedWins[win.id] ? <BookmarkCheck size={12} /> : <BookmarkPlus size={12} />}
                       {savedWins[win.id] ? 'Saved' : 'Save'}
@@ -1088,7 +1088,7 @@ export default function AccountPage({ setPage }) {
           <div style={{ display: 'flex', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
             <button
               onClick={() => setPage?.('pricing')}
-              style={{ border: '1px solid rgba(180,124,255,0.35)', background: 'rgba(180,124,255,0.08)', color: 'var(--violet)', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 600 }}
+              style={{ border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)', background: 'rgba(var(--mm-color-agent-rgb),0.08)', color: 'var(--mm-color-agent-default)', borderRadius: 8, padding: '7px 10px', cursor: 'pointer', fontSize: '0.74rem', fontWeight: 600 }}
             >
               Manage plan
             </button>

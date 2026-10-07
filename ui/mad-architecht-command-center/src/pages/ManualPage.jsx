@@ -52,7 +52,7 @@ const surfaceMap = [
     page: 'atlas',
     label: 'ATLAS Tutor',
     icon: GraduationCap,
-    accent: 'var(--violet)',
+    accent: 'var(--mm-color-agent-default)',
     purpose: 'Adaptive tutoring, practice loops, learner memory, and exercise feedback.',
     useWhen: 'You need lesson flow, coaching, recap/quiz/review, or guided coding practice.',
     avoid: 'Expecting Tutor mode to dump direct answers for active exercises.',
@@ -61,7 +61,7 @@ const surfaceMap = [
     page: 'agent',
     label: 'Agent',
     icon: Bot,
-    accent: 'var(--violet)',
+    accent: 'var(--mm-color-agent-default)',
     purpose: 'Chat with a specific agent, hand off with @agent, or run a Team run: preview the plan, pick steps, and get one synthesized answer. Pick a repository in the Coding agent header and it reads your real files and proposes diffs (nothing is applied or pushed). On a phone, swipe the agent chips at the top to switch agents.',
     useWhen: 'You want a specialist (research, coding, reflection, audit) to keep context across turns, or several agents to build on each other.',
     avoid: 'Running broad mutation-heavy prompts without scope, constraints, or verification criteria. The classic console is still under Advanced.',
@@ -70,7 +70,7 @@ const surfaceMap = [
     page: 'terminal',
     label: 'Terminal',
     icon: Terminal,
-    accent: 'var(--cyan)',
+    accent: 'var(--mm-color-system-default)',
     purpose: 'Direct command execution for deterministic inspection and validation.',
     useWhen: 'You already know the exact command you need to run and want raw output.',
     avoid: 'Treating Terminal like a brainstorming surface instead of an execution surface.',
@@ -182,6 +182,10 @@ const repoContextRules = [
     body: 'The owner/admin Modules view refreshes backend snapshots every 30 seconds and reports fetch failures. Catalog-only agents are unknown; discovered source files and integrated helpers are not claimed running or healthy. An MCP launcher being present means configured, not a verified connection. Connected means a live initialized MCP client in the current context. Needs context requires an authorized repository selection; needs setup requires backend configuration. Merely viewing Modules does not launch MCP servers. Platform repository and approval restrictions are unchanged.',
   },
   {
+    title: 'Color roles and keyboard focus',
+    body: 'Dark neutral surfaces and grey/white text form the base. Warm brass/copper identifies primary actions and agents; blue marks keyboard focus, links, and secondary interaction. Runtime health and success/warning/failure colors remain semantic, and destructive actions stay red. Disabled primary workspace controls are neutral. Decorative purple, pink, teal, and rainbow button gradients are removed; emoji and logo artwork are unchanged. Mammoth Mind lane and coding-task selectors retain their choices with readable dark controls and visible focus.',
+  },
+  {
     title: 'Upload and inspect learning documents',
     body: 'Chat and ATLAS use the same backend file policy: by default 50 MiB per file, 500 MiB combined raw-file storage, and 200 files per user. PDFs, DOCX, slides (PPTX), spreadsheets (XLSX), HTML, text/Markdown, CSV and supported code formats have real text readers. Transfer progress and processing are separate; extraction can be partial. Use Preview in My Learning Materials or chat’s Manage saved files to search a topic or page/slide number and inspect the extracted sections. Delete stored files to reclaim quota; removing an attachment alone does not delete them. Chat uses four attachments per request; ATLAS uses six. Retrieval searches the whole bounded extraction, not just its opening preview, but lexical matches are not factual verification. Scans need OCR, which is not enabled; embedded images and media are not transcribed. Re-upload old legacy-preview files for whole-document indexing. Cancellation may finish server-side if processing already started; use Refresh library before retrying. Delete failures retain the record rather than pretending success.',
   },
@@ -252,12 +256,12 @@ export default function ManualPage({ setPage }) {
   return (
     <div className="page-enter page-shell" style={{ maxWidth: 1180 }}>
       <h1 style={{ fontSize: '1.15rem', fontWeight: 700, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 8 }}>
-        <BookOpen size={20} color="var(--cyan)" /> MammothOS Manual
+        <BookOpen size={20} color="var(--mm-color-system-default)" /> MammothOS Manual
       </h1>
 
       <OnboardingGuide variant="banner" currentPage="manual" setPage={setPage} />
 
-      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--cyan)' }}>
+      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--mm-color-system-default)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <Compass size={16} color="var(--photon)" />
           <strong>What this page is for</strong>
@@ -269,16 +273,16 @@ export default function ManualPage({ setPage }) {
         <div className="manual-grid-wide" style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
           {liveNow.map((item) => (
             <div key={item} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.02)', color: 'var(--txt-sec)', fontSize: '0.8rem', lineHeight: 1.55, display: 'flex', gap: 8 }}>
-              <span style={{ color: 'var(--cyan)' }}>✓</span>
+              <span style={{ color: 'var(--mm-color-system-default)' }}>✓</span>
               <span>{item}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--violet)' }}>
+      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--mm-color-agent-default)' }}>
         <h2 style={{ fontSize: '0.96rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <CheckCircle2 size={16} color="var(--violet)" /> Choose the right surface
+          <CheckCircle2 size={16} color="var(--mm-color-agent-default)" /> Choose the right surface
         </h2>
         <div className="manual-grid-wide" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           {surfaceMap.map((item) => {
@@ -307,7 +311,7 @@ export default function ManualPage({ setPage }) {
       <div className="manual-grid-mid" style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         <div className="glass-card-solid" style={sectionStyle}>
           <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <GraduationCap size={16} color="var(--violet)" /> ATLAS lane guide
+            <GraduationCap size={16} color="var(--mm-color-agent-default)" /> ATLAS lane guide
           </h2>
           <div style={{ display: 'grid', gap: 10 }}>
             {laneGuide.map((item) => (
@@ -348,9 +352,9 @@ export default function ManualPage({ setPage }) {
         </div>
       </div>
 
-      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--cyan)' }}>
+      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--mm-color-system-default)' }}>
         <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <MessageSquare size={16} color="var(--cyan)" /> Prompt patterns that actually work
+          <MessageSquare size={16} color="var(--mm-color-system-default)" /> Prompt patterns that actually work
         </h2>
         <div className="manual-grid-wide" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
           {promptPatterns.map((item) => (
@@ -366,12 +370,12 @@ export default function ManualPage({ setPage }) {
       <div className="manual-grid-mid" style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
         <div className="glass-card-solid" style={sectionStyle}>
           <h2 style={{ fontSize: '0.92rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ShieldCheck size={16} color="var(--violet)" /> Safety and trust defaults
+            <ShieldCheck size={16} color="var(--mm-color-agent-default)" /> Safety and trust defaults
           </h2>
           <div style={{ display: 'grid', gap: 10 }}>
             {safetyRules.map((item) => (
               <div key={item} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.6, display: 'flex', gap: 8 }}>
-                <span style={{ color: 'var(--violet)' }}>•</span>
+                <span style={{ color: 'var(--mm-color-agent-default)' }}>•</span>
                 <span>{item}</span>
               </div>
             ))}
@@ -392,7 +396,7 @@ export default function ManualPage({ setPage }) {
 
       <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--amber)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <Globe size={16} color="var(--cyan)" />
+          <Globe size={16} color="var(--mm-color-system-default)" />
           <strong>Fast memory hook</strong>
         </div>
         <div style={{ color: 'var(--txt-sec)', lineHeight: 1.7, fontSize: '0.86rem', marginBottom: 10 }}>
@@ -400,7 +404,7 @@ export default function ManualPage({ setPage }) {
           If you need code truth, target a file, route, or symbol. If you need learner-safe help, stay in Tutor mode.
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button onClick={() => setPage('commandlib')} style={{ padding: '10px 14px', borderRadius: 10, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 800, cursor: 'pointer', fontSize: '0.8rem' }}>
+          <button onClick={() => setPage('commandlib')} style={{ padding: '10px 14px', borderRadius: 10, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 800, cursor: 'pointer', fontSize: '0.8rem' }}>
             Open Command Library
           </button>
           <button onClick={() => setPage('landing')} style={{ padding: '10px 14px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', fontWeight: 700, cursor: 'pointer', fontSize: '0.8rem' }}>
@@ -409,9 +413,9 @@ export default function ManualPage({ setPage }) {
         </div>
       </div>
 
-      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--cyan)' }}>
+      <div className="glass-card-solid" style={{ ...sectionStyle, borderLeft: '3px solid var(--mm-color-system-default)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <AlertTriangle size={16} color="var(--cyan)" />
+          <AlertTriangle size={16} color="var(--mm-color-system-default)" />
           <strong>Keep this page honest</strong>
         </div>
         <div style={{ color: 'var(--txt-sec)', lineHeight: 1.7, fontSize: '0.86rem' }}>

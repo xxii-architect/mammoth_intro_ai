@@ -125,7 +125,7 @@ export default function ProjectsPage() {
                 </div>
                 <div className="glass-card" style={{ padding: 10 }}>
                   <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--txt-mut)' }}>Avg confidence</div>
-                  <div style={{ marginTop: 4, fontSize: '1rem', color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ marginTop: 4, fontSize: '1rem', color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace', display: 'flex', alignItems: 'center', gap: 6 }}>
                     <ClipboardList size={14} />
                     {project.avgConfidence}/10
                   </div>

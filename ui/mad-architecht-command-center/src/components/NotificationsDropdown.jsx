@@ -5,7 +5,7 @@ import { api } from '../api/client'
 const TYPE_COLORS = {
   system: 'var(--photon)',
   billing: '#f59e0b',
-  agent: 'var(--cyan)',
+  agent: 'var(--mm-color-system-default)',
   security: '#f87171',
   info: 'var(--txt-sec)',
   warning: '#f59e0b',
@@ -131,7 +131,7 @@ export default function NotificationsDropdown() {
               position: 'absolute',
               top: -5,
               right: -5,
-              background: 'var(--photon)',
+              background: 'var(--mm-color-action-primary)',
               color: '#000',
               fontSize: '0.6rem',
               fontWeight: 800,

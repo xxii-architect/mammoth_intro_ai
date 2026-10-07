@@ -52,6 +52,17 @@ pickers. The command library uses actual CSS rather than unavailable utility
 classes. Appearance is dark-only for now: sidebar/Settings theme toggles are
 removed, saved Aurora/legacy preferences migrate to Dark, and prior inline
 theme colors are cleared so text stays readable. Native controls follow Dark.
+The shared palette uses dark neutral layers and grey/white text, warm
+brass/copper for primary actions and agent identity, and blue for keyboard focus,
+links, and secondary interactions. Decorative purple/pink/teal accents and
+rainbow primary-button gradients are removed. Runtime/health success, warning,
+and failure colors remain semantic; destructive controls remain red. Disabled
+primary workspace controls are neutral, not red. Emojis and logo artwork are
+unchanged. The Mammoth Mind lane and task selectors use labeled dark controls
+with keyboard focus styling and retain their existing choices.
+Design tokens live in the UI's `src/design/tokens.json`; run `npm run tokens`
+after changing them. Muted text and accent text are checked at 4.5:1 against
+all opaque dark token surfaces, and filled brass actions use dark text.
 On mobile, Mammoth Mind has a full-width message field with one
 attachment manager and Send/Stop toolbar above it. Upload limits are expandable; upload progress,
 warnings, cancellation and retry remain visible.

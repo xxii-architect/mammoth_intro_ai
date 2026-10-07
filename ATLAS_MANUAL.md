@@ -6,6 +6,13 @@
 
 ## Production-readiness snapshot
 
+The website uses a dark semantic palette: brass/copper primary actions and agent
+identity, blue keyboard focus/links/secondary interaction, and grey/white text.
+Runtime health and success/warning/failure colors remain meaningful; destructive
+actions stay red. Decorative purple/pink/teal accents are removed, not emoji or
+logo artwork. Mammoth Mind's lane/task controls retain their choices with themed
+dark selects and clear keyboard focus. This styling does not change CLI behavior.
+
 This repo has completed the reliability + eval + tutor-outcome + SDK hardening sweep and now sits in a controlled production-candidate state.
 
 ### Current rating summary

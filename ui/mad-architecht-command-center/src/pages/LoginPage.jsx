@@ -116,8 +116,8 @@ export default function LoginPage() {
                 flex: 1,
                 padding: '9px 10px',
                 borderRadius: 8,
-                border: `1px solid ${mode === 'signin' ? 'rgba(180,124,255,0.5)' : 'rgba(255,255,255,0.12)'}`,
-                background: mode === 'signin' ? 'rgba(180,124,255,0.14)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${mode === 'signin' ? 'rgba(var(--mm-color-agent-rgb),0.5)' : 'rgba(255,255,255,0.12)'}`,
+                background: mode === 'signin' ? 'rgba(var(--mm-color-agent-rgb),0.14)' : 'rgba(255,255,255,0.04)',
                 color: '#fff',
                 fontSize: '0.8rem',
                 fontWeight: 700,
@@ -133,8 +133,8 @@ export default function LoginPage() {
                 flex: 1,
                 padding: '9px 10px',
                 borderRadius: 8,
-                border: `1px solid ${mode === 'signup' ? 'rgba(0,245,212,0.45)' : 'rgba(255,255,255,0.12)'}`,
-                background: mode === 'signup' ? 'rgba(0,245,212,0.1)' : 'rgba(255,255,255,0.04)',
+                border: `1px solid ${mode === 'signup' ? 'rgba(var(--mm-color-system-rgb),0.45)' : 'rgba(255,255,255,0.12)'}`,
+                background: mode === 'signup' ? 'rgba(var(--mm-color-system-rgb),0.1)' : 'rgba(255,255,255,0.04)',
                 color: '#fff',
                 fontSize: '0.8rem',
                 fontWeight: 700,
@@ -164,7 +164,6 @@ export default function LoginPage() {
                 background: 'rgba(255,255,255,0.05)',
                 color: '#fff',
                 fontSize: '0.84rem',
-                outline: 'none',
                 boxSizing: 'border-box',
               }}
             />
@@ -188,14 +187,13 @@ export default function LoginPage() {
                 background: 'rgba(255,255,255,0.05)',
                 color: '#fff',
                 fontSize: '0.84rem',
-                outline: 'none',
                 boxSizing: 'border-box',
               }}
             />
           </div>
 
           {notice && (
-            <p style={{ margin: 0, fontSize: '0.76rem', color: 'rgba(45,212,191,0.95)', textAlign: 'center', lineHeight: 1.5 }}>
+            <p style={{ margin: 0, fontSize: '0.76rem', color: 'rgba(var(--mm-color-system-rgb),0.95)', textAlign: 'center', lineHeight: 1.5 }}>
               {notice}
             </p>
           )}
@@ -215,9 +213,9 @@ export default function LoginPage() {
                 borderRadius: 8,
                 border: 'none',
                 background: loading
-                  ? 'rgba(180,124,255,0.4)'
-                  : 'linear-gradient(90deg, #7c3aed, #b47cff)',
-                color: '#fff',
+                  ? 'var(--card-hover)'
+                  : 'var(--mm-color-action-primary)',
+                color: loading ? 'var(--txt-mut)' : 'var(--mm-color-action-text)',
                 fontWeight: 700,
                 fontSize: '0.88rem',
                 cursor: loading ? 'not-allowed' : 'pointer',
@@ -238,9 +236,9 @@ export default function LoginPage() {
                   borderRadius: 8,
                   border: 'none',
                   background: loading
-                    ? 'rgba(0,245,212,0.25)'
-                    : 'linear-gradient(90deg, var(--photon), var(--cyan))',
-                  color: '#050608',
+                    ? 'var(--card-hover)'
+                    : 'var(--mm-color-action-primary)',
+                  color: loading ? 'var(--txt-mut)' : 'var(--mm-color-action-text)',
                   fontWeight: 700,
                   fontSize: '0.88rem',
                   cursor: loading ? 'not-allowed' : 'pointer',
@@ -257,8 +255,8 @@ export default function LoginPage() {
                   style={{
                     padding: '11px',
                     borderRadius: 8,
-                    border: '1px solid rgba(180,124,255,0.22)',
-                    background: 'rgba(180,124,255,0.08)',
+                    border: '1px solid rgba(var(--mm-color-agent-rgb),0.22)',
+                    background: 'rgba(var(--mm-color-agent-rgb),0.08)',
                     color: '#fff',
                     fontWeight: 700,
                     fontSize: '0.84rem',
@@ -297,11 +295,11 @@ export default function LoginPage() {
           marginTop: 16,
           padding: '12px 14px',
           borderRadius: 10,
-          border: '1px solid rgba(180,124,255,0.18)',
-          background: 'rgba(180,124,255,0.06)',
+          border: '1px solid rgba(var(--mm-color-agent-rgb),0.18)',
+          background: 'rgba(var(--mm-color-agent-rgb),0.06)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--violet)' }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--mm-color-agent-default)' }}>
               Tester onboarding
             </span>
           </div>

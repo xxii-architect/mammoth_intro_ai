@@ -142,7 +142,7 @@ export default function TaskInboxPage() {
         <div style={{ color: 'var(--txt-mut)', fontSize: '0.9rem' }}>Loading task inbox…</div>
       ) : sorted.length === 0 ? (
         <div className="glass-card-solid" style={{ padding: 28, textAlign: 'center', maxWidth: 760, margin: '0 auto' }}>
-          <Sparkles size={28} color="var(--cyan)" style={{ marginBottom: 12 }} />
+          <Sparkles size={28} color="var(--mm-color-system-default)" style={{ marginBottom: 12 }} />
           <h2 style={{ margin: '0 0 10px', color: 'var(--txt-pri)' }}>No active tasks yet</h2>
           <p style={{ margin: 0, color: 'var(--txt-sec)', lineHeight: 1.7 }}>
             Save a task card from Mammoth Mind or create a plan from the chat surface to populate this task inbox.

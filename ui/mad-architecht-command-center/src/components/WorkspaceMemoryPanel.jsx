@@ -59,7 +59,7 @@ function Pill({ children, tone = 'neutral' }) {
     neutral: { background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', color: 'var(--txt-sec)' },
     info: { background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.2)', color: 'var(--photon)' },
     success: { background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', color: '#22c55e' },
-    violet: { background: 'rgba(180,124,255,0.08)', border: '1px solid rgba(180,124,255,0.25)', color: 'var(--violet)' },
+    violet: { background: 'rgba(var(--mm-color-agent-rgb),0.08)', border: '1px solid rgba(var(--mm-color-agent-rgb),0.25)', color: 'var(--mm-color-agent-default)' },
   }
   const style = styles[tone] || styles.neutral
   return (
@@ -80,17 +80,17 @@ function MemoryNode({ node }) {
   return (
     <div style={{
       padding: '10px 12px', borderRadius: 10,
-      border: '1px solid rgba(180,124,255,0.18)',
-      background: 'linear-gradient(135deg, rgba(180,124,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+      border: '1px solid rgba(var(--mm-color-agent-rgb),0.18)',
+      background: 'linear-gradient(135deg, rgba(var(--mm-color-agent-rgb),0.06) 0%, rgba(255,255,255,0.02) 100%)',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--violet)', boxShadow: '0 0 8px var(--violet)', flexShrink: 0 }} />
+          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--mm-color-agent-default)', flexShrink: 0 }} />
           <span style={{ color: 'var(--txt-pri)', fontSize: '0.78rem', fontWeight: 700 }}>
             {node.label || node.title || node.id}
           </span>
         </div>
-        <span style={{ fontSize: '0.62rem', color: 'rgba(180,124,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <span style={{ fontSize: '0.62rem', color: 'rgba(var(--mm-color-agent-rgb),0.6)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           {node.type || 'signal'}
         </span>
       </div>
@@ -146,11 +146,11 @@ export default function WorkspaceMemoryPanel() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-            <Brain size={15} color="var(--violet)" />
+            <Brain size={15} color="var(--mm-color-agent-default)" />
             {memActive && (
               <span style={{
                 position: 'absolute', inset: -3, borderRadius: '50%',
-                border: '1px solid rgba(180,124,255,0.6)',
+                border: '1px solid rgba(var(--mm-color-agent-rgb),0.6)',
                 animation: 'memory-ping 1.8s ease-out forwards',
                 pointerEvents: 'none',
               }} />
@@ -202,7 +202,7 @@ export default function WorkspaceMemoryPanel() {
           {/* Tier + learner pills */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
             <Pill tone="info">{workspace?.active_account_id || 'default'} active</Pill>
-            <Pill tone="success">{account?.tier || 'explorer'}</Pill>
+            <Pill tone="violet">{account?.tier || 'explorer'}</Pill>
             {learnerModel.version && <Pill tone="violet">learner v{learnerModel.version}</Pill>}
           </div>
 
@@ -210,9 +210,9 @@ export default function WorkspaceMemoryPanel() {
           {(nodeCount > 0 || edgeCount > 0) && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 8 }}>
               {[
-                { label: 'Nodes', value: nodeCount, color: 'var(--violet)' },
+                { label: 'Nodes', value: nodeCount, color: 'var(--mm-color-agent-default)' },
                 { label: 'Edges', value: edgeCount, color: 'var(--photon)' },
-                { label: 'Recent', value: recentNodes.length, color: '#22c55e' },
+                { label: 'Recent', value: recentNodes.length, color: 'var(--txt-pri)' },
               ].map((stat) => (
                 <div key={stat.label} style={{ padding: '8px 10px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)', textAlign: 'center' }}>
                   <div style={{ color: 'var(--txt-mut)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>{stat.label}</div>
@@ -226,7 +226,7 @@ export default function WorkspaceMemoryPanel() {
           {recentNodes.length > 0 && (
             <div style={{ display: 'grid', gap: 6 }}>
               <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Zap size={11} color="var(--violet)" /> Recent memory signals
+                <Zap size={11} color="var(--mm-color-agent-default)" /> Recent memory signals
               </div>
               {recentNodes.map((node) => (
                 <MemoryNode key={node.id || node.label} node={node} />
@@ -248,7 +248,7 @@ export default function WorkspaceMemoryPanel() {
           <SessionContextPanel />
 
           {!workspace && !learner && (
-            <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(180,124,255,0.15)', background: 'rgba(180,124,255,0.04)', fontSize: '0.75rem', color: 'var(--txt-sec)' }}>
+            <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(var(--mm-color-agent-rgb),0.15)', background: 'rgba(var(--mm-color-agent-rgb),0.04)', fontSize: '0.75rem', color: 'var(--txt-sec)' }}>
               Memory will hydrate once the backend responds. Sessions are still being remembered.
             </div>
           )}
@@ -257,4 +257,3 @@ export default function WorkspaceMemoryPanel() {
     </div>
   )
 }
-

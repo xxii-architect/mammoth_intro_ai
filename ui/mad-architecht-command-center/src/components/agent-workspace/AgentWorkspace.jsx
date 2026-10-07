@@ -116,8 +116,10 @@ const ghostButton = {
 
 const primaryButton = (disabled) => ({
   display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: '0.8rem', fontWeight: 600,
-  padding: '8px 16px', borderRadius: 8, border: `1px solid ${GOLD}`, background: GOLD_SOFT, color: GOLD,
-  cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.55 : 1,
+  padding: '8px 16px', borderRadius: 8, border: `1px solid ${disabled ? BORDER : GOLD}`,
+  background: disabled ? RAISED : 'var(--mm-color-action-primary)',
+  color: disabled ? 'var(--txt-mut)' : 'var(--mm-color-action-text)',
+  cursor: disabled ? 'not-allowed' : 'pointer',
 })
 
 function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compact, allowedAgentIds }) {

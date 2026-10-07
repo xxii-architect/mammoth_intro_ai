@@ -3,20 +3,20 @@ import { CheckCircle, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, 
 import MammothEmpty from './MammothEmpty'
 
 const AGENT_LABELS = {
-  curriculum_agent:      { label: 'Curriculum',    icon: BookOpen,  color: '#a78bfa' },
-  tutor_agent:           { label: 'Tutor',          icon: BookOpen,  color: '#818cf8' },
-  coding_agent:          { label: 'Coding',         icon: Code2,     color: '#22d3ee' },
-  research_agent:        { label: 'Research',       icon: Search,    color: '#34d399' },
-  plant_the_seed_agent:  { label: 'Plant Seed',     icon: Zap,       color: '#4ade80' },
-  orchestrator_agent:    { label: 'Orchestrator',   icon: Cpu,       color: '#fb923c' },
-  planner_agent:         { label: 'Planner',        icon: FileText,  color: '#f472b6' },
-  brand_voice_agent:     { label: 'Brand Voice',    icon: FileText,  color: '#f472b6' },
-  field_ops_agent:       { label: 'Field Ops',      icon: Zap,       color: '#facc15' },
-  reflection_agent:      { label: 'Reflection',     icon: BookOpen,  color: '#c4b5fd' },
-  market_intel_agent:    { label: 'Market Intel',   icon: Search,    color: '#2dd4bf' },
-  browser_agent:         { label: 'Browser',        icon: Search,    color: '#60a5fa' },
-  community_engine_agent:{ label: 'Community',      icon: Cpu,       color: '#4ade80' },
-  orchestrator:          { label: 'Synthesis',      icon: Cpu,       color: '#fb923c' },
+  curriculum_agent:      { label: 'Curriculum',    icon: BookOpen,  color: 'var(--mm-color-agent-default)' },
+  tutor_agent:           { label: 'Tutor',          icon: BookOpen,  color: 'var(--mm-color-agent-default)' },
+  coding_agent:          { label: 'Coding',         icon: Code2,     color: 'var(--mm-color-agent-default)' },
+  research_agent:        { label: 'Research',       icon: Search,    color: 'var(--mm-color-agent-default)' },
+  plant_the_seed_agent:  { label: 'Plant Seed',     icon: Zap,       color: 'var(--mm-color-agent-default)' },
+  orchestrator_agent:    { label: 'Orchestrator',   icon: Cpu,       color: 'var(--mm-color-agent-default)' },
+  planner_agent:         { label: 'Planner',        icon: FileText,  color: 'var(--mm-color-agent-default)' },
+  brand_voice_agent:     { label: 'Brand Voice',    icon: FileText,  color: 'var(--mm-color-agent-default)' },
+  field_ops_agent:       { label: 'Field Ops',      icon: Zap,       color: 'var(--mm-color-agent-default)' },
+  reflection_agent:      { label: 'Reflection',     icon: BookOpen,  color: 'var(--mm-color-agent-default)' },
+  market_intel_agent:    { label: 'Market Intel',   icon: Search,    color: 'var(--mm-color-agent-default)' },
+  browser_agent:         { label: 'Browser',        icon: Search,    color: 'var(--mm-color-agent-default)' },
+  community_engine_agent:{ label: 'Community',      icon: Cpu,       color: 'var(--mm-color-agent-default)' },
+  orchestrator:          { label: 'Synthesis',      icon: Cpu,       color: 'var(--mm-color-agent-default)' },
 }
 
 const STATUS_CONFIG = {
@@ -138,7 +138,7 @@ function StepCard({ step, idx }) {
 
   return (
     <div style={{
-      border: `1px solid ${sc.color}28`,
+      border: `1px solid color-mix(in srgb, ${sc.color} 15.69%, transparent)`,
       borderLeft: `3px solid ${sc.color}`,
       borderRadius: 8,
       background: sc.bg,
@@ -170,7 +170,7 @@ function StepCard({ step, idx }) {
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 4,
               fontSize: '0.68rem', color: ac.color,
-              background: `${ac.color}18`, borderRadius: 12, padding: '2px 8px',
+              background: `color-mix(in srgb, ${ac.color} 9.41%, transparent)`, borderRadius: 12, padding: '2px 8px',
             }}>
               <AgentIcon size={10} />
               {ac.label}
@@ -198,7 +198,7 @@ function StepCard({ step, idx }) {
       </div>
 
       {open && hasDrilldown && (
-        <div style={{ padding: '0 12px 12px 12px', borderTop: `1px solid ${sc.color}20` }}>
+        <div style={{ padding: '0 12px 12px 12px', borderTop: `1px solid color-mix(in srgb, ${sc.color} 12.55%, transparent)` }}>
           {artifact && <StepOutput artifact={artifact} />}
           {artifact?.quality_flags?.length > 0 && (
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
@@ -293,12 +293,12 @@ export default function PlanExecuteResultPanel({ planRun, rawJson }) {
           {/* Meta row */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
             {planRun.plan_profile && (
-              <span style={{ fontSize: '0.68rem', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', borderRadius: 10, padding: '2px 10px' }}>
+              <span style={{ fontSize: '0.68rem', background: 'rgba(var(--mm-color-agent-rgb),0.12)', color: 'var(--mm-color-agent-default)', borderRadius: 10, padding: '2px 10px' }}>
                 {PLAN_PROFILE_LABELS[planRun.plan_profile] || planRun.plan_profile}
               </span>
             )}
             {planRun.coding_intent && (
-              <span style={{ fontSize: '0.68rem', background: 'rgba(34,211,238,0.10)', color: '#22d3ee', borderRadius: 10, padding: '2px 10px' }}>
+              <span style={{ fontSize: '0.68rem', background: 'rgba(var(--mm-color-system-rgb),0.10)', color: 'var(--mm-color-system-default)', borderRadius: 10, padding: '2px 10px' }}>
                 {planRun.coding_intent.replace(/_/g, ' ')}
               </span>
             )}

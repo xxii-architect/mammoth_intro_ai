@@ -809,7 +809,7 @@ export default function AgentPage({ setPage }) {
               ))}
             </div>
 
-            <div className="glass-card-solid" style={{ padding: 12, marginBottom: 12, borderLeft: '2px solid var(--violet)' }}>
+            <div className="glass-card-solid" style={{ padding: 12, marginBottom: 12, borderLeft: '2px solid var(--mm-color-agent-default)' }}>
               <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Prompt guide</p>
               <div style={{ color: 'var(--txt-sec)', fontSize: '0.78rem', lineHeight: 1.7, marginBottom: 10 }}>
                 Short prompts are fine. Best results usually include: <strong style={{ color: 'var(--txt-pri)' }}>outcome</strong>, <strong style={{ color: 'var(--txt-pri)' }}>scope/files</strong>, and <strong style={{ color: 'var(--txt-pri)' }}>constraints</strong>.
@@ -840,7 +840,7 @@ export default function AgentPage({ setPage }) {
             />
 
             {selectedAgent === 'coding_agent' && (
-              <div className="glass-card-solid" style={{ padding: 12, marginBottom: 12, borderLeft: '2px solid var(--cyan)' }}>
+              <div className="glass-card-solid" style={{ padding: 12, marginBottom: 12, borderLeft: '2px solid var(--mm-color-system-default)' }}>
                 <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Coding Shortcuts</p>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   <button onClick={() => loadCodingTemplate('/create src/demo.txt\nHello from MammothOS')}
@@ -869,17 +869,17 @@ export default function AgentPage({ setPage }) {
               CLI Architecture Reference
             </button>
             {archOpen && (
-              <div className="glass-card-solid" style={{ padding: 12, fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', borderLeft: '2px solid var(--cyan)', lineHeight: 1.7, marginBottom: 12 }}>
-                <span style={{ color: 'var(--cyan)' }}>CLI Flow:</span> mammoth &lt;intent&gt; →{' '}
+              <div className="glass-card-solid" style={{ padding: 12, fontSize: '0.72rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-sec)', borderLeft: '2px solid var(--mm-color-system-default)', lineHeight: 1.7, marginBottom: 12 }}>
+                <span style={{ color: 'var(--mm-color-system-default)' }}>CLI Flow:</span> mammoth &lt;intent&gt; →{' '}
                 <span style={{ color: 'var(--photon)' }}>api_server.py</span> (FastAPI :8000) →{' '}
-                <span style={{ color: 'var(--violet)' }}>CortexRouter</span> → AutonomousEngine →{' '}
+                <span style={{ color: 'var(--mm-color-agent-default)' }}>CortexRouter</span> → AutonomousEngine →{' '}
                 CodingAgent / FieldOpsAgent / ResearchAgent
               </div>
             )}
 
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button onClick={runPrimary} disabled={running || smokeRunning}
-              style={{ background: executionMode === 'plan' ? 'var(--violet)' : 'var(--photon)', color: '#050608', fontWeight: 700, fontSize: '0.85rem', padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: (running || smokeRunning) ? 0.7 : 1 }}>
+              style={{ background: executionMode === 'plan' ? 'var(--mm-color-agent-default)' : 'var(--photon)', color: '#050608', fontWeight: 700, fontSize: '0.85rem', padding: '8px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, opacity: (running || smokeRunning) ? 0.7 : 1 }}>
               <Play size={14} /> {running ? (executionMode === 'plan' ? 'Planning + Executing…' : 'Running…') : (executionMode === 'plan' ? 'Plan + Execute' : 'Run Agent')}
             </button>
             <button onClick={runSmokeTests} disabled={smokeRunning || running}
@@ -918,7 +918,7 @@ export default function AgentPage({ setPage }) {
             <button onClick={() => setTraceOpen(o => !o)} style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: 0, marginBottom: traceOpen ? 12 : 0 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt-pri)' }}>
-                  <Brain size={15} color="var(--violet)" /> Reasoning Trace
+                  <Brain size={15} color="var(--mm-color-agent-default)" /> Reasoning Trace
                 </h3>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {running && <Loader size={12} color="var(--photon)" style={{ animation: 'spin 1s linear infinite' }} />}
@@ -1054,7 +1054,7 @@ export default function AgentPage({ setPage }) {
                       <div key={`${step.id || idx}`} style={{
                         padding: '6px 8px', borderRadius: 6, marginBottom: 4,
                         background: 'rgba(255,255,255,0.025)',
-                        border: `1px solid ${sc.color}22`,
+                        border: `1px solid color-mix(in srgb, ${sc.color} 13.33%, transparent)`,
                         borderLeft: `2px solid ${sc.color}`,
                       }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1110,7 +1110,7 @@ export default function AgentPage({ setPage }) {
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                     <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{approval.operation}</span>
                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                     <button onClick={() => approveApproval(approval.id)} style={{ background: 'var(--photon)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Approve</button>
+                     <button onClick={() => approveApproval(approval.id)} style={{ background: 'var(--mm-color-action-primary)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Approve</button>
                      <button onClick={() => deleteApproval(approval.id)} style={{ background: 'rgba(248,113,113,0.10)', color: '#fecaca', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Delete</button>
                    </div>
                  </div>

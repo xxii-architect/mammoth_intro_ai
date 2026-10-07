@@ -37,7 +37,7 @@ const rangeStyle = {
   height: 8,
   borderRadius: 999,
   outline: 'none',
-  background: 'linear-gradient(90deg, rgba(0,245,212,0.26), rgba(77,166,255,0.4))',
+  background: 'linear-gradient(90deg, rgba(var(--mm-color-system-rgb),0.26), rgba(77,166,255,0.4))',
 }
 
 const SLIDERS = [
@@ -112,12 +112,12 @@ export default function PersonalHealth() {
     <div className='glass-card-solid neon-card' style={{ padding: 20, borderRadius: 12 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
         <div>
-          <h2 style={{ marginBottom: 6, color: 'var(--cyan)' }}>Personal Health</h2>
+          <h2 style={{ marginBottom: 6, color: 'var(--mm-color-system-default)' }}>Personal Health</h2>
           <p style={{ margin: 0, color: 'var(--txt-sec)', fontSize: '0.8rem', lineHeight: 1.6 }}>
             Lightweight operator pacing so the health panel reflects how hard you can push the next slice.
           </p>
         </div>
-        <div style={{ fontSize: '0.74rem', color: savingLabel ? 'var(--cyan)' : 'var(--txt-mut)' }}>
+        <div style={{ fontSize: '0.74rem', color: savingLabel ? 'var(--mm-color-system-default)' : 'var(--txt-mut)' }}>
           {savingLabel ? `Saving ${savingLabel}…` : `Last saved ${formatTimestamp(updatedAt)}`}
         </div>
       </div>
@@ -206,8 +206,8 @@ export default function PersonalHealth() {
           width: 18px;
           height: 18px;
           border-radius: 50%;
-          background: linear-gradient(180deg, var(--photon), var(--cyan));
-          box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.18);
+          background: linear-gradient(180deg, var(--photon), var(--mm-color-system-default));
+          box-shadow: 0 0 0 3px rgba(var(--mm-color-system-rgb), 0.18);
           cursor: pointer;
           border: 0;
         }
@@ -215,8 +215,8 @@ export default function PersonalHealth() {
           width: 18px;
           height: 18px;
           border-radius: 50%;
-          background: linear-gradient(180deg, var(--photon), var(--cyan));
-          box-shadow: 0 0 0 3px rgba(0, 245, 212, 0.18);
+          background: linear-gradient(180deg, var(--photon), var(--mm-color-system-default));
+          box-shadow: 0 0 0 3px rgba(var(--mm-color-system-rgb), 0.18);
           cursor: pointer;
           border: 0;
         }

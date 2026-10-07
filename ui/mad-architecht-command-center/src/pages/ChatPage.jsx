@@ -48,11 +48,11 @@ function safeStorageRemove(key) {
 
 
 const AGENT_OPTIONS = [
-  { id: 'assistant', label: 'Mammoth Assistant', Icon: MessageSquare, accent: 'var(--photon)', detail: 'Normal AI chat for planning, debugging, and product thinking.' },
-  { id: 'coding_agent', label: 'Coding Agent', Icon: Wrench, accent: 'var(--cyan)', detail: 'Repo-focused coding help, patch strategy, and implementation tasks.' },
-  { id: 'reasoning_agent', label: 'Reasoning Agent', Icon: Brain, accent: 'var(--violet)', detail: 'Break down decisions, tradeoffs, and next steps.' },
-  { id: 'shell_agent', label: 'Shell Agent', Icon: Terminal, accent: '#22c55e', detail: 'Command-oriented ops thinking within the safe shell runtime.' },
-  { id: 'mammoth_guide', label: 'MammothOS Guide', Icon: MessageSquare, accent: 'var(--accent-guide)' },
+  { id: 'assistant', label: 'Mammoth Assistant', Icon: MessageSquare, accent: 'var(--mm-color-agent-default)', detail: 'Normal AI chat for planning, debugging, and product thinking.' },
+  { id: 'coding_agent', label: 'Coding Agent', Icon: Wrench, accent: 'var(--mm-color-agent-default)', detail: 'Repo-focused coding help, patch strategy, and implementation tasks.' },
+  { id: 'reasoning_agent', label: 'Reasoning Agent', Icon: Brain, accent: 'var(--mm-color-agent-default)', detail: 'Break down decisions, tradeoffs, and next steps.' },
+  { id: 'shell_agent', label: 'Shell Agent', Icon: Terminal, accent: 'var(--mm-color-agent-default)', detail: 'Command-oriented ops thinking within the safe shell runtime.' },
+  { id: 'mammoth_guide', label: 'MammothOS Guide', Icon: MessageSquare, accent: 'var(--mm-color-agent-default)' },
 ]
 
 const QUICK_ACTIONS = [
@@ -273,7 +273,7 @@ function ThoughtTrail({ steps, busy, expandedIndex, onToggle, compact = false })
           Thought Trail
         </p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {busy && <span style={{ fontSize: '0.72rem', color: 'var(--cyan)' }}>thinking…</span>}
+          {busy && <span style={{ fontSize: '0.72rem', color: 'var(--mm-color-system-default)' }}>thinking…</span>}
           <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{list.length} steps</span>
         </div>
       </div>
@@ -426,7 +426,7 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
               : null)
         }
         {isStreamingBubble && busy && (
-          <span style={{ display: 'inline-block', width: 8, height: 8, marginLeft: 6, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 10px var(--cyan)', verticalAlign: 'middle' }} />
+          <span style={{ display: 'inline-block', width: 8, height: 8, marginLeft: 6, borderRadius: '50%', background: 'var(--mm-color-agent-default)', verticalAlign: 'middle' }} />
         )}
       </div>
 
@@ -1422,7 +1422,7 @@ export default function ChatPage({ setPage }) {
               <button
                 onClick={clearLocalView}
                 title="New Chat — clear history and start fresh"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--photon-rgb,99,102,241),0.35)', background: 'rgba(99,102,241,0.10)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-system-rgb),0.35)', background: 'var(--mm-color-system-soft)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
               >
                 <Plus size={13} /> New Chat
               </button>
@@ -1435,20 +1435,25 @@ export default function ChatPage({ setPage }) {
                   <Trash2 size={13} /> Delete Chat
                 </button>
               )}
-              <select
-                value={agentId}
-                onChange={(e) => setAgentId(e.target.value)}
-                style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: 'var(--txt-sec)', fontSize: '0.76rem', padding: '6px 8px', cursor: 'pointer' }}
-              >
-                {AGENT_OPTIONS.map((option) => (
-                  <option key={option.id} value={option.id}>{option.label}</option>
-                ))}
-              </select>
+              <label className="workspace-select-field">
+                <span className="workspace-select-label">Lane</span>
+                <select
+                  className="workspace-select"
+                  aria-label="Mammoth Mind lane"
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                >
+                  {AGENT_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
               {agentId === 'coding_agent' && (
                 <select
+                  className="workspace-select"
+                  aria-label="Coding task"
                   value={codingIntent}
                   onChange={(e) => setCodingIntent(e.target.value)}
-                  style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, color: 'var(--txt-sec)', fontSize: '0.76rem', padding: '6px 8px', cursor: 'pointer' }}
                 >
                   <option value="patch_existing">Patch Existing Files</option>
                   <option value="generate_code">Generate Code</option>
@@ -1486,7 +1491,7 @@ export default function ChatPage({ setPage }) {
             ))}
             {busy && !history[history.length - 1]?.run && (
               <div style={{ alignSelf: 'flex-start', padding: '10px 12px', borderRadius: 12, background: 'rgba(77,166,255,0.08)', border: '1px solid rgba(77,166,255,0.18)', fontSize: '0.8rem', color: 'var(--txt-sec)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--cyan)', boxShadow: '0 0 12px rgba(77,166,255,0.6)' }} />
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--mm-color-agent-default)' }} />
                 {streaming ? `MammothOS is ${streamStatus}…` : 'MammothOS is checking the herd…'}
               </div>
             )}
@@ -1513,7 +1518,8 @@ export default function ChatPage({ setPage }) {
                 ) : (
                   <button
                     onClick={() => send()}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, border: 'none', background: 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: 'pointer' }}
+                    className="primary-action"
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, cursor: 'pointer' }}
                   >
                     <Send size={15} /> Send
                   </button>
@@ -1571,7 +1577,7 @@ export default function ChatPage({ setPage }) {
                 <>
                   <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)', overflowWrap: 'anywhere' }}>Adapter: <span style={{ color: 'var(--photon)' }}>{meta.adapter}</span></div>
                   <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)', overflowWrap: 'anywhere' }}>Model / Runtime: <span style={{ color: 'var(--photon)' }}>{meta.model}</span></div>
-                  <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>Dispatch: <span style={{ color: meta.dispatched ? 'var(--cyan)' : '#22c55e' }}>{meta.dispatched ? 'agent-runtime' : 'native-chat'}</span></div>
+                  <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>Dispatch: <span style={{ color: meta.dispatched ? 'var(--mm-color-system-default)' : '#22c55e' }}>{meta.dispatched ? 'agent-runtime' : 'native-chat'}</span></div>
                 </>
               )}
             </div>

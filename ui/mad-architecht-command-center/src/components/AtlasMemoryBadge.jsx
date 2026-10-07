@@ -40,17 +40,17 @@ export default function AtlasMemoryBadge({ compact = false }) {
       className={ping ? 'atlas-memory-badge atlas-memory-badge--ping' : 'atlas-memory-badge'}
       title="ATLAS has persistent memory across your sessions"
     >
-      <Brain size={compact ? 11 : 13} color="var(--violet)" />
-      <span style={{ fontSize: compact ? '0.64rem' : '0.72rem', fontWeight: 700, color: 'var(--violet)' }}>
+      <Brain size={compact ? 11 : 13} color="var(--mm-color-agent-default)" />
+      <span style={{ fontSize: compact ? '0.64rem' : '0.72rem', fontWeight: 700, color: 'var(--mm-color-agent-default)' }}>
         ATLAS remembers you
       </span>
       {sessions > 0 && (
-        <span style={{ fontSize: '0.62rem', color: 'rgba(180,124,255,0.7)', fontWeight: 600 }}>
+        <span style={{ fontSize: '0.62rem', color: 'var(--txt-sec)', fontWeight: 600 }}>
           &nbsp;·&nbsp;{sessions} session{sessions !== 1 ? 's' : ''}
         </span>
       )}
       {focusAreas.length > 0 && !compact && (
-        <span style={{ fontSize: '0.62rem', color: 'rgba(180,124,255,0.6)' }}>
+        <span style={{ fontSize: '0.62rem', color: 'var(--txt-sec)' }}>
           &nbsp;·&nbsp;{focusAreas.join(', ')}
         </span>
       )}

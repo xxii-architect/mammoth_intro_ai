@@ -72,7 +72,7 @@ function LessonNotes() {
           Learner Workspace
         </div>
         <h1 style={{ fontSize: '1.15rem', margin: '6px 0 0', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <FileText size={18} color="var(--cyan)" />
+          <FileText size={18} color="var(--mm-color-system-default)" />
           Lesson Notes
         </h1>
         <button type="button" disabled={loading} onClick={() => setReload(value => value + 1)}>Refresh lesson notes</button>

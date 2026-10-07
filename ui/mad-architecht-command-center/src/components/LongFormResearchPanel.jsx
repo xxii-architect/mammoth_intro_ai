@@ -42,11 +42,11 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
 
   return (
     <div>
-      <div className="glass-card-solid" style={{ padding: '18px 22px', borderLeft: '3px solid var(--cyan)', marginBottom: 14 }}>
+      <div className="glass-card-solid" style={{ padding: '18px 22px', borderLeft: '3px solid var(--mm-color-system-default)', marginBottom: 14 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-              <BookOpen size={13} color="var(--cyan)" />
+              <BookOpen size={13} color="var(--mm-color-system-default)" />
               <span style={{ fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Long-Form Research Document</span>
             </div>
             <h1 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--txt-pri)', lineHeight: 1.3, margin: '0 0 10px' }}>{title}</h1>
@@ -61,7 +61,7 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7, flexShrink: 0 }}>
             {docx_filename && (
-              <button onClick={dlDocx} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 8, background: 'rgba(34,211,238,0.10)', border: '1px solid rgba(34,211,238,0.25)', color: 'var(--cyan)', fontSize: '0.73rem', fontWeight: 700, cursor: downloading ? 'wait' : 'pointer' }}>
+              <button onClick={dlDocx} disabled={downloading} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 13px', borderRadius: 8, background: 'rgba(var(--mm-color-system-rgb),0.10)', border: '1px solid rgba(var(--mm-color-system-rgb),0.25)', color: 'var(--mm-color-system-default)', fontSize: '0.73rem', fontWeight: 700, cursor: downloading ? 'wait' : 'pointer' }}>
                 <Download size={12} />{downloading ? 'Preparing...' : 'Download DOCX'}
               </button>
             )}
@@ -107,7 +107,7 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
               {sorted.map((sec, idx) => (
                 <div key={idx} ref={el => { refs.current[idx] = el }} style={{ marginBottom: 44, scrollMarginTop: 24 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
-                    <span style={{ fontSize: '0.63rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--cyan)', background: 'rgba(34,211,238,0.08)', borderRadius: 6, padding: '2px 9px' }}>{String(idx + 1).padStart(2, '0')}</span>
+                    <span style={{ fontSize: '0.63rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--mm-color-system-default)', background: 'rgba(var(--mm-color-system-rgb),0.08)', borderRadius: 6, padding: '2px 9px' }}>{String(idx + 1).padStart(2, '0')}</span>
                     <h2 style={{ fontSize: '1.06rem', fontWeight: 700, color: 'var(--txt-pri)', margin: 0 }}>{sec.heading}</h2>
                   </div>
                   <div>
@@ -141,7 +141,7 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
               <div style={{ display: 'grid', gap: 9 }}>
                 {sources.map((src, idx) => (
                   <div key={idx} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace', flexShrink: 0, minWidth: 30 }}>S{idx + 1}</span>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace', flexShrink: 0, minWidth: 30 }}>S{idx + 1}</span>
                     <div>
                       <div style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', fontWeight: 600 }}>{src.title || src.label || 'Source'}</div>
                       {(src.url || src.source) && <div style={{ fontSize: '0.65rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', marginTop: 2, overflowWrap: 'anywhere' }}>{src.url || src.source}</div>}

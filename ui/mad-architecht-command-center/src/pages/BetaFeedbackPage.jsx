@@ -19,8 +19,8 @@ const AREAS = [
 const SEVERITIES = ['low', 'medium', 'high', 'critical']
 const STATUS_COLORS = {
   new: '#f59e0b',
-  triaged: '#38bdf8',
-  in_progress: '#a78bfa',
+  triaged: 'var(--mm-color-system-default)',
+  in_progress: 'var(--mm-color-agent-default)',
   fixed: '#22c55e',
   closed: '#94a3b8',
 }
@@ -110,7 +110,7 @@ export default function BetaFeedbackPage() {
     <div className="page-enter" style={{ padding: '28px 24px 90px', display: 'grid', gap: 16 }}>
       <div className="glass-card-solid" style={{ padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <ClipboardList size={18} color="var(--cyan)" />
+          <ClipboardList size={18} color="var(--mm-color-system-default)" />
           <h1 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'var(--txt-pri)' }}>Beta Tester Feedback Portal</h1>
         </div>
         <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.65 }}>
@@ -151,7 +151,7 @@ export default function BetaFeedbackPage() {
 
       <div className="glass-card-solid" style={{ padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <Bug size={16} color="var(--violet)" />
+          <Bug size={16} color="var(--mm-color-agent-default)" />
           <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Submit feedback</span>
         </div>
 
@@ -189,7 +189,7 @@ export default function BetaFeedbackPage() {
         {ok && <div style={{ marginTop: 10, color: '#86efac', fontSize: '0.76rem' }}>{ok}</div>}
 
         <div style={{ marginTop: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button onClick={submit} disabled={incomplete || submitBusy} style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, cursor: incomplete || submitBusy ? 'not-allowed' : 'pointer', opacity: incomplete || submitBusy ? 0.6 : 1 }}>
+          <button onClick={submit} disabled={incomplete || submitBusy} style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, cursor: incomplete || submitBusy ? 'not-allowed' : 'pointer', opacity: incomplete || submitBusy ? 0.6 : 1 }}>
             {submitBusy ? 'Submitting...' : 'Submit feedback'}
           </button>
           <button onClick={loadFeedback} disabled={busy} style={{ padding: '9px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: busy ? 'not-allowed' : 'pointer' }}>
@@ -201,7 +201,7 @@ export default function BetaFeedbackPage() {
 
       <div className="glass-card-solid" style={{ padding: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <CheckCircle2 size={16} color="var(--cyan)" />
+          <CheckCircle2 size={16} color="var(--mm-color-system-default)" />
           <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--txt-pri)' }}>
             Submitted feedback {canManage ? '(owner/admin view)' : '(my submissions)'}
           </span>

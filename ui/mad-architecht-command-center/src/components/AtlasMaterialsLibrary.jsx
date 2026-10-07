@@ -6,11 +6,11 @@ import DocumentUploadStatus from './DocumentUploadStatus'
 import { useAuth } from '../lib/authContext'
 
 const TAG_META = {
-  textbook:  { label: 'Textbook',   icon: BookOpen,       color: '#60a5fa' },
-  homework:  { label: 'Homework',   icon: ClipboardList,  color: '#f59e0b' },
-  notes:     { label: 'Notes',      icon: FileText,       color: '#22c55e' },
-  worksheet: { label: 'Worksheet',  icon: ClipboardList,  color: '#a78bfa' },
-  practice:  { label: 'Practice',   icon: GraduationCap, color: '#f472b6' },
+  textbook:  { label: 'Textbook',   icon: BookOpen,       color: 'var(--mm-color-agent-default)' },
+  homework:  { label: 'Homework',   icon: ClipboardList,  color: 'var(--mm-color-agent-default)' },
+  notes:     { label: 'Notes',      icon: FileText,       color: 'var(--mm-color-agent-default)' },
+  worksheet: { label: 'Worksheet',  icon: ClipboardList,  color: 'var(--mm-color-agent-default)' },
+  practice:  { label: 'Practice',   icon: GraduationCap, color: 'var(--mm-color-agent-default)' },
   other:     { label: 'Other',      icon: FileText,       color: 'var(--txt-mut)' },
 }
 
@@ -24,7 +24,7 @@ function TagBadge({ tag }) {
   const meta = TAG_META[tag] || TAG_META.other
   const Icon = meta.icon
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', borderRadius: 10, border: `1px solid ${meta.color}44`, background: `${meta.color}14`, fontSize: '0.66rem', color: meta.color, fontWeight: 600 }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', borderRadius: 10, border: `1px solid color-mix(in srgb, ${meta.color} 27%, transparent)`, background: `color-mix(in srgb, ${meta.color} 8%, transparent)`, fontSize: '0.66rem', color: meta.color, fontWeight: 600 }}>
       <Icon size={10} /> {meta.label}
     </span>
   )
@@ -147,7 +147,7 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploading || !upload.policy}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(99,102,241,0.35)', background: 'rgba(99,102,241,0.12)', color: 'var(--photon)', cursor: uploading ? 'default' : 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)', background: 'rgba(var(--mm-color-agent-rgb),0.12)', color: 'var(--photon)', cursor: uploading ? 'default' : 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
           >
             {uploading ? <Loader size={13} style={{ animation: 'spin 1s linear infinite' }} /> : <Upload size={13} />}
             {uploading ? 'Uploading…' : 'Upload'}

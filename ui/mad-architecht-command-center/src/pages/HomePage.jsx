@@ -119,13 +119,13 @@ export default function HomePage({ setPage }) {
 
   const stats = status ? [
     { label: 'Agent Sessions', value: String(status.agent_count || 0), color: 'var(--photon)', gradId: 'sg1', points: '0,15 8,12 16,8 24,14 32,6 40,10 48,4 56,7 60,3' },
-    { label: 'CLI Commands Run', value: String(status.cli_commands_run || buildlog.length), color: 'var(--cyan)', gradId: 'sg2', points: '0,18 10,12 20,14 30,6 40,9 50,3 60,7' },
-    { label: 'Active Models', value: String(status.active_models || 3), color: 'var(--violet)', gradId: null, points: '0,10 12,10 24,10 36,6 48,6 60,6' },
+    { label: 'CLI Commands Run', value: String(status.cli_commands_run || buildlog.length), color: 'var(--mm-color-system-default)', gradId: 'sg2', points: '0,18 10,12 20,14 30,6 40,9 50,3 60,7' },
+    { label: 'Active Models', value: String(status.active_models || 3), color: 'var(--mm-color-agent-default)', gradId: null, points: '0,10 12,10 24,10 36,6 48,6 60,6' },
     { label: 'Uptime', value: status.uptime || '–', color: '#22c55e', gradId: 'sg4', points: '0,18 15,16 30,12 45,8 60,4' },
   ] : [
     { label: 'Agent Sessions', value: '–', color: 'var(--photon)', gradId: 'sg1', points: '0,15 60,15' },
-    { label: 'CLI Commands Run', value: '–', color: 'var(--cyan)', gradId: 'sg2', points: '0,15 60,15' },
-    { label: 'Active Models', value: '–', color: 'var(--violet)', gradId: null, points: '0,10 60,10' },
+    { label: 'CLI Commands Run', value: '–', color: 'var(--mm-color-system-default)', gradId: 'sg2', points: '0,15 60,15' },
+    { label: 'Active Models', value: '–', color: 'var(--mm-color-agent-default)', gradId: null, points: '0,10 60,10' },
     { label: 'Uptime', value: '–', color: '#22c55e', gradId: 'sg4', points: '0,15 60,15' },
   ]
 
@@ -156,7 +156,7 @@ export default function HomePage({ setPage }) {
       time: e.created_at ? new Date(e.created_at).toLocaleTimeString() : '',
     })),
     ...sales.slice(-3).reverse().map(e => ({
-      dot: 'var(--cyan)',
+      dot: 'var(--mm-color-system-default)',
       msg: `Sale: ${e.item} — $${e.amount}`,
       time: e.created_at ? new Date(e.created_at).toLocaleTimeString() : '',
     })),
@@ -205,7 +205,6 @@ export default function HomePage({ setPage }) {
       </div>
 
       <div className="glass-card-solid" style={{ padding: 18, marginBottom: 20, position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at top left, rgba(77,166,255,0.2), transparent 45%), radial-gradient(circle at bottom right, rgba(168,85,247,0.18), transparent 38%)' }} />
         <div style={{ position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
           <div style={{ maxWidth: 640 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, color: 'var(--photon)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase' }}>
@@ -222,12 +221,12 @@ export default function HomePage({ setPage }) {
               <div style={{ marginTop: 6, fontSize: '0.92rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Operator health</div>
               <div style={{ marginTop: 4, color: 'var(--txt-sec)', fontSize: '0.74rem' }}>{services.length ? `${services.filter(s => s.status === 'green').length}/${services.length} services green` : 'Checking runtime…'}</div>
             </div>
-            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(0,245,212,0.22)', background: 'rgba(0,245,212,0.06)' }}>
+            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(var(--mm-color-system-rgb),0.22)', background: 'rgba(var(--mm-color-system-rgb),0.06)' }}>
               <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Best next action</div>
               <div style={{ marginTop: 6, fontSize: '0.92rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Open lessons</div>
               <div style={{ marginTop: 4, color: 'var(--txt-sec)', fontSize: '0.74rem' }}>Keep the learning loop moving with a focused ATLAS module.</div>
             </div>
-            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(168,85,247,0.22)', background: 'rgba(168,85,247,0.07)' }}>
+            <div style={{ padding: '12px 14px', borderRadius: 12, border: '1px solid rgba(var(--mm-color-agent-rgb),0.22)', background: 'rgba(var(--mm-color-agent-rgb),0.07)' }}>
               <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Momentum</div>
               <div style={{ marginTop: 6, fontSize: '0.92rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{entitlements?.effective_tier || entitlements?.tier || 'explorer'}</div>
               <div style={{ marginTop: 4, color: 'var(--txt-sec)', fontSize: '0.74rem' }}>Tier is healthy and ready for the next upgrade slice.</div>
@@ -237,7 +236,7 @@ export default function HomePage({ setPage }) {
       </div>
 
       {showBillingWarning && (
-        <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 18, border: `1px solid ${billingWarningColor}55`, background: `${billingWarningColor}14` }}>
+        <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 18, border: `1px solid color-mix(in srgb, ${billingWarningColor} 33.33%, transparent)`, background: `color-mix(in srgb, ${billingWarningColor} 7.84%, transparent)` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <AlertTriangle size={15} color={billingWarningColor} />
@@ -271,7 +270,7 @@ export default function HomePage({ setPage }) {
         <WorkspaceMemoryPanel />
       </div>
 
-      <div className="glass-card-solid" style={{ padding: 16, marginBottom: 24, borderLeft: '3px solid var(--violet)' }}>
+      <div className="glass-card-solid" style={{ padding: 16, marginBottom: 24, borderLeft: '3px solid var(--mm-color-agent-default)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
           <p style={{ margin: 0, fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700 }}>
             Live deploy verification
@@ -349,7 +348,7 @@ export default function HomePage({ setPage }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <ShieldCheck size={16} color="var(--cyan)" />
+              <ShieldCheck size={16} color="var(--mm-color-system-default)" />
               <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>MammothOS self-audit</span>
             </div>
             <p style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', lineHeight: 1.6, maxWidth: 620 }}>
@@ -359,7 +358,7 @@ export default function HomePage({ setPage }) {
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <div style={{ padding: '8px 12px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
               <span style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginRight: 6 }}>Tier</span>
-              <span style={{ fontSize: '0.76rem', color: 'var(--cyan)', fontWeight: 700, textTransform: 'capitalize' }}>{entitlements?.effective_tier || entitlements?.tier || 'explorer'}</span>
+              <span style={{ fontSize: '0.76rem', color: 'var(--mm-color-system-default)', fontWeight: 700, textTransform: 'capitalize' }}>{entitlements?.effective_tier || entitlements?.tier || 'explorer'}</span>
             </div>
             <button
               onClick={() => setPage?.('diagnostics')}
@@ -370,7 +369,7 @@ export default function HomePage({ setPage }) {
             <button
               onClick={runSelfAudit}
               disabled={auditBusy}
-              style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, cursor: auditBusy ? 'not-allowed' : 'pointer', opacity: auditBusy ? 0.7 : 1 }}
+              style={{ padding: '9px 14px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, cursor: auditBusy ? 'not-allowed' : 'pointer', opacity: auditBusy ? 0.7 : 1 }}
             >
               {auditBusy ? 'Running audit…' : 'Run self-audit'}
             </button>
@@ -386,7 +385,7 @@ export default function HomePage({ setPage }) {
               </div>
               <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
                 <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Observed tier</div>
-                <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--cyan)', textTransform: 'capitalize' }}>{selfAudit.tier || 'unknown'}</div>
+                <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--mm-color-system-default)', textTransform: 'capitalize' }}>{selfAudit.tier || 'unknown'}</div>
               </div>
               <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
                 <div style={{ fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>CLI activity</div>
@@ -473,7 +472,7 @@ export default function HomePage({ setPage }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
         {quickCmds.map(cmd => (
           <button key={cmd} onClick={() => copy(cmd)} className="glass-card-solid"
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'JetBrains Mono,monospace', color: copied === cmd ? 'var(--cyan)' : 'var(--photon)', background: 'var(--card)' }}>
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'JetBrains Mono,monospace', color: copied === cmd ? 'var(--mm-color-system-default)' : 'var(--photon)', background: 'var(--card)' }}>
             <Copy size={12} />
             {copied === cmd ? 'Copied!' : cmd}
           </button>
@@ -510,4 +509,3 @@ export default function HomePage({ setPage }) {
     </div>
   )
 }
-

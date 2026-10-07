@@ -66,15 +66,15 @@ export function StallNotice({ stall }) {
 export function LessonGateNotice({ gate, onContinue, onDismiss, busy = false }) {
   if (!gate || gate.allowed) return null
   return (
-    <div role="alertdialog" aria-label="Lesson not passed yet" style={{ display: 'grid', gap: 8, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(56,189,248,0.35)', background: 'rgba(56,189,248,0.08)' }}>
+    <div role="alertdialog" aria-label="Lesson not passed yet" style={{ display: 'grid', gap: 8, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(var(--mm-color-system-rgb),0.35)', background: 'rgba(var(--mm-color-system-rgb),0.08)' }}>
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <Compass size={15} style={{ color: 'var(--cyan, #38bdf8)', flexShrink: 0, marginTop: 2 }} />
+        <Compass size={15} style={{ color: 'var(--cyan, var(--mm-color-system-default))', flexShrink: 0, marginTop: 2 }} />
         <span style={{ fontSize: '0.8rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>{gate.message}</span>
       </div>
       <StallNotice stall={gate.stall} />
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
         <button type="button" onClick={onDismiss} disabled={busy}
-          style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: 'var(--photon)', color: '#050608', fontWeight: 600, fontSize: '0.76rem', cursor: 'pointer' }}>
+          style={{ padding: '5px 12px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 600, fontSize: '0.76rem', cursor: 'pointer' }}>
           Keep practicing
         </button>
         <button type="button" onClick={onContinue} disabled={busy}

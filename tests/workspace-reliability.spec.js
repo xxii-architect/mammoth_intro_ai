@@ -1,4 +1,6 @@
 const { test, expect } = require('@playwright/test')
+const fs = require('node:fs')
+const path = require('node:path')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
 async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '' } = {}) {
@@ -31,6 +33,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
     const { AuthProvider, useAuth } = await import('/src/lib/authContext.jsx')
     const { default: Boundary } = await import('/src/components/RenderBoundary.jsx')
+    await import('/src/design/tokens.css')
     await import('/src/index.css')
     localStorage.setItem('mammoth_onboarding_complete', 'true')
     sessionStorage.setItem('mammoth_welcomed_v1', '1')
@@ -67,6 +70,78 @@ test('startup import failure displays recovery instead of a black screen', async
   await expect(page.getByRole('button', { name: 'Reload platform' })).toBeVisible()
 })
 
+test('semantic palette preserves status colors and measurable text/action contrast', () => {
+  const root = path.join(__dirname, '..', 'ui', 'mad-architecht-command-center', 'src')
+  const tokens = JSON.parse(fs.readFileSync(path.join(root, 'design', 'tokens.json'), 'utf8')).color
+  const value = node => node.$value
+  function luminance(hex) {
+    const channels = hex.slice(1).match(/../g).map(part => parseInt(part, 16) / 255)
+      .map(channel => channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+  }
+  function contrast(a, b) {
+    const values = [luminance(a), luminance(b)].sort((x, y) => y - x)
+    return (values[0] + 0.05) / (values[1] + 0.05)
+  }
+  for (const surface of Object.values(tokens.surface)) {
+    for (const text of Object.values(tokens.text)) expect(contrast(value(text), value(surface))).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(value(tokens.agent.default), value(surface))).toBeGreaterThanOrEqual(4.5)
+    expect(contrast(value(tokens.system.default), value(surface))).toBeGreaterThanOrEqual(4.5)
+  }
+  for (const background of [tokens.action.primary, tokens.action.hover]) {
+    expect(contrast(value(tokens.action.text), value(background))).toBeGreaterThanOrEqual(4.5)
+  }
+  expect(value(tokens.status.success)).toBe('#34d399')
+  expect(value(tokens.status.warning)).toBe('#f5b942')
+  expect(value(tokens.status.danger)).toBe('#f87171')
+  expect(value(tokens.border.focus)).toBe(value(tokens.system.default))
+  const generated = fs.readFileSync(path.join(root, 'design', 'tokens.css'), 'utf8')
+  for (const [name, node] of Object.entries(tokens.action)) {
+    if (!name.startsWith('$')) expect(generated).toContain(`--mm-color-action-${name}: ${value(node)};`)
+  }
+  function inspect(directory) {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name)
+      if (entry.isDirectory()) { inspect(file); continue }
+      if (!/\.(jsx|js|css)$/.test(entry.name)) continue
+      const source = fs.readFileSync(file, 'utf8')
+      expect(source, file).not.toMatch(/#(?:b47cff|a78bfa|c4b5fd|818cf8|a855f7|7c3aed|f472b6|00f5d4|22d3ee|2dd4bf)\b/i)
+      expect(source, file).not.toMatch(/rgba?\(\s*(?:180,\s*124,\s*255|168,\s*85,\s*247|0,\s*245,\s*212|99,\s*102,\s*241)/)
+      expect(source, file).not.toMatch(/\$\{[\w.]*(?:color|accent)\}[0-9a-f]{2}\b/i)
+    }
+  }
+  inspect(root)
+})
+
+for (const width of [375, 1280]) {
+  test(`Mammoth Mind lane and primary action follow semantic roles at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    await mount(page, 'pages/ChatPage', {
+      '/mammoth/chat/threads': { threads: [] },
+    })
+    const lane = page.getByRole('combobox', { name: 'Mammoth Mind lane' })
+    await expect(lane).toBeVisible()
+    await expect(lane).toHaveCSS('background-color', 'rgb(13, 17, 23)')
+    await expect(lane).toHaveCSS('color', 'rgb(226, 232, 240)')
+    await expect(lane).toHaveCSS('min-height', '36px')
+    await lane.selectOption('coding_agent')
+    await expect(page.getByRole('combobox', { name: 'Coding task' })).toBeVisible()
+    await lane.selectOption('assistant')
+    await expect(page.getByRole('combobox', { name: 'Coding task' })).toHaveCount(0)
+    await lane.focus()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Shift+Tab')
+    await expect(lane).toBeFocused()
+    await expect(lane).toHaveCSS('outline-color', 'rgb(77, 166, 255)')
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCSS('background-color', 'rgb(208, 138, 82)')
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCSS('color', 'rgb(5, 6, 8)')
+    const sizes = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, viewport: innerWidth }))
+    expect(sizes.scroll).toBeLessThanOrEqual(sizes.viewport)
+    console.log(`Palette screenshot: ${test.info().outputPath(`palette-chat-${width}.png`)}`)
+    await page.screenshot({ path: test.info().outputPath(`palette-chat-${width}.png`), fullPage: true })
+  })
+}
+
 for (const status of [200, 502, 504]) {
 test(`HTML API response ${status} reports path and status without assuming missing configuration`, async ({ page }) => {
   await mount(page, 'auth')
@@ -92,7 +167,9 @@ test('Coding failure shows nested output explanation rather than status=error', 
     }, execution_loop: { verification: { failed_checks: [{ detail: 'status=error' }] } } } },
   })
   await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Coding/ }).click()
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCSS('background-color', 'rgb(22, 27, 34)')
   await page.getByRole('textbox', { name: 'Message Coding' }).fill('Build a utility')
+  await expect(page.getByRole('button', { name: 'Send', exact: true })).toHaveCSS('background-color', 'rgb(208, 138, 82)')
   await page.getByRole('button', { name: 'Send', exact: true }).click()
   await expect(page.getByText(/Generated code failed output validation.*no implementation code block/)).toBeVisible()
   await expect(page.getByText('The agent could not complete this request (status=error).')).toHaveCount(0)
@@ -294,11 +371,13 @@ test('module cards use backend MCP state and explicitly report failed refreshes'
     '/api/mcp/servers': { servers: [{ id: 'browser', label: 'Browser bridge', available: true, enabled: true, status: 'configured', health_verified: false, tools: ['browser_snapshot'] }] },
   })
   await expect(page.getByText('configured', { exact: true })).toBeVisible()
+  await expect(page.getByText('configured', { exact: true })).toHaveCSS('color', 'rgb(96, 165, 250)')
   await expect(page.getByText('Connection health not verified;', { exact: false })).toBeVisible()
   await expect(page.getByText('ready', { exact: true })).toHaveCount(0)
   await page.route('**/api/mcp/servers', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ servers: [{ id: 'browser', label: 'Browser bridge', status: 'connected', health_verified: true }] }) }))
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(page.getByText('Live MCP handshake verified', { exact: false })).toBeVisible()
+  await expect(page.getByText('connected', { exact: true })).toHaveCSS('color', 'rgb(34, 197, 94)')
   await page.route('**/api/modules', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Registry unavailable' }) }))
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Registry unavailable')

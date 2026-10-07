@@ -10,7 +10,7 @@ export const ONBOARDING_STEPS = [
     detail: 'Learn prompt shape, terminal patterns, and approval-safe workflow.',
     page: 'manual',
     Icon: BookOpen,
-    color: 'var(--cyan)',
+    color: 'var(--mm-color-system-default)',
   },
   {
     id: 'terminal',
@@ -26,7 +26,7 @@ export const ONBOARDING_STEPS = [
     detail: 'Use source-aware templates with scope and constraints for sharper output.',
     page: 'agent',
     Icon: Bot,
-    color: 'var(--violet)',
+    color: 'var(--mm-color-agent-default)',
   },
 ]
 
@@ -149,7 +149,7 @@ export default function OnboardingGuide({ currentPage, setPage, variant = 'panel
             {nextStep && nextStep.page !== currentPage && (
               <button
                 onClick={() => goToStep(nextStep)}
-                style={{ border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', borderRadius: 8, padding: '6px 10px', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                style={{ border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', borderRadius: 8, padding: '6px 10px', fontSize: '0.74rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
               >
                 Next: {nextStep.label}
                 <ArrowRight size={14} />
@@ -178,7 +178,7 @@ export default function OnboardingGuide({ currentPage, setPage, variant = 'panel
             {completedCount}/{ONBOARDING_STEPS.length} complete
           </div>
           <div style={{ minWidth: 100, height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
-            <div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg, var(--photon), var(--cyan))' }} />
+            <div style={{ width: `${percent}%`, height: '100%', background: 'var(--mm-color-action-primary)' }} />
           </div>
           <button
             onClick={actions.dismiss}

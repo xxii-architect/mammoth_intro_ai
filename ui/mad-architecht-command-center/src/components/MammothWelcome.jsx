@@ -16,13 +16,13 @@ const steps = [
     icon: "🧠",
     headline: "Meet ATLAS",
     body: "ATLAS (Mammoth Mind) is your personal AI tutor. It adapts to how you learn, tracks your progress, and gets sharper every session.",
-    accent: "var(--violet)",
+    accent: "var(--mm-color-agent-default)",
   },
   {
     icon: "⚡",
     headline: "You're in control",
     body: "Run plans. Trigger agents. Review outputs before anything ships. MammothOS is approval-safe — nothing moves without you.",
-    accent: "var(--cyan)",
+    accent: "var(--mm-color-system-default)",
   },
 ];
 
@@ -67,12 +67,12 @@ export default function MammothWelcome({ onDismiss }) {
       <div
         style={{
           background: "var(--card, #0d0d1a)",
-          border: `1px solid ${current.accent}44`,
+          border: '1px solid var(--mm-color-border-strong)',
           borderRadius: 24,
           width: "100%", maxWidth: 480,
           padding: "40px 36px 32px",
           textAlign: "center",
-          boxShadow: `0 0 48px ${current.accent}22, 0 16px 48px rgba(0,0,0,0.6)`,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.6)',
           opacity: animating ? 0 : 1,
           transform: animating ? "scale(0.97)" : "scale(1)",
           transition: "opacity 0.12s ease, transform 0.12s ease, border-color 0.3s ease, box-shadow 0.3s ease",
@@ -141,11 +141,11 @@ export default function MammothWelcome({ onDismiss }) {
             style={{
               padding: "10px 28px", borderRadius: 10,
               border: "none",
-              background: current.accent,
-              color: "#fff",
+              background: "var(--mm-color-action-primary)",
+              color: "var(--mm-color-action-text)",
               fontSize: "0.84rem", fontWeight: 700,
               cursor: "pointer",
-              boxShadow: `0 0 16px ${current.accent}55`,
+              boxShadow: "none",
             }}
           >
             {isLast ? "Let's go 🚀" : "Next"}

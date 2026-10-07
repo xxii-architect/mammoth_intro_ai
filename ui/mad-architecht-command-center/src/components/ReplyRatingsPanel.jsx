@@ -64,7 +64,7 @@ export default function ReplyRatingsPanel() {
   return (
     <div className="glass-card-solid" style={{ padding: 18 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-        <ThumbsUp size={16} color="var(--cyan)" />
+        <ThumbsUp size={16} color="var(--mm-color-system-default)" />
         <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Mammoth Mind reply ratings (owner/admin)</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
           <button onClick={() => setRevision(value => value + 1)} disabled={busy} style={{ padding: '5px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: busy ? 'not-allowed' : 'pointer' }}>

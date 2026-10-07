@@ -88,11 +88,11 @@ function getBillingWarningState(billingUsage = null) {
 
 // ─── Lesson type → adaptive UI config ────────────────────────────────────────
 const LESSON_TYPE_CONFIG = {
-  code:      { label: 'Code Editor',     icon: '💻', color: '#4ade80', hint: 'Write your solution in the editor below.' },
-  knowledge: { label: 'Open Response',   icon: '📝', color: 'var(--photon)', hint: 'Write your answer or explanation in the field below.' },
-  writing:   { label: 'Writing Exercise',icon: '✍️', color: 'var(--cyan)', hint: 'Compose your response — focus on clarity and structure.' },
-  checklist: { label: 'Skills Checklist',icon: '✅', color: '#22c55e', hint: 'Check off each step as you complete or review it.' },
-  scenario:  { label: 'Scenario Response',icon: '🎭', color: 'var(--violet)', hint: 'Describe how you would handle the given scenario.' },
+  code:      { label: 'Code Editor',     icon: '💻', color: 'var(--mm-color-agent-default)', hint: 'Write your solution in the editor below.' },
+  knowledge: { label: 'Open Response',   icon: '📝', color: 'var(--mm-color-agent-default)', hint: 'Write your answer or explanation in the field below.' },
+  writing:   { label: 'Writing Exercise',icon: '✍️', color: 'var(--mm-color-agent-default)', hint: 'Compose your response — focus on clarity and structure.' },
+  checklist: { label: 'Skills Checklist',icon: '✅', color: 'var(--mm-color-agent-default)', hint: 'Check off each step as you complete or review it.' },
+  scenario:  { label: 'Scenario Response',icon: '🎭', color: 'var(--mm-color-agent-default)', hint: 'Describe how you would handle the given scenario.' },
 }
 
 // ─── Detect lesson type from topic/module ─────────────────────────────────────
@@ -500,31 +500,31 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
             style={{
               display: 'flex', alignItems: 'center', gap: 7,
               padding: '6px 12px', borderRadius: 8,
-              border: `1px solid ${adaptiveUI ? 'rgba(168,85,247,0.5)' : 'var(--border)'}`,
-              background: adaptiveUI ? 'rgba(168,85,247,0.12)' : 'rgba(255,255,255,0.04)',
-              color: adaptiveUI ? 'var(--violet)' : 'var(--txt-sec)',
+              border: `1px solid ${adaptiveUI ? 'rgba(var(--mm-color-agent-rgb),0.5)' : 'var(--border)'}`,
+              background: adaptiveUI ? 'rgba(var(--mm-color-agent-rgb),0.12)' : 'rgba(255,255,255,0.04)',
+              color: adaptiveUI ? 'var(--mm-color-agent-default)' : 'var(--txt-sec)',
               fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s'
             }}
           >
             <Wand2 size={13} />
             Adaptive UI
-            <span style={{ fontSize: '0.64rem', padding: '1px 6px', borderRadius: 4, background: adaptiveUI ? 'rgba(168,85,247,0.25)' : 'rgba(255,255,255,0.08)', color: adaptiveUI ? 'var(--violet)' : 'var(--txt-mut)' }}>
+            <span style={{ fontSize: '0.64rem', padding: '1px 6px', borderRadius: 4, background: adaptiveUI ? 'rgba(var(--mm-color-agent-rgb),0.25)' : 'rgba(255,255,255,0.08)', color: adaptiveUI ? 'var(--mm-color-agent-default)' : 'var(--txt-mut)' }}>
               {adaptiveUI ? 'ON' : 'OFF'}
             </span>
           </button>
           {activeTrack && (
-            <div style={{ padding: '5px 12px', borderRadius: 999, background: 'rgba(0,245,212,0.1)', border: '1px solid rgba(0,245,212,0.3)', fontSize: '0.72rem', color: 'var(--cyan)', fontWeight: 600 }}>
+            <div style={{ padding: '5px 12px', borderRadius: 999, background: 'rgba(var(--mm-color-system-rgb),0.1)', border: '1px solid rgba(var(--mm-color-system-rgb),0.3)', fontSize: '0.72rem', color: 'var(--mm-color-system-default)', fontWeight: 600 }}>
               {activeTrack.icon} {activeTrack.label}
             </div>
           )}
           {activeLibraryProgress.lessonCount > 0 && (
-            <div style={{ padding: '5px 12px', borderRadius: 999, background: 'rgba(168,85,247,0.08)', border: '1px solid rgba(168,85,247,0.24)', fontSize: '0.72rem', color: 'var(--violet)', fontWeight: 600 }}>
+            <div style={{ padding: '5px 12px', borderRadius: 999, background: 'rgba(var(--mm-color-agent-rgb),0.08)', border: '1px solid rgba(var(--mm-color-agent-rgb),0.24)', fontSize: '0.72rem', color: 'var(--mm-color-agent-default)', fontWeight: 600 }}>
               {activeLibraryProgress.persistedCount}/{activeLibraryProgress.lessonCount} saved
             </div>
           )}
           {setPage && (
             <button onClick={() => setPage('atlas')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(180,124,255,0.3)', background: 'rgba(180,124,255,0.08)', color: 'var(--violet)', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-agent-rgb),0.3)', background: 'rgba(var(--mm-color-agent-rgb),0.08)', color: 'var(--mm-color-agent-default)', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer' }}>
               <ExternalLink size={13} /> Full ATLAS Tutor
             </button>
           )}
@@ -532,7 +532,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
       </div>
 
       {billingWarning.show && (
-        <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 14, border: `1px solid ${billingWarning.color}55`, background: `${billingWarning.color}14` }}>
+        <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 14, border: `1px solid color-mix(in srgb, ${billingWarning.color} 33.33%, transparent)`, background: `color-mix(in srgb, ${billingWarning.color} 7.84%, transparent)` }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <AlertTriangle size={15} color={billingWarning.color} />
@@ -551,7 +551,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
       )}
 
       {(result?.error || (outcomeSummary.mastery > 0) || (result && !result.error)) && (
-        <div className="glass-card-solid" style={{ padding: 14, marginBottom: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(0,245,212,0.8)' }}>
+        <div className="glass-card-solid" style={{ padding: 14, marginBottom: 14, borderLeft: result?.error ? '3px solid #f87171' : '3px solid rgba(var(--mm-color-system-rgb),0.8)' }}>
           {result?.error ? (
             <div style={{ fontSize: '0.8rem', color: '#fca5a5', fontWeight: 600 }}>Lesson action failed: {result.error}</div>
           ) : (
@@ -590,10 +590,10 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
           <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(77,166,255,0.25)', color: 'var(--photon)', fontSize: '0.68rem' }}>
             Ready {featuredTracks.length || '0'}
           </span>
-          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(168,85,247,0.25)', color: 'var(--violet)', fontSize: '0.68rem' }}>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(var(--mm-color-agent-rgb),0.25)', color: 'var(--mm-color-agent-default)', fontSize: '0.68rem' }}>
             Mode {typeConfig.label}
           </span>
-          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(0,245,212,0.25)', color: 'var(--cyan)', fontSize: '0.68rem' }}>
+          <span style={{ padding: '4px 8px', borderRadius: 999, border: '1px solid rgba(var(--mm-color-system-rgb),0.25)', color: 'var(--mm-color-system-default)', fontSize: '0.68rem' }}>
             Next {activeTrack ? 'Continue' : 'Choose'}
           </span>
         </div>
@@ -616,11 +616,11 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
             <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Ready</div>
             <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{featuredTracks.length || '0'} picks</div>
           </div>
-          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(168,85,247,0.18)', background: 'rgba(168,85,247,0.06)' }}>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(var(--mm-color-agent-rgb),0.18)', background: 'rgba(var(--mm-color-agent-rgb),0.06)' }}>
             <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Mode</div>
             <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{typeConfig.label}</div>
           </div>
-          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(0,245,212,0.18)', background: 'rgba(0,245,212,0.06)' }}>
+          <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(var(--mm-color-system-rgb),0.18)', background: 'rgba(var(--mm-color-system-rgb),0.06)' }}>
             <div style={{ fontSize: '0.62rem', letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Next step</div>
             <div style={{ marginTop: 6, fontSize: '0.9rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{activeTrack ? 'Continue' : 'Choose a track'}</div>
           </div>
@@ -680,10 +680,10 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                   onChange={e => setTopic(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && startLesson()}
                   placeholder="e.g. Python for loops"
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.8rem', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }}
                 />
                 <button onClick={() => startLesson()} disabled={loading || !topic.trim()}
-                  style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', opacity: (loading || !topic.trim()) ? 0.5 : 1 }}>
+                  style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', opacity: (loading || !topic.trim()) ? 0.5 : 1 }}>
                   {loading ? 'Loading…' : 'Start Lesson'}
                 </button>
                 <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
@@ -715,7 +715,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                             padding: '3px 8px',
                             borderRadius: 999,
                             border: `1px solid ${lessonTypeFilter === type ? 'var(--photon)' : 'var(--border)'}`,
-                            background: lessonTypeFilter === type ? 'rgba(0,245,212,0.1)' : 'transparent',
+                            background: lessonTypeFilter === type ? 'rgba(var(--mm-color-system-rgb),0.1)' : 'transparent',
                             color: lessonTypeFilter === type ? 'var(--photon)' : 'var(--txt-mut)',
                             fontSize: '0.63rem',
                             fontWeight: 600,
@@ -753,7 +753,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                             style={{
                               height: '100%',
                               width: `${moduleProgress(mod).total ? Math.round((moduleProgress(mod).completed / moduleProgress(mod).total) * 100) : 0}%`,
-                              background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                              background: 'var(--mm-color-action-primary)',
                             }}
                           />
                         </div>
@@ -808,16 +808,16 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                               textAlign: 'left',
                               padding: '8px 10px',
                               borderRadius: 8,
-                              border: `1px solid ${isActive ? 'rgba(0,245,212,0.35)' : 'var(--border)'}`,
-                              background: isActive ? 'rgba(0,245,212,0.08)' : 'rgba(255,255,255,0.03)',
+                              border: `1px solid ${isActive ? 'rgba(var(--mm-color-system-rgb),0.35)' : 'var(--border)'}`,
+                              background: isActive ? 'rgba(var(--mm-color-system-rgb),0.08)' : 'rgba(255,255,255,0.03)',
                               cursor: 'pointer',
                               opacity: loading ? 0.6 : 1,
                             }}
                           >
-                            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: isActive ? 'var(--cyan)' : 'var(--txt-pri)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <div style={{ fontSize: '0.74rem', fontWeight: 700, color: isActive ? 'var(--mm-color-system-default)' : 'var(--txt-pri)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
                               <span>{track.icon}</span>
                               {track.label}
-                              {isActive && <Flame size={11} color="var(--cyan)" />}
+                              {isActive && <Flame size={11} color="var(--mm-color-system-default)" />}
                             </div>
                             <div style={{ fontSize: '0.64rem', color: 'var(--txt-mut)', lineHeight: 1.45 }}>
                               {track.summary}
@@ -831,12 +831,12 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                 {/* Category filter pills */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10 }}>
                   <button onClick={() => setCategoryFilter(null)}
-                    style={{ padding: '3px 8px', borderRadius: 999, border: `1px solid ${!categoryFilter ? 'var(--photon)' : 'var(--border)'}`, background: !categoryFilter ? 'rgba(0,245,212,0.1)' : 'transparent', color: !categoryFilter ? 'var(--photon)' : 'var(--txt-mut)', fontSize: '0.64rem', cursor: 'pointer', fontWeight: 600 }}>
+                    style={{ padding: '3px 8px', borderRadius: 999, border: `1px solid ${!categoryFilter ? 'var(--photon)' : 'var(--border)'}`, background: !categoryFilter ? 'rgba(var(--mm-color-system-rgb),0.1)' : 'transparent', color: !categoryFilter ? 'var(--photon)' : 'var(--txt-mut)', fontSize: '0.64rem', cursor: 'pointer', fontWeight: 600 }}>
                     All
                   </button>
                   {CATEGORIES.map(cat => (
                     <button key={cat} onClick={() => setCategoryFilter(cat === categoryFilter ? null : cat)}
-                      style={{ padding: '3px 8px', borderRadius: 999, border: `1px solid ${categoryFilter === cat ? 'var(--photon)' : 'var(--border)'}`, background: categoryFilter === cat ? 'rgba(0,245,212,0.1)' : 'transparent', color: categoryFilter === cat ? 'var(--photon)' : 'var(--txt-mut)', fontSize: '0.64rem', cursor: 'pointer', fontWeight: 600 }}>
+                      style={{ padding: '3px 8px', borderRadius: 999, border: `1px solid ${categoryFilter === cat ? 'var(--photon)' : 'var(--border)'}`, background: categoryFilter === cat ? 'rgba(var(--mm-color-system-rgb),0.1)' : 'transparent', color: categoryFilter === cat ? 'var(--photon)' : 'var(--txt-mut)', fontSize: '0.64rem', cursor: 'pointer', fontWeight: 600 }}>
                       {CATEGORY_ICONS[cat]} {cat}
                     </button>
                   ))}
@@ -851,15 +851,15 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                         disabled={loading}
                         style={{
                           width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 8,
-                          border: `1px solid ${isActive ? 'rgba(0,245,212,0.35)' : 'var(--border)'}`,
-                          background: isActive ? 'rgba(0,245,212,0.08)' : 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${isActive ? 'rgba(var(--mm-color-system-rgb),0.35)' : 'var(--border)'}`,
+                          background: isActive ? 'rgba(var(--mm-color-system-rgb),0.08)' : 'rgba(255,255,255,0.03)',
                           cursor: 'pointer', opacity: loading ? 0.6 : 1, transition: 'all 0.15s',
                         }}
                       >
-                        <div style={{ fontWeight: 600, color: isActive ? 'var(--cyan)' : 'var(--txt-pri)', marginBottom: 2, fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontWeight: 600, color: isActive ? 'var(--mm-color-system-default)' : 'var(--txt-pri)', marginBottom: 2, fontSize: '0.74rem', display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span>{track.icon}</span>
                           {track.label}
-                          {isActive && <Flame size={11} color="var(--cyan)" />}
+                          {isActive && <Flame size={11} color="var(--mm-color-system-default)" />}
                         </div>
                         {track.summary && (
                           <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)', lineHeight: 1.4 }}>
@@ -892,7 +892,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                             <div key={lesson.lesson_id || lesson.title} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,0,0,0.12)' }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
                                 <span style={{ fontSize: '0.74rem', color: 'var(--txt-pri)', fontWeight: 600 }}>{lesson.title}</span>
-                                <span style={{ fontSize: '0.62rem', color: lesson.persisted ? 'var(--cyan)' : 'var(--txt-mut)' }}>
+                                <span style={{ fontSize: '0.62rem', color: lesson.persisted ? 'var(--mm-color-system-default)' : 'var(--txt-mut)' }}>
                                   {lesson.persisted ? `${lesson.chunk_count} chunks saved` : 'not saved yet'}
                                 </span>
                               </div>
@@ -949,12 +949,12 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                         <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{activeTrack.icon} {activeTrack.label}</span>
                       )}
                       {lessonSourceLabel && (
-                        <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(0,245,212,0.25)', background: 'rgba(0,245,212,0.08)', color: 'var(--cyan)', fontWeight: 600 }}>
+                        <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(var(--mm-color-system-rgb),0.25)', background: 'rgba(var(--mm-color-system-rgb),0.08)', color: 'var(--mm-color-system-default)', fontWeight: 600 }}>
                           {lessonSourceLabel}
                         </span>
                       )}
                       {activeLibraryProgress.lessonCount > 0 && (
-                        <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(168,85,247,0.24)', background: 'rgba(168,85,247,0.08)', color: 'var(--violet)', fontWeight: 600 }}>
+                        <span style={{ fontSize: '0.64rem', padding: '2px 8px', borderRadius: 999, border: '1px solid rgba(var(--mm-color-agent-rgb),0.24)', background: 'rgba(var(--mm-color-agent-rgb),0.08)', color: 'var(--mm-color-agent-default)', fontWeight: 600 }}>
                           {activeLibraryProgress.persistedCount}/{activeLibraryProgress.lessonCount} saved
                         </span>
                       )}
@@ -965,8 +965,8 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                   </div>
 
                   <div style={{ display: 'grid', gap: 12 }}>
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(0,245,212,0.06)', border: '1px solid rgba(0,245,212,0.22)', display: 'grid', gap: 6 }}>
-                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--cyan)', fontWeight: 700 }}>1. Introduction</p>
+                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(var(--mm-color-system-rgb),0.06)', border: '1px solid rgba(var(--mm-color-system-rgb),0.22)', display: 'grid', gap: 6 }}>
+                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--mm-color-system-default)', fontWeight: 700 }}>1. Introduction</p>
                       {lessonOverview ? (
                         <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>{lessonOverview}</p>
                       ) : (
@@ -1001,8 +1001,8 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                       </div>
                     )}
 
-                    <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.22)', display: 'grid', gap: 6 }}>
-                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--violet)', fontWeight: 700 }}>Feedback loop</p>
+                    <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(var(--mm-color-agent-rgb),0.06)', border: '1px solid rgba(var(--mm-color-agent-rgb),0.22)', display: 'grid', gap: 6 }}>
+                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--mm-color-agent-default)', fontWeight: 700 }}>Feedback loop</p>
                       <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--txt-pri)', lineHeight: 1.6 }}>
                         Ask ATLAS for clarification before moving into the exercise if anything feels unclear. This keeps the lesson practical and gives learners a chance to resolve confusion before they perform the task.
                       </p>
@@ -1031,7 +1031,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                         <span style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>· {activeTrack.icon} {activeTrack.label}</span>
                       )}
                       {adaptiveUI && (
-                        <span style={{ fontSize: '0.62rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(168,85,247,0.15)', color: 'var(--violet)', fontWeight: 700, border: '1px solid rgba(168,85,247,0.3)' }}>
+                        <span style={{ fontSize: '0.62rem', padding: '1px 6px', borderRadius: 4, background: 'rgba(var(--mm-color-agent-rgb),0.15)', color: 'var(--mm-color-agent-default)', fontWeight: 700, border: '1px solid rgba(var(--mm-color-agent-rgb),0.3)' }}>
                           ✦ Adaptive
                         </span>
                       )}
@@ -1041,7 +1041,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                     <button onClick={submitCode} disabled={loading}
-                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
                       <Send size={13} /> {loading ? 'Submitting…' : (submissionMode === 'code' ? 'Submit' : 'Submit response')}
                     </button>
                     <button onClick={() => nextLesson(false)} disabled={loading}
@@ -1087,7 +1087,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                       {submissionMode === 'code' ? 'Your Solution' : 'Your Response'}
                     </p>
                     {adaptiveUI && (
-                      <span style={{ fontSize: '0.66rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(168,85,247,0.15)', border: '1px solid rgba(168,85,247,0.4)', color: 'var(--violet)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: '0.66rem', padding: '2px 8px', borderRadius: 999, background: 'rgba(var(--mm-color-agent-rgb),0.15)', border: '1px solid rgba(var(--mm-color-agent-rgb),0.4)', color: 'var(--mm-color-agent-default)', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 4 }}>
                         <Wand2 size={10} /> {typeConfig.icon} {typeConfig.label}
                       </span>
                     )}
@@ -1120,13 +1120,13 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                 ) : (adaptiveUI && (detectedLessonType === 'scenario' || detectedLessonType === 'writing' || detectedLessonType === 'knowledge')) || submissionMode !== 'code' ? (
                   <textarea value={code} onChange={e => setCode(e.target.value)}
                     placeholder={typeConfig.hint}
-                    style={{ width: '100%', height: 200, background: 'rgba(255,255,255,0.03)', border: `1px solid ${typeConfig.color}44`, borderRadius: 8, padding: 14, fontSize: '0.86rem', fontFamily: 'inherit', color: 'var(--txt-pri)', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.85 }} />
+                    style={{ width: '100%', height: 200, background: 'rgba(255,255,255,0.03)', border: `1px solid color-mix(in srgb, ${typeConfig.color} 27%, transparent)`, borderRadius: 8, padding: 14, fontSize: '0.86rem', fontFamily: 'inherit', color: 'var(--txt-pri)', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.85 }} />
 
                 /* Code mode (default or adaptive code) */
                 ) : (
                   <textarea value={code} onChange={e => setCode(e.target.value)}
                     placeholder="Write your solution here…"
-                    style={{ width: '100%', height: 200, background: '#050608', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: '#4ade80', resize: 'vertical', outline: 'none', boxSizing: 'border-box', lineHeight: 1.8 }} />
+                    style={{ width: '100%', height: 200, background: 'var(--shell)', border: '1px solid var(--border)', borderRadius: 8, padding: 12, fontSize: '0.82rem', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.8 }} />
                 )}
               </div>
 

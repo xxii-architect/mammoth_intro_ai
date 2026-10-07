@@ -90,8 +90,8 @@ function FlashcardDeck() {
       <div style={{ display: 'grid', gap: 18, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ display: 'grid', placeItems: 'center', width: 42, height: 42, borderRadius: 14, background: 'linear-gradient(135deg, rgba(180,124,255,0.18), rgba(77,166,255,0.12))', border: '1px solid rgba(180,124,255,0.35)' }}>
-              <Brain size={20} style={{ color: 'var(--violet)' }} />
+            <div style={{ display: 'grid', placeItems: 'center', width: 42, height: 42, borderRadius: 14, background: 'var(--mm-color-agent-soft)', border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)' }}>
+              <Brain size={20} style={{ color: 'var(--mm-color-agent-default)' }} />
             </div>
             <div>
               <div className="eyebrow" style={{ marginBottom: 4 }}>Active recall loop</div>
@@ -115,7 +115,7 @@ function FlashcardDeck() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12 }}>
           <div className="glass-card-solid" style={{ padding: 14 }}>
             <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 6 }}>Accuracy</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--cyan)' }}>{accuracy}%</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--mm-color-system-default)' }}>{accuracy}%</div>
           </div>
           <div className="glass-card-solid" style={{ padding: 14 }}>
             <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 6 }}>Progress</div>
@@ -123,7 +123,7 @@ function FlashcardDeck() {
           </div>
           <div className="glass-card-solid" style={{ padding: 14 }}>
             <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 6 }}>Recall wins</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--violet)' }}>{score.got}</div>
+            <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--mm-color-agent-default)' }}>{score.got}</div>
           </div>
         </div>
       </div>
@@ -142,8 +142,8 @@ function FlashcardDeck() {
             minHeight: 240,
             borderRadius: 20,
             cursor: 'pointer',
-            border: `1px solid ${flipped ? 'rgba(180,124,255,0.45)' : 'var(--border)'}`,
-            background: flipped ? 'linear-gradient(135deg, rgba(180,124,255,0.12), rgba(77,166,255,0.08))' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${flipped ? 'rgba(var(--mm-color-agent-rgb),0.45)' : 'var(--border)'}`,
+            background: flipped ? 'var(--mm-color-agent-soft)' : 'rgba(255,255,255,0.04)',
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
@@ -151,10 +151,10 @@ function FlashcardDeck() {
             padding: 28,
             textAlign: 'center',
             transition: 'all 0.25s ease',
-            boxShadow: flipped ? '0 0 24px rgba(180,124,255,0.14)' : 'none',
+            boxShadow: 'none',
             marginBottom: 16,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: flipped ? 'var(--violet)' : 'var(--txt-mut)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, color: flipped ? 'var(--mm-color-agent-default)' : 'var(--txt-mut)', fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' }}>
               <Sparkles size={13} />
               {flipped ? 'Answer' : 'Prompt'}
             </div>
@@ -184,16 +184,16 @@ function FlashcardDeck() {
           <p style={{ fontSize: '2.6rem', marginBottom: 10 }}>🐘</p>
           <h2 style={{ color: 'var(--txt-pri)', marginBottom: 6 }}>Deck complete</h2>
           <p style={{ color: 'var(--txt-mut)', fontSize: '0.85rem', marginBottom: 20 }}>
-            You got <strong style={{ color: 'var(--cyan)' }}>{score.got}</strong> right and missed <strong style={{ color: '#e74c3c' }}>{score.missed}</strong> out of {total} cards.
+            You got <strong style={{ color: 'var(--mm-color-system-default)' }}>{score.got}</strong> right and missed <strong style={{ color: '#e74c3c' }}>{score.missed}</strong> out of {total} cards.
           </p>
-          <button onClick={reset} style={{ padding: '10px 22px', borderRadius: 10, border: 'none', background: 'linear-gradient(90deg, var(--violet), var(--photon))', color: '#fff', fontWeight: 800, cursor: 'pointer', fontSize: '0.9rem' }}>
+          <button onClick={reset} style={{ padding: '10px 22px', borderRadius: 10, border: 'none', background: 'var(--mm-color-action-primary)', color: 'var(--mm-color-action-text)', fontWeight: 800, cursor: 'pointer', fontSize: '0.9rem' }}>
             Review again
           </button>
         </div>
       )}
 
       <p style={{ textAlign: 'center', color: 'var(--txt-mut)', fontSize: '0.7rem', marginTop: 20 }}>
-        Cards generated by ATLAS from your active lesson · <span style={{ color: 'var(--violet)' }}>Pro</span> decks unlock custom review loops
+        Cards generated by ATLAS from your active lesson · <span style={{ color: 'var(--mm-color-agent-default)' }}>Pro</span> decks unlock custom review loops
       </p>
     </div>
   )

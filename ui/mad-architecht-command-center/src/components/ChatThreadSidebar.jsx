@@ -80,7 +80,7 @@ const ChatThreadSidebar = forwardRef(function ChatThreadSidebar({ activeThreadId
         <button
           onClick={onNewThread}
           title="New chat"
-          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(99,102,241,0.35)', background: 'rgba(99,102,241,0.12)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
+          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)', background: 'rgba(var(--mm-color-agent-rgb),0.12)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
         >
           <Plus size={12} /> New
         </button>

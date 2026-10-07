@@ -89,7 +89,7 @@ const COMMANDS = [
   {
     category: 'Start here',
     icon: Sparkles,
-    accent: 'var(--cyan)',
+    accent: 'var(--mm-color-system-default)',
     description: 'High-signal starter prompts that show off the current product without extra setup.',
     commands: [
       {
@@ -204,7 +204,7 @@ const COMMANDS = [
   {
     category: 'ATLAS learning lanes',
     icon: GraduationCap,
-    accent: 'var(--violet)',
+    accent: 'var(--mm-color-agent-default)',
     description: 'Prompts tuned for Assistant, Tutor, and Build behavior inside the ATLAS Tutor page and the Mammoth Mind pill.',
     commands: [
       {
@@ -321,7 +321,7 @@ const COMMANDS = [
   {
     category: 'Live web research',
     icon: Globe,
-    accent: 'var(--cyan)',
+    accent: 'var(--mm-color-system-default)',
     description: 'Current-source retrieval when model memory is not enough.',
     commands: [
       {
@@ -357,7 +357,7 @@ const COMMANDS = [
   {
     category: 'Operator + build workflows',
     icon: Bot,
-    accent: 'var(--violet)',
+    accent: 'var(--mm-color-agent-default)',
     description: 'Prompts for the Agent and Terminal surfaces when you need structured execution instead of chat alone.',
     commands: [
       {
@@ -486,7 +486,7 @@ function CommandCard({ cmd }) {
             {cmd.surface ? <MetaPill>{cmd.surface}</MetaPill> : null}
             {cmd.lane ? <MetaPill>{cmd.lane}</MetaPill> : null}
           </div>
-          <code style={{ display: 'block', fontSize: '0.75rem', color: 'var(--cyan)', background: 'rgba(0,0,0,0.3)', padding: '6px 8px', borderRadius: 6, fontFamily: 'monospace', marginBottom: cmd.example ? 6 : 0, wordBreak: 'break-word' }}>
+          <code style={{ display: 'block', fontSize: '0.75rem', color: 'var(--mm-color-system-default)', background: 'rgba(0,0,0,0.3)', padding: '6px 8px', borderRadius: 6, fontFamily: 'monospace', marginBottom: cmd.example ? 6 : 0, wordBreak: 'break-word' }}>
             {cmd.syntax}
           </code>
           {cmd.example ? (
@@ -508,7 +508,7 @@ function CommandCard({ cmd }) {
               <p style={{ margin: '0 0 6px', fontSize: '0.68rem', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--txt-mut)' }}>Parameters</p>
               {cmd.parameters.map((p) => (
                 <div key={p.name} style={{ display: 'flex', gap: 8, marginBottom: 4, fontSize: '0.8rem' }}>
-                  <code style={{ color: 'var(--violet)', fontFamily: 'monospace', flexShrink: 0 }}>[{p.name}]</code>
+                  <code style={{ color: 'var(--mm-color-agent-default)', fontFamily: 'monospace', flexShrink: 0 }}>[{p.name}]</code>
                   <span style={{ color: 'var(--txt-sec)' }}>{p.description}</span>
                 </div>
               ))}
@@ -517,7 +517,7 @@ function CommandCard({ cmd }) {
 
           <div style={{ display: 'grid', gap: 8, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             <div style={{ background: 'rgba(0,200,100,0.06)', border: '1px solid rgba(0,200,100,0.15)', borderRadius: 8, padding: '10px 12px' }}>
-              <p style={{ margin: '0 0 4px', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#4ade80' }}>Expected output</p>
+              <p style={{ margin: '0 0 4px', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--txt-sec)' }}>Expected output</p>
               <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>{cmd.output}</p>
             </div>
             <div style={{ background: 'rgba(248,200,60,0.06)', border: '1px solid rgba(248,200,60,0.15)', borderRadius: 8, padding: '10px 12px' }}>
@@ -527,8 +527,8 @@ function CommandCard({ cmd }) {
           </div>
 
           {cmd.tips ? (
-            <div style={{ background: 'rgba(180,124,255,0.06)', border: '1px solid rgba(180,124,255,0.15)', borderRadius: 8, padding: '10px 12px' }}>
-              <p style={{ margin: '0 0 4px', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--violet)' }}>Pro tip</p>
+            <div style={{ background: 'rgba(var(--mm-color-agent-rgb),0.06)', border: '1px solid rgba(var(--mm-color-agent-rgb),0.15)', borderRadius: 8, padding: '10px 12px' }}>
+              <p style={{ margin: '0 0 4px', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--mm-color-agent-default)' }}>Pro tip</p>
               <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>{cmd.tips}</p>
             </div>
           ) : null}
@@ -571,7 +571,7 @@ export default function CommandLibraryPage() {
     <div style={{ padding: '28px 20px 80px', maxWidth: 1020, margin: '0 auto' }}>
       <div className="glass-card-solid" style={{ padding: 20, borderRadius: 18, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <BookOpen size={22} color="var(--violet)" />
+          <BookOpen size={22} color="var(--mm-color-agent-default)" />
           <h1 style={{ margin: 0, fontSize: '1.7rem', fontWeight: 800, color: 'var(--txt-pri)' }}>Command Library</h1>
         </div>
         <p style={{ margin: '0 0 14px', fontSize: '0.92rem', color: 'var(--txt-sec)', lineHeight: 1.65, maxWidth: 720 }}>
@@ -588,7 +588,7 @@ export default function CommandLibraryPage() {
 
       <div className="glass-card-solid" style={{ padding: 18, borderRadius: 18, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <Brain size={16} color="var(--cyan)" />
+          <Brain size={16} color="var(--mm-color-system-default)" />
           <strong style={{ color: 'var(--txt-pri)', fontSize: '0.9rem' }}>Rich quick starts</strong>
         </div>
         <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
@@ -606,7 +606,7 @@ export default function CommandLibraryPage() {
 
       <div className="glass-card-solid" style={{ padding: 18, borderRadius: 18, marginBottom: 20 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-          <Users size={16} color="var(--violet)" />
+          <Users size={16} color="var(--mm-color-agent-default)" />
           <strong style={{ color: 'var(--txt-pri)', fontSize: '0.9rem' }}>Team adoption kit</strong>
         </div>
         <div style={{ display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
@@ -631,7 +631,7 @@ export default function CommandLibraryPage() {
           </div>
           <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 12, background: 'rgba(255,255,255,0.02)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-              <FileText size={14} color="var(--cyan)" />
+              <FileText size={14} color="var(--mm-color-system-default)" />
               <strong style={{ color: 'var(--txt-pri)', fontSize: '0.82rem' }}>Shareable runbooks</strong>
             </div>
             <div style={{ display: 'grid', gap: 8 }}>

@@ -225,10 +225,10 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--cyan)' }}>
+        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--mm-color-system-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <Lock size={16} color="var(--cyan)" />
+              <Lock size={16} color="var(--mm-color-system-default)" />
               <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 600, margin: 0 }}>.env Variables</p>
             </div>
             <button
@@ -253,9 +253,9 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--violet)' }}>
+        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--mm-color-agent-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-            <Palette size={16} color="var(--violet)" />
+            <Palette size={16} color="var(--mm-color-agent-default)" />
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 600, margin: 0 }}>Theme</p>
           </div>
           <p style={{ fontSize: '0.85rem', color: 'var(--txt-pri)', marginBottom: 8 }}>Dark mode is active.</p>
@@ -282,9 +282,9 @@ export default function SettingsPage() {
           {resetMsg && <p style={{ marginTop: 10, fontSize: '0.78rem', color: resetMsg.includes('failed') ? '#f87171' : '#22c55e', marginBottom: 0 }}>{resetMsg}</p>}
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--cyan)' }}>
+        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--mm-color-system-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
-            <Zap size={16} color="var(--cyan)" />
+            <Zap size={16} color="var(--mm-color-system-default)" />
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 600, margin: 0 }}>
               AI Runtime Integration
             </p>
@@ -331,13 +331,13 @@ export default function SettingsPage() {
 
           <div style={{ display: 'grid', gap: 10, marginBottom: 18 }}>
             {(workspace?.accounts || []).map((account) => (
-              <div key={account.account_id} style={{ padding: '12px 14px', borderRadius: 10, border: `1px solid ${account.is_active ? 'rgba(0,245,212,0.35)' : 'var(--border)'}`, background: account.is_active ? 'rgba(0,245,212,0.06)' : 'rgba(255,255,255,0.03)' }}>
+              <div key={account.account_id} style={{ padding: '12px 14px', borderRadius: 10, border: `1px solid ${account.is_active ? 'rgba(var(--mm-color-system-rgb),0.35)' : 'var(--border)'}`, background: account.is_active ? 'rgba(var(--mm-color-system-rgb),0.06)' : 'rgba(255,255,255,0.03)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
                   <div>
                     <div style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{account.label}</div>
                     <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace' }}>{account.user_id}</div>
                   </div>
-                  <div style={{ fontSize: '0.68rem', color: account.is_active ? 'var(--cyan)' : 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
+                  <div style={{ fontSize: '0.68rem', color: account.is_active ? 'var(--mm-color-system-default)' : 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
                     {account.is_active ? 'Active' : account.tier}
                   </div>
                 </div>
@@ -374,7 +374,7 @@ export default function SettingsPage() {
 
           <div style={{ paddingTop: 16, borderTop: '1px solid var(--border)' }}>
             <div style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--txt-pri)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <PlusCircle size={14} color="var(--cyan)" />
+              <PlusCircle size={14} color="var(--mm-color-system-default)" />
               Add workspace account
             </div>
             <div style={{ display: 'grid', gap: 10 }}>
@@ -382,30 +382,30 @@ export default function SettingsPage() {
                 value={draftAccount.display_name}
                 onChange={(e) => setDraftAccount((prev) => ({ ...prev, display_name: e.target.value }))}
                 placeholder="Display name"
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
               />
               <input
                 value={draftAccount.email}
                 onChange={(e) => setDraftAccount((prev) => ({ ...prev, email: e.target.value }))}
                 placeholder="Email"
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
               />
               <input
                 value={draftAccount.organization}
                 onChange={(e) => setDraftAccount((prev) => ({ ...prev, organization: e.target.value }))}
                 placeholder="Organization"
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
               />
               <input
                 value={draftAccount.account_id}
                 onChange={(e) => setDraftAccount((prev) => ({ ...prev, account_id: e.target.value }))}
                 placeholder="Optional account id (example: student-two)"
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
               />
               <button
                 onClick={createWorkspaceAccount}
                 disabled={workspaceSaving}
-                style={{ padding: '9px 12px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', opacity: workspaceSaving ? 0.7 : 1 }}
+                style={{ padding: '9px 12px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', opacity: workspaceSaving ? 0.7 : 1 }}
               >
                 {workspaceSaving ? 'Saving account…' : 'Create and activate account'}
               </button>
@@ -414,9 +414,9 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--cyan)' }}>
+        <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--mm-color-system-default)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-            <User size={16} color="var(--cyan)" />
+            <User size={16} color="var(--mm-color-system-default)" />
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 600, margin: 0 }}>Active Account Onboarding</p>
           </div>
 
@@ -427,24 +427,24 @@ export default function SettingsPage() {
                 value={profile.display_name || ''}
                 onChange={(e) => setProfile((p) => ({ ...p, display_name: e.target.value }))}
                 placeholder="Display name"
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
               />
               <input
                 value={profile.email || ''}
                 onChange={(e) => setProfile((p) => ({ ...p, email: e.target.value }))}
                 placeholder="Email"
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
               />
               <input
                 value={profile.organization || ''}
                 onChange={(e) => setProfile((p) => ({ ...p, organization: e.target.value }))}
                 placeholder="Organization"
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(0,245,212,0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(var(--mm-color-system-rgb),0.04)', color: 'var(--txt-pri)', fontSize: '0.82rem' }}
               />
               <button
                 onClick={saveProfile}
                 disabled={savingProfile}
-                style={{ padding: '9px 12px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', opacity: savingProfile ? 0.7 : 1 }}
+                style={{ padding: '9px 12px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', opacity: savingProfile ? 0.7 : 1 }}
               >
                 {savingProfile ? 'Saving profile…' : 'Save profile'}
               </button>
@@ -480,8 +480,8 @@ export default function SettingsPage() {
 
           <div>
             <div style={{ fontSize: '0.76rem', fontWeight: 600, color: 'var(--txt-pri)', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Code2 size={14} color="var(--cyan)" />
-              Access Tier: <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace' }}>{entitlements?.effective_tier || currentTier}</span>
+              <Code2 size={14} color="var(--mm-color-system-default)" />
+              Access Tier: <span style={{ color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace' }}>{entitlements?.effective_tier || currentTier}</span>
             </div>
             {!adminControlsEnabled && (
               <p style={{ margin: '0 0 10px', fontSize: '0.74rem', color: 'var(--txt-mut)' }}>
@@ -497,9 +497,9 @@ export default function SettingsPage() {
                   style={{
                     padding: '8px 12px',
                     borderRadius: 8,
-                    border: `1.5px solid ${currentTier === tier ? 'var(--cyan)' : 'var(--border)'}`,
-                    background: currentTier === tier ? 'rgba(0,245,212,0.12)' : 'rgba(255,255,255,0.04)',
-                    color: currentTier === tier ? 'var(--cyan)' : 'var(--txt-sec)',
+                    border: `1.5px solid ${currentTier === tier ? 'var(--mm-color-system-default)' : 'var(--border)'}`,
+                    background: currentTier === tier ? 'rgba(var(--mm-color-system-rgb),0.12)' : 'rgba(255,255,255,0.04)',
+                    color: currentTier === tier ? 'var(--mm-color-system-default)' : 'var(--txt-sec)',
                     fontSize: '0.75rem',
                     fontWeight: 600,
                     textTransform: 'capitalize',

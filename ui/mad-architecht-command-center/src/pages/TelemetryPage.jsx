@@ -110,7 +110,7 @@ export default function TelemetryPage() {
     return (
       <div>
         <svg width="100%" height={height} viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" style={{ display: 'block' }}>
-          <path d={pathString} fill="none" stroke="var(--cyan)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+          <path d={pathString} fill="none" stroke="var(--mm-color-system-default)" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
         </svg>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, fontSize: '0.75rem', color: 'var(--txt-mut)' }}>
           <span>{minVal.toFixed(3)}</span>
@@ -127,7 +127,7 @@ export default function TelemetryPage() {
     <div className="page-enter" style={{ padding: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <h1 style={{ fontSize: '1.1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <BarChart3 size={20} color="var(--cyan)" /> Release Telemetry Dashboard
+          <BarChart3 size={20} color="var(--mm-color-system-default)" /> Release Telemetry Dashboard
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {lastCheck && (
@@ -228,7 +228,7 @@ export default function TelemetryPage() {
               <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 }}>
                 Avg Confidence
               </div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--cyan)' }}>
+              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--mm-color-system-default)' }}>
                 {(metrics.avg_confidence * 100).toFixed(1)}%
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', marginTop: 8 }}>
@@ -240,7 +240,7 @@ export default function TelemetryPage() {
               <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 }}>
                 Contradiction Rate
               </div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--cyan)' }}>
+              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--mm-color-system-default)' }}>
                 {(metrics.contradiction_rate * 100).toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', marginTop: 8 }}>
@@ -252,7 +252,7 @@ export default function TelemetryPage() {
               <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 }}>
                 Avg Citations
               </div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--cyan)' }}>
+              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--mm-color-system-default)' }}>
                 {metrics.avg_citation_count.toFixed(1)}
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', marginTop: 8 }}>
@@ -264,7 +264,7 @@ export default function TelemetryPage() {
               <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--txt-mut)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 }}>
                 Responses Tracked
               </div>
-              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--cyan)' }}>
+              <div style={{ fontSize: '1.8rem', fontWeight: 700, color: 'var(--mm-color-system-default)' }}>
                 {metrics.record_count || 0}
               </div>
               <div style={{ fontSize: '0.7rem', color: 'var(--txt-mut)', marginTop: 8 }}>

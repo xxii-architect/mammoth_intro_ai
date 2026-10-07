@@ -160,7 +160,7 @@ export default function DiagnosticsPage() {
       <div className="page-header" style={{ marginBottom: 20, gap: 18, flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ fontSize: '1.3rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <Activity size={20} color="var(--cyan)" /> Diagnostics
+            <Activity size={20} color="var(--mm-color-system-default)" /> Diagnostics
           </h1>
           <p style={{ fontSize: '0.84rem', color: 'var(--txt-sec)', maxWidth: 720, lineHeight: 1.6 }}>
             MammothOS can now self-evaluate. This page keeps a history of shell audits, ATLAS eval health, model routing visibility, and current platform diagnostics, including service triage and runtime fallback state.
@@ -170,7 +170,7 @@ export default function DiagnosticsPage() {
           <button
             onClick={runAudit}
             disabled={busy}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: 'none', background: 'linear-gradient(90deg, var(--photon), var(--cyan))', color: '#050608', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.7 : 1 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.7 : 1 }}
           >
             <RefreshCw size={14} style={{ animation: busy ? 'spin 1s linear infinite' : 'none' }} />
             {busy ? 'Running audit...' : 'Run audit now'}
@@ -191,14 +191,14 @@ export default function DiagnosticsPage() {
           <button
             onClick={exportAuditCsv}
             disabled={exportBusy || auditEvents.length === 0}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.08)', color: 'var(--cyan)', cursor: exportBusy || auditEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: exportBusy || auditEvents.length === 0 ? 0.6 : 1 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.08)', color: 'var(--mm-color-system-default)', cursor: exportBusy || auditEvents.length === 0 ? 'not-allowed' : 'pointer', opacity: exportBusy || auditEvents.length === 0 ? 0.6 : 1 }}
           >
             <Download size={14} /> {exportBusy ? 'Exporting…' : 'Export CSV'}
           </button>
           <button
             onClick={exportDiagnosticsJson}
             disabled={jsonExportBusy}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(0,245,212,0.28)', background: 'rgba(0,245,212,0.08)', color: 'var(--photon)', cursor: jsonExportBusy ? 'not-allowed' : 'pointer', opacity: jsonExportBusy ? 0.6 : 1 }}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 14px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-system-rgb),0.28)', background: 'rgba(var(--mm-color-system-rgb),0.08)', color: 'var(--photon)', cursor: jsonExportBusy ? 'not-allowed' : 'pointer', opacity: jsonExportBusy ? 0.6 : 1 }}
           >
             <Download size={14} /> {jsonExportBusy ? 'Bundling snapshot…' : 'Export JSON snapshot'}
           </button>
@@ -208,7 +208,7 @@ export default function DiagnosticsPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 12, marginBottom: 18 }}>
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 8 }}>Runtime posture</div>
-          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: runtime?.state === 'ready' ? 'var(--cyan)' : 'var(--txt-pri)' }}>{runtime?.state || 'warming'}</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: runtime?.state === 'ready' ? 'var(--mm-color-system-default)' : 'var(--txt-pri)' }}>{runtime?.state || 'warming'}</div>
           <div style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>{runtime?.issue || 'Waiting for a fresh runtime status update.'}</div>
         </div>
         <div className="glass-card-solid" style={{ padding: 16 }}>
@@ -218,7 +218,7 @@ export default function DiagnosticsPage() {
         </div>
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ fontSize: '0.68rem', letterSpacing: '0.12em', color: 'var(--txt-mut)', textTransform: 'uppercase', marginBottom: 8 }}>Release gate</div>
-          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: releaseReadiness?.ready ? 'var(--cyan)' : 'var(--ember, #ff8a80)' }}>{releaseReadiness?.ready ? 'Green' : 'Hold'}</div>
+          <div style={{ fontSize: '1.3rem', fontWeight: 800, color: releaseReadiness?.ready ? 'var(--mm-color-system-default)' : 'var(--ember, #ff8a80)' }}>{releaseReadiness?.ready ? 'Green' : 'Hold'}</div>
           <div style={{ marginTop: 6, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>{releaseReadiness?.summary?.research_gate_status ? `Launch gate status: ${releaseReadiness.summary.research_gate_status}` : 'Launch guard is still evaluating system trust.'}</div>
         </div>
       </div>
@@ -250,7 +250,7 @@ export default function DiagnosticsPage() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 5 }}>
                     <span style={{ fontSize: '0.82rem', fontWeight: 700 }}>Audit {item.score}</span>
-                    <span style={{ fontSize: '0.68rem', color: 'var(--cyan)', textTransform: 'capitalize' }}>{item.tier}</span>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--mm-color-system-default)', textTransform: 'capitalize' }}>{item.tier}</span>
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', marginBottom: 4 }}>{item.generatedAt}</div>
                   <div style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{item.checks?.filter(check => check.passed).length || 0}/{item.checks?.length || 0} checks passing</div>
@@ -282,7 +282,7 @@ export default function DiagnosticsPage() {
             </div>
             <div className="glass-card-solid" style={{ padding: 16 }}>
               <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 6 }}>Observed tier</div>
-              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--cyan)', textTransform: 'capitalize' }}>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--mm-color-system-default)', textTransform: 'capitalize' }}>
                 {selectedAudit?.tier || 'explorer'}
               </div>
               <div style={{ fontSize: '0.76rem', color: 'var(--txt-sec)' }}>entitlement snapshot</div>
@@ -352,7 +352,7 @@ export default function DiagnosticsPage() {
                     Runtime {releaseReadiness.scores?.runtime || '–'} • Modules {releaseReadiness.scores?.modules || '–'} • Observability {releaseReadiness.scores?.observability || '–'}
                   </div>
                 </div>
-                <div style={{ fontSize: '0.74rem', color: 'var(--cyan)' }}>
+                <div style={{ fontSize: '0.74rem', color: 'var(--mm-color-system-default)' }}>
                   {releaseReadiness.summary?.cloud_providers_ready || 0} cloud provider{releaseReadiness.summary?.cloud_providers_ready === 1 ? '' : 's'} ready
                 </div>
               </div>
@@ -378,7 +378,7 @@ export default function DiagnosticsPage() {
                     <div key={item.id} style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
                         <div style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', fontWeight: 700 }}>{item.name}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace' }}>{item.score_10}/10</div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace' }}>{item.score_10}/10</div>
                       </div>
                       <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>{item.finding || 'No finding recorded yet.'}</div>
                     </div>
@@ -428,7 +428,7 @@ export default function DiagnosticsPage() {
 
           <div className="glass-card-solid" style={{ padding: 18 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <ShieldCheck size={16} color="var(--cyan)" />
+              <ShieldCheck size={16} color="var(--mm-color-system-default)" />
               <span style={{ fontSize: '0.84rem', fontWeight: 700, color: 'var(--txt-pri)' }}>
                 Audit detail
               </span>
@@ -504,7 +504,7 @@ export default function DiagnosticsPage() {
             <div className="glass-card-solid" style={{ padding: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <HeartPulse size={16} color="var(--cyan)" />
+                  <HeartPulse size={16} color="var(--mm-color-system-default)" />
                   <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>Service triage</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

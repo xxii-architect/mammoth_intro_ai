@@ -29,7 +29,7 @@ export function TutorJourneyRail({ currentStage = 'start', progress = 0.25, onSt
         style={{
           fontSize: '0.85rem',
           fontWeight: 600,
-          color: 'var(--cyan)',
+          color: 'var(--mm-color-system-default)',
           marginBottom: 12,
           textTransform: 'uppercase',
           letterSpacing: '0.05em',
@@ -53,7 +53,7 @@ export function TutorJourneyRail({ currentStage = 'start', progress = 0.25, onSt
           style={{
             height: '100%',
             width: `${progress * 100}%`,
-            background: 'var(--cyan)',
+            background: 'var(--mm-color-action-primary)',
             transition: 'width 0.3s ease-out',
           }}
         />
@@ -73,7 +73,7 @@ export function TutorJourneyRail({ currentStage = 'start', progress = 0.25, onSt
               style={{
                 padding: '12px 8px',
                 borderRadius: 8,
-                border: isActive ? '2px solid var(--cyan)' : '1px solid rgba(77,166,255,0.3)',
+                border: isActive ? '2px solid var(--mm-color-system-default)' : '1px solid rgba(77,166,255,0.3)',
                 background: isActive ? 'rgba(77,166,255,0.15)' : isPassed ? 'rgba(77,166,255,0.08)' : 'transparent',
                 cursor: 'pointer',
                 textAlign: 'center',
@@ -100,7 +100,7 @@ export function TutorJourneyRail({ currentStage = 'start', progress = 0.25, onSt
                 style={{
                   fontSize: '0.65rem',
                   fontWeight: 600,
-                  color: isActive ? 'var(--cyan)' : 'var(--txt-sec)',
+                  color: isActive ? 'var(--mm-color-system-default)' : 'var(--txt-sec)',
                 }}
               >
                 {stage.label}
@@ -136,7 +136,7 @@ export function OutcomesCard({
   totalLessons = 10,
   nextMilestone = 'Reach 80% mastery on Recursion',
 }) {
-  const masteryColor = masteryTrend >= 0.75 ? 'var(--cyan)' : masteryTrend >= 0.6 ? 'var(--gold)' : '#ff9500'
+  const masteryColor = masteryTrend >= 0.75 ? 'var(--mm-color-system-default)' : masteryTrend >= 0.6 ? 'var(--gold)' : '#ff9500'
 
   return (
     <div
@@ -198,7 +198,7 @@ export function OutcomesCard({
           }}
         >
           <span style={{ fontWeight: 500 }}>Retention (spaced recall)</span>
-          <span style={{ color: 'var(--cyan)', fontWeight: 600 }}>
+          <span style={{ color: 'var(--mm-color-system-default)', fontWeight: 600 }}>
             {(retentionSignal * 100).toFixed(0)}%
           </span>
         </div>
@@ -215,7 +215,7 @@ export function OutcomesCard({
             style={{
               width: `${retentionSignal * 100}%`,
               height: '100%',
-              background: 'var(--cyan)',
+              background: 'var(--mm-color-action-primary)',
               transition: 'width 0.3s ease-out',
             }}
           />
@@ -233,7 +233,7 @@ export function OutcomesCard({
           }}
         >
           <div style={{ color: 'var(--txt-mut)', marginBottom: 2 }}>Time to competency</div>
-          <div style={{ fontWeight: 600, color: 'var(--cyan)' }}>{timeToCompetency} min</div>
+          <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)' }}>{timeToCompetency} min</div>
         </div>
         <div
           style={{
@@ -244,7 +244,7 @@ export function OutcomesCard({
           }}
         >
           <div style={{ color: 'var(--txt-mut)', marginBottom: 2 }}>Progress</div>
-          <div style={{ fontWeight: 600, color: 'var(--cyan)' }}>
+          <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)' }}>
             {lessonsCompleted}/{totalLessons}
           </div>
         </div>
@@ -254,14 +254,14 @@ export function OutcomesCard({
       <div
         style={{
           padding: '8px 12px',
-          background: 'rgba(180,124,255,0.08)',
-          border: '1px solid rgba(180,124,255,0.2)',
+          background: 'rgba(var(--mm-color-agent-rgb),0.08)',
+          border: '1px solid rgba(var(--mm-color-agent-rgb),0.2)',
           borderRadius: 6,
           fontSize: '0.75rem',
           color: 'var(--txt-sec)',
         }}
       >
-        <div style={{ fontWeight: 600, color: 'var(--violet)', marginBottom: 2 }}>🎯 Next milestone</div>
+        <div style={{ fontWeight: 600, color: 'var(--mm-color-agent-default)', marginBottom: 2 }}>🎯 Next milestone</div>
         <div>{nextMilestone}</div>
       </div>
     </div>
@@ -284,7 +284,7 @@ export function LessonCompletionSummary({
     <div
       style={{
         padding: '20px',
-        background: 'linear-gradient(135deg, rgba(77,166,255,0.08), rgba(0,245,212,0.06))',
+        background: 'linear-gradient(135deg, rgba(77,166,255,0.08), rgba(var(--mm-color-system-rgb),0.06))',
         border: '1px solid rgba(77,166,255,0.2)',
         borderRadius: 12,
       }}
@@ -298,19 +298,19 @@ export function LessonCompletionSummary({
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
         <div style={{ textAlign: 'center', padding: '10px', background: 'rgba(77,166,255,0.06)', borderRadius: 8 }}>
-          <div style={{ fontSize: '1.8rem', color: 'var(--cyan)', fontWeight: 700 }}>
+          <div style={{ fontSize: '1.8rem', color: 'var(--mm-color-system-default)', fontWeight: 700 }}>
             {(masteryScore * 100).toFixed(0)}%
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--txt-sec)', marginTop: 2 }}>Mastery</div>
         </div>
         <div style={{ textAlign: 'center', padding: '10px', background: 'rgba(77,166,255,0.06)', borderRadius: 8 }}>
-          <div style={{ fontSize: '1.8rem', color: 'var(--cyan)', fontWeight: 700 }}>
+          <div style={{ fontSize: '1.8rem', color: 'var(--mm-color-system-default)', fontWeight: 700 }}>
             {Math.round(timeSpent / 60)}m
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--txt-sec)', marginTop: 2 }}>Time</div>
         </div>
         <div style={{ textAlign: 'center', padding: '10px', background: 'rgba(77,166,255,0.06)', borderRadius: 8 }}>
-          <div style={{ fontSize: '1.8rem', color: 'var(--cyan)', fontWeight: 700 }}>
+          <div style={{ fontSize: '1.8rem', color: 'var(--mm-color-system-default)', fontWeight: 700 }}>
             {conceptsMastered.length}
           </div>
           <div style={{ fontSize: '0.7rem', color: 'var(--txt-sec)', marginTop: 2 }}>Concepts</div>
@@ -321,7 +321,7 @@ export function LessonCompletionSummary({
       <div style={{ marginBottom: 16 }}>
         {conceptsMastered.length > 0 && (
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--cyan)', marginBottom: 6 }}>
+            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--mm-color-system-default)', marginBottom: 6 }}>
               ✓ Mastered
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -374,7 +374,7 @@ export function LessonCompletionSummary({
         style={{
           width: '100%',
           padding: '12px 16px',
-          background: 'var(--cyan)',
+          background: 'var(--mm-color-action-primary)',
           border: 'none',
           borderRadius: 8,
           color: '#000',

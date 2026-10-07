@@ -8,8 +8,8 @@
  */
 export function ProvenianceBadge({ provider = 'unknown', confidence = 0.8 }) {
   const providerInfo = {
-    deepseek: { label: 'DeepSeek', color: 'var(--violet)', icon: '🧠' },
-    openai: { label: 'OpenAI', color: 'var(--cyan)', icon: '⚡' },
+    deepseek: { label: 'DeepSeek', color: 'var(--mm-color-agent-default)', icon: '🧠' },
+    openai: { label: 'OpenAI', color: 'var(--mm-color-system-default)', icon: '⚡' },
     ollama: { label: 'Local (Ollama)', color: 'var(--gold)', icon: '🖥️' },
     unknown: { label: 'Mixed', color: 'var(--txt-sec)', icon: '?' },
   }
@@ -24,8 +24,8 @@ export function ProvenianceBadge({ provider = 'unknown', confidence = 0.8 }) {
         gap: 4,
         padding: '4px 10px',
         borderRadius: 999,
-        background: `${info.color}15`,
-        border: `1px solid ${info.color}40`,
+        background: `color-mix(in srgb, ${info.color} 8.24%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${info.color} 25.10%, transparent)`,
         fontSize: '0.7rem',
         fontWeight: 500,
         color: info.color,
@@ -49,7 +49,7 @@ export function ProvenianceBadge({ provider = 'unknown', confidence = 0.8 }) {
  */
 export function ConfidenceIndicator({ score = 0.8, label = 'Confidence' }) {
   const getColor = (s) => {
-    if (s >= 0.85) return 'var(--cyan)'
+    if (s >= 0.85) return 'var(--mm-color-system-default)'
     if (s >= 0.7) return 'var(--gold)'
     return '#ff6b6b'
   }
@@ -65,8 +65,8 @@ export function ConfidenceIndicator({ score = 0.8, label = 'Confidence' }) {
         gap: 6,
         padding: '4px 10px',
         borderRadius: 999,
-        background: `${color}15`,
-        border: `1px solid ${color}40`,
+        background: `color-mix(in srgb, ${color} 8.24%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${color} 25.10%, transparent)`,
         fontSize: '0.7rem',
         fontWeight: 500,
         color,
@@ -128,7 +128,7 @@ export function EvidenceQualityBadge({
   const overallScore = (avgRelevance + avgCredibility + citationCoverage) / 3
 
   const getGrade = (score) => {
-    if (score >= 0.85) return { label: 'A', color: 'var(--cyan)' }
+    if (score >= 0.85) return { label: 'A', color: 'var(--mm-color-system-default)' }
     if (score >= 0.75) return { label: 'B', color: 'var(--gold)' }
     if (score >= 0.6) return { label: 'C', color: '#ff9500' }
     return { label: 'D', color: '#ff6b6b' }
@@ -144,8 +144,8 @@ export function EvidenceQualityBadge({
         gap: 6,
         padding: '4px 10px',
         borderRadius: 999,
-        background: `${grade.color}15`,
-        border: `1px solid ${grade.color}40`,
+        background: `color-mix(in srgb, ${grade.color} 8.24%, transparent)`,
+        border: `1px solid color-mix(in srgb, ${grade.color} 25.10%, transparent)`,
         fontSize: '0.7rem',
         fontWeight: 600,
         color: grade.color,
@@ -256,17 +256,17 @@ export function DetailedTrustPanel({
         <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(77,166,255,0.2)', fontSize: '0.8rem' }}>
           <div style={{ display: 'grid', gap: 10 }}>
             <div>
-              <div style={{ fontWeight: 600, color: 'var(--cyan)', marginBottom: 2 }}>Provider</div>
+              <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)', marginBottom: 2 }}>Provider</div>
               <div style={{ color: 'var(--txt-sec)' }}>{provider}</div>
             </div>
 
             <div>
-              <div style={{ fontWeight: 600, color: 'var(--cyan)', marginBottom: 2 }}>Model</div>
+              <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)', marginBottom: 2 }}>Model</div>
               <div style={{ color: 'var(--txt-sec)' }}>{model}</div>
             </div>
 
             <div>
-              <div style={{ fontWeight: 600, color: 'var(--cyan)', marginBottom: 2 }}>Confidence</div>
+              <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)', marginBottom: 2 }}>Confidence</div>
               <div style={{ color: 'var(--txt-sec)' }}>{(confidence * 100).toFixed(1)}%</div>
             </div>
 
@@ -285,7 +285,7 @@ export function DetailedTrustPanel({
 
             {sources.length > 0 && (
               <div>
-                <div style={{ fontWeight: 600, color: 'var(--cyan)', marginBottom: 4 }}>Sources ({sources.length})</div>
+                <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)', marginBottom: 4 }}>Sources ({sources.length})</div>
                 <div style={{ display: 'grid', gap: 4, marginLeft: 4 }}>
                   {sources.slice(0, 3).map((src, i) => (
                     <div key={i} style={{ fontSize: '0.75rem', color: 'var(--txt-sec)' }}>

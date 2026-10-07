@@ -24,7 +24,7 @@ function SourceCard({ source, kind }) {
   return (
     <div style={{ padding: '10px 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        {kind === 'citation' ? <Link2 size={13} color="var(--cyan)" /> : <BookOpen size={13} color="var(--photon)" />}
+        {kind === 'citation' ? <Link2 size={13} color="var(--mm-color-system-default)" /> : <BookOpen size={13} color="var(--photon)" />}
         <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{source?.label ? `[${source.label}] ` : ''}{title}</span>
       </div>
       <div style={{ fontSize: '0.73rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>{snippet}</div>
@@ -65,7 +65,7 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
     <div style={{ display: 'grid', gap: 12 }}>
 
       {/* ── Header ────────────────────────────────────────────────────────── */}
-      <div className="glass-card-solid" style={{ padding: 16, borderLeft: '3px solid var(--cyan)' }}>
+      <div className="glass-card-solid" style={{ padding: 16, borderLeft: '3px solid var(--mm-color-system-default)' }}>
         <p style={{ color: 'var(--txt-sec)', fontSize: '0.76rem', marginTop: 0 }}>
           {artifact.status === 'insufficient_evidence' ? 'Insufficient evidence. Add sources or refine the topic.' : 'Source links are not independent fact verification. Review claims before relying on this report.'}
         </p>
@@ -119,7 +119,7 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '0.79rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{heading}</span>
                     {isSynthesized && (
-                      <span style={{ fontSize: '0.6rem', background: 'rgba(167,139,250,0.12)', color: '#a78bfa', borderRadius: 8, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      <span style={{ fontSize: '0.6rem', background: 'rgba(var(--mm-color-agent-rgb),0.12)', color: 'var(--mm-color-agent-default)', borderRadius: 8, padding: '1px 7px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         synthesized
                       </span>
                     )}
@@ -164,7 +164,7 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
           <div style={{ display: 'grid', gap: 7 }}>
             {keyFacts.map((fact, idx) => (
               <div key={idx} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                <span style={{ color: 'var(--cyan)', fontSize: '0.7rem', fontFamily: 'JetBrains Mono,monospace', paddingTop: 3, flexShrink: 0, minWidth: 22 }}>
+                <span style={{ color: 'var(--mm-color-system-default)', fontSize: '0.7rem', fontFamily: 'JetBrains Mono,monospace', paddingTop: 3, flexShrink: 0, minWidth: 22 }}>
                   {String(idx + 1).padStart(2, '0')}
                 </span>
                 <span style={{ fontSize: '0.8rem', color: 'var(--txt-sec)', lineHeight: 1.62 }}>
@@ -221,7 +221,7 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
       {hasSourceMaterial && (
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <Sparkles size={15} color="var(--cyan)" />
+            <Sparkles size={15} color="var(--mm-color-system-default)" />
             <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>
               Sources and Citations
             </div>

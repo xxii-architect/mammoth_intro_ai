@@ -72,7 +72,7 @@ export default function LogSalePage() {
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <DollarSign size={20} color="var(--cyan)" /> Revenue Ledger
+            <DollarSign size={20} color="var(--mm-color-system-default)" /> Revenue Ledger
           </h1>
           <p style={{ margin: 0, color: 'var(--txt-sec)', fontSize: '0.84rem', lineHeight: 1.6, maxWidth: 720 }}>
             Track personal and business sales in one operator-ready surface with cleaner ledger summaries, clearer entry capture, and a more branded MammothOS layout.
@@ -81,7 +81,7 @@ export default function LogSalePage() {
         <div className="glass-card-solid" style={{ padding: '12px 14px', minWidth: 240 }}>
           <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 5 }}>Latest split</div>
           <div style={{ color: 'var(--txt-pri)', fontSize: '0.84rem', lineHeight: 1.6 }}>
-            Personal <span style={{ color: 'var(--photon)', fontFamily: 'JetBrains Mono,monospace' }}>${personalTotal.toFixed(2)}</span> • Business <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace' }}>${businessTotal.toFixed(2)}</span>
+            Personal <span style={{ color: 'var(--photon)', fontFamily: 'JetBrains Mono,monospace' }}>${personalTotal.toFixed(2)}</span> • Business <span style={{ color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace' }}>${businessTotal.toFixed(2)}</span>
           </div>
         </div>
       </div>
@@ -89,7 +89,7 @@ export default function LogSalePage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12, marginBottom: 18 }}>
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <ReceiptText size={15} color="var(--cyan)" />
+            <ReceiptText size={15} color="var(--mm-color-system-default)" />
             <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Total revenue</div>
           </div>
           <div style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-pri)' }}>${total.toFixed(2)}</div>
@@ -105,17 +105,17 @@ export default function LogSalePage() {
         </div>
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <BriefcaseBusiness size={15} color="var(--cyan)" />
+            <BriefcaseBusiness size={15} color="var(--mm-color-system-default)" />
             <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Business ledger</div>
           </div>
-          <div style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: 'JetBrains Mono,monospace', color: 'var(--cyan)' }}>${businessTotal.toFixed(2)}</div>
+          <div style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: 'JetBrains Mono,monospace', color: 'var(--mm-color-system-default)' }}>${businessTotal.toFixed(2)}</div>
           <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)', marginTop: 6 }}>{businessSales.length} business entr{businessSales.length === 1 ? 'y' : 'ies'}</div>
         </div>
       </div>
 
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         <div style={{ flex: '0 0 340px' }}>
-          <form onSubmit={submit} className="glass-card-solid" style={{ padding: 20, borderLeft: '2px solid var(--cyan)' }}>
+          <form onSubmit={submit} className="glass-card-solid" style={{ padding: 20, borderLeft: '2px solid var(--mm-color-system-default)' }}>
             <div className="eyebrow" style={{ marginBottom: 6 }}>Capture sale</div>
             <h3 style={{ marginBottom: 10 }}>Log a new revenue entry</h3>
             <p style={{ margin: '0 0 16px', color: 'var(--txt-sec)', fontSize: '0.8rem', lineHeight: 1.6 }}>
@@ -159,8 +159,8 @@ export default function LogSalePage() {
                         style={{
                           padding: '10px 12px',
                           borderRadius: 10,
-                          border: `1px solid ${active ? 'rgba(0,245,212,0.28)' : 'var(--border)'}`,
-                          background: active ? 'rgba(0,245,212,0.08)' : 'rgba(255,255,255,0.03)',
+                          border: `1px solid ${active ? 'rgba(var(--mm-color-system-rgb),0.28)' : 'var(--border)'}`,
+                          background: active ? 'rgba(var(--mm-color-system-rgb),0.08)' : 'rgba(255,255,255,0.03)',
                           color: active ? 'var(--photon)' : 'var(--txt-sec)',
                           fontSize: '0.82rem',
                           fontWeight: 700,
@@ -196,7 +196,7 @@ export default function LogSalePage() {
               <button
                 type="submit"
                 disabled={saving}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', borderRadius: 10, border: 'none', background: 'linear-gradient(90deg,var(--photon),var(--cyan))', color: '#050608', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', opacity: saving ? 0.7 : 1 }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '11px', borderRadius: 10, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer', opacity: saving ? 0.7 : 1 }}
               >
                 <Plus size={16} /> {saving ? 'Saving…' : 'Log Sale'}
               </button>
@@ -223,7 +223,7 @@ export default function LogSalePage() {
                 <div key={entry.id} className="glass-card" style={{ padding: '12px 14px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
                     <div style={{ color: 'var(--txt-pri)', fontSize: '0.82rem', fontWeight: 700 }}>{entry.item}</div>
-                    <div style={{ color: entry.ledger === 'business' ? 'var(--cyan)' : 'var(--photon)', fontSize: '0.74rem', textTransform: 'capitalize' }}>
+                    <div style={{ color: entry.ledger === 'business' ? 'var(--mm-color-system-default)' : 'var(--photon)', fontSize: '0.74rem', textTransform: 'capitalize' }}>
                       {entry.ledger || 'personal'}
                     </div>
                   </div>
@@ -243,7 +243,7 @@ export default function LogSalePage() {
                 <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginTop: 4 }}>Full ledger table across both personal and business entries</div>
               </div>
               <div style={{ color: 'var(--txt-sec)', fontSize: '0.72rem' }}>
-                Total <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace' }}>${total.toFixed(2)}</span>
+                Total <span style={{ color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace' }}>${total.toFixed(2)}</span>
               </div>
             </div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
@@ -259,9 +259,9 @@ export default function LogSalePage() {
                   <tr key={entry.id} style={{ borderTop: index ? '1px solid var(--border)' : 'none' }}>
                     <td style={{ padding: '11px 16px', fontFamily: 'JetBrains Mono,monospace', color: 'var(--txt-mut)', fontSize: '0.78rem' }}>{entry.date}</td>
                     <td style={{ padding: '11px 16px', color: 'var(--txt-pri)' }}>{entry.item}</td>
-                    <td style={{ padding: '11px 16px', color: entry.ledger === 'business' ? 'var(--cyan)' : 'var(--photon)', textTransform: 'capitalize', fontSize: '0.78rem', fontWeight: 700 }}>{entry.ledger || 'personal'}</td>
+                    <td style={{ padding: '11px 16px', color: entry.ledger === 'business' ? 'var(--mm-color-system-default)' : 'var(--photon)', textTransform: 'capitalize', fontSize: '0.78rem', fontWeight: 700 }}>{entry.ledger || 'personal'}</td>
                     <td style={{ padding: '11px 16px', color: 'var(--txt-sec)', fontSize: '0.78rem' }}>{entry.category || 'general'}</td>
-                    <td style={{ padding: '11px 16px', fontFamily: 'JetBrains Mono,monospace', color: 'var(--cyan)', fontWeight: 600 }}>${parseFloat(entry.amount).toFixed(2)}</td>
+                    <td style={{ padding: '11px 16px', fontFamily: 'JetBrains Mono,monospace', color: 'var(--mm-color-system-default)', fontWeight: 600 }}>${parseFloat(entry.amount).toFixed(2)}</td>
                     <td style={{ padding: '11px 16px', color: 'var(--txt-sec)', fontSize: '0.78rem' }}>{entry.notes || '–'}</td>
                   </tr>
                 ))}

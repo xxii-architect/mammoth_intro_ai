@@ -6,7 +6,7 @@ const ROLE_PRESETS = [
     title: '🎓 Learner',
     subtitle: 'Master a skill or topic with adaptive pacing',
     description: 'Start with ATLAS lessons, practice problems, and adaptive feedback loops.',
-    color: 'var(--cyan)',
+    color: 'var(--mm-color-system-default)',
     primaryAction: 'lessons',
     onboardingSteps: [
       {
@@ -56,7 +56,7 @@ const ROLE_PRESETS = [
     title: '⚙️ Operator',
     subtitle: 'Keep automation explainable with approvals and audits',
     description: 'Use agent workflows, approvals, and observability dashboards.',
-    color: 'var(--violet)',
+    color: 'var(--mm-color-agent-default)',
     primaryAction: 'agent',
     onboardingSteps: [
       {
@@ -190,7 +190,7 @@ export default function First15MinutesModal({ isOpen, onClose, onSelectRole }) {
                     fontSize: '0.9rem',
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = `${role.color}15`
+                    e.target.style.background = `color-mix(in srgb, ${role.color} 8.24%, transparent)`
                     e.target.style.borderColor = role.color
                   }}
                   onMouseLeave={(e) => {
@@ -231,7 +231,7 @@ export default function First15MinutesModal({ isOpen, onClose, onSelectRole }) {
             <div
               style={{
                 background: 'rgba(255,255,255,0.02)',
-                border: `1px solid ${selectedRole.color}40`,
+                border: `1px solid color-mix(in srgb, ${selectedRole.color} 25.10%, transparent)`,
                 borderRadius: 12,
                 padding: 20,
                 marginBottom: 24,
@@ -242,8 +242,8 @@ export default function First15MinutesModal({ isOpen, onClose, onSelectRole }) {
               </p>
               <div
                 style={{
-                  background: `${selectedRole.color}15`,
-                  border: `1px solid ${selectedRole.color}30`,
+                  background: `color-mix(in srgb, ${selectedRole.color} 8.24%, transparent)`,
+                  border: `1px solid color-mix(in srgb, ${selectedRole.color} 18.82%, transparent)`,
                   borderRadius: 8,
                   padding: '10px 12px',
                   fontSize: '0.8rem',

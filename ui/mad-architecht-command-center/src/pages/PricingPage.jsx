@@ -26,14 +26,14 @@ const TIERS = [
     key: 'pro',
     name: 'Pro',
     badge: 'Planned',
-    badgeColor: 'var(--cyan)',
-    badgeBg: 'rgba(0,245,212,0.1)',
-    badgeBorder: 'rgba(0,245,212,0.35)',
+    badgeColor: 'var(--mm-color-system-default)',
+    badgeBg: 'rgba(var(--mm-color-system-rgb),0.1)',
+    badgeBorder: 'rgba(var(--mm-color-system-rgb),0.35)',
     price: '$12',
     period: '/ month (target)',
     subtitle: 'For serious builders who want deeper orchestration and exports.',
-    priceColor: 'var(--cyan)',
-    cardBorder: '1px solid rgba(0,245,212,0.35)',
+    priceColor: 'var(--mm-color-system-default)',
+    cardBorder: '1px solid rgba(var(--mm-color-system-rgb),0.35)',
     features: [
       'Everything in Explorer',
       'Full Plan + Execute across supported profiles',
@@ -47,14 +47,14 @@ const TIERS = [
     key: 'enterprise',
     name: 'Team / Enterprise',
     badge: 'Roadmap',
-    badgeColor: 'var(--violet)',
-    badgeBg: 'rgba(180,124,255,0.1)',
-    badgeBorder: 'rgba(180,124,255,0.35)',
+    badgeColor: 'var(--mm-color-agent-default)',
+    badgeBg: 'rgba(var(--mm-color-agent-rgb),0.1)',
+    badgeBorder: 'rgba(var(--mm-color-agent-rgb),0.35)',
     price: 'Contact us',
     period: '',
     subtitle: 'For schools, teams, and multi-operator deployments.',
-    priceColor: 'var(--violet)',
-    cardBorder: '1px solid rgba(180,124,255,0.24)',
+    priceColor: 'var(--mm-color-agent-default)',
+    cardBorder: '1px solid rgba(var(--mm-color-agent-rgb),0.24)',
     features: [
       'Everything in Pro',
       'Team dashboards and cohort analytics',
@@ -150,7 +150,7 @@ export default function PricingPage({ setPage }) {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Current workspace access</div>
-            <div style={{ fontSize: '1rem', color: 'var(--cyan)', fontWeight: 700, textTransform: 'capitalize' }}>
+            <div style={{ fontSize: '1rem', color: 'var(--mm-color-system-default)', fontWeight: 700, textTransform: 'capitalize' }}>
               {entitlements?.effective_tier || entitlements?.tier || 'explorer'}
             </div>
             <div style={{ fontSize: '0.76rem', color: 'var(--txt-mut)', marginTop: 4 }}>
@@ -195,7 +195,7 @@ export default function PricingPage({ setPage }) {
             <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 24px', flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {tier.features.map((f) => (
                 <li key={f} style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', display: 'flex', gap: 8 }}>
-                  <span style={{ color: 'var(--cyan)' }}>✓</span>
+                  <span style={{ color: 'var(--mm-color-system-default)' }}>✓</span>
                   {f}
                 </li>
               ))}
@@ -211,7 +211,7 @@ export default function PricingPage({ setPage }) {
                 fontWeight: 600,
                 cursor: tier.key === 'explorer' ? 'pointer' : 'not-allowed',
                 border: tier.key === 'explorer' ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                background: tier.key === 'explorer' ? 'linear-gradient(90deg, var(--photon), var(--cyan))' : 'rgba(255,255,255,0.03)',
+                background: tier.key === 'explorer' ? 'var(--mm-color-action-primary)' : 'rgba(255,255,255,0.03)',
                 color: tier.key === 'explorer' ? '#050608' : 'var(--txt-mut)',
                 opacity: tier.key === 'explorer' ? 1 : 0.75,
               }}
@@ -244,7 +244,7 @@ export default function PricingPage({ setPage }) {
                 key={tier}
                 onClick={() => changeTier(tier)}
                 disabled={saving || !adminControlsEnabled}
-                style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${entitlements?.tier === tier ? 'var(--cyan)' : 'var(--border)'}`, background: entitlements?.tier === tier ? 'rgba(0,245,212,0.12)' : 'rgba(255,255,255,0.04)', color: entitlements?.tier === tier ? 'var(--cyan)' : 'var(--txt-sec)', cursor: 'pointer', textTransform: 'capitalize', fontSize: '0.78rem', fontWeight: 600 }}
+                style={{ padding: '9px 12px', borderRadius: 8, border: `1.5px solid ${entitlements?.tier === tier ? 'var(--mm-color-system-default)' : 'var(--border)'}`, background: entitlements?.tier === tier ? 'rgba(var(--mm-color-system-rgb),0.12)' : 'rgba(255,255,255,0.04)', color: entitlements?.tier === tier ? 'var(--mm-color-system-default)' : 'var(--txt-sec)', cursor: 'pointer', textTransform: 'capitalize', fontSize: '0.78rem', fontWeight: 600 }}
               >
                 Set {tier}
               </button>

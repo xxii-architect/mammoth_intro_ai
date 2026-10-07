@@ -12,7 +12,7 @@ function MammothLogo({ size = 84, style = {} }) {
           display: 'grid',
           placeItems: 'center',
           borderRadius: 22,
-          background: 'linear-gradient(135deg, rgba(77,166,255,0.18), rgba(180,124,255,0.18))',
+          background: 'var(--mm-color-agent-soft)',
           border: '1px solid rgba(255,255,255,0.1)',
           fontSize: Math.max(24, size * 0.46),
           ...style,
@@ -92,7 +92,7 @@ const ROLE_PATHS = [
     title: 'For learners',
     subtitle: 'Start with a real lesson loop, not a blank prompt.',
     page: 'lessons',
-    accent: 'var(--cyan)',
+    accent: 'var(--mm-color-system-default)',
     action: 'Open Lessons',
   },
   {
@@ -106,7 +106,7 @@ const ROLE_PATHS = [
     title: 'For operators',
     subtitle: 'Stay audit-ready with status, approvals, and artifacts.',
     page: 'agent',
-    accent: 'var(--violet)',
+    accent: 'var(--mm-color-agent-default)',
     action: 'Open Agent',
   },
 ]
@@ -192,7 +192,7 @@ export default function LandingPage({ setPage }) {
           padding: '38px 30px 44px',
           borderRadius: 30,
           border: '1px solid rgba(255,255,255,0.08)',
-          background: 'radial-gradient(circle at top left, rgba(77,166,255,0.18), transparent 28%), radial-gradient(circle at top right, rgba(180,124,255,0.18), transparent 30%), rgba(13,17,23,0.94)',
+          background: 'var(--card)',
           boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
         }}
       >
@@ -200,7 +200,7 @@ export default function LandingPage({ setPage }) {
           style={{
             position: 'absolute',
             inset: 0,
-            background: 'linear-gradient(135deg, rgba(255,255,255,0.02), transparent 52%, rgba(0,245,212,0.03))',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.02), transparent 52%, rgba(var(--mm-color-system-rgb),0.03))',
             pointerEvents: 'none',
           }}
         />
@@ -215,9 +215,9 @@ export default function LandingPage({ setPage }) {
                 width: 110,
                 height: 110,
                 borderRadius: 28,
-                background: 'linear-gradient(135deg, rgba(77,166,255,0.18), rgba(180,124,255,0.16))',
+                background: 'var(--mm-color-agent-soft)',
                 border: '1px solid rgba(255,255,255,0.1)',
-                boxShadow: '0 0 30px rgba(77,166,255,0.18)',
+                boxShadow: 'none',
                 marginBottom: 18,
               }}
             >
@@ -240,7 +240,7 @@ export default function LandingPage({ setPage }) {
                 textTransform: 'uppercase',
               }}
             >
-              <span style={{ color: 'var(--cyan)' }}>MammothOS</span>
+              <span style={{ color: 'var(--mm-color-system-default)' }}>MammothOS</span>
               <span>•</span>
               <span>Adaptive agent workspace + tutoring engine</span>
             </div>
@@ -251,7 +251,7 @@ export default function LandingPage({ setPage }) {
                 fontSize: 'clamp(2.45rem, 5vw, 4.25rem)',
                 fontWeight: 800,
                 letterSpacing: '-0.045em',
-                background: 'linear-gradient(90deg, var(--photon), var(--cyan), var(--violet))',
+                background: 'var(--mm-color-action-primary)',
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent',
                 backgroundClip: 'text',
@@ -272,12 +272,12 @@ export default function LandingPage({ setPage }) {
                   padding: '13px 28px',
                   borderRadius: 12,
                   border: 'none',
-                  background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                  background: 'var(--mm-color-action-primary)',
                   color: '#050608',
                   fontWeight: 800,
                   fontSize: '0.96rem',
                   cursor: 'pointer',
-                  boxShadow: '0 12px 30px rgba(77,166,255,0.28)',
+                  boxShadow: '0 12px 30px rgba(0,0,0,0.28)',
                 }}
               >
                 Open Mammoth Mind
@@ -320,14 +320,14 @@ export default function LandingPage({ setPage }) {
       </div>
 
       <div style={{ padding: '52px 0 24px' }}>
-        <div className="glass-card-solid" style={{ padding: '18px 20px', borderRadius: 18, marginBottom: 24, border: '1px solid rgba(0,245,212,0.35)' }}>
-          <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 10 }}>
+        <div className="glass-card-solid" style={{ padding: '18px 20px', borderRadius: 18, marginBottom: 24, border: '1px solid rgba(var(--mm-color-system-rgb),0.35)' }}>
+          <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--mm-color-system-default)', marginBottom: 10 }}>
             Current status
           </div>
           <div style={{ display: 'grid', gap: 8 }}>
             {CURRENT_HIGHLIGHTS.map((line) => (
               <div key={line} style={{ fontSize: '0.83rem', color: 'var(--txt-sec)', lineHeight: 1.6, display: 'flex', gap: 8 }}>
-                <span style={{ color: 'var(--cyan)' }}>✓</span>
+                <span style={{ color: 'var(--mm-color-system-default)' }}>✓</span>
                 <span>{line}</span>
               </div>
             ))}
@@ -352,7 +352,7 @@ export default function LandingPage({ setPage }) {
                   textAlign: 'left',
                   borderRadius: 18,
                   padding: '18px 18px 16px',
-                  border: `1px solid ${role.accent}33`,
+                  border: `1px solid color-mix(in srgb, ${role.accent} 20%, transparent)`,
                   background: 'rgba(255,255,255,0.02)',
                   cursor: 'pointer',
                   color: 'var(--txt-pri)',
@@ -405,7 +405,7 @@ export default function LandingPage({ setPage }) {
           {JOURNEYS.map((journey) => (
             <div key={journey.audience} className="glass-card-solid" style={{ padding: '24px 22px', borderRadius: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
-                <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--cyan)', marginBottom: 8 }}>
+                <div style={{ fontSize: '0.72rem', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--mm-color-system-default)', marginBottom: 8 }}>
                   {journey.audience}
                 </div>
                 <h3 style={{ margin: '0 0 10px', fontSize: '1.2rem', color: 'var(--txt-pri)' }}>{journey.headline}</h3>
@@ -421,7 +421,7 @@ export default function LandingPage({ setPage }) {
                     padding: '11px 16px',
                     borderRadius: 10,
                     border: 'none',
-                    background: 'linear-gradient(90deg, var(--photon), var(--cyan))',
+                    background: 'var(--mm-color-action-primary)',
                     color: '#050608',
                     fontWeight: 800,
                     fontSize: '0.85rem',
@@ -463,7 +463,7 @@ export default function LandingPage({ setPage }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16 }}>
           {FLOW.map((item) => (
             <div key={item.step} className="glass-card-solid" style={{ padding: '20px 18px', borderRadius: 18 }}>
-              <div style={{ fontSize: '0.78rem', color: 'var(--cyan)', fontWeight: 800, letterSpacing: '0.12em', marginBottom: 10 }}>{item.step}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--mm-color-system-default)', fontWeight: 800, letterSpacing: '0.12em', marginBottom: 10 }}>{item.step}</div>
               <h3 style={{ margin: '0 0 8px', fontSize: '0.95rem', color: 'var(--txt-pri)' }}>{item.title}</h3>
               <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>{item.text}</p>
             </div>

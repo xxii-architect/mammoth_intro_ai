@@ -23,7 +23,7 @@ export function DisclosurePanel({
   icon = '▼',
   style = {},
   contentStyle = {},
-  accentColor = 'var(--cyan)',
+  accentColor = 'var(--mm-color-system-default)',
   compact = false,
 }) {
   return (
@@ -41,9 +41,9 @@ export function DisclosurePanel({
         style={{
           width: '100%',
           padding: compact ? '8px 12px' : '12px 16px',
-          background: open ? `${accentColor}10` : 'transparent',
+          background: open ? `color-mix(in srgb, ${accentColor} 6.27%, transparent)` : 'transparent',
           border: 'none',
-          borderBottom: open ? `1px solid ${accentColor}30` : 'none',
+          borderBottom: open ? `1px solid color-mix(in srgb, ${accentColor} 18.82%, transparent)` : 'none',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -54,10 +54,10 @@ export function DisclosurePanel({
           color: 'var(--txt-primary)',
         }}
         onMouseEnter={(e) => {
-          e.target.style.background = `${accentColor}15`
+          e.target.style.background = `color-mix(in srgb, ${accentColor} 8.24%, transparent)`
         }}
         onMouseLeave={(e) => {
-          e.target.style.background = open ? `${accentColor}10` : 'transparent'
+          e.target.style.background = open ? `color-mix(in srgb, ${accentColor} 6.27%, transparent)` : 'transparent'
         }}
       >
         <span>{title}</span>
@@ -77,7 +77,7 @@ export function DisclosurePanel({
         <div
           style={{
             padding: compact ? '12px 16px' : '16px 20px',
-            borderTop: `1px solid ${accentColor}20`,
+            borderTop: `1px solid color-mix(in srgb, ${accentColor} 12.55%, transparent)`,
             fontSize: compact ? '0.85rem' : '0.9rem',
             lineHeight: 1.6,
             ...contentStyle,
@@ -93,7 +93,7 @@ export function DisclosurePanel({
 /**
  * Quick utility: toggle visibility of a panel in a minimal way
  */
-export function createCompactPanel(title, content, { accentColor = 'var(--cyan)', isOpen = false } = {}) {
+export function createCompactPanel(title, content, { accentColor = 'var(--mm-color-system-default)', isOpen = false } = {}) {
   const Panel = () => {
     const [open, setOpen] = useState(isOpen)
     return (

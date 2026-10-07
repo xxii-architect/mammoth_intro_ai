@@ -83,32 +83,32 @@ const NAV = [
   { id: 'chat',     label: 'Mammoth Mind', Icon: MessageSquare, accent: 'var(--photon)' },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
   { id: 'manual',   label: 'Manual',      Icon: BookOpen },
-  { id: 'commandlib', label: 'Command Library', Icon: BookOpen, accent: 'var(--cyan)' },
+  { id: 'commandlib', label: 'Command Library', Icon: BookOpen, accent: 'var(--mm-color-system-default)' },
 
   { section: 'Tools' },
   { id: 'notes',    label: 'Notes',       Icon: FileText },
-  { id: 'artifacts', label: 'Artifacts',   Icon: FileText, accent: 'var(--cyan)' },
+  { id: 'artifacts', label: 'Artifacts',   Icon: FileText, accent: 'var(--mm-color-system-default)' },
   { id: 'taskinbox', label: 'Task Inbox', Icon: ClipboardList, accent: 'var(--photon)' },
   { id: 'modules',  label: 'Modules',     Icon: Package },
   { id: 'health',   label: 'Health',      Icon: HeartPulse },
-  { id: 'telemetry', label: 'Telemetry',  Icon: BarChart3, accent: 'var(--cyan)' },
-  { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--cyan)' },
+  { id: 'telemetry', label: 'Telemetry',  Icon: BarChart3, accent: 'var(--mm-color-system-default)' },
+  { id: 'logsale',  label: 'Log Sale',    Icon: DollarSign, accent: 'var(--mm-color-system-default)' },
 
   { section: 'Product' },
-  { id: 'landing',    label: 'Landing Page',       Icon: Sparkles,    accent: 'var(--cyan)' },
+  { id: 'landing',    label: 'Landing Page',       Icon: Sparkles,    accent: 'var(--mm-color-system-default)' },
   { id: 'pricing',    label: 'Pricing',            Icon: CreditCard },
   { id: 'compliance', label: 'Legal & Compliance', Icon: ShieldCheck },
 
   { section: 'Learn' },
   { id: 'atlas',      label: 'ATLAS', Icon: GraduationCap, accent: 'var(--mm-color-agent-default, #d08a52)' },
-  { id: 'flashcards', label: 'Flashcards',  Icon: Brain, accent: 'var(--violet)' },
-  { id: 'lessonnotes', label: 'Lesson Notes', Icon: FileText, accent: 'var(--cyan)' },
+  { id: 'flashcards', label: 'Flashcards',  Icon: Brain, accent: 'var(--mm-color-agent-default)' },
+  { id: 'lessonnotes', label: 'Lesson Notes', Icon: FileText, accent: 'var(--mm-color-system-default)' },
   { id: 'projects',    label: 'Projects',     Icon: ClipboardList, accent: 'var(--photon)' },
-  { id: 'betafeedback', label: 'Beta Feedback', Icon: MessageSquare, accent: 'var(--cyan)' },
+  { id: 'betafeedback', label: 'Beta Feedback', Icon: MessageSquare, accent: 'var(--mm-color-system-default)' },
   { id: 'buildlog',   label: 'Build Log',   Icon: ClipboardList },
 
   { section: 'System' },
-  { id: 'diagnostics', label: 'Diagnostics', Icon: Activity, accent: 'var(--cyan)' },
+  { id: 'diagnostics', label: 'Diagnostics', Icon: Activity, accent: 'var(--mm-color-system-default)' },
   { id: 'settings',    label: 'Settings',    Icon: Settings },
 ]
 
@@ -373,7 +373,7 @@ function AccessPreviewPage({ gate, entitlements, setPage }) {
             </span>
           )}
           {gate.kind === 'admin' && (
-            <span style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(180,124,255,0.28)', background: 'rgba(180,124,255,0.1)', color: 'var(--violet)', fontSize: '0.76rem' }}>
+            <span style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid rgba(var(--mm-color-agent-rgb),0.28)', background: 'rgba(var(--mm-color-agent-rgb),0.1)', color: 'var(--mm-color-agent-default)', fontSize: '0.76rem' }}>
               Requires owner/admin identity
             </span>
           )}
@@ -400,8 +400,8 @@ function AccessPreviewPage({ gate, entitlements, setPage }) {
               padding: '11px 16px',
               borderRadius: 10,
               border: 'none',
-              background: 'linear-gradient(90deg, var(--ember), var(--amber))',
-              color: '#fff',
+              background: 'var(--mm-color-action-primary)',
+              color: 'var(--mm-color-action-text)',
               fontWeight: 700,
               cursor: 'pointer',
             }}
@@ -580,8 +580,8 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
         style={{
           display: 'inline-flex', alignItems: 'center', gap: 7,
           height: 30, padding: isMobile ? '0 10px' : '0 13px 0 9px', borderRadius: 999,
-          background: open ? 'rgba(180,124,255,0.22)' : 'rgba(180,124,255,0.12)',
-          border: `1px solid ${open ? 'rgba(180,124,255,0.6)' : 'rgba(180,124,255,0.32)'}`,
+          background: open ? 'rgba(var(--mm-color-agent-rgb),0.22)' : 'rgba(var(--mm-color-agent-rgb),0.12)',
+          border: `1px solid ${open ? 'rgba(var(--mm-color-agent-rgb),0.6)' : 'rgba(var(--mm-color-agent-rgb),0.32)'}`,
           color: 'var(--txt-pri)', fontSize: '0.74rem', fontWeight: 600, letterSpacing: '0.01em',
           cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background 0.15s, border-color 0.15s',
         }}
@@ -602,17 +602,17 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
           height: isMobile ? '92dvh' : 480,
           background: 'var(--card)',
           backdropFilter: 'blur(20px)',
-          border: '1px solid rgba(180,124,255,0.3)',
+          border: '1px solid rgba(var(--mm-color-agent-rgb),0.3)',
           borderRadius: isMobile ? '16px 16px 0 0' : 16,
-          boxShadow: '0 8px 48px rgba(0,0,0,0.6), 0 0 24px rgba(180,124,255,0.15)',
+          boxShadow: '0 8px 48px rgba(0,0,0,0.6)',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
         }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(180,124,255,0.08)' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(var(--mm-color-agent-rgb),0.08)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <LogoMark src={BRANDING.atlasLogo} alt="" fallback="🐘" size={24} />
               <div>
-                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: isMammothMindSurface ? 'var(--photon)' : 'var(--violet)' }}>{fabLabel}</p>
+                <p style={{ margin: 0, fontSize: '0.85rem', fontWeight: 600, color: isMammothMindSurface ? 'var(--photon)' : 'var(--mm-color-agent-default)' }}>{fabLabel}</p>
                 <p style={{ margin: 0, fontSize: '0.68rem', color: 'var(--txt-mut)' }}>{fabSubLabel}</p>
               </div>
             </div>
@@ -626,16 +626,17 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
 
           <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <select
+              className="workspace-select"
+              aria-label="Mammoth Mind mode"
               value={mode}
               onChange={e => setMode(e.target.value)}
-              style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 6, color: 'var(--txt-sec)', fontSize: '0.72rem', padding: '3px 6px', cursor: 'pointer' }}
             >
               <option value="assistant">Assistant</option>
               <option value="tutor">Tutor</option>
               <option value="strict">Strict</option>
             </select>
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: '0.68rem', color: 'var(--txt-mut)', cursor: 'pointer', userSelect: 'none' }}>
-              <input type="checkbox" checked={strictGuard} onChange={e => setStrictGuard(e.target.checked)} style={{ accentColor: 'var(--violet)' }} />
+              <input type="checkbox" checked={strictGuard} onChange={e => setStrictGuard(e.target.checked)} style={{ accentColor: 'var(--mm-color-agent-default)' }} />
               Guard
             </label>
           </div>
@@ -670,8 +671,8 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
               return (
                 <div key={i} style={{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%' }}>
                   <div style={{
-                    background: msg.role === 'user' ? 'rgba(180,124,255,0.18)' : 'rgba(255,255,255,0.06)',
-                    border: msg.role === 'user' ? '1px solid rgba(180,124,255,0.3)' : '1px solid rgba(255,255,255,0.1)',
+                    background: msg.role === 'user' ? 'rgba(var(--mm-color-agent-rgb),0.18)' : 'rgba(255,255,255,0.06)',
+                    border: msg.role === 'user' ? '1px solid rgba(var(--mm-color-agent-rgb),0.3)' : '1px solid rgba(255,255,255,0.1)',
                     borderRadius: msg.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
                     padding: '8px 11px',
                     fontSize: '0.78rem',
@@ -708,9 +709,9 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
                           fontSize: '0.66rem',
                           padding: '5px 8px',
                           borderRadius: 999,
-                          border: '1px solid rgba(180,124,255,0.24)',
-                          background: 'rgba(180,124,255,0.08)',
-                          color: 'var(--violet)',
+                          border: '1px solid rgba(var(--mm-color-agent-rgb),0.24)',
+                          background: 'rgba(var(--mm-color-agent-rgb),0.08)',
+                          color: 'var(--mm-color-agent-default)',
                           cursor: savingFormat ? 'not-allowed' : 'pointer',
                         }}
                       >
@@ -747,8 +748,8 @@ function MammothMindPill({ currentPage, isMobile = false, setPage }) {
               disabled={busy}
               style={{
                 padding: '8px 14px', borderRadius: 8, border: 'none',
-                background: busy ? 'rgba(180,124,255,0.3)' : 'var(--violet)',
-                color: '#fff', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.8rem',
+                background: busy ? 'var(--card-hover)' : 'var(--mm-color-action-primary)',
+                color: busy ? 'var(--txt-mut)' : 'var(--mm-color-action-text)', fontWeight: 700, cursor: busy ? 'not-allowed' : 'pointer', fontSize: '0.8rem',
               }}
             >
               {busy ? '…' : '↑'}
@@ -930,7 +931,7 @@ export default function App() {
                 </p>
               )
             }
-            const { id, label, Icon, accent } = item
+            const { id, label, Icon } = item
             const active = page === id
             return (
               <button
@@ -940,13 +941,13 @@ export default function App() {
                   width: '100%', display: 'flex', alignItems: 'center', gap: 9,
                   padding: '7px 16px', border: 'none', cursor: 'pointer', textAlign: 'left',
                   background: active ? 'rgba(255,255,255,0.07)' : 'transparent',
-                  borderLeft: active ? '2px solid ' + (accent || 'var(--violet)') : '2px solid transparent',
-                  color: active ? (accent || 'var(--txt-pri)') : 'var(--txt-sec)',
+                  borderLeft: active ? '2px solid var(--mm-color-agent-default)' : '2px solid transparent',
+                  color: active ? 'var(--mm-color-agent-default)' : 'var(--txt-sec)',
                   fontSize: '0.82rem', fontWeight: active ? 600 : 400,
                   transition: 'all 0.15s',
                 }}
               >
-                {Icon && <Icon size={15} style={{ color: active ? (accent || 'var(--violet)') : 'var(--txt-mut)', flexShrink: 0 }} />}
+                {Icon && <Icon size={15} style={{ color: active ? 'var(--mm-color-agent-default)' : 'var(--txt-mut)', flexShrink: 0 }} />}
                 {label}
               </button>
             )
@@ -992,7 +993,7 @@ export default function App() {
             {NAV.find(n => n.id === page)?.label || 'MammothOS'}
           </span>
           {canAccessProjectTools && !isMobile && (
-            <span style={{ marginLeft: 'auto', fontSize: '0.66rem', color: '#b47cff', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+            <span style={{ marginLeft: 'auto', fontSize: '0.66rem', color: 'var(--mm-color-agent-default)', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
               {isAdminHost ? 'Admin View' : 'Operator Access'}
             </span>
           )}

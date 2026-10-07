@@ -39,7 +39,7 @@ export function CollapsibleContextBar({
   context = {},
   onToggle = () => {},
   isOpen = false,
-  accentColor = 'var(--cyan)',
+  accentColor = 'var(--mm-color-system-default)',
 }) {
   return (
     <DisclosurePanel
@@ -84,7 +84,7 @@ export function CollapsibleLessonOverview({
       title={`📚 ${title}`}
       open={isOpen}
       onToggle={onToggle}
-      accentColor="var(--cyan)"
+      accentColor="var(--mm-color-system-default)"
       style={{ marginBottom: 16 }}
     >
       <div style={{ lineHeight: 1.6, fontSize: '0.9rem', color: 'var(--txt-sec)' }}>
@@ -121,7 +121,7 @@ export function CollapsibleAdvancedOptions({
   children,
   isOpen = false,
   onToggle = () => {},
-  accentColor = 'var(--violet)',
+  accentColor = 'var(--mm-color-agent-default)',
 }) {
   return (
     <DisclosurePanel

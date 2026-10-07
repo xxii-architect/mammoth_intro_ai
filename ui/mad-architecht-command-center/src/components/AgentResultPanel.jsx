@@ -21,7 +21,7 @@ function statusCfg(status) {
 function renderValue(val, depth = 0) {
   if (val === null || val === undefined) return <span style={{ color: 'var(--txt-mut)', fontStyle: 'italic' }}>none</span>
   if (typeof val === 'boolean') return <span style={{ color: val ? '#22c55e' : '#f87171', fontFamily: 'JetBrains Mono,monospace' }}>{String(val)}</span>
-  if (typeof val === 'number') return <span style={{ color: '#22d3ee', fontFamily: 'JetBrains Mono,monospace' }}>{val}</span>
+  if (typeof val === 'number') return <span style={{ color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace' }}>{val}</span>
   if (typeof val === 'string') {
     if (val.length > 400) {
       return <ReadMoreText text={val} />
@@ -207,7 +207,7 @@ export default function AgentResultPanel({ result, rawJson, agentId }) {
           {summary ? (
             <div style={{
               background: sc.bg,
-              border: `1px solid ${sc.color}22`,
+              border: `1px solid color-mix(in srgb, ${sc.color} 13.33%, transparent)`,
               borderRadius: 8, padding: '10px 14px', marginBottom: 12,
             }}>
               <p style={{ fontSize: '0.85rem', color: 'var(--txt-pri)', lineHeight: 1.65, margin: 0 }}>

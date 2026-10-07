@@ -114,7 +114,7 @@ export default function RepoSourcesPanel({ userId, value, onChange, compact = fa
   const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-mut)', padding: 2, display: 'flex' }
 
   return (
-    <div className="glass-card-solid" style={{ padding: compact ? 14 : 16, borderLeft: '3px solid var(--cyan)' }}>
+    <div className="glass-card-solid" style={{ padding: compact ? 14 : 16, borderLeft: '3px solid var(--mm-color-system-default)' }}>
       <button
         type="button"
         onClick={() => setOpen((p) => !p)}
@@ -123,14 +123,14 @@ export default function RepoSourcesPanel({ userId, value, onChange, compact = fa
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FolderGit2 size={14} color="var(--cyan)" />
+            <FolderGit2 size={14} color="var(--mm-color-system-default)" />
             <p style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, margin: 0 }}>Repo Context</p>
           </div>
           {open ? <ChevronDown size={13} color="var(--txt-mut)" /> : <ChevronRight size={13} color="var(--txt-mut)" />}
         </div>
       </button>
       <div style={{ marginTop: 8, fontSize: '0.76rem', color: 'var(--txt-sec)' }}>
-        Active: <span style={{ color: active ? 'var(--cyan)' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>
+        Active: <span style={{ color: active ? 'var(--mm-color-system-default)' : 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>
           {active?.label || 'No repository'}
         </span>
       </div>
@@ -162,9 +162,9 @@ export default function RepoSourcesPanel({ userId, value, onChange, compact = fa
 
           <div style={{ display: 'grid', gap: 6 }}>
             <div style={rowStyle(!value)} onClick={() => select('')}>
-              <X size={12} color={!value ? 'var(--cyan)' : 'var(--txt-mut)'} />
+              <X size={12} color={!value ? 'var(--mm-color-system-default)' : 'var(--txt-mut)'} />
               <span style={{ flex: 1, fontSize: '0.74rem', color: !value ? 'var(--photon)' : 'var(--txt-sec)' }}>No repository (no repo context)</span>
-              {!value && <Check size={12} color="var(--cyan)" />}
+              {!value && <Check size={12} color="var(--mm-color-system-default)" />}
             </div>
             {options.map((opt) => {
               const selected = value === opt.value
@@ -172,11 +172,11 @@ export default function RepoSourcesPanel({ userId, value, onChange, compact = fa
               const ready = opt.scope === 'platform' || source?.status === 'ready'
               return (
                 <div key={opt.id} style={rowStyle(selected)} onClick={() => ready && select(opt.value)} title={ready ? '' : (source?.error || 'Not synced yet')}>
-                  {opt.scope === 'platform' ? <Lock size={12} color="var(--amber, #f59e0b)" /> : <GitBranch size={12} color={selected ? 'var(--cyan)' : 'var(--txt-mut)'} />}
+                  {opt.scope === 'platform' ? <Lock size={12} color="var(--amber, #f59e0b)" /> : <GitBranch size={12} color={selected ? 'var(--mm-color-system-default)' : 'var(--txt-mut)'} />}
                   <span style={{ flex: 1, fontSize: '0.74rem', fontFamily: 'JetBrains Mono,monospace', color: selected ? 'var(--photon)' : 'var(--txt-sec)', overflowWrap: 'anywhere', opacity: ready ? 1 : 0.6 }}>
                     {opt.label}{!ready && source?.status ? ` · ${source.status}` : ''}
                   </span>
-                  {selected && <Check size={12} color="var(--cyan)" />}
+                  {selected && <Check size={12} color="var(--mm-color-system-default)" />}
                   {opt.scope === 'tenant' && (
                     <>
                       <button type="button" aria-label={`Sync ${opt.label}`} onClick={(e) => { e.stopPropagation(); sync(opt.value) }} style={iconBtn} disabled={busy === `sync:${opt.value}`}>

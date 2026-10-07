@@ -5,7 +5,7 @@
 .artifact-library button, .artifact-library input, .artifact-library select { color: var(--txt-pri); background: var(--shell); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; max-width: 100%; box-sizing: border-box; }
 .artifact-library button { cursor: pointer; font-size: .76rem; }
 .artifact-library button:disabled { opacity: .5; cursor: default; }
-.artifact-library button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+.artifact-library button[aria-pressed="true"] { border-color: var(--mm-color-system-default); color: var(--mm-color-system-default); }
 .artifact-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .artifact-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 12px; margin: 20px 0; align-items: end; }
 .artifact-filters label { display: grid; gap: 6px; font-size: .76rem; min-width: 0; }

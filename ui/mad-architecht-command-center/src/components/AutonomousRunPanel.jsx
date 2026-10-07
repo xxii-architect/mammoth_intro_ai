@@ -77,7 +77,7 @@ export default function AutonomousRunPanel({ summary, runs, onReplayRun }) {
                   </span>
                   <button
                     onClick={() => onReplayRun?.(run)}
-                    style={{ background: 'var(--photon)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer', fontWeight: 700 }}
+                    style={{ background: 'var(--mm-color-action-primary)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer', fontWeight: 700 }}
                   >
                     Replay
                   </button>

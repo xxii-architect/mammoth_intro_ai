@@ -5,18 +5,18 @@ import { getAccessToken } from '../lib/supabase'
 import OnboardingGuide from '../components/OnboardingGuide'
 
 const QUICK_ACTIONS = [
-  { label: 'Git Status', cmd: 'git status', Icon: GitBranch, color: 'var(--violet)', note: 'working tree' },
+  { label: 'Git Status', cmd: 'git status', Icon: GitBranch, color: 'var(--mm-color-agent-default)', note: 'working tree' },
   { label: 'Git Log', cmd: 'git log --oneline -20', Icon: GitBranch, color: '#eab308', note: 'recent history' },
-  { label: 'Git Branch', cmd: 'git branch', Icon: GitBranch, color: 'var(--cyan)', note: 'branch list' },
+  { label: 'Git Branch', cmd: 'git branch', Icon: GitBranch, color: 'var(--mm-color-system-default)', note: 'branch list' },
   { label: 'Agent List', cmd: 'python -m cli.main agent-list', Icon: Bot, color: 'var(--photon)', note: 'available lanes' },
-  { label: 'CLI Status', cmd: 'python -m cli.main status', Icon: CheckCircle, color: '#22c55e', note: 'runtime snapshot' },
-  { label: 'CLI Health', cmd: 'python -m cli.main health', Icon: FlaskConical, color: '#22c55e', note: 'health report' },
-  { label: 'ATLAS Status', cmd: 'python -m cli.main atlas status', Icon: Bot, color: 'var(--violet)', note: 'atlas wiring' },
+  { label: 'CLI Status', cmd: 'python -m cli.main status', Icon: CheckCircle, color: 'var(--mm-color-agent-default)', note: 'runtime snapshot' },
+  { label: 'CLI Health', cmd: 'python -m cli.main health', Icon: FlaskConical, color: 'var(--mm-color-agent-default)', note: 'health report' },
+  { label: 'ATLAS Status', cmd: 'python -m cli.main atlas status', Icon: Bot, color: 'var(--mm-color-agent-default)', note: 'atlas wiring' },
   { label: 'Service Status', cmd: 'systemctl status mammothos', Icon: Server, color: '#f97316', note: 'server process' },
   { label: 'Server Logs', cmd: 'journalctl -u mammothos -n 50 --no-pager', Icon: Activity, color: '#f97316', note: 'recent log lines' },
-  { label: 'Disk Usage', cmd: 'df -h', Icon: Server, color: 'var(--cyan)', note: 'disk space' },
-  { label: 'Memory', cmd: 'free -h', Icon: Activity, color: '#a3e635', note: 'ram usage' },
-  { label: 'Pip List', cmd: 'pip list', Icon: Package, color: '#a855f7', note: 'installed packages' },
+  { label: 'Disk Usage', cmd: 'df -h', Icon: Server, color: 'var(--mm-color-system-default)', note: 'disk space' },
+  { label: 'Memory', cmd: 'free -h', Icon: Activity, color: 'var(--mm-color-agent-default)', note: 'ram usage' },
+  { label: 'Pip List', cmd: 'pip list', Icon: Package, color: 'var(--mm-color-agent-default)', note: 'installed packages' },
   { label: 'npm Build', cmd: 'npm run build', Icon: Hammer, color: '#eab308', note: 'frontend verify' },
   { label: 'Restart Service', cmd: 'systemctl restart mammothos', Icon: RefreshCw, color: '#ef4444', note: '⚠ live restart' },
 ]
@@ -258,7 +258,7 @@ export default function TerminalPage({ setPage }) {
     return '#4ade80'
   }
 
-  const statusTone = connected ? '#22c55e' : (httpMode ? 'var(--cyan)' : '#ef4444')
+  const statusTone = connected ? '#22c55e' : (httpMode ? 'var(--mm-color-system-default)' : '#ef4444')
   const modeLabel = connected ? 'Live WebSocket lane' : httpMode ? 'HTTP fallback lane' : 'Disconnected lane'
 
   return (
@@ -266,7 +266,7 @@ export default function TerminalPage({ setPage }) {
       {/* Compact header bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <h1 style={{ fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-          <Terminal size={18} color="var(--cyan)" /> Terminal
+          <Terminal size={18} color="var(--mm-color-system-default)" /> Terminal
           <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 400, marginLeft: 4 }}>
             live operator shell · ATLAS CLI routing
           </span>
@@ -274,7 +274,7 @@ export default function TerminalPage({ setPage }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {!connected && (
             <button onClick={() => setHttpMode(m => !m)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, border: `1px solid ${httpMode ? 'var(--cyan)' : 'var(--border)'}`, background: httpMode ? 'rgba(0,212,255,0.1)' : 'transparent', color: httpMode ? 'var(--cyan)' : 'var(--txt-sec)', fontSize: '0.7rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 6, border: `1px solid ${httpMode ? 'var(--mm-color-system-default)' : 'var(--border)'}`, background: httpMode ? 'rgba(var(--mm-color-system-rgb),0.1)' : 'transparent', color: httpMode ? 'var(--mm-color-system-default)' : 'var(--txt-sec)', fontSize: '0.7rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}>
               <WifiOff size={11} /> {httpMode ? 'HTTP' : 'HTTP fallback'}
             </button>
           )}
@@ -304,13 +304,13 @@ export default function TerminalPage({ setPage }) {
       </div>
 
       {/* Collapsible playbook */}
-      <div className="glass-card-solid" style={{ flexShrink: 0, borderLeft: '2px solid var(--cyan)' }}>
+      <div className="glass-card-solid" style={{ flexShrink: 0, borderLeft: '2px solid var(--mm-color-system-default)' }}>
         <button
           onClick={() => setPlaybookOpen(o => !o)}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '9px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--txt-pri)' }}
         >
           <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8rem', fontWeight: 600 }}>
-            <BookOpen size={13} color="var(--cyan)" /> Terminal Playbook
+            <BookOpen size={13} color="var(--mm-color-system-default)" /> Terminal Playbook
             <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontWeight: 400, fontFamily: 'JetBrains Mono,monospace' }}>
               · {COMMAND_PLAYBOOK.length} commands · ↑↓ history
             </span>
@@ -369,17 +369,17 @@ export default function TerminalPage({ setPage }) {
 
         {/* input */}
         <form onSubmit={submit} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', borderTop: '1px solid var(--border)', background: '#050608' }}>
-          <span style={{ color: 'var(--cyan)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>$</span>
+          <span style={{ color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace', fontWeight: 700 }}>$</span>
           <input
             ref={inputRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder='Try: systemctl status mammothos  — ↑↓ for history'
-            style={{ flex: 1, background: 'none', border: 'none', color: '#4ade80', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.85rem', outline: 'none' }}
+            style={{ flex: 1, background: 'none', border: 'none', color: 'var(--txt-pri)', fontFamily: 'JetBrains Mono,monospace', fontSize: '0.85rem' }}
             autoFocus
           />
-          <button type="submit" disabled={httpBusy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--cyan)', opacity: httpBusy ? 0.5 : 1 }}>
+          <button type="submit" disabled={httpBusy} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--mm-color-system-default)', opacity: httpBusy ? 0.5 : 1 }}>
             <Play size={14} />
           </button>
         </form>
