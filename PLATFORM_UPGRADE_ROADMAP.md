@@ -272,9 +272,34 @@ build. SDKs also reject streams ending without a terminal event rather than
 returning a misleading running result. No paid model calls were made. These
 tests use fixtures; production success-rate/latency/cost targets remain RUN-09.
 
-### Next slices (not implemented by this delivery)
+### Follow-up delivery: schema-constrained decisions
 
-- [ ] RUN-06: native provider tool calls / schema-constrained decisions, with
+RUN-06 implements the schema-constrained alternative, not provider-native
+function/tool-call execution. Recognized official OpenAI GPT-4o/4.1 models use a
+strict decision envelope listing the current user's authorized tool names.
+Open-ended tool arguments are encoded as JSON text and validated against the
+registry's original schema before approval or execution. Malformed strict
+output never becomes a prose fallback. Final prose remains unconstrained.
+
+DeepSeek/Ollama/custom adapters retain their existing validated compatibility
+formats; the actual protocol travels through provider fallback in completion
+metadata and is visible in diagnostics. No model defaults or paid calls change.
+Adapter config `structured_decisions=False` explicitly selects the old JSON
+mode on eligible OpenAI models; schema errors are explicit rather than silently
+downgraded. Native tool-call handling on additional providers can be added later
+with tested capabilities; it is not claimed by this slice.
+
+Validation: 169 targeted backend/adapter/approval/sandbox/tutor/Paths tests,
+two browser checks for protocol diagnostics and same-message continuation,
+focused Python lint, and the UI production build passed. Coverage includes
+invalid action combinations, malformed/duplicate/non-finite argument JSON,
+hidden tools, registry-schema failures before approval, output limits,
+explicit schema API errors, and fallback in both strict/compatibility
+directions. These are fixture-based contract checks, not paid-model benchmarks.
+
+### Remaining slices
+
+- [x] RUN-06: native provider tool calls / schema-constrained decisions, with
   adapter capability negotiation and tested compatibility fallbacks. JSON mode
   alone does not enforce the decision schema.
 - [ ] RUN-07: token-aware context budgets and checkpointed subtasks; preserve

@@ -168,6 +168,7 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
               {run.diagnostics.map((call, idx) => (
                 <div key={idx} style={{ padding: '4px 0', overflowWrap: 'anywhere' }}>
                   {call.provider || 'Provider unavailable'} / {call.model || 'Model unavailable'} · {call.phase || 'response'} · finish: {call.finish_reason || 'not reported'}
+                  {call.decision_protocol ? ` · protocol: ${call.decision_protocol}` : ''}
                   {Number.isFinite(call.usage?.total_tokens) ? ` · ${call.usage.total_tokens} tokens` : ' · token usage not reported'}
                 </div>
               ))}

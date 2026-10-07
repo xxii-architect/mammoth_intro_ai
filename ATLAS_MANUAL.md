@@ -760,6 +760,7 @@ dark-on-dark text. Settings shows the active appearance without an inactive togg
 - The chat feed now meets the composer without a horizontal divider.
 - Agent runs distinguish incomplete work from completion. Malformed decisions retry once without consuming a task step; offline or invalid output is never marked successful.
 - Eligible partial/recoverable runs offer **Continue task** in Mammoth Mind and the Coding workspace. It retains saved evidence, rechecks repository access and approvals, and uses additional credits (up to two continuations). Expand the timeline for reported model-call diagnostics. This does not certify task correctness.
+- Recognized OpenAI GPT-4o/4.1 models use schema-constrained decisions with only authorized tool names. Other providers retain validated compatibility formats. Tool arguments are checked before approval/execution, and diagnostics display the selected protocol. Model defaults and tutor output remain unchanged.
 
 ### Design System
 - Colors: `--shell`, `--photon: #4da6ff`, `--cyan: #00f5d4`, `--violet: #b47cff`

@@ -11,6 +11,7 @@ class Completion:
     usage: Dict[str, int] = field(default_factory=dict)
     model: str = ""
     provider: str = ""
+    decision_protocol: str = ""
 
 
 async def complete(client: Any, prompt: str, **kwargs: Any) -> Completion:

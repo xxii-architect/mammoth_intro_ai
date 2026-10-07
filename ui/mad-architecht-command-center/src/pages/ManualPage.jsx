@@ -26,6 +26,7 @@ const liveNow = [
   'Learning materials can be uploaded into the ATLAS library for lesson-side context and reuse.',
   'Mammoth Mind Agent mode streams a run timeline: plan, short reasoning summaries, tool calls, proposed diffs, and inline Approve / Reject cards. Stop cancels a run at any time.',
   'Incomplete and recoverable failed runs offer Continue task: saved work is retained, access and approvals are rechecked, and additional model credits are used. Up to two continuations are allowed. Model call diagnostics are collapsed inside the run timeline; they are not a correctness guarantee.',
+  'Supported OpenAI models use schema-constrained run decisions. Other providers retain validated JSON/text compatibility. The timeline diagnostics identify the protocol; all tools still require valid arguments, authorized context, and applicable approvals.',
   'The Mammoth Mind pill is in the top-right header, next to notifications. It opens a quick panel with a link to the full Mammoth Mind page.',
   'Mammoth Mind adapts response depth: short and natural for simple asks, structured and thorough when the work calls for it. Runtime health is a color-coded, expandable header pill, and the chat composer has no divider above it.',
   'Rate any Mammoth Mind reply with thumbs up or down (click again to clear). A thumbs-down can add a reason and a note. Owners see totals and the thumbs-down regression cases on Beta Feedback. Ratings are signal only and never retrain the model.',

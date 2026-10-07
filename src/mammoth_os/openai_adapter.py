@@ -48,21 +48,52 @@ class OpenAIAdapter:
         client = self._ensure_client()
         timeout = kwargs.pop("timeout", int(os.getenv("OPENAI_TIMEOUT", "60")))
         decision_json = kwargs.pop("decision_json", False)
+        decision_schema = kwargs.pop("decision_schema", None)
+        decision_protocol = "text"
         official_openai = not self.base_url or self.base_url.rstrip("/") == "https://api.openai.com/v1"
         official_deepseek = bool(self.base_url and self.base_url.rstrip("/") in {
             "https://api.deepseek.com", "https://api.deepseek.com/v1",
         })
-        if decision_json and (
+        known_openai = (
+            official_openai
+            and self.model in {
+                "gpt-4o", "gpt-4o-2024-08-06", "gpt-4o-2024-11-20",
+                "gpt-4o-mini", "gpt-4o-mini-2024-07-18",
+                "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano",
+                "gpt-4.1-2025-04-14", "gpt-4.1-mini-2025-04-14", "gpt-4.1-nano-2025-04-14",
+            }
+        )
+        if decision_schema is not None and known_openai and self._config.get("structured_decisions", True):
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "mammoth_decision", "strict": True, "schema": decision_schema},
+            }
+            decision_protocol = "json_schema"
+        elif decision_json and (
             (official_openai and self.model.startswith(("gpt-4o", "gpt-4.1")))
             or (official_deepseek and self.model in {"deepseek-chat", "deepseek-flash"})
         ):
             kwargs["response_format"] = {"type": "json_object"}
+            decision_protocol = "json_object"
 
         system_prompt = kwargs.pop("system_prompt", None)
         _messages = []
         if system_prompt:
             _messages.append({"role": "system", "content": system_prompt})
         _messages.append({"role": "user", "content": prompt})
+        if decision_protocol == "json_schema":
+            _messages.append({
+                "role": "system",
+                "content": (
+                    "For this decision use the supplied mammoth_decision schema instead of the text JSON shape. "
+                    "action is tool, answer, or finalize. args_json is a JSON object encoded as a string, using "
+                    "the tool catalog's argument schema. tool action requires an available tool and final=null; "
+                    "answer requires tool=null, args_json='{}', and a complete final answer; finalize requires "
+                    "tool=null, args_json='{}', final=null and requests separate prose finalization. "
+                    "reasoning is a short public rationale, never private chain-of-thought. "
+                    "Use [] when the plan is unchanged. Keep plans to at most 12 short steps."
+                ),
+            })
 
         def _sync_call():
             params: Dict[str, Any] = {
@@ -89,6 +120,7 @@ class OpenAIAdapter:
                 for key in ("prompt_tokens", "completion_tokens", "total_tokens")
             } if usage is not None else {},
             model=str(getattr(resp, "model", "") or self.model),
+            decision_protocol=decision_protocol,
         )
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:

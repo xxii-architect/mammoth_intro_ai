@@ -23,7 +23,8 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 from mammoth_os.llm_completion import complete
 
 from . import events as ev
-from .tools import ToolContext, ToolRegistry
+from .decisions import decision_schema, parse_structured_decision
+from .tools import ToolContext, ToolRegistry, validate_args
 
 DEFAULT_MAX_STEPS = 8
 DECISION_OUTPUT_TOKENS = 4096
@@ -430,18 +431,23 @@ class AgentRunner:
             return {"final": INVALID_FINAL_MESSAGE, "_invalid": "invalid_response", "_meta": meta}
         return {"final": text, "_invalid": "" if text else "empty_response", "_meta": meta}
 
-    async def _generate(self, run: AgentRun, prompt: str, *, final: bool = False) -> tuple[str, Dict[str, Any]]:
+    async def _generate(
+        self, run: AgentRun, prompt: str, *, final: bool = False,
+        schema: Optional[Dict[str, Any]] = None,
+    ) -> tuple[str, Dict[str, Any]]:
         client = self.llm_factory()
         result = await complete(
             client, prompt, temperature=0.2,
             max_tokens=FINAL_OUTPUT_TOKENS if final else DECISION_OUTPUT_TOKENS,
             decision_json=not final,
+            decision_schema=schema,
         )
         meta = {
             **_client_meta(client),
             "finish_reason": result.finish_reason,
             "usage": result.usage,
             "phase": "final" if final else "decision",
+            "decision_protocol": result.decision_protocol or "text",
         }
         if result.model:
             meta["model"] = result.model
@@ -450,18 +456,22 @@ class AgentRunner:
         return result.text.strip(), meta
 
     async def _decide(self, run: AgentRun, ctx: ToolContext) -> Dict[str, Any]:
-        text, meta = await self._generate(run, self._build_prompt(run, ctx))
+        tool_names = [tool.name for tool in self.registry.available(ctx)]
+        text, meta = await self._generate(
+            run, self._build_prompt(run, ctx), schema=decision_schema(tool_names),
+        )
         if meta.get("finish_reason") == "length":
             return {"_invalid": "output_limit", "_meta": meta}
         if meta.get("finish_reason") in {"content_filter", "refusal"}:
             return {"_invalid": "provider_refusal", "_meta": meta}
         if text.startswith("[LOCAL_ADAPTER]"):
             return {"final": OFFLINE_MESSAGE, "_invalid": "offline", "_meta": {**meta, "offline": True}}
-        decision = parse_decision(text)
-        if decision is None:
+        structured = meta.get("decision_protocol") == "json_schema"
+        decision = parse_structured_decision(text, tool_names) if structured else parse_decision(text)
+        if decision is None and not structured:
             decision = parse_dsml_tool_call(text)
         if decision is None:
-            if looks_like_decision(text) or not text.strip():
+            if structured or looks_like_decision(text) or not text.strip():
                 return {"_invalid": "invalid_response" if text.strip() else "empty_response", "_meta": meta}
             decision = {"final": text.strip()}
         tool, final = decision.get("tool"), decision.get("final")
@@ -472,6 +482,14 @@ class AgentRunner:
             or (tool is not None and not isinstance(decision.get("args"), dict))
         ):
             return {"_invalid": "invalid_response", "_meta": meta}
+        if tool is not None:
+            spec = self.registry.resolve(tool, ctx)
+            errors = validate_args(spec.input_schema, decision["args"]) if spec else ["Tool not available in this context."]
+            if errors:
+                return {
+                    "_invalid": "invalid_response", "_meta": meta,
+                    "_repair": "Tool decision rejected before approval or execution: " + "; ".join(errors[:6]),
+                }
         decision["_meta"] = meta
         return decision
 
@@ -579,7 +597,7 @@ class AgentRunner:
                     run.transcript.append({
                         "tool": "(invalid response)",
                         "args": {},
-                        "result": {"status": "error", "code": invalid, "error": INVALID_RESPONSE_ERROR},
+                        "result": {"status": "error", "code": invalid, "error": decision.get("_repair") or INVALID_RESPONSE_ERROR},
                     })
                     self.store.save(run)
                     if invalid_streak < MAX_INVALID_RESPONSES and invalid not in {"offline", "provider_refusal"}:

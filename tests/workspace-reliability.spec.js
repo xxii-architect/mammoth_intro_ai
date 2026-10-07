@@ -47,7 +47,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     const props = component === 'components/AgentCommandLibrary' ? { onClose() {} }
       : component === 'components/RunTimeline' ? {
         run: { id: 'run-test', status: 'partial', can_continue: true, events: [], plan: [], diagnostics: [
-          { provider: 'test-provider', model: 'test-model', finish_reason: 'length', usage: { total_tokens: 42 } },
+          { provider: 'test-provider', model: 'test-model', finish_reason: 'length', decision_protocol: 'json_schema', usage: { total_tokens: 42 } },
         ] },
         onContinue() { globalThis.continuationClicks = (globalThis.continuationClicks || 0) + 1 },
       } : {}
@@ -77,6 +77,7 @@ test('partial run shows honest status, credit notice and collapsed diagnostics o
   await page.getByText('Model call diagnostics').click()
   await expect(page.getByText(/finish: length/)).toBeVisible()
   await expect(page.getByText(/42 tokens/)).toBeVisible()
+  await expect(page.getByText(/protocol: json_schema/)).toBeVisible()
   await page.getByRole('button', { name: 'Continue task' }).click()
   expect(await page.evaluate(() => globalThis.continuationClicks)).toBe(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)

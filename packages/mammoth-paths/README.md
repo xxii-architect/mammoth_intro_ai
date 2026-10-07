@@ -79,6 +79,9 @@ Completion metadata does not certify factual accuracy or task correctness.
 An SSE stream ending without a terminal event raises an explicit error. Query
 the saved run before retrying; this is not automatic reconnect or background
 execution.
+Model diagnostics also identify `decision_protocol` (`json_schema`,
+`json_object`, or `text`). Only recognized supported models use strict schema
+decisions; all paths still use backend argument/access/approval checks.
 
 ## Tests
 

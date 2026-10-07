@@ -92,6 +92,7 @@ class OllamaAdapter:
                     "total_tokens": int(body.get("prompt_eval_count") or 0) + int(body.get("eval_count") or 0),
                 } if "prompt_eval_count" in body or "eval_count" in body else {},
                 model=str(body.get("model") or self.model),
+                decision_protocol="json_object" if kwargs.get("decision_json") else "text",
             )
 
         options = {}
