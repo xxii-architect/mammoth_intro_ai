@@ -66,6 +66,23 @@ test('startup import failure displays recovery instead of a black screen', async
   await expect(page.getByRole('button', { name: 'Reload platform' })).toBeVisible()
 })
 
+for (const status of [200, 502, 504]) {
+test(`HTML API response ${status} reports path and status without assuming missing configuration`, async ({ page }) => {
+  await mount(page, 'auth')
+  await page.route('**/api/run', route => route.fulfill({
+    status, contentType: 'text/html', body: '<html><body>Gateway error</body></html>',
+  }))
+  const message = await page.evaluate(async () => {
+    const { api } = await import('/src/api/client.js')
+    try { await api('/run', { method: 'POST', body: { agent_id: 'coding_agent' } }) }
+    catch (error) { return error.message }
+  })
+  expect(message).toContain(`HTTP ${status} at /api/run`)
+  expect(message).not.toContain('Set VITE_MAMMOTH')
+  expect(message).toContain(status === 200 ? 'routing' : status === 504 ? 'timed out' : 'unavailable')
+})
+}
+
 test('partial run shows honest status, credit notice and collapsed diagnostics on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })
   const errors = await mount(page, 'components/RunTimeline')

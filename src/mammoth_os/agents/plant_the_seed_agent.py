@@ -18,12 +18,17 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Union
 
+from mammoth_os.llm_completion import complete
+from mammoth_os.research_quality import strip_reasoning
+
 from .base_agent import BaseAgent
 
 logger = logging.getLogger("mammoth.agents.plant_seed")
 
-SYSTEM_PROMPT = """You are an elite business idea validation strategist working with True XXII Supply —
-a small business operator in Boise, Idaho specializing in native plants, outdoor gear, and homesteading supplies.
+SYSTEM_PROMPT = """You assess the user's specific idea and propose practical ways to validate it.
+Do not assume an operator, business, industry, or location unless the user provides it.
+For design/software ideas, evaluate usability, accessibility, implementation tradeoffs,
+and reversible validation steps rather than inventing local market demand.
 
 Your job: take a raw seed idea and answer ONE question with precision:
 "Is this worth pursuing — and exactly what do you do in the next 7 days to find out?"
@@ -34,14 +39,14 @@ Be ruthlessly specific. No generic advice. Every action must be executable with 
 Respond in this exact JSON structure:
 {
   "idea_summary": "One crisp sentence restating the core idea — sharpen it if the original is fuzzy",
-  "hypothesis": "Testable statement: IF [True XXII Supply does X] THEN [we expect Y outcome] BECAUSE [underlying assumption Z]",
-  "market_signal": "What trend, gap, or consumer behavior RIGHT NOW gives this idea legs — be specific about the Boise/Idaho market where relevant",
+  "hypothesis": "Testable statement: IF [the user does X] THEN [we expect Y outcome] BECAUSE [underlying assumption Z]",
+  "market_signal": "Relevant evidence or signals; distinguish assumptions from verified facts and state when market analysis is not applicable",
   "addressable_demand": "Who specifically wants this, how many of them exist in the target area, and how do you know",
   "validation_steps": [
     {
       "step": 1,
       "action": "Specific action to validate the core hypothesis",
-      "method": "Exact method — e.g. '3 customer interviews with homesteaders in Boise FB groups', '$50 Meta ad to landing page', etc.",
+      "method": "Exact method suited to this idea, such as a usability check, prototype comparison, or customer interviews",
       "cost": "$ estimate",
       "timeline": "Day 1-2 / This week / etc.",
       "success_indicator": "Specific observable YES — e.g. '2 of 3 people ask where to buy it'"
@@ -110,7 +115,7 @@ class PlantTheSeedAgent(BaseAgent):
             return self._run_async(self._validate_idea(prompt_text, context))
         except Exception as exc:
             logger.error(f"PlantTheSeedAgent run failed: {exc}")
-            return self._error_response(str(exc))
+            return self._error_response("Idea assessment failed. Check runtime availability and try again.")
 
     @staticmethod
     def _run_learning_seed(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -179,33 +184,58 @@ class PlantTheSeedAgent(BaseAgent):
     ) -> Dict[str, Any]:
         from mammoth_os.llm_client import get_llm_client
         client = get_llm_client()
-        context_block = ""
-        if context:
-            context_block = f"\n\nAdditional context:\n{json.dumps(context, indent=2)}"
-        # Always build a fresh message scoped only to this prompt
-        context_block = ""
         user_message = (
             f"Seed idea to validate: {prompt_text}\n\n"
             "IMPORTANT: Your entire response must be about THIS specific idea only. "
             "Do not reference any other business ideas or prior context."
         )
-        raw = await client.generate(
-            user_message,
-            system_prompt=SYSTEM_PROMPT,
-            max_tokens=3500,
-            temperature=0.4,
-        )
-        parsed = self._extract_json(raw)
+        if context:
+            user_message += f"\n\nUser-provided context:\n{json.dumps(context, default=str)}"
+        diagnostics = []
+        parsed = {}
+        issues = []
+        repair = ""
+        for attempt in range(2):
+            result = await complete(
+                client, user_message + repair, system_prompt=SYSTEM_PROMPT,
+                max_tokens=3500, temperature=0.4, decision_json=True,
+            )
+            diagnostics.append({
+                "finish_reason": result.finish_reason, "usage": result.usage,
+                "model": result.model or getattr(client, "model", ""),
+            })
+            cleaned, _ = strip_reasoning(result.text)
+            parsed = self._extract_json(cleaned)
+            issues = self._validation_errors(parsed)
+            if result.finish_reason == "length":
+                issues = ["output_limit"]
+            elif result.finish_reason in {"refusal", "content_filter"}:
+                issues = ["provider_refusal"]
+            elif result.text.startswith("[LOCAL_ADAPTER]"):
+                issues = ["offline"]
+            if not issues:
+                break
+            logger.warning("Idea assessment rejected (attempt %s): %s", attempt + 1, ", ".join(issues))
+            if issues[0] in {"provider_refusal", "offline"}:
+                break
+            repair = (
+                "\n\nThe previous response failed validation: " + "; ".join(issues)
+                + ". Generate one complete JSON assessment from the original request. "
+                "Keep it concise enough to finish; include 3-5 concrete validation steps. "
+                "Do not reproduce the invalid response or invent a verdict about the failure."
+            )
+        if issues:
+            return {
+                "status": "error", "agent": self.name, "mode": "idea_validation",
+                "artifact_type": "seed_validation", "prompt": prompt_text,
+                "error": "Idea Shaper could not produce a complete, valid assessment. Your idea has not been assessed; try again.",
+                "summary": "Assessment failed; no verdict was generated.",
+                "quality": {"status": "failed", "issues": issues, "attempts": len(diagnostics)},
+                "diagnostics": diagnostics,
+                "quality_flags": ["assessment_failed"],
+            }
         steps = parsed.get("validation_steps", [])
         verdict = parsed.get("verdict", "")
-        confidence = round(
-            min(0.93, 0.60
-                + len(steps) * 0.05
-                + (0.05 if parsed.get("hypothesis") else 0)
-                + (0.05 if parsed.get("kill_criteria") else 0)
-                + (0.05 if verdict else 0)),
-            2,
-        )
         idea_summary = parsed.get("idea_summary", prompt_text[:80])
         return {
             "status": "ok",
@@ -225,10 +255,10 @@ class PlantTheSeedAgent(BaseAgent):
             "moat": parsed.get("moat", ""),
             "verdict": verdict,
             "verdict_rationale": parsed.get("verdict_rationale", ""),
-            "confidence": confidence,
+            "confidence": None,
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "summary": (
-                f"Seed validated: '{idea_summary}' — "
+                f"Idea assessment: '{idea_summary}' — "
                 f"Verdict: {verdict if verdict else 'See analysis'} | "
                 f"{len(steps)} validation steps generated."
             ),
@@ -237,7 +267,42 @@ class PlantTheSeedAgent(BaseAgent):
                 "structured_validation_framework",
                 "prompt_responsive",
             ],
+            "quality": {"status": "ok", "attempts": len(diagnostics), "factual_accuracy_verified": False},
+            "diagnostics": diagnostics,
         }
+
+    @staticmethod
+    def _validation_errors(parsed: Dict[str, Any]) -> list[str]:
+        if not parsed:
+            return ["invalid_json"]
+        issues = []
+        for key in ("idea_summary", "hypothesis", "verdict", "verdict_rationale"):
+            if not isinstance(parsed.get(key), str) or not parsed[key].strip():
+                issues.append(f"{key} must be nonempty text")
+        for key in ("market_signal", "addressable_demand", "seven_day_sprint", "kill_criteria", "moat"):
+            if key in parsed and not isinstance(parsed[key], str):
+                issues.append(f"{key} must be text")
+        steps = parsed.get("validation_steps")
+        if not isinstance(steps, list) or not 3 <= len(steps) <= 5:
+            issues.append("validation_steps must contain 3-5 steps")
+        else:
+            for step in steps:
+                if not isinstance(step, dict) or any(
+                    not isinstance(step.get(key), str) or not step[key].strip()
+                    for key in ("action", "method", "cost", "timeline", "success_indicator")
+                ):
+                    issues.append("each validation step needs action, method, cost, timeline and success_indicator")
+                    break
+        actions = parsed.get("first_3_actions")
+        if not isinstance(actions, list) or len(actions) != 3 or any(not isinstance(item, str) or not item.strip() for item in actions):
+            issues.append("first_3_actions must contain three text actions")
+        risks = parsed.get("risks")
+        if not isinstance(risks, list) or any(
+            not isinstance(risk, dict) or any(not isinstance(risk.get(key), str) or not risk[key].strip() for key in ("risk", "severity", "mitigation"))
+            for risk in risks
+        ):
+            issues.append("risks must be structured risk/severity/mitigation entries")
+        return issues
 
     @staticmethod
     def _parse_input(prompt: Any):
@@ -266,16 +331,11 @@ class PlantTheSeedAgent(BaseAgent):
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
             try:
-                return json.loads(text[start : end + 1])
+                parsed = json.loads(text[start : end + 1])
+                return parsed if isinstance(parsed, dict) else {}
             except json.JSONDecodeError:
                 pass
-        return {
-            "idea_summary": text[:300] if text else "Unable to parse LLM response.",
-            "validation_steps": [],
-            "risks": [],
-            "verdict": "Needs more research 🔍",
-            "verdict_rationale": "Unable to parse structured response — see raw output above.",
-        }
+        return {}
 
     @staticmethod
     def _error_response(message: str) -> Dict[str, Any]:
@@ -284,9 +344,11 @@ class PlantTheSeedAgent(BaseAgent):
             "agent": "PlantTheSeedAgent",
             "mode": "idea_validation",
             "artifact_type": "seed_validation",
+            "error": message,
             "summary": f"PlantTheSeedAgent could not complete: {message}",
             "validation_steps": [],
             "confidence": 0.0,
+            "quality": {"status": "failed", "issues": ["assessment_failed"]},
             "quality_flags": ["error"],
         }
 

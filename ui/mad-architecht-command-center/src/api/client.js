@@ -37,11 +37,17 @@ export function buildWsUrl(path) {
   return `${wsBase}${normalizedPath}`
 }
 
-function buildBackendErrorMessage(status, text) {
+function buildBackendErrorMessage(status, text, requestUrl = '') {
   const body = String(text || '').trim()
   const maybeHtml = body.startsWith('<') || /<!doctype html>|<html/i.test(body)
   if (maybeHtml) {
-    return 'Backend returned HTML instead of JSON. Set VITE_MAMMOTH_API_BASE_URL (or VITE_MAMMOTH_BACKEND_URL) to your deployed API origin, or set localStorage.mammoth_api_base_url for this browser session.'
+    let path = '/api'
+    try { path = new URL(requestUrl, window.location.origin).pathname } catch { /* diagnostic URL unavailable */ }
+    const detail = `HTTP ${status} at ${path}.`
+    if ([502, 503, 504].includes(status)) {
+      return `The API gateway returned an HTML error page (${detail}) ${status === 504 ? 'The upstream request timed out.' : 'The backend was unavailable.'} This does not establish a missing frontend environment variable. Check server/proxy logs before retrying; no automatic retry was made.`
+    }
+    return `Expected API JSON but received HTML (${detail}) Check API routing, redirects, and server logs. A frontend API-origin setting is needed only if this site uses a separate API origin; same-origin deployments do not require it.`
   }
   return body || `Request failed (${status})`
 }
@@ -55,7 +61,7 @@ async function parseApiResponse(res) {
   const text = await res.text()
 
   if (!res.ok) {
-    throw new Error(buildBackendErrorMessage(res.status, text))
+    throw new Error(buildBackendErrorMessage(res.status, text, res.url))
   }
 
   if (!text) {
@@ -71,7 +77,7 @@ async function parseApiResponse(res) {
   }
 
   if (/<!doctype html>|<html/i.test(text)) {
-    throw new Error(buildBackendErrorMessage(res.status, text))
+    throw new Error(buildBackendErrorMessage(res.status, text, res.url))
   }
 
   return text

@@ -16,6 +16,21 @@ downloads; it remains supplemental to the active lesson.
 
 ### Workspace reliability and learning resources
 
+Idea Shaper assesses the supplied idea and context without assuming the owner's
+brand, industry, or location. Structured output is checked before success:
+invalid or cut-off assessments receive at most one corrective model call, which
+can add cost and latency. Repeated failure reports no verdict and does not embed
+raw model JSON or provider errors in the assessment. Structural checks do not
+verify factual accuracy; `confidence` is `null` rather than an invented numerical
+certainty score. The lesson-scoped seed recommendation path remains unchanged.
+
+HTML API errors now include HTTP status and request path. Gateway errors
+(502/503/504) are distinguished from routing/content-type failures; neither
+proves a missing frontend environment variable. Do not automatically replay a
+failed agent POST: the backend may still have performed billable work. Check
+server/proxy logs before retrying. Same-origin deployments can leave the
+frontend API-origin variables unset when `/api` is correctly proxied.
+
 Startup, session-check, and page-render failures now show recovery controls
 instead of an empty screen. Sign-in checks time out after 15 seconds and can be
 retried without treating an authentication failure as a signed-out session.
