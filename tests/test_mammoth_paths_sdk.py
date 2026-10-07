@@ -114,6 +114,29 @@ def test_run_stops_at_approval_without_policy(backend):
     assert len(backend.requests) == 1
 
 
+def test_partial_result_and_explicit_continuation(backend):
+    run_id = "run-0123456789abcdef"
+    backend.route("POST", "/api/mammoth/runs", sse=[
+        _event(1, "run.partial", {"reply": "Saved progress", "code": "step_limit", "can_continue": True}),
+    ])
+    backend.route("POST", f"/api/mammoth/runs/{run_id}/continue", sse=[
+        _event(2, "run.continued"), _event(3, "run.completed", {"reply": "Finished"}),
+    ])
+    client = MammothPaths(backend.url)
+    result = client.run("do work")
+    assert result.status == "partial" and result.reply == "Saved progress"
+    assert result.events[-1].is_terminal
+    events = list(client.continue_run(run_id))
+    assert events[-1].data["reply"] == "Finished"
+    assert backend.requests[-1]["body"] == {}
+
+def test_premature_stream_end_is_not_a_success(backend):
+    backend.route("POST", "/api/mammoth/runs", sse=[_event(1, "run.started")])
+    with pytest.raises(PathsError) as error:
+        MammothPaths(backend.url).run("help")
+    assert error.value.code == "stream_interrupted"
+
+
 def test_run_resumes_through_approval_policy(backend):
     run_id = "run-0123456789abcdef"
     backend.route("POST", "/api/mammoth/runs", sse=[

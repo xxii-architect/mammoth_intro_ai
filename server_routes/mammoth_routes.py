@@ -336,6 +336,24 @@ async def mammoth_agent_run_cancel(run_id: str):
         _AGENT_RUNNER.cancel(run)
     return {"status": "ok", "run_id": run.id, "run_status": run.status, "cancel_requested": True}
 
+@app.post("/api/mammoth/runs/{run_id}/continue")
+async def mammoth_agent_run_continue(run_id: str):
+    run = _AGENT_RUNS.get(run_id, _current_request_user_id())
+    if run is None:
+        return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)
+    if not run.public()["can_continue"]:
+        return JSONResponse({"status": "error", "error": "This run cannot be continued.", "code": "not_continuable"}, status_code=409)
+    ctx, notice = _agent_tool_context(run.request.get("repo_context"))
+    if notice:
+        return JSONResponse({"status": "error", **notice}, status_code=403)
+    events_iter = _AGENT_RUNNER.continue_run(run, ctx)
+    _append_audit_event(
+        kind="agent_run_continuation", message="Continuing saved agent work",
+        details={"run_id": run.id, "continuations": run.continuations},
+        source="mammoth_mind", actor=ctx.user_id,
+    )
+    return _agent_run_stream(run, events_iter, thread_id=str(run.request.get("thread_id") or ""))
+
 @app.post("/api/mammoth/chat")
 async def mammoth_chat(body: Dict[str, Any]):
     message = str(body.get("message", "")).strip()

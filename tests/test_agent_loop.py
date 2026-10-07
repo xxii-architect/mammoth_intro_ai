@@ -271,7 +271,9 @@ def test_step_budget_forces_final(tmp_path, repo):
     runner, _ = _runner(llm, tmp_path, max_steps=2)
     run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="x")
     events = _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo, repo_scope="tenant")))
-    assert events[-1].type == "run.completed"
+    assert events[-1].type == "run.partial"
+    assert events[-1].data["code"] == "step_limit"
+    assert events[-1].data["can_continue"]
     assert events[-1].data["reply"] == "Summary."
     assert sum(1 for e in events if e.type == "tool.call") == 2
     assert "Do not output JSON" in llm.prompts[-1]
@@ -294,6 +296,7 @@ def test_offline_local_adapter_is_honest(tmp_path):
     runner, _ = _runner(ScriptedLLM(['[LOCAL_ADAPTER] {"final": "echo"}']), tmp_path)
     run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="hi")
     events = _collect(runner.start(run, ToolContext(user_id="u1")))
+    assert events[-1].type == "run.failed"
     assert events[-1].data["offline"] is True
     assert "No language model provider" in events[-1].data["reply"]
 
@@ -414,7 +417,7 @@ def test_truncated_decision_is_never_shown_and_model_retries(tmp_path, repo):
     run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Change the greeting")
     ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")
     events = _collect(runner.start(run, ctx))
-    assert "cut off" in llm.prompts[1]
+    assert "did not pass the completion/decision checks" in llm.prompts[1]
     assert any(e.type == "diff.proposed" for e in events)
     assert events[-1].type == "run.completed"
     assert events[-1].data["reply"] == "Proposed a one-line patch."
@@ -428,8 +431,10 @@ def test_repeated_truncation_ends_with_clean_message(tmp_path, repo):
     ctx = ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")
     events = _collect(runner.start(run, ctx))
     reply = events[-1].data["reply"]
-    assert events[-1].type == "run.completed"
-    assert "cut off" in reply and "{" not in reply
+    assert events[-1].type == "run.failed"
+    assert events[-1].data["code"] == "invalid_response"
+    assert "Continue task" in reply and "{" not in reply
+    assert run.steps == 0
 
 
 def test_final_answer_hides_truncated_json(tmp_path):
@@ -437,7 +442,7 @@ def test_final_answer_hides_truncated_json(tmp_path):
     runner, _ = _runner(llm, tmp_path)
     run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="x")
     result = asyncio.run(runner._final_answer(run))
-    assert "{" not in result["final"] and "cut off" in result["final"]
+    assert "{" not in result["final"] and result["_invalid"] == "invalid_response"
 
 
 DSML_CALL = (

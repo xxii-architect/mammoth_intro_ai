@@ -6793,20 +6793,35 @@ def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
         {"role": "user", "message": run.message, "created_at": run.created_at, "agent_id": run.agent_id, "mode": "agent",
          "user_id": run.user_id, "account_id": account_id},
         {"role": "assistant", "message": run.reply, "created_at": now_iso, "agent_id": run.agent_id, "mode": "agent",
-         "adapter": run.provider, "model": run.model, "run_id": run.id, "user_id": run.user_id, "account_id": account_id},
+         "adapter": run.provider, "model": run.model, "run_id": run.id, "user_id": run.user_id, "account_id": account_id,
+         "local_id": run.id,
+         "run": {"id": run.id, "status": run.status, "reply": run.reply, "plan": run.plan, "events": [],
+                 "failure_code": run.failure_code, "can_continue": run.public()["can_continue"],
+                 "diagnostics": run.diagnostics[-6:]}},
     ]
-    state["mammoth_chat_history"] = (all_history + exchange)[-400:]
+    existing = next((i for i, item in enumerate(all_history) if item.get("role") == "assistant" and item.get("run_id") == run.id), None)
+    if existing is not None:
+        all_history = list(all_history)
+        all_history[existing] = exchange[1]
+        state["mammoth_chat_history"] = all_history[-400:]
+    else:
+        state["mammoth_chat_history"] = (all_history + exchange)[-400:]
     state["updated_at"] = now_iso
     _save_atlas_state(state)
     if thread_id:
         try:
-            messages = _load_thread_messages(run.user_id, thread_id) + exchange
+            messages = _load_thread_messages(run.user_id, thread_id)
+            existing = next((i for i, item in enumerate(messages) if item.get("role") == "assistant" and item.get("run_id") == run.id), None)
+            if existing is not None:
+                messages[existing] = exchange[1]
+            else:
+                messages += exchange
             _save_thread_messages(run.user_id, thread_id, messages[-120:])
             first_user = next((m.get("message", "") for m in messages if m.get("role") == "user"), "")
             title = (first_user.strip()[:60] + "…") if len(first_user.strip()) > 60 else first_user.strip()
             _upsert_thread_index_entry(run.user_id, thread_id, title=title or "Conversation", agent_id=run.agent_id, message_count=len(messages))
-        except Exception:
-            pass
+        except (OSError, ValueError, TypeError):
+            logger.exception("Could not persist agent run %s to its thread", run.id)
 
 
 def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "") -> StreamingResponse:
@@ -6814,11 +6829,11 @@ def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "") -> Str
         async for event in events_iter:
             yield event.to_sse()
             # Agent-page runs live in that page's own threads, not Mammoth Mind's chat history.
-            if event.type == "run.completed" and run.request.get("surface") != "agent_workspace":
+            if event.type in {"run.completed", "run.partial", "run.failed"} and run.reply and run.request.get("surface") != "agent_workspace":
                 try:
                     _persist_agent_run_exchange(run, thread_id=thread_id)
-                except Exception:
-                    pass
+                except (OSError, ValueError, TypeError):
+                    logger.exception("Could not persist agent run %s to chat history", run.id)
 
     return StreamingResponse(
         event_stream(),

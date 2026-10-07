@@ -56,6 +56,7 @@ function useRunStore() {
 | `tools({ repo })` | Tool catalog visible to you | signed in |
 | `streamRun(message, opts)` / `run(message, opts)` | Start a Mammoth Mind run | signed in |
 | `decide(runId, approvalId, 'approve'\|'reject')` | Resume a paused run | run owner |
+| `continueRun(runId, opts)` | Continue partial/recoverable work with bounded additional model usage | run owner |
 | `cancelRun`, `getRun(runId, { after })`, `listRuns()` | Run control and replay | run owner |
 | `listRepos`, `connectRepo`, `syncRepo`, `removeRepo` | Bring-your-own public GitHub repos | signed in |
 | `proposeChange(sourceId, changes, { title })` | Branch plus git patch; never pushed | repo owner |
@@ -67,7 +68,17 @@ Errors throw `PathsError` with `status` and `code` (for example `tier_required` 
 
 ## Run events
 
-`run.started`, `plan.updated`, `reasoning.summary`, `tool.call`, `tool.result`, `approval.requested`, `approval.resolved`, `diff.proposed`, `message.delta`, `message.completed`, `run.awaiting_approval`, `run.completed`, `run.failed`, `run.cancelled`.
+`run.started`, `plan.updated`, `reasoning.summary`, `tool.call`, `tool.result`, `approval.requested`, `approval.resolved`, `diff.proposed`, `message.delta`, `message.completed`, `run.awaiting_approval`, `run.completed`, `run.failed`, `run.cancelled`, `run.partial`, `run.continued`, `run.recovering`, `model.completed`.
+
+`partial` is terminal for the current stream, not success. The reducer exposes
+`can_continue`, `failure_code`, and reported model `diagnostics`. Call
+`continueRun` explicitly when appropriate; it may use more credits and retains
+the run ID and saved work. Continuation does not bypass access or approvals and
+is limited to two continuations. Python offers the matching `continue_run`.
+Completion metadata does not certify factual accuracy or task correctness.
+An SSE stream ending without a terminal event raises an explicit error. Query
+the saved run before retrying; this is not automatic reconnect or background
+execution.
 
 ## Tests
 

@@ -187,8 +187,9 @@ Mammoth Mind's **Agent** mode (default; toggle to **Classic** in the chat header
 | `GET /api/mammoth/runs` / `GET /api/mammoth/runs/{id}?after=` | Your recent runs / replay events after a sequence number |
 | `POST /api/mammoth/runs/{id}/approval` | `{approval_id, decision: approve\|reject, note}` → resumes the stream (audited) |
 | `POST /api/mammoth/runs/{id}/cancel` | Stop a run |
+| `POST /api/mammoth/runs/{id}/continue` | Continue saved partial/recoverable work (SSE, owner only, bounded additional usage) |
 
-Event types: `run.started`, `plan.updated`, `reasoning.summary`, `tool.call`, `tool.result`, `approval.requested`, `approval.resolved`, `diff.proposed`, `message.delta`, `message.completed`, `run.awaiting_approval`, `run.completed`, `run.failed`, `run.cancelled`. Each event carries `contract`, `run_id`, `seq`, `ts`.
+Event types: `run.started`, `plan.updated`, `reasoning.summary`, `tool.call`, `tool.result`, `approval.requested`, `approval.resolved`, `diff.proposed`, `message.delta`, `message.completed`, `run.awaiting_approval`, `run.completed`, `run.failed`, `run.cancelled`, `run.partial`, `run.continued`, `run.recovering`, `model.completed`. Each event carries `contract`, `run_id`, `seq`, `ts`.
 
 Rules the loop enforces:
 
@@ -197,7 +198,9 @@ Rules the loop enforces:
 - **Patches are edit-first.** `repo_propose_patch` takes either full `content` (new or small files) or `edits` (exact `old` → `new` snippets, each matching once) per file, so the model never has to re-send a large file. A missed edit reports the line(s) where its first line appears. The connected repo is named in every prompt.
 - **Large files:** `repo_read_file` can reach any line of files up to 5 MB (400 lines / 20 KB per call, with `total_lines` and `next_start_line`). The newest three tool results are shown to the model in full (24K chars) as raw text, and older ones are condensed. Clipped excerpts always state the last line shown, so the model never edits text it hasn't seen. DeepSeek's native tool-call markup is parsed as a real tool call.
 - **MCP access:** each `mcp/*.json` declares `access: admin|tenant`. Admin repo servers (filesystem, git) are only offered to the owner with the platform repo selected; tenant servers run with the user's sandbox clone as cwd.
-- **Honest output:** reasoning lines are short model-written summaries (no hidden chain-of-thought). Repeated identical tool calls and exhausted step budgets go straight to a final answer. A cut-off or malformed decision is never shown to the user: the model is told and retries once, then the run ends with a plain message. With no cloud or Ollama provider the run says it is offline instead of echoing.
+- **Honest output:** reasoning lines are short model-written summaries (no hidden chain-of-thought). Malformed decisions, empty responses, confirmed output limits, refusals, and offline responses are distinguished; none is marked completed. Exhausted step budgets or repeated tools produce a partial summary, not a success claim. This is runtime validation, not certification of a model's factual or task-completion claims.
+- **Bounded recovery:** invalid decisions retry once without spending a task step or rerunning saved tools. Cloud decisions request JSON mode on recognized supported endpoints; compatible/custom endpoints retain the validated text protocol. Decisions have a 4,096-token output allowance; separate prose finalization has 8,192. Provider finish reason, model and reported usage are saved and available in collapsed diagnostics; private reasoning is never substituted for a missing answer.
+- **Continue task:** partial/recoverable runs retain their transcript and original request. The owner can continue up to twice, with eight additional task steps per continuation by default. The backend rebuilds repository access, preserves approvals, and rejects concurrent/already-finished continuations. Both SDKs expose explicit continuation (`continue_run` / `continueRun`); neither automatically spends more credits.
 - Runs are stored per user under `.mammoth/agent_runs/` (last 50); other users get 404.
 - `/api/internet/*` fetches refuse private, loopback, and link-local targets, including on redirects (SSRF guard).
 

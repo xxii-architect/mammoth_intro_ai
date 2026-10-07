@@ -1,6 +1,6 @@
 export declare const PATHS_CONTRACT_VERSION: 'mammoth.paths.v1'
 export declare const RUN_CONTRACT_VERSION: 'mammoth.run.v1'
-export declare const TERMINAL_RUN_EVENTS: readonly ['run.completed', 'run.failed', 'run.cancelled', 'run.awaiting_approval']
+export declare const TERMINAL_RUN_EVENTS: readonly ['run.completed', 'run.failed', 'run.cancelled', 'run.awaiting_approval', 'run.partial']
 
 export type RunEventType =
   | 'run.started'
@@ -17,6 +17,10 @@ export type RunEventType =
   | 'run.completed'
   | 'run.failed'
   | 'run.cancelled'
+  | 'run.partial'
+  | 'run.continued'
+  | 'run.recovering'
+  | 'model.completed'
 
 export interface RunEvent {
   contract: 'mammoth.run.v1'
@@ -38,7 +42,7 @@ export interface Approval {
 
 export interface RunState {
   id: string
-  status: 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled'
+  status: 'running' | 'awaiting_approval' | 'completed' | 'failed' | 'cancelled' | 'partial'
   events: RunEvent[]
   plan: Array<{ title: string; status: 'pending' | 'in_progress' | 'done' | 'skipped' }>
   approval: Approval | null
@@ -47,6 +51,10 @@ export interface RunState {
   repo?: unknown
   tools?: string[]
   summary?: Record<string, unknown>
+  can_continue?: boolean
+  failure_code?: string
+  diagnostics?: Array<Record<string, unknown>>
+  recovery?: Record<string, unknown> | null
 }
 
 export interface RunResult {
@@ -95,6 +103,7 @@ export interface PathsClient {
   tools(options?: { repo?: string }): Promise<Record<string, unknown>>
   streamRun(message: string, options?: RunOptions): Promise<RunEvent[]>
   decide(runId: string, approvalId: string, decision: 'approve' | 'reject', options?: { note?: string; signal?: AbortSignal; onEvent?: (event: RunEvent) => void }): Promise<RunEvent[]>
+  continueRun(runId: string, options?: { signal?: AbortSignal; onEvent?: (event: RunEvent) => void }): Promise<RunEvent[]>
   run(message: string, options?: RunOptions & { approve?: (approval: Approval) => boolean | 'approve' | 'reject' | Promise<boolean | 'approve' | 'reject'>; maxApprovals?: number }): Promise<RunResult>
   cancelRun(runId: string): Promise<Record<string, unknown>>
   getRun(runId: string, options?: { after?: number }): Promise<Record<string, unknown> | null>

@@ -65,7 +65,7 @@ def test_run_streams_typed_events_and_persists_history(isolated, as_user):
     use_llm([{"reasoning": "Simple question.", "final": "Hello from Mammoth Mind."}])
     response = asyncio.run(api_server.mammoth_agent_run_start({"message": "hi"}))
     events = asyncio.run(_drain(response))
-    assert [e["type"] for e in events] == ["run.started", "reasoning.summary", "message.delta", "message.completed", "run.completed"]
+    assert [e["type"] for e in events] == ["run.started", "model.completed", "reasoning.summary", "message.delta", "message.completed", "run.completed"]
     assert all(e["contract"] == "mammoth.run.v1" for e in events)
     assert events[0]["data"]["repo"] is None
     run_id = events[0]["run_id"]
@@ -105,6 +105,49 @@ def test_run_is_private_to_its_owner(isolated, as_user):
     assert asyncio.run(api_server.mammoth_agent_run_get(run_id)).status_code == 404
     assert asyncio.run(api_server.mammoth_agent_run_cancel(run_id)).status_code == 404
     assert asyncio.run(api_server.mammoth_agent_run_approval(run_id, {"decision": "approve"})).status_code == 404
+    assert asyncio.run(api_server.mammoth_agent_run_continue(run_id)).status_code == 404
+
+
+def test_failed_run_continues_without_duplicate_chat_history(isolated, as_user, monkeypatch):
+    state, _ = isolated
+    as_user("tenant-a")
+    llm = _use_recording(monkeypatch, [])
+
+    async def invalid(prompt, **kwargs):
+        return '{"tool":'
+
+    monkeypatch.setattr(llm, "generate", invalid)
+    events = asyncio.run(_drain(asyncio.run(api_server.mammoth_agent_run_start({"message": "help"}))))
+    run_id = events[0]["run_id"]
+    assert events[-1]["type"] == "run.failed"
+    assert state["mammoth_chat_history"][-1]["run"]["can_continue"]
+    assert len(state["mammoth_chat_history"]) == 2
+    monkeypatch.setattr(llm, "generate", lambda *args, **kwargs: _good_final())
+    response = asyncio.run(api_server.mammoth_agent_run_continue(run_id))
+    assert asyncio.run(api_server.mammoth_agent_run_continue(run_id)).status_code == 409
+    resumed = asyncio.run(_drain(response))
+    assert resumed[-1]["type"] == "run.completed"
+    assert len(state["mammoth_chat_history"]) == 2
+    assert state["mammoth_chat_history"][-1]["message"] == "Recovered"
+    assert state["mammoth_chat_history"][-1]["run"]["status"] == "completed"
+
+
+async def _good_final():
+    return '{"final":"Recovered"}'
+
+
+def test_continuation_rechecks_repository_access(isolated, as_user):
+    _, _ = isolated
+    as_user("tenant-a")
+    from mammoth_os.agent_loop import AgentRun
+    run = AgentRun(
+        id=AgentRun.new_id(), user_id="tenant-a", message="read", status="partial", failure_code="step_limit",
+        request={"repo_context": {"root": "platform"}},
+    )
+    api_server._AGENT_RUNS.save(run)
+    response = asyncio.run(api_server.mammoth_agent_run_continue(run.id))
+    assert response.status_code == 403
+    assert run.continuations == 0
 
 
 def test_non_admin_cannot_target_platform_repo(isolated, as_user):

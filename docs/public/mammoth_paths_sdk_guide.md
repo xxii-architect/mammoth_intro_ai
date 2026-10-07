@@ -34,3 +34,13 @@ Read-only tools run automatically. Anything that would run a command or change s
 ## Usage metering
 
 Both clients accept a usage hook that reports each call (surface, status, duration) so you can meter usage in your own product.
+
+## Partial work and continuation
+
+A `run.partial` event ends the current stream without declaring success. A
+recoverable failed or partial run exposes `can_continue`. Explicitly call
+Python `continue_run(run_id)` or JavaScript `continueRun(runId)` to keep working
+from its saved evidence and original request. This uses additional model
+credits, is limited to two continuations, and rechecks access and approvals.
+Neither SDK automatically retries a partial task. Model diagnostics contain
+reported finish reason and token usage when available, not a correctness score.

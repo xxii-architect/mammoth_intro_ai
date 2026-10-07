@@ -23,9 +23,11 @@ Configured via .env:
 import asyncio
 import json
 import os
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import Any, Dict, List
+
+from .llm_completion import Completion
 
 MODEL_ALIASES: Dict[str, str] = {
     "hermes": "hermes3:8b",
@@ -75,16 +77,39 @@ class OllamaAdapter:
         self.embed_model = _resolve_model(raw_embed)
 
     async def generate(self, prompt: str, **kwargs) -> str:
+        return (await self.generate_completion(prompt, **kwargs)).text
+
+    async def generate_completion(self, prompt: str, **kwargs) -> Completion:
         timeout = kwargs.pop("timeout", int(os.getenv("OLLAMA_TIMEOUT", "120")))
 
-        def _sync_call() -> str:
+        def _result(body, text):
+            return Completion(
+                text=str(text or "").strip(),
+                finish_reason=str(body.get("done_reason") or ""),
+                usage={
+                    "prompt_tokens": int(body.get("prompt_eval_count") or 0),
+                    "completion_tokens": int(body.get("eval_count") or 0),
+                    "total_tokens": int(body.get("prompt_eval_count") or 0) + int(body.get("eval_count") or 0),
+                } if "prompt_eval_count" in body or "eval_count" in body else {},
+                model=str(body.get("model") or self.model),
+            )
+
+        options = {}
+        if "temperature" in kwargs:
+            options["temperature"] = kwargs["temperature"]
+        if "max_tokens" in kwargs:
+            options["num_predict"] = kwargs["max_tokens"]
+
+        def _sync_call():
             chat_payload = {
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
                 "stream": False,
             }
-            if "temperature" in kwargs:
-                chat_payload["options"] = {"temperature": kwargs["temperature"]}
+            if options:
+                chat_payload["options"] = options
+            if kwargs.get("decision_json"):
+                chat_payload["format"] = "json"
 
             chat_data = json.dumps(chat_payload).encode("utf-8")
             chat_req = urllib.request.Request(
@@ -96,7 +121,7 @@ class OllamaAdapter:
             try:
                 with urllib.request.urlopen(chat_req, timeout=timeout) as resp:
                     body = json.loads(resp.read().decode("utf-8"))
-                return body.get("message", {}).get("content", "").strip()
+                return _result(body, body.get("message", {}).get("content"))
             except urllib.error.HTTPError as exc:
                 if exc.code != 404:
                     raise
@@ -106,8 +131,10 @@ class OllamaAdapter:
                 "prompt": prompt,
                 "stream": False,
             }
-            if "temperature" in kwargs:
-                generate_payload["options"] = {"temperature": kwargs["temperature"]}
+            if options:
+                generate_payload["options"] = options
+            if kwargs.get("decision_json"):
+                generate_payload["format"] = "json"
             generate_data = json.dumps(generate_payload).encode("utf-8")
             generate_req = urllib.request.Request(
                 f"{self.base_url}/api/generate",
@@ -117,7 +144,7 @@ class OllamaAdapter:
             )
             with urllib.request.urlopen(generate_req, timeout=timeout) as resp:
                 body = json.loads(resp.read().decode("utf-8"))
-            return body.get("response", "").strip()
+            return _result(body, body.get("response"))
 
         try:
             return await asyncio.wait_for(asyncio.to_thread(_sync_call), timeout=timeout + 5)

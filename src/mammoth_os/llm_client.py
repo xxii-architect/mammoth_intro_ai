@@ -4,10 +4,10 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Dict, Iterator, List
 
-from .openai_adapter import OpenAIAdapter
-from .ollama_adapter import OllamaAdapter, MODEL_ALIASES, check_ollama_running
+from .llm_completion import Completion, complete
 from .llm_parsing import extract_code_and_files
-
+from .ollama_adapter import MODEL_ALIASES, OllamaAdapter, check_ollama_running
+from .openai_adapter import OpenAIAdapter
 
 # Background (earlier conversation turns, earlier plan-step results) that should reach
 # the model for the duration of one agent run without being written into agent prompts.
@@ -257,9 +257,12 @@ class FallbackAdapter(LLMClient):
         }
 
     async def generate(self, prompt: str, **kwargs) -> str:
+        return (await self.generate_completion(prompt, **kwargs)).text
+
+    async def generate_completion(self, prompt: str, **kwargs) -> Completion:
         self._reset_last()
         try:
-            result = await self.primary.generate(prompt, **kwargs)
+            result = await complete(self.primary, prompt, **kwargs)
             self.last_used_provider = self.primary_name
             self.model = str(getattr(self.primary, "model", self.model))
             return result
@@ -270,8 +273,9 @@ class FallbackAdapter(LLMClient):
             self.last_fallback_reason = _classify_provider_error(exc)
             self.last_error_type = type(exc).__name__
             self.last_error_detail = str(exc)
-            result = await self.fallback.generate(prompt, **kwargs)
-            self.last_used_provider = self.fallback_name
+            result = await complete(self.fallback, prompt, **kwargs)
+            state = getattr(self.fallback, "describe_runtime_state", lambda: {})()
+            self.last_used_provider = str(state.get("last_used_provider") or self.fallback_name)
             self.model = str(getattr(self.fallback, "model", self.model))
             return result
 
@@ -370,6 +374,9 @@ class ContextualClient(LLMClient):
 
     async def generate(self, prompt: str, **kwargs) -> str:
         return await self._inner.generate(with_background(prompt, self._background), **kwargs)
+
+    async def generate_completion(self, prompt: str, **kwargs) -> Completion:
+        return await complete(self._inner, with_background(prompt, self._background), **kwargs)
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
         return await self._inner.embed(texts, **kwargs)

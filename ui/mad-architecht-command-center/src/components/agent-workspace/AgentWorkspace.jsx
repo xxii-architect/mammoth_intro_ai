@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Send, Loader, Users, MessageSquare, Eye, EyeOff, CornerUpRight, Trash2, Check, Square } from 'lucide-react'
 import { api } from '../../api/client'
 import { useAuth } from '../../lib/authContext'
-import { startAgentRun, resolveRunApproval, cancelAgentRun, reduceRunEvent } from '../../lib/agentRuns'
+import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent } from '../../lib/agentRuns'
 import RunTimeline from '../RunTimeline'
 import ChatMessageBody from '../ChatMessageBody'
 import { StepOutput, artifactSections } from '../PlanExecuteResultPanel'
@@ -30,7 +30,7 @@ const MAX_STORED_ARTIFACT_CHARS = 40000
 // Keeps auto-scrolled messages clear of the sticky composer and the page header.
 const SCROLL_MARGIN = { scrollMarginTop: 16, scrollMarginBottom: 180 }
 
-const FINISHED_RUN = new Set(['completed', 'failed', 'cancelled'])
+const FINISHED_RUN = new Set(['completed', 'failed', 'cancelled', 'partial'])
 
 function loadThreads(storageKey = THREADS_KEY) {
   try {
@@ -201,6 +201,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
     body = (
       <>
         <RunTimeline run={run} busy={runBusy && run.status !== 'awaiting_approval'}
+          onContinue={() => onRunDecision?.(message, 'continue')}
           onApprove={() => onRunDecision?.(message, 'approve')} onReject={() => onRunDecision?.(message, 'reject')} />
         {run.reply ? <ChatMessageBody text={run.reply} /> : null}
       </>
@@ -346,6 +347,10 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
 
   const decideRun = (message, decision) => {
     const run = message.run
+    if (decision === 'continue') {
+      if (sending || !run?.can_continue) return
+      return streamRun(message.id, message.agent_id, (signal, onEvent) => continueAgentRun(run.id, { signal, onEvent }))
+    }
     if (!run?.id || !run.approval?.id || sending) return
     streamRun(message.id, message.agent_id, (signal, onEvent) => resolveRunApproval(run.id, run.approval.id, decision, { signal, onEvent }))
   }

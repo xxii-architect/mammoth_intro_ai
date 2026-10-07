@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, PanelLeft, Paperclip, Square } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
-import { startAgentRun, resolveRunApproval, cancelAgentRun, reduceRunEvent } from '../lib/agentRuns'
+import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent } from '../lib/agentRuns'
 import RunTimeline from '../components/RunTimeline'
 import ChatMessageBody from '../components/ChatMessageBody'
 import AgentResultPanel from '../components/AgentResultPanel'
@@ -412,6 +412,7 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
             busy={busy && entry.run.status !== 'awaiting_approval'}
             onApprove={() => onRunDecision?.(entry, 'approve')}
             onReject={() => onRunDecision?.(entry, 'reject')}
+            onContinue={() => onRunDecision?.(entry, 'continue')}
           />
         )}
         {isUser
@@ -947,7 +948,7 @@ export default function ChatPage({ setPage }) {
         run,
         run_id: run.id,
         message: run.reply || item.message,
-        stream: !['completed', 'failed', 'cancelled', 'awaiting_approval'].includes(run.status),
+        stream: !['completed', 'failed', 'cancelled', 'partial', 'awaiting_approval'].includes(run.status),
         adapter: summary.provider || item.adapter,
         model: summary.model || item.model,
       }
@@ -968,7 +969,14 @@ export default function ChatPage({ setPage }) {
       await invoke(streamControllerRef.current.signal, applyRunEvent(localId, effectiveAgentId))
     } catch (e) {
       if (e?.name !== 'AbortError') setError(e instanceof Error ? e.message : 'Agent run failed')
-      updateRunEntry(localId, (item) => ({ ...item, stream: false, run: item.run ? { ...item.run, status: item.run.status === 'running' ? 'cancelled' : item.run.status } : item.run }))
+      updateRunEntry(localId, (item) => ({
+        ...item, stream: false,
+        run: item.run ? {
+          ...item.run,
+          status: item.run.status === 'running' ? (e?.name === 'AbortError' ? 'cancelled' : 'failed') : item.run.status,
+          error: e?.name === 'AbortError' ? '' : (e instanceof Error ? e.message : 'Agent run failed'),
+        } : item.run,
+      }))
     } finally {
       setBusy(false)
       setStreaming(false)
@@ -978,6 +986,10 @@ export default function ChatPage({ setPage }) {
   }
 
   const decideRun = (entry, decision) => {
+    if (decision === 'continue') {
+      if (busy || !entry.run?.can_continue) return
+      return runWithStream(entry.local_id, entry.agent_id || 'assistant', (signal, onEvent) => continueAgentRun(entry.run.id, { signal, onEvent }))
+    }
     const run = entry.run
     if (!run?.id || !run.approval?.id || busy) return
     runWithStream(entry.local_id, entry.agent_id, (signal, onEvent) => resolveRunApproval(run.id, run.approval.id, decision, { signal, onEvent }))

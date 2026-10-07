@@ -29,6 +29,9 @@ The run appears above the answer as a collapsible **Worked · N tool calls** tim
 
 - **Approvals:** proposing a change never modifies your repository. Anything that would run or change something pauses on an approval card. **Approve** continues; **Reject** tells the agent to work around it.
 - **Stop:** while a run is active, the Send button turns into **Stop**.
+- **Incomplete or failed:** a response-format failure is not automatically an output cutoff. The runtime retries once where appropriate and keeps saved work. It does not label an offline, malformed, or interrupted-by-output-limit response as completed.
+- **Continue task:** eligible unfinished runs offer this action in Mammoth Mind and the Coding workspace. It retains saved work and your original request, rather than making you repeat the prompt. It uses additional model credits and permits up to two continuations; access and approvals still apply.
+- **Diagnostics:** expand the timeline, then Model call diagnostics for the provider/model, reported completion reason, and token usage. Missing usage is labeled not reported. These details are not a factual-accuracy guarantee.
 - **Classic path:** slash commands and messages with attachments use classic chat automatically.
 
 ## Repository context

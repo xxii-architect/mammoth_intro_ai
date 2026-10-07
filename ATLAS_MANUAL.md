@@ -758,6 +758,8 @@ dark-on-dark text. Settings shows the active appearance without an inactive togg
 - Structure is used when it helps, not forced onto every reply. Complex answers lead with the outcome and then cover rationale, caveats, and useful next steps.
 - Mammoth Mind can explain its rationale and evidence, but does not expose private chain-of-thought.
 - The chat feed now meets the composer without a horizontal divider.
+- Agent runs distinguish incomplete work from completion. Malformed decisions retry once without consuming a task step; offline or invalid output is never marked successful.
+- Eligible partial/recoverable runs offer **Continue task** in Mammoth Mind and the Coding workspace. It retains saved evidence, rechecks repository access and approvals, and uses additional credits (up to two continuations). Expand the timeline for reported model-call diagnostics. This does not certify task correctness.
 
 ### Design System
 - Colors: `--shell`, `--photon: #4da6ff`, `--cyan: #00f5d4`, `--violet: #b47cff`

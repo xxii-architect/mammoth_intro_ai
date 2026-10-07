@@ -127,3 +127,40 @@ test('path segments are escaped and getToken is used', async () => {
 test('rejects non-http base urls', () => {
   assert.throws(() => createPathsClient({ baseUrl: 'ftp://x' }), TypeError)
 })
+
+test('partial and failed outcomes retain continuation state and diagnostics', () => {
+  let run = reduceRunEvent(null, ev(1, 'model.completed', { finish_reason: 'length', usage: { total_tokens: 12 } }))
+  run = reduceRunEvent(run, ev(2, 'run.partial', { reply: 'Saved', code: 'step_limit', can_continue: true }))
+  assert.equal(run.status, 'partial')
+  assert.equal(run.can_continue, true)
+  assert.equal(run.diagnostics[0].usage.total_tokens, 12)
+  run = reduceRunEvent(run, ev(3, 'run.continued'))
+  assert.equal(run.status, 'running')
+  assert.equal(run.reply, '')
+  assert.equal(run.can_continue, false)
+  run = reduceRunEvent(run, ev(4, 'run.failed', { error: 'Invalid response', code: 'invalid_response', can_continue: true }))
+  assert.equal(run.status, 'failed')
+  assert.equal(run.failure_code, 'invalid_response')
+})
+
+test('continuation is explicit and partial does not auto-retry or approve', async () => {
+  const { impl, calls } = fakeFetch({
+    'POST /api/mammoth/runs': { sse: [ev(1, 'run.partial', { reply: 'Saved', can_continue: true })] },
+    [`POST /api/mammoth/runs/${RUN_ID}/continue`]: { sse: [ev(2, 'run.continued'), ev(3, 'run.completed', { reply: 'Done' })] },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  const result = await client.run('go')
+  assert.equal(result.status, 'partial')
+  assert.equal(calls.length, 1)
+  const events = await client.continueRun(RUN_ID)
+  assert.equal(events.at(-1).data.reply, 'Done')
+  assert.deepEqual(calls[1].body, {})
+})
+
+test('premature stream end is explicit rather than a running success result', async () => {
+  const { impl } = fakeFetch({
+    'POST /api/mammoth/runs': { sse: [ev(1, 'run.started')] },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  await assert.rejects(client.run('go'), error => error instanceof PathsError && /before a terminal event/.test(error.message))
+})

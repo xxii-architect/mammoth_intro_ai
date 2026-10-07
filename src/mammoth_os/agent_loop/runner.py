@@ -20,10 +20,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
+from mammoth_os.llm_completion import complete
+
 from . import events as ev
 from .tools import ToolContext, ToolRegistry
 
 DEFAULT_MAX_STEPS = 8
+DECISION_OUTPUT_TOKENS = 4096
+FINAL_OUTPUT_TOKENS = 8192
+MAX_CONTINUATIONS = 2
 MAX_OBSERVATION_CHARS = 24_000
 MAX_OLD_OBSERVATION_CHARS = 2_000
 RECENT_OBSERVATIONS = 3
@@ -55,6 +60,10 @@ class AgentRun:
     steps: int = 0
     request: Dict[str, Any] = field(default_factory=dict)
     cancel_requested: bool = False
+    diagnostics: List[Dict[str, Any]] = field(default_factory=list)
+    failure_code: str = ""
+    continuations: int = 0
+    step_limit: int = 0
 
     @staticmethod
     def new_id() -> str:
@@ -72,6 +81,11 @@ class AgentRun:
         data = self.to_dict()
         data.pop("request", None)
         data.pop("cancel_requested", None)
+        data["can_continue"] = (
+            self.status in {"partial", "failed"}
+            and self.failure_code in {"invalid_response", "output_limit", "empty_response", "step_limit", "repeated_tool"}
+            and self.continuations < MAX_CONTINUATIONS
+        )
         return data
 
 
@@ -196,23 +210,14 @@ def looks_like_decision(text: str) -> bool:
 
 
 INVALID_RESPONSE_ERROR = (
-    "Your previous response was cut off or was not a valid JSON decision, so it was discarded. "
+    "Your previous response did not pass the completion/decision checks, so it was discarded. "
     "Reply with one complete JSON object. For changes to existing files, use repo_propose_patch with "
     "small 'edits' (exact old → new snippets) instead of full file 'content'."
 )
 INVALID_FINAL_MESSAGE = (
-    "I couldn't finish that response cleanly; my output was cut off before it was complete. "
-    "Try asking for a smaller, more specific change (for example one component or function at a time)."
+    "I couldn't produce a valid, complete response. Your run progress is saved."
 )
 MAX_INVALID_RESPONSES = 2
-
-
-def _trailing_invalid(transcript: List[Dict[str, Any]]):
-    """Yield the run of consecutive invalid-response entries at the end of the transcript."""
-    for step in reversed(transcript):
-        if step.get("tool") != "(invalid response)":
-            return
-        yield step
 
 
 def _normalize_plan(raw: Any) -> List[Dict[str, Any]]:
@@ -230,7 +235,7 @@ def _normalize_plan(raw: Any) -> List[Dict[str, Any]]:
     return plan
 
 
-def _client_meta(client: Any) -> Dict[str, str]:
+def _client_meta(client: Any) -> Dict[str, Any]:
     describe = getattr(client, "describe_runtime_state", None)
     state = describe() if callable(describe) else {}
     provider = str(state.get("last_used_provider") or type(client).__name__.replace("Adapter", "").lower())
@@ -260,6 +265,7 @@ Rules:
           "args": {...},                           (required when tool is set)
           "final": "<markdown answer>" or null}
 - Set exactly one of "tool" or "final".
+- For a long answer, set both to null to request a separate prose finalization instead of putting a long document inside JSON.
 - Only call tools from the catalog. Arguments must match the tool's input_schema.
 - Changes are proposals: use repo_propose_patch. For existing files send small exact "edits" (old → new snippets
   copied from what you read); send full "content" only for new or small files. Never claim you applied or pushed anything.
@@ -398,45 +404,80 @@ class AgentRunner:
             "Do not reveal private chain-of-thought; share concise rationale and evidence instead. Do not output JSON.",
             describe_repo(ctx) if ctx is not None else "",
             f"User request:\n{run.message}",
+            ("Additional context:\n" + str(run.request["extra_context"])[:24000])
+            if run.request.get("extra_context") else "",
             ("Recent conversation:\n" + str(run.request.get("history_text") or "").strip()[:4000])
             if str(run.request.get("history_text") or "").strip() else "",
             self._observations_text(run),
+            "The tool budget has ended or finalization was requested. Distinguish completed work from remaining work. "
+            "Do not claim requested changes or checks were completed unless observations establish that.",
         ] if p)
 
     async def _final_answer(self, run: AgentRun, ctx: Optional[ToolContext] = None) -> Dict[str, Any]:
-        client = self.llm_factory()
-        text = str(await client.generate(self._final_prompt(run, ctx), temperature=0.2) or "").strip()
-        meta = _client_meta(client)
-        run.provider, run.model = meta["provider"], meta["model"]
+        text, meta = await self._generate(run, self._final_prompt(run, ctx), final=True)
+        if meta.get("finish_reason") == "length":
+            return {"final": "", "_invalid": "output_limit", "_meta": meta}
+        if meta.get("finish_reason") in {"content_filter", "refusal"}:
+            return {"final": "", "_invalid": "provider_refusal", "_meta": meta}
         if text.startswith("[LOCAL_ADAPTER]"):
-            return {"final": OFFLINE_MESSAGE, "_meta": {**meta, "offline": True}}
+            return {"final": OFFLINE_MESSAGE, "_invalid": "offline", "_meta": {**meta, "offline": True}}
         decision = parse_decision(text)
         if decision is not None:
-            text = str(decision.get("final") or "").strip()
+            if not isinstance(decision.get("final"), str) or decision.get("tool"):
+                return {"final": INVALID_FINAL_MESSAGE, "_invalid": "invalid_response", "_meta": meta}
+            text = decision["final"].strip()
         elif looks_like_decision(text):
-            text = INVALID_FINAL_MESSAGE
-        return {"final": text or "I could not produce an answer from the information gathered.", "_meta": meta}
+            return {"final": INVALID_FINAL_MESSAGE, "_invalid": "invalid_response", "_meta": meta}
+        return {"final": text, "_invalid": "" if text else "empty_response", "_meta": meta}
+
+    async def _generate(self, run: AgentRun, prompt: str, *, final: bool = False) -> tuple[str, Dict[str, Any]]:
+        client = self.llm_factory()
+        result = await complete(
+            client, prompt, temperature=0.2,
+            max_tokens=FINAL_OUTPUT_TOKENS if final else DECISION_OUTPUT_TOKENS,
+            decision_json=not final,
+        )
+        meta = {
+            **_client_meta(client),
+            "finish_reason": result.finish_reason,
+            "usage": result.usage,
+            "phase": "final" if final else "decision",
+        }
+        if result.model:
+            meta["model"] = result.model
+        run.provider, run.model = meta["provider"], meta["model"]
+        run.diagnostics.append(meta)
+        return result.text.strip(), meta
 
     async def _decide(self, run: AgentRun, ctx: ToolContext) -> Dict[str, Any]:
-        client = self.llm_factory()
-        text = await client.generate(self._build_prompt(run, ctx), temperature=0.2)
-        meta = _client_meta(client)
-        run.provider, run.model = meta["provider"], meta["model"]
-        text = str(text or "")
+        text, meta = await self._generate(run, self._build_prompt(run, ctx))
+        if meta.get("finish_reason") == "length":
+            return {"_invalid": "output_limit", "_meta": meta}
+        if meta.get("finish_reason") in {"content_filter", "refusal"}:
+            return {"_invalid": "provider_refusal", "_meta": meta}
         if text.startswith("[LOCAL_ADAPTER]"):
-            return {"final": OFFLINE_MESSAGE, "_meta": {**meta, "offline": True}}
+            return {"final": OFFLINE_MESSAGE, "_invalid": "offline", "_meta": {**meta, "offline": True}}
         decision = parse_decision(text)
         if decision is None:
             decision = parse_dsml_tool_call(text)
         if decision is None:
-            if looks_like_decision(text):
-                return {"_invalid": True, "_meta": meta}
-            decision = {"final": text.strip() or "I could not produce an answer."}
+            if looks_like_decision(text) or not text.strip():
+                return {"_invalid": "invalid_response" if text.strip() else "empty_response", "_meta": meta}
+            decision = {"final": text.strip()}
+        tool, final = decision.get("tool"), decision.get("final")
+        if (
+            (tool is not None and (not isinstance(tool, str) or not tool.strip()))
+            or (final is not None and (not isinstance(final, str) or not final.strip()))
+            or (tool is not None and final is not None)
+            or (tool is not None and not isinstance(decision.get("args"), dict))
+        ):
+            return {"_invalid": "invalid_response", "_meta": meta}
         decision["_meta"] = meta
         return decision
 
     # ── main loop ───────────────────────────────────────────────────────────
     async def start(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
+        run.step_limit = self.max_steps
         yield self._emit(run, ev.RUN_STARTED, {
             "agent_id": run.agent_id,
             "message": run.message[:2000],
@@ -467,6 +508,24 @@ class AgentRunner:
     def cancel(self, run: AgentRun) -> None:
         run.cancel_requested = True
 
+    def continue_run(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
+        if run.user_id != ctx.user_id or not run.public()["can_continue"]:
+            raise ValueError("This run cannot be continued.")
+        run.continuations += 1
+        run.step_limit = run.steps + self.max_steps
+        run.status = "running"
+        run.failure_code = ""
+        run.reply = ""
+        run.cancel_requested = False
+        self.store.save(run)
+        return self._continue_stream(run, ctx)
+
+    async def _continue_stream(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
+        yield self._emit(run, ev.RUN_CONTINUED, {"continuations": run.continuations, "step_limit": run.step_limit})
+        self.store.save(run)
+        async for event in self._loop(run, ctx):
+            yield event
+
     @staticmethod
     def _is_repeat(run: AgentRun, tool: str, args: Dict[str, Any]) -> bool:
         key = json.dumps(args, sort_keys=True, default=str)
@@ -496,27 +555,52 @@ class AgentRunner:
 
     async def _loop(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
         try:
+            invalid_streak = 0
             while True:
                 if run.cancel_requested:
                     run.status = "cancelled"
                     yield self._emit(run, ev.RUN_CANCELLED, {"steps": run.steps})
                     return
-                run.steps += 1
-                if run.steps > self.max_steps:
+                stop_code = ""
+                if run.steps >= (run.step_limit or self.max_steps):
+                    stop_code = "step_limit"
                     decision = await self._final_answer(run, ctx)
                 else:
                     decision = await self._decide(run, ctx)
                 meta = decision.pop("_meta", {})
-                if decision.pop("_invalid", False):
-                    invalid_streak = sum(1 for _ in _trailing_invalid(run.transcript)) + 1
+                yield self._emit(run, ev.MODEL_COMPLETED, meta)
+                if run.cancel_requested:
+                    run.status = "cancelled"
+                    yield self._emit(run, ev.RUN_CANCELLED, {"steps": run.steps})
+                    return
+                invalid = decision.pop("_invalid", "")
+                if invalid:
+                    invalid_streak += 1
                     run.transcript.append({
                         "tool": "(invalid response)",
                         "args": {},
-                        "result": {"status": "error", "code": "invalid_response", "error": INVALID_RESPONSE_ERROR},
+                        "result": {"status": "error", "code": invalid, "error": INVALID_RESPONSE_ERROR},
                     })
-                    if invalid_streak < MAX_INVALID_RESPONSES:
+                    self.store.save(run)
+                    if invalid_streak < MAX_INVALID_RESPONSES and invalid not in {"offline", "provider_refusal"}:
+                        yield self._emit(run, ev.RUN_RECOVERING, {"code": invalid, "attempt": invalid_streak, "text": "Retrying the unfinished response; saved tool results are retained."})
                         continue
-                    decision = {"final": INVALID_FINAL_MESSAGE}
+                    run.failure_code = str(invalid)
+                    run.status = "partial" if any(s.get("tool") != "(invalid response)" for s in run.transcript) else "failed"
+                    run.reply = OFFLINE_MESSAGE if invalid == "offline" else (
+                        "The provider stopped this response for safety reasons." if invalid == "provider_refusal" else INVALID_FINAL_MESSAGE
+                    )
+                    if run.public()["can_continue"]:
+                        run.reply += " Use Continue task to retry the unfinished work."
+                    yield self._emit(run, ev.MESSAGE_COMPLETED, {"text": run.reply})
+                    yield self._emit(run, ev.RUN_PARTIAL if run.status == "partial" else ev.RUN_FAILED, {
+                        "error": run.reply, "reply": run.reply, "code": run.failure_code,
+                        "can_continue": run.public()["can_continue"], "offline": invalid == "offline",
+                    })
+                    return
+                invalid_streak = 0
+                if not stop_code:
+                    run.steps += 1
                 reasoning = str(decision.get("reasoning") or "").strip()
                 if reasoning:
                     yield self._emit(run, ev.REASONING_SUMMARY, {"text": reasoning[:1200], "step": run.steps, "provider": meta.get("provider")})
@@ -531,6 +615,8 @@ class AgentRunner:
                     # Models sometimes loop on an identical call; answer from what we have.
                     decision = await self._final_answer(run, ctx)
                     meta = decision.pop("_meta", meta)
+                    yield self._emit(run, ev.MODEL_COMPLETED, meta)
+                    stop_code = str(decision.pop("_invalid", "") or "repeated_tool")
                     tool_name = None
                 if tool_name and not decision.get("final"):
                     spec = self.registry.resolve(str(tool_name), ctx)
@@ -557,12 +643,18 @@ class AgentRunner:
                 if not final:
                     decision = await self._final_answer(run, ctx)
                     meta = decision.pop("_meta", meta)
+                    yield self._emit(run, ev.MODEL_COMPLETED, meta)
+                    stop_code = str(decision.pop("_invalid", "") or stop_code)
                     final = str(decision.get("final") or "").strip()
+                if not final:
+                    final = INVALID_FINAL_MESSAGE
+                    stop_code = stop_code or "empty_response"
                 run.reply = final
                 yield self._emit(run, ev.MESSAGE_DELTA, {"text": final})
                 yield self._emit(run, ev.MESSAGE_COMPLETED, {"text": final})
-                run.status = "completed"
-                yield self._emit(run, ev.RUN_COMPLETED, {
+                run.status = "partial" if stop_code else "completed"
+                run.failure_code = stop_code
+                yield self._emit(run, ev.RUN_PARTIAL if stop_code else ev.RUN_COMPLETED, {
                     "reply": final,
                     "steps": run.steps,
                     "tool_calls": sum(1 for e in run.events if e["type"] == ev.TOOL_CALL),
@@ -570,10 +662,13 @@ class AgentRunner:
                     "model": run.model,
                     "fallback_used": bool(meta.get("fallback_used")),
                     "offline": bool(meta.get("offline")),
+                    "code": stop_code,
+                    "can_continue": run.public()["can_continue"],
                 })
                 return
         except Exception as exc:  # the run must end with a terminal event
             run.status = "failed"
-            yield self._emit(run, ev.RUN_FAILED, {"error": f"{type(exc).__name__}: {exc}"[:500]})
+            run.failure_code = "runtime_error"
+            yield self._emit(run, ev.RUN_FAILED, {"error": f"{type(exc).__name__}: {exc}"[:500], "code": run.failure_code, "can_continue": False})
         finally:
             self.store.save(run)

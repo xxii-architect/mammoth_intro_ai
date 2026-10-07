@@ -125,6 +125,9 @@ export function createPathsClient(options = {}) {
       return stream(`/mammoth/runs/${seg(runId)}/approval`, { approval_id: approvalId, decision, note }, { onEvent, signal })
     },
 
+    continueRun: (runId, { onEvent, signal } = {}) =>
+      stream(`/mammoth/runs/${seg(runId)}/continue`, {}, { onEvent, signal }),
+
     /**
      * Drive a run to a terminal state. `approve(approvalData)` may return true/'approve' or false/'reject'.
      * Without it the run stops at the first approval and `pendingApproval` is set.

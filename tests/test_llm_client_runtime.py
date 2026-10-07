@@ -88,6 +88,24 @@ def test_ollama_adapter_falls_back_to_generate_when_chat_404(monkeypatch):
         "http://localhost:11434/api/generate",
     ]
 
+def test_ollama_completion_reports_usage_and_honors_output_budget(monkeypatch):
+    payloads = []
+
+    def fake_urlopen(req, timeout=0):
+        payloads.append(json.loads(req.data))
+        return DummyResponse({
+            "model": "hermes3:8b", "message": {"content": '{"final":"ok"}'},
+            "done_reason": "length", "prompt_eval_count": 20, "eval_count": 30,
+        })
+
+    monkeypatch.setattr(ollama_adapter.urllib.request, "urlopen", fake_urlopen)
+    adapter = OllamaAdapter(config={"base_url": "http://localhost:11434", "model": "hermes3:8b"})
+    result = asyncio.run(adapter.generate_completion("JSON", max_tokens=4096, decision_json=True))
+    assert result.finish_reason == "length"
+    assert result.usage["total_tokens"] == 50
+    assert payloads[0]["options"]["num_predict"] == 4096
+    assert payloads[0]["format"] == "json"
+
 
 class TransientBrokenProvider(LocalAdapter):
     async def generate(self, prompt: str, **kwargs) -> str:

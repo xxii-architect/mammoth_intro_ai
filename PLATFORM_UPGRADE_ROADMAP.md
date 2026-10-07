@@ -4,7 +4,9 @@ Audit date: 2026-10-05
 
 Source baseline: `5d7e772` on `main`
 
-Status: planning only; the fixes below have not been implemented.
+Status: original audit backlog plus the run-reliability delivery below.
+Original audit findings are historical; checked reliability items are separate
+from unchecked audit phases.
 
 ## Purpose and boundaries
 
@@ -240,3 +242,71 @@ These would build on the current reliability gaps rather than close them.
 
 - 2026-10-05: source audit consolidated; preliminary false-positive route/auth
   claims excluded; roadmap created. No runtime fixes implemented by this document.
+
+## Mammoth Mind run reliability (2026-10-06)
+
+The reported "cut off" message was also used for malformed JSON/DSML. The
+original runtime could mark that apology completed, used formatting retries as
+task steps, and discarded provider finish reason/usage. These are confirmed
+source findings, not identification of a particular production run's cause.
+
+### Delivery checklist
+
+- [x] RUN-01: preserve cloud/local completion metadata additively; keep
+  `generate()` returning text. Report missing metadata rather than inventing it.
+- [x] RUN-02: validate decision types/exclusivity; use supported JSON mode,
+  explicit output allowances, and one bounded repair that does not spend a task
+  step. Never execute a response reported as length-limited.
+- [x] RUN-03: use failed/partial states for invalid/offline/budget-limited work;
+  keep completion reasons distinct and expose calm, collapsed diagnostics.
+- [x] RUN-04: owner-only explicit continuation from saved transcript, with
+  refreshed repository access, approval checks, no duplicate chat exchange, and
+  at most two additional eight-step segments. Wire UI and both SDKs.
+- [x] RUN-05: regression coverage for real length cutoff versus malformed
+  protocol, disk reload, bounded recovery, continuation race/ownership/access,
+  approval/cancel preservation, SDK parity, and mobile recovery UX.
+
+Validation: 167 focused backend/SDK/adapter/learning/sandbox tests, 12 JS SDK
+tests, 16 workspace browser scenarios, focused Python lint and UI production
+build. SDKs also reject streams ending without a terminal event rather than
+returning a misleading running result. No paid model calls were made. These
+tests use fixtures; production success-rate/latency/cost targets remain RUN-09.
+
+### Next slices (not implemented by this delivery)
+
+- [ ] RUN-06: native provider tool calls / schema-constrained decisions, with
+  adapter capability negotiation and tested compatibility fallbacks. JSON mode
+  alone does not enforce the decision schema.
+- [ ] RUN-07: token-aware context budgets and checkpointed subtasks; preserve
+  source provenance and long-form deliverables, not blind character clipping.
+- [ ] RUN-08: deliverable-specific completion checks backed by actual evidence;
+  never mark plan steps done solely because the model asserted completion.
+- [ ] RUN-09: representative opt-in model evaluation: end-to-end task success,
+  protocol failure rate, continuation success, false completion, p95 latency,
+  total cost per successful task, and tenant/access regressions. Establish a
+  measured baseline before setting targets or claiming parity.
+- [ ] RUN-10: spend/time limits and selective quality/model escalation. Keep
+  existing provider defaults and outage fallback until measured changes pass.
+- [ ] RUN-11: transport disconnect/reconnect and restart recovery; explicit
+  continuation is not durable background execution or automatic SSE reconnect.
+
+### Model shortlist: official published rates checked 2026-10-06
+
+USD per million standard uncached input / output tokens, excluding tool fees,
+cache writes, regional charges and reasoning overhead. These are evaluation
+candidates, not routing changes or measured MammothOS performance.
+
+| Model | Input / output | Evaluation role |
+| --- | --- | --- |
+| `gpt-4o-mini` (current OpenAI default) | $0.15 / $0.60 | Baseline; fix orchestration before attributing all failures to it |
+| `gpt-6-luna` | $0.10 / $0.50 for short context | Budget-first candidate; API/reasoning compatibility work required, not a drop-in default swap |
+| `gpt-4.1-mini` | $0.40 / $1.60 | Straightforward Chat Completions candidate for instruction following and tool use |
+| `gpt-5-mini` | $0.25 / $2.00 | Selective reasoning escalation; account for reasoning tokens and parameter differences |
+| `deepseek-flash` | $0.15 / $0.60 off-peak; $0.30 / $1.20 peak | Existing DeepSeek-compatible candidate; validate current model naming/behavior before replacing the `deepseek-chat` configuration |
+
+Sources: [OpenAI pricing](https://developers.openai.com/api/docs/pricing),
+[GPT-6 Luna](https://developers.openai.com/api/docs/models/gpt-6-luna),
+[GPT-4.1 Mini](https://developers.openai.com/api/docs/models/gpt-4.1-mini),
+[GPT-5 Mini](https://developers.openai.com/api/docs/models/gpt-5-mini),
+[DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing).
+No paid evaluation calls or provider-default changes are part of this delivery.

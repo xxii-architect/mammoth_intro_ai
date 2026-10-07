@@ -1,6 +1,8 @@
-import os
 import asyncio
+import os
 from typing import Any, Dict, List
+
+from .llm_completion import Completion
 
 
 class OpenAIAdapter:
@@ -40,8 +42,21 @@ class OpenAIAdapter:
         return self._client
 
     async def generate(self, prompt: str, **kwargs) -> str:
+        return (await self.generate_completion(prompt, **kwargs)).text
+
+    async def generate_completion(self, prompt: str, **kwargs) -> Completion:
         client = self._ensure_client()
         timeout = kwargs.pop("timeout", int(os.getenv("OPENAI_TIMEOUT", "60")))
+        decision_json = kwargs.pop("decision_json", False)
+        official_openai = not self.base_url or self.base_url.rstrip("/") == "https://api.openai.com/v1"
+        official_deepseek = bool(self.base_url and self.base_url.rstrip("/") in {
+            "https://api.deepseek.com", "https://api.deepseek.com/v1",
+        })
+        if decision_json and (
+            (official_openai and self.model.startswith(("gpt-4o", "gpt-4.1")))
+            or (official_deepseek and self.model in {"deepseek-chat", "deepseek-flash"})
+        ):
+            kwargs["response_format"] = {"type": "json_object"}
 
         system_prompt = kwargs.pop("system_prompt", None)
         _messages = []
@@ -65,7 +80,16 @@ class OpenAIAdapter:
             raise RuntimeError(f"OpenAI generate timed out after {timeout}s")
 
         msg = resp.choices[0].message
-        return msg.content or getattr(msg, "reasoning_content", None) or ""
+        usage = getattr(resp, "usage", None)
+        return Completion(
+            text=msg.content or "",
+            finish_reason="refusal" if getattr(msg, "refusal", None) else str(getattr(resp.choices[0], "finish_reason", "") or ""),
+            usage={
+                key: int(getattr(usage, key, 0) or 0)
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens")
+            } if usage is not None else {},
+            model=str(getattr(resp, "model", "") or self.model),
+        )
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
         client = self._ensure_client()

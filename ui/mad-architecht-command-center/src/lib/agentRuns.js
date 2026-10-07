@@ -36,6 +36,16 @@ export async function cancelAgentRun(runId) {
   } catch { /* best effort */ }
 }
 
+export async function continueAgentRun(runId, { signal, onEvent }) {
+  const response = await authorizedFetch(`/mammoth/runs/${encodeURIComponent(runId)}/continue`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{}',
+    signal,
+  })
+  await readRunEventStream(response, onEvent)
+}
+
 export async function fetchAgentRun(runId) {
   const response = await authorizedFetch(`/mammoth/runs/${encodeURIComponent(runId)}`)
   if (!response.ok) return null

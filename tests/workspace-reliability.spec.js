@@ -44,7 +44,13 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     function BrokenView() { throw new Error('Simulated render error') }
     const View = component === 'auth' ? AuthProbe : component === 'broken' ? BrokenView
       : (await import(`/src/${component}.jsx`)).default
-    const props = component === 'components/AgentCommandLibrary' ? { onClose() {} } : {}
+    const props = component === 'components/AgentCommandLibrary' ? { onClose() {} }
+      : component === 'components/RunTimeline' ? {
+        run: { id: 'run-test', status: 'partial', can_continue: true, events: [], plan: [], diagnostics: [
+          { provider: 'test-provider', model: 'test-model', finish_reason: 'length', usage: { total_tokens: 42 } },
+        ] },
+        onContinue() { globalThis.continuationClicks = (globalThis.continuationClicks || 0) + 1 },
+      } : {}
     document.body.innerHTML = '<div id="root"></div>'
     ReactDOM.createRoot(document.getElementById('root')).render(
       React.createElement(Boundary, null, React.createElement(AuthProvider, null, React.createElement(View, props))),
@@ -58,6 +64,48 @@ test('startup import failure displays recovery instead of a black screen', async
   await page.goto(baseURL)
   await expect(page.getByRole('heading', { name: 'MammothOS could not start' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Reload platform' })).toBeVisible()
+})
+
+test('partial run shows honest status, credit notice and collapsed diagnostics on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 })
+  const errors = await mount(page, 'components/RunTimeline')
+  await expect(page.getByRole('button', { name: /Incomplete/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue task' })).toBeVisible()
+  await expect(page.getByText(/Uses additional model credits/)).toBeVisible()
+  await expect(page.getByText('Model call diagnostics')).toHaveCount(0)
+  await page.getByRole('button', { name: /Incomplete/ }).click()
+  await page.getByText('Model call diagnostics').click()
+  await expect(page.getByText(/finish: length/)).toBeVisible()
+  await expect(page.getByText(/42 tokens/)).toBeVisible()
+  await page.getByRole('button', { name: 'Continue task' }).click()
+  expect(await page.evaluate(() => globalThis.continuationClicks)).toBe(1)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
+  expect(errors).toEqual([])
+})
+
+test('Mammoth Mind continues saved work in the same message without a success toast for partial output', async ({ page }) => {
+  const runId = 'run-0123456789abcdef'
+  const errors = await mount(page, 'pages/ChatPage', {
+    '/api/mammoth/chat/history': { chat_history: [
+      { role: 'user', message: 'Inspect my work' },
+      { role: 'assistant', message: 'Saved progress', local_id: runId, agent_id: 'assistant',
+        run: { id: runId, status: 'partial', can_continue: true, reply: 'Saved progress', events: [], plan: [] } },
+    ] },
+  })
+  await page.route(`**/api/mammoth/runs/${runId}/continue`, route => route.fulfill({
+    contentType: 'text/event-stream',
+    body: [
+      { type: 'run.continued', data: {} },
+      { type: 'message.delta', data: { text: 'Finished from saved evidence' } },
+      { type: 'run.completed', data: { reply: 'Finished from saved evidence' } },
+    ].map((event, idx) => `data: ${JSON.stringify({ ...event, run_id: runId, seq: idx + 1, contract: 'mammoth.run.v1' })}\n\n`).join(''),
+  }))
+  await expect(page.getByRole('button', { name: 'Continue task' })).toBeVisible()
+  await page.getByRole('button', { name: 'Continue task' }).click()
+  await expect(page.getByText('Finished from saved evidence', { exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Continue task' })).toHaveCount(0)
+  await expect(page.getByText('Inspect my work', { exact: true })).toHaveCount(1)
+  expect(errors).toEqual([])
 })
 
 for (const savedTheme of ['aurora', 'midnight']) {

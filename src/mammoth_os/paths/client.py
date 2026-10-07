@@ -13,12 +13,22 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterable,
+    Iterator,
+    List,
+    Mapping,
+    Optional,
+    Union,
+)
 
 PATHS_CONTRACT_VERSION = "mammoth.paths.v1"
 RUN_CONTRACT_VERSION = "mammoth.run.v1"
 
-TERMINAL_RUN_EVENTS = frozenset({"run.completed", "run.failed", "run.cancelled", "run.awaiting_approval"})
+TERMINAL_RUN_EVENTS = frozenset({"run.completed", "run.failed", "run.cancelled", "run.awaiting_approval", "run.partial"})
 
 UsageHook = Callable[[Dict[str, Any]], None]
 ApprovalPolicy = Callable[["RunEvent"], Union[bool, str]]
@@ -238,9 +248,17 @@ class MammothPaths:
             except urllib.error.URLError as exc:
                 raise PathsError(f"Could not reach {self.base_url}: {exc.reason}") from None
             status = int(getattr(response, "status", 200) or 200)
+            terminal = False
             with response:
                 for raw in iter_sse(response):
-                    yield RunEvent.from_dict(raw)
+                    event = RunEvent.from_dict(raw)
+                    terminal = event.is_terminal
+                    yield event
+            if not terminal:
+                raise PathsError(
+                    "The run stream ended before a terminal event. Check the saved run before starting again.",
+                    code="stream_interrupted", status=status,
+                )
         finally:
             self._meter("mind", "POST", path, status, started)
 
@@ -312,8 +330,11 @@ class MammothPaths:
                     pending = event
                 elif event.type == "run.completed":
                     result.status, result.reply = "completed", str(event.data.get("reply") or "")
+                elif event.type == "run.partial":
+                    result.status, result.reply = "partial", str(event.data.get("reply") or "")
                 elif event.type == "run.failed":
                     result.status, result.error = "failed", str(event.data.get("error") or "")
+                    result.reply = str(event.data.get("reply") or "")
                 elif event.type == "run.cancelled":
                     result.status = "cancelled"
                 elif event.type == "run.awaiting_approval":
@@ -331,6 +352,10 @@ class MammothPaths:
             stream = self.decide(result.run_id, str(pending.data.get("id") or ""), decision)
         result.events = events
         return result
+
+    def continue_run(self, run_id: str) -> Iterator[RunEvent]:
+        """Continue saved work with a bounded additional budget; may incur model usage."""
+        return self._stream(f"/mammoth/runs/{self._seg(run_id)}/continue", {})
 
     def cancel_run(self, run_id: str) -> Dict[str, Any]:
         return self._json("mind", "POST", f"/mammoth/runs/{self._seg(run_id)}/cancel", body={})

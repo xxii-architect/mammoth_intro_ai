@@ -127,21 +127,21 @@ function PlanList({ plan }) {
   )
 }
 
-export default function RunTimeline({ run, onApprove, onReject, busy }) {
+export default function RunTimeline({ run, onApprove, onReject, onContinue, busy }) {
   const steps = useMemo(() => buildSteps(run?.events || []), [run?.events])
-  const finished = ['completed', 'failed', 'cancelled'].includes(run?.status)
+  const finished = ['completed', 'failed', 'cancelled', 'partial'].includes(run?.status)
   const [expanded, setExpanded] = useState(null)
   const isOpen = expanded ?? !finished
   if (!run) return null
   const toolCalls = steps.filter((s) => s.tool).length
   const done = (run.plan || []).filter((p) => p.status === 'done').length
   const header = finished
-    ? `${run.status === 'completed' ? 'Worked' : run.status === 'failed' ? 'Failed' : 'Stopped'} · ${toolCalls} tool call${toolCalls === 1 ? '' : 's'}${run.plan?.length ? ` · plan ${done}/${run.plan.length}` : ''}`
+    ? `${run.status === 'completed' ? 'Worked' : run.status === 'failed' ? 'Failed' : run.status === 'partial' ? 'Incomplete' : 'Stopped'} · ${toolCalls} tool call${toolCalls === 1 ? '' : 's'}${run.plan?.length ? ` · plan ${done}/${run.plan.length}` : ''}`
     : run.status === 'awaiting_approval' ? 'Waiting for your approval' : 'Working…'
 
   return (
     <div style={{ marginBottom: run.reply ? 10 : 0, display: 'grid', gap: 6 }} aria-live="polite">
-      {(steps.length > 0 || run.plan?.length > 0 || !finished) && (
+      {(steps.length > 0 || run.plan?.length > 0 || !finished || run.status !== 'completed') && (
         <button
           type="button"
           onClick={() => setExpanded(!isOpen)}
@@ -152,9 +152,27 @@ export default function RunTimeline({ run, onApprove, onReject, busy }) {
           {header}
         </button>
       )}
+      {run.recovery && !finished && <div role="status" style={{ color: 'var(--txt-sec)', fontSize: '0.76rem' }}>{run.recovery.text}</div>}
+      {finished && run.can_continue && onContinue && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <button type="button" disabled={busy} onClick={onContinue}>Continue task</button>
+          <span style={{ color: 'var(--txt-mut)', fontSize: '0.72rem' }}>Keeps saved progress. Uses additional model credits; up to two continuations.</span>
+        </div>
+      )}
       {isOpen && (
         <div style={{ borderLeft: '1px solid var(--mm-color-border-subtle, var(--border))', paddingLeft: 10, display: 'grid', gap: 2 }}>
           <PlanList plan={run.plan} />
+          {run.diagnostics?.length > 0 && (
+            <details style={{ color: 'var(--txt-mut)', fontSize: '0.72rem' }}>
+              <summary>Model call diagnostics</summary>
+              {run.diagnostics.map((call, idx) => (
+                <div key={idx} style={{ padding: '4px 0', overflowWrap: 'anywhere' }}>
+                  {call.provider || 'Provider unavailable'} / {call.model || 'Model unavailable'} · {call.phase || 'response'} · finish: {call.finish_reason || 'not reported'}
+                  {Number.isFinite(call.usage?.total_tokens) ? ` · ${call.usage.total_tokens} tokens` : ' · token usage not reported'}
+                </div>
+              ))}
+            </details>
+          )}
           {steps.map((step) => {
             if (step.tool) return <ToolRow key={step.key} step={step} />
             if (step.diff) return <DiffBlock key={step.key} diff={step.diff} />

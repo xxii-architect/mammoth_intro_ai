@@ -11,6 +11,7 @@ export const TERMINAL_RUN_EVENTS = Object.freeze([
   'run.failed',
   'run.cancelled',
   'run.awaiting_approval',
+  'run.partial',
 ])
 
 /**
@@ -68,14 +69,23 @@ export async function readRunEventStream(response, onEvent) {
   }
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
-  const parser = createSseParser(onEvent)
-  for (;;) {
-    const { value, done } = await reader.read()
-    if (value) parser.push(decoder.decode(value, { stream: true }))
-    if (done) break
+  let terminal = false
+  const parser = createSseParser((event) => {
+    terminal = TERMINAL_RUN_EVENTS.includes(event.type)
+    onEvent(event)
+  })
+  try {
+    for (;;) {
+      const { value, done } = await reader.read()
+      if (value) parser.push(decoder.decode(value, { stream: true }))
+      if (done) break
+    }
+    parser.push(decoder.decode())
+    parser.end()
+    if (!terminal) throw new Error('The run stream ended before a terminal event. Saved work may still be available; check the run before starting again.')
+  } finally {
+    reader.releaseLock()
   }
-  parser.push(decoder.decode())
-  parser.end()
 }
 
 /** Fold one run event into a compact view-model. Pure; never mutates `run`. */
@@ -84,12 +94,23 @@ export function reduceRunEvent(run, event) {
   const next = { ...base, id: base.id || event.run_id, events: [...base.events, event] }
   const { type, data = {} } = event
   if (type === 'run.started') { next.repo = data.repo || null; next.tools = data.tools || [] }
+  if (type === 'run.continued') { next.status = 'running'; next.reply = ''; next.error = ''; next.can_continue = false; next.failure_code = '' }
+  if (type === 'run.recovering') next.recovery = data
+  if (type === 'model.completed') { next.diagnostics = [...(next.diagnostics || []), data]; next.recovery = null }
   if (type === 'plan.updated') next.plan = Array.isArray(data.plan) ? data.plan : next.plan
   if (type === 'approval.requested') { next.approval = data; next.status = 'awaiting_approval' }
   if (type === 'approval.resolved') { next.approval = null; next.status = 'running' }
   if (type === 'message.delta') next.reply = (next.reply || '') + String(data.text || '')
+  if (type === 'message.completed') next.reply = String(data.text || next.reply || '')
   if (type === 'run.completed') { next.status = 'completed'; next.reply = String(data.reply || next.reply || ''); next.summary = data }
-  if (type === 'run.failed') { next.status = 'failed'; next.error = data.error }
+  if (type === 'run.failed' || type === 'run.partial') {
+    next.status = type === 'run.partial' ? 'partial' : 'failed'
+    next.error = data.error || ''
+    next.reply = String(data.reply || next.reply || '')
+    next.can_continue = Boolean(data.can_continue)
+    next.failure_code = data.code || ''
+    next.summary = data
+  }
   if (type === 'run.cancelled') next.status = 'cancelled'
   return next
 }
