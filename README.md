@@ -31,7 +31,7 @@ classes. Appearance is dark-only for now: sidebar/Settings theme toggles are
 removed, saved Aurora/legacy preferences migrate to Dark, and prior inline
 theme colors are cleared so text stays readable. Native controls follow Dark.
 On mobile, Mammoth Mind has a full-width message field with one
-attachment manager below it. Upload limits are expandable; upload progress,
+attachment manager and Send/Stop toolbar above it. Upload limits are expandable; upload progress,
 warnings, cancellation and retry remain visible.
 
 Lesson Notes uses `GET /api/atlas/lesson-notes`, which rebuilds lesson-matched

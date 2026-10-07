@@ -1484,20 +1484,6 @@ export default function ChatPage({ setPage }) {
           <div style={{ padding: 16 }}>
             {error && <div style={{ marginBottom: 10, color: '#f87171', fontSize: '0.78rem' }}>{error}</div>}
             <div aria-label="Message composer" style={{ display: 'grid', gap: 10, minWidth: 0 }}>
-              <textarea
-                aria-label="Message MammothOS"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    send()
-                  }
-                }}
-                rows={isMobile ? 2 : 4}
-                placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
-                  style={{ width: '100%', minWidth: 0, resize: 'vertical', minHeight: 100, maxHeight: 240, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '14px 16px', lineHeight: 1.6 }}
-              />
               <div style={{ minWidth: 0 }}>
                 <FileAttachmentPanel
                   compact
@@ -1522,6 +1508,20 @@ export default function ChatPage({ setPage }) {
                 )}
                 />
               </div>
+              <textarea
+                aria-label="Message MammothOS"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    send()
+                  }
+                }}
+                rows={isMobile ? 2 : 4}
+                placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
+                style={{ width: '100%', minWidth: 0, resize: 'vertical', minHeight: 100, maxHeight: 240, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '14px 16px', lineHeight: 1.6 }}
+              />
             </div>
           </div>
         </div>

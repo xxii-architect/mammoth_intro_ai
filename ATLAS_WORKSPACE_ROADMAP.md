@@ -11,7 +11,7 @@ source-aware research, document exports, and public SDK contracts.
 - [x] UI-BOOT: visible startup/session/render recovery; bounded session checks;
   retain older hashed frontend chunks and publish HTML last.
 - [x] UI-CONTROLS: themed native controls, a CSS-backed command modal, and one
-  compact attachment manager beneath a full-width mobile chat input. User-approved
+  compact attachment manager and Send/Stop toolbar above a full-width chat input. User-approved
   Dark-only appearance removes sidebar/Settings theme toggles and migrates old
   Aurora/legacy preferences without retaining unreadable inline colors.
 - [x] UI-MODULES: backend module/MCP states with explicit load errors and periodic

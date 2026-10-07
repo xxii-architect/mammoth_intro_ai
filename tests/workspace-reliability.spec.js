@@ -131,22 +131,36 @@ test('command library uses real theme styles and fits a portrait viewport', asyn
   expect(errors).toEqual([])
 })
 
-test('mobile chat gives the textarea full width and only one attachment manager', async ({ page }) => {
-  await page.setViewportSize({ width: 375, height: 812 })
+for (const width of [375, 1280]) {
+test(`chat at ${width}px keeps full-width input below one attachment and send toolbar`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 812 })
   const errors = await mount(page, 'pages/ChatPage')
   const input = page.getByRole('textbox', { name: 'Message MammothOS' })
   await expect(input).toBeVisible()
   await input.fill('My readable mobile message')
   const bounds = await input.boundingBox()
   expect(bounds.width).toBeGreaterThan(270)
-  expect(bounds.x + bounds.width).toBeLessThanOrEqual(375)
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+  for (const control of [
+    page.getByRole('button', { name: 'Attach', exact: true }),
+    page.getByRole('button', { name: 'Manage saved files' }),
+    page.getByText('Upload limits & extraction', { exact: true }),
+    page.getByRole('button', { name: 'Send', exact: true }),
+  ]) {
+    const toolbarBounds = await control.boundingBox()
+    expect(toolbarBounds.y + toolbarBounds.height).toBeLessThanOrEqual(bounds.y)
+  }
+  await page.getByText('Upload limits & extraction', { exact: true }).click()
+  await expect(page.getByText('50 MB per file', { exact: false })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Manage saved files' })).toHaveCount(1)
   await page.getByRole('button', { name: 'Manage saved files' }).click()
   await expect(page.getByRole('button', { name: 'Refresh library' })).toBeVisible()
   expect(await page.getByRole('button', { name: 'Refresh library' }).evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(22, 27, 34)')
-  expect(await page.locator('body').evaluate(node => node.scrollWidth)).toBeLessThanOrEqual(375)
+  await expect(input).toHaveValue('My readable mobile message')
+  expect(await page.locator('body').evaluate(node => node.scrollWidth)).toBeLessThanOrEqual(width)
   expect(errors).toEqual([])
 })
+}
 
 test('flashcards show produced answers, preserve sources and reset across accounts', async ({ page }) => {
   await mount(page, 'pages/FlashcardsPage', { '/api/flashcards': { cards: [{ q: 'What does protein do?', a: 'Supports tissue growth and repair.', source: { title: 'Nutrition lesson' } }] } })
