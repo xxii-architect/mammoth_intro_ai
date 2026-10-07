@@ -90,6 +90,13 @@ function errorText(res) {
   const result = res?.result
   const explicit = result?.error || result?.message || res?.error || result?.output?.error
   if (explicit) return String(explicit)
+  const output = result?.output
+  if (output && typeof output === 'object') {
+    const warnings = Array.isArray(output.warnings) ? output.warnings.filter(item => typeof item === 'string' && item.trim()) : []
+    const checks = Array.isArray(output.validation?.checks) ? output.validation.checks.filter(check => check?.status === 'failed').map(check => check.detail).filter(Boolean) : []
+    const explanation = [output.summary, ...checks, ...warnings].filter(item => typeof item === 'string' && item.trim())
+    if (explanation.length) return [...new Set(explanation)].join(' ')
+  }
   const failedChecks = result?.execution_loop?.verification?.failed_checks
   const detail = Array.isArray(failedChecks) ? failedChecks.map(check => check?.detail).filter(Boolean).join('; ') : ''
   return detail ? `The agent could not complete this request (${detail}).` : 'The agent could not complete this request.'
@@ -234,6 +241,8 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
     body = <ResearchArtifactPanel artifact={research} rawJson={null} />
   } else if (coding && (coding.code || coding.diff)) {
     body = <CodingArtifactPanel artifact={coding} rawJson={null} onApplyPatch={onApplyPatch ? () => onApplyPatch(message.id, coding) : undefined} applyingPatch={applying} />
+  } else if (message.artifact?.artifact_type === 'advice') {
+    body = <><p style={{ color: 'var(--txt-mut)', fontSize: '0.72rem' }}>{message.artifact.summary}</p><ChatMessageBody text={message.artifact.content} /></>
   } else {
     body = <StepOutput artifact={message.artifact || message.text} />
   }

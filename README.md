@@ -31,6 +31,13 @@ failed agent POST: the backend may still have performed billable work. Check
 server/proxy logs before retrying. Same-origin deployments can leave the
 frontend API-origin variables unset when `/api` is correctly proxied.
 
+Coding answers explicitly advice-only questions (such as "what are your
+suggestions?") as advice, without requiring fabricated code blocks or claiming
+file edits. Implementation/patch requests keep their existing source and
+validation requirements. Advice is not factual verification or a code proposal.
+Agent failures show the returned summary, failed validation checks, and warnings
+rather than only a generic `status=error`.
+
 Startup, session-check, and page-render failures now show recovery controls
 instead of an empty screen. Sign-in checks time out after 15 seconds and can be
 retried without treating an authentication failure as a signed-out session.

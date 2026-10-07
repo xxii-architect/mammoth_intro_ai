@@ -44,7 +44,8 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     function BrokenView() { throw new Error('Simulated render error') }
     const View = component === 'auth' ? AuthProbe : component === 'broken' ? BrokenView
       : (await import(`/src/${component}.jsx`)).default
-    const props = component === 'components/AgentCommandLibrary' ? { onClose() {} }
+    const props = component === 'components/agent-workspace/AgentWorkspace' ? { agents: [], temperature: 0.3, approvalMode: true }
+      : component === 'components/AgentCommandLibrary' ? { onClose() {} }
       : component === 'components/RunTimeline' ? {
         run: { id: 'run-test', status: 'partial', can_continue: true, events: [], plan: [], diagnostics: [
           { provider: 'test-provider', model: 'test-model', finish_reason: 'length', decision_protocol: 'json_schema', usage: { total_tokens: 42 } },
@@ -82,6 +83,36 @@ test(`HTML API response ${status} reports path and status without assuming missi
   expect(message).toContain(status === 200 ? 'routing' : status === 504 ? 'timed out' : 'unavailable')
 })
 }
+
+test('Coding failure shows nested output explanation rather than status=error', async ({ page }) => {
+  await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    '/api/run': { status: 'error', result: { status: 'error', output: {
+      summary: 'Generated code failed output validation.',
+      warnings: ['LLM returned no implementation code block'],
+    }, execution_loop: { verification: { failed_checks: [{ detail: 'status=error' }] } } } },
+  })
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Coding/ }).click()
+  await page.getByRole('textbox', { name: 'Message Coding' }).fill('Build a utility')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByText(/Generated code failed output validation.*no implementation code block/)).toBeVisible()
+  await expect(page.getByText('The agent could not complete this request (status=error).')).toHaveCount(0)
+})
+
+test('Coding renders advice without code tabs or patch controls', async ({ page }) => {
+  await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    '/api/run': { status: 'ok', result: { status: 'ok', output: {
+      status: 'ok', artifact_type: 'advice', task_kind: 'advice',
+      summary: 'Design advice only; no code was generated or files changed.',
+      content: '## Recommendation\nKeep brass for primary actions.',
+    } } },
+  })
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Coding/ }).click()
+  await page.getByRole('textbox', { name: 'Message Coding' }).fill('What are your suggestions?')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByText('Keep brass for primary actions.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Design advice only; no code was generated or files changed.')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Apply patch/ })).toHaveCount(0)
+})
 
 test('partial run shows honest status, credit notice and collapsed diagnostics on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 })

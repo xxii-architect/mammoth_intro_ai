@@ -191,7 +191,7 @@ const repoContextRules = [
   },
   {
     title: 'Coding produces proposals, not invented integrations',
-    body: 'For existing-file changes, select your connected repository and a target, or paste the complete original in a code fence. Write code cannot bypass this requirement; multiline instructions are not source. The agent includes the original source and returns a reviewable diff, preserving existing interfaces. Python syntax checks do not execute code. Generated tests remain not run and integration not verified until real validation is performed; generating tests or docs does not confer confidence. Nothing here grants access to the platform repository or pushes to your repository.',
+    body: 'For existing-file changes, select your connected repository and a target, or paste the complete original in a code fence. Write code cannot bypass this requirement; multiline instructions are not source. The agent includes the original source and returns a reviewable diff, preserving existing interfaces. Python syntax checks do not execute code. Generated tests remain not run and integration not verified until real validation is performed; generating tests or docs does not confer confidence. Explicitly advice-only questions return recommendations labeled as advice, not generated code or file changes. Failed outputs show their summary and validation warnings rather than only status=error. Nothing here grants access to the platform repository or pushes to your repository.',
   },
   {
     title: 'Curricula follow their actual course sequence',

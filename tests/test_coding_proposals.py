@@ -80,6 +80,59 @@ def test_prose_and_docs_are_not_implementation():
     assert parse_structured_code_response("```docs\nNothing changed.\n```")["code"] == ""
 
 
+def test_advice_question_does_not_require_or_claim_code(client):
+    client.output = "## Recommendation\nKeep blue for focus and brass for primary actions."
+    result = CodingAgent().run({
+        "prompt": "What do you think of this? We can be a little more loose with the blue. What are your suggestions?",
+        "coding_intent": "generate_code", "host_access": False,
+    })
+    assert result["status"] == "ok"
+    assert result["artifact_type"] == result["task_kind"] == "advice"
+    assert "Recommendation" in result["content"]
+    assert "no code was generated" in result["summary"]
+    assert not result.get("code") and not result.get("diff")
+    assert len(client.calls) == 1
+    import api_server
+    policy = api_server._execution_policy_for_run({}, {}, runtime_agent="coding")
+    envelope = api_server._normalize_agent_output("coding", result)
+    assert api_server._verify_execution_contract(envelope, policy)["passed"]
+
+
+def test_advice_with_implementation_request_keeps_source_gate(client):
+    result = CodingAgent().run({
+        "prompt": "What are your suggestions? Patch the existing stylesheet.",
+        "coding_intent": "generate_code", "host_access": False,
+    })
+    assert result["status"] == "needs_context"
+    assert result["task_kind"] == "patch_existing"
+    assert not client.calls
+
+
+def test_advice_preserves_supplied_source_without_reading_host(client, monkeypatch):
+    client.output = "The supplied colors need a contrast check."
+    monkeypatch.setattr(CodingAgent, "_read_file", lambda *args: pytest.fail("Advice must not read host files"))
+    result = CodingAgent().run({
+        "prompt": "What are your thoughts on these colors?",
+        "context": {"source": ".card {color: blue;}"},
+        "host_access": False, "coding_intent": "generate_code",
+    })
+    assert result["status"] == "ok"
+
+
+@pytest.mark.parametrize("finish_reason", ["length", "refusal", "content_filter"])
+def test_incomplete_advice_is_not_success(client, monkeypatch, finish_reason):
+    from mammoth_os.llm_completion import Completion
+
+    async def completion(*args, **kwargs):
+        return Completion("partial advice", finish_reason=finish_reason)
+
+    monkeypatch.setattr(client, "generate_completion", completion, raising=False)
+    result = CodingAgent().run({"prompt": "What are your suggestions?", "host_access": False})
+    assert result["status"] == "error"
+    assert result["quality"]["status"] == "failed"
+    assert "content" not in result
+
+
 @pytest.mark.parametrize("language, filename, source", [
     ("css", "styles.css", ".card { color: blue; }"),
     ("html", "index.html", "<main>Hello</main>"),

@@ -14,6 +14,20 @@ def requires_existing_source(prompt: str) -> bool:
     return bool(_EXISTING.search(prompt or ""))
 
 
+def is_advice_request(prompt: str) -> bool:
+    text = re.sub(r"```[\s\S]*?```", "", prompt or "")
+    asks_advice = re.search(
+        r"\b(?:what (?:do you think|are your (?:thoughts|suggestions))|"
+        r"your (?:thoughts|suggestions|recommendations)|"
+        r"pros and cons|tradeoffs|trade-offs)\b", text, re.IGNORECASE,
+    )
+    asks_implementation = re.search(
+        r"\b(?:implement|build|write|generate|patch|refactor|fix|modify|"
+        r"update|replace|apply|delete|change|add|remove)\b", text, re.IGNORECASE,
+    )
+    return bool(asks_advice and not asks_implementation)
+
+
 def supplied_source(prompt: str, context: dict, target: str) -> str:
     for key in ("source", "code", "content", "snippet", "implementation"):
         value = context.get(key)

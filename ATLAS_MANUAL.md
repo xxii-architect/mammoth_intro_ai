@@ -489,6 +489,14 @@ python -m cli.main atlas ui component "upgrade my notes panel"
 python -m cli.main atlas ui palette "apply MammothOS command center styling to NotesPanel"
 ```
 
+The website's Coding conversation also accepts explicitly advice-only prompts
+such as "what are your suggestions?" when no implementation is requested.
+These return recommendations labeled as advice, not generated code or file
+changes. Actual implementation and patch requests retain source requirements
+and output checks. Failure messages surface the agent's summary and validation
+warnings instead of only `status=error`. This chat behavior does not change the
+CLI commands above.
+
 ### CodingAgent — refactor a file
 ```powershell
 python -m cli.main atlas code refactor my_script.py             # writes my_script.refactored.py

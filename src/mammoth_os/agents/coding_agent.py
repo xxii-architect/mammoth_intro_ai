@@ -6,12 +6,18 @@ import logging
 import os
 import re
 import urllib.request
-from typing import Optional, Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 from mammoth_os.agents.base_agent import BaseAgent  # type: ignore
-from mammoth_os.llm_client import get_llm_client, extract_code_from_text  # type: ignore
-from mammoth_os.coding_quality import requires_existing_source, supplied_source, syntax_checks
-
+from mammoth_os.coding_quality import (
+    is_advice_request,
+    requires_existing_source,
+    supplied_source,
+    syntax_checks,
+)
+from mammoth_os.llm_client import extract_code_from_text, get_llm_client  # type: ignore
+from mammoth_os.llm_completion import complete
+from mammoth_os.research_quality import strip_reasoning
 
 logger = logging.getLogger("mammoth.agents.coding")
 
@@ -111,6 +117,9 @@ class CodingAgent(BaseAgent):
         sandboxed = not self._host_access_allowed()
         context = dict(context)
         context["files"] = files
+        if explicit_intent in {"", "generate_code"} and is_advice_request(prompt_text):
+            result = self._run_async(self.give_advice(prompt_text, context))
+            return self._standardize_result(result, task_kind="advice", target=target, prompt=prompt_text, files=files)
         if requires_existing_source(prompt_text) and explicit_intent in {"", "generate_code", "patch_existing"}:
             explicit_intent = "patch_existing"
         if explicit_intent == "refactor_code" and supplied_source(prompt_text, context, target):
@@ -459,6 +468,46 @@ class CodingAgent(BaseAgent):
             return []
 
         return snippets
+
+    async def give_advice(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            result = await complete(
+                get_llm_client(), prompt,
+                system_prompt=(
+                    "Answer the user's software/design advice question directly. "
+                    "Provide a clear recommendation, tradeoffs, and practical verification steps. "
+                    "Use only the supplied context; do not claim repository access, edits, executed tests, "
+                    "or verified facts you do not have. This is advice, not a code-generation task. "
+                    "Do not invent implementation blocks just to satisfy a format."
+                    "\nSupplied context:\n" + json.dumps(context, default=str)
+                ),
+                max_tokens=2500, temperature=0.3,
+            )
+            content, trace = strip_reasoning(result.text)
+            if not content.strip() or result.finish_reason in {"length", "refusal", "content_filter"} or result.text.startswith("[LOCAL_ADAPTER]"):
+                logger.warning("Coding advice rejected: finish_reason=%s", result.finish_reason or "empty_or_offline")
+                return {
+                    "status": "error", "artifact_type": "advice",
+                    "error": "Coding could not finish a usable advice response. Check runtime health before retrying.",
+                    "summary": "Advice response was incomplete or unavailable.",
+                    "quality": {"status": "failed"},
+                }
+            return {
+                "status": "ok", "artifact_type": "advice", "task_kind": "advice",
+                "summary": "Design advice only; no code was generated or files changed.",
+                "content": content, "reasoning_trace": trace,
+                "confidence": None,
+                "quality": {"status": "ok", "factual_accuracy_verified": False},
+                "diagnostics": {"finish_reason": result.finish_reason, "model": result.model, "usage": result.usage},
+            }
+        except Exception as exc:
+            logger.error("Coding advice failed: %s", exc)
+            return {
+                "status": "error", "artifact_type": "advice",
+                "error": "Coding advice is unavailable. Check runtime health before retrying.",
+                "summary": "Advice generation failed; no code was generated or files changed.",
+                "quality": {"status": "failed"},
+            }
 
     async def generate_code(self, prompt: str, context: dict = None) -> dict:  # type: ignore
         """Generate code, tests, and docs for a natural-language prompt.
