@@ -253,6 +253,21 @@ Rules the loop enforces:
 - **ResearchAgent** spends one API call per request, on the primary query. When it returns hits, DuckDuckGo scraping is skipped. Wikipedia always runs.
 - **SearchAgent** includes web results by default. Pass `allow_web: false` to skip them. With no key it returns no web results and adds the `web_search_not_configured` flag instead of a placeholder.
 - Bounds: 8 s timeout, a 10-minute cache (128 queries), at least 1 s between upstream calls, and the daily cap. Errors are coded `not_configured`, `empty_query`, `daily_limit`, `rate_limited`, `auth_failed`, `provider_error`, or `unreachable`. Keys never appear in results or errors.
+- Shared retrieval hygiene removes off-topic results, documentation-intent mismatches,
+  duplicate URLs (ignoring tracking parameters/fragments), disambiguation pages, and
+  obvious source instructions before caching or model delivery. Subject matches in
+  titles/URLs rank above snippet-only matches; generic words such as "API" or "docs"
+  do not establish relevance to a named product. Research fallback sources use the
+  same rules. Supplied sources remain exempt from topical pruning, not instruction checks.
+- Search responses and Mammoth Mind tool traces include a `quality` block with
+  retained/dropped counts and reason counts. A successful provider request with no
+  usable results returns `results: []` and `quality.evidence_status: "insufficient_evidence"`.
+  SearchAgent exposes these diagnostics as `web_search_quality`. Filtering adds no
+  provider/model calls and does not verify domain ownership, factual accuracy, or
+  claim entailment; instruction detection is heuristic, not comprehensive protection.
+  Research briefs and long-form quality blocks expose `retrieval_filtering` for
+  the post-retrieval evidence pool (separate from provider-side filtering counts);
+  excluded instruction snippets are never copied into those diagnostics.
 
 ## Weather (`mammoth.weather.v1`)
 

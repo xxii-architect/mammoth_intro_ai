@@ -430,7 +430,10 @@ class ResearchAgent(BaseAgent):
             "retrieval_query": query,
             **result_fields,
             "unverified_findings": unverified,
-            "quality": {"evidence_issues": evidence_issues, "fact_verification": "not_performed", "ready": False},
+            "quality": {
+                "evidence_issues": evidence_issues, "fact_verification": "not_performed", "ready": False,
+                "retrieval_filtering": {**rq.search_quality(top_sources, dropped_sources), "scope": "post_retrieval"},
+            },
             "sources": normalized_sources,
             "ranked_sources": normalized_sources,
             "focus": "curriculum" if any(term in prompt_text.lower() for term in ("lesson", "curriculum", "learning")) else mode,
@@ -445,10 +448,7 @@ class ResearchAgent(BaseAgent):
             "contradiction_report": {"contradiction_count": None, "alignment_score": None, "status": "not_assessed"},
             "workflow_hints": {"contradiction_scan_enabled": False, "excerpt_checks_enabled": True},
             "sources_retrieved": len(top_sources),
-            "sources_filtered": [
-                {"title": str(src.get("title") or ""), "url": str(src.get("url") or ""), "reason": src.get("drop_reason")}
-                for src in dropped_sources[:10]
-            ],
+            "sources_filtered": self._filtered_source_details(dropped_sources),
             "reasoning_trace": reasoning_trace,
             "retrieval_errors": retrieval_errors,
             "confidence": confidence,
@@ -484,6 +484,16 @@ class ResearchAgent(BaseAgent):
             )
         return all_sources, retrieval_errors
 
+    @staticmethod
+    def _filtered_source_details(dropped):
+        return [
+            {
+                "title": "Excluded instruction-like source" if src.get("drop_reason") == "source_instructions" else str(src.get("title") or ""),
+                "url": str(src.get("url") or ""), "reason": src.get("drop_reason"),
+            }
+            for src in dropped[:10]
+        ]
+
     def _insufficient_evidence(self, prompt, intent, errors, dropped):
         return {
             "status": "insufficient_evidence", "agent": self.name,
@@ -491,10 +501,13 @@ class ResearchAgent(BaseAgent):
             "prompt": prompt, "title": "Research needs more evidence",
             "summary": "No relevant source excerpts were available. Add sources or refine the topic.",
             "findings": [], "sources": [], "citations": [], "references": [],
-            "retrieval_errors": errors, "sources_filtered": dropped,
+            "retrieval_errors": errors, "sources_filtered": self._filtered_source_details(dropped),
             "source_coverage": {"source_count": 0, "total_claims": 0, "linked_claims": 0, "citation_coverage": 0.0},
             "quality_flags": ["missing_external_sources"] + (["retrieval_errors_present"] if errors else []),
-            "quality": {"fact_verification": "not_performed", "ready": False}, "confidence": None,
+            "quality": {
+                "fact_verification": "not_performed", "ready": False,
+                "retrieval_filtering": {**rq.search_quality([], dropped), "scope": "post_retrieval"},
+            }, "confidence": None,
         }
 
     def _retrieve_sources(
@@ -790,6 +803,7 @@ class ResearchAgent(BaseAgent):
             "conclusion_trimmed": bool(conclusion_trimmed),
             "duplicate_paragraphs_removed": duplicate_paragraphs_removed,
             "sources_filtered": len(dropped_sources),
+            "retrieval_filtering": {**rq.search_quality(top_sources, dropped_sources), "scope": "post_retrieval"},
         }
         sections_ok = sum(1 for sec in completed_sections if sec.get("status") != "failed")
         if sections_ok == 0:

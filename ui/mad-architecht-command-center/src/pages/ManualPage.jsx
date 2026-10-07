@@ -226,7 +226,7 @@ const agentRunRules = [
   },
   {
     title: 'Live web search',
-    body: 'When the server has a Brave or Tavily key, Agent mode gets a web_search tool, and Research and Search use the same provider before falling back to the free scrapers. Without a key, results say so plainly. Nothing is faked.',
+    body: 'When the server has a Brave or Tavily key, Agent mode gets a web_search tool. Research and Search share that provider; Research can fall back to free retrieval. Results are filtered for subject relevance, documentation intent, duplicate URLs, disambiguation pages, and obvious source instructions before reaching the model. Tool quality shows retained/dropped counts and reasons; no usable hits means insufficient evidence. Filtering adds no paid calls, does not prove sources official or fact-verified, and cannot catch every injection. Without a key, results say so plainly. Nothing is faked.',
   },
   {
     title: 'Live weather',

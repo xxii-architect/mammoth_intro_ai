@@ -6,6 +6,8 @@ testable without a provider and the same rules can be reused by other agents.
 from __future__ import annotations
 
 import re
+import urllib.parse
+from collections import Counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 _REASONING_TAGS = ("think", "thinking", "reasoning", "reflection", "scratchpad")
@@ -247,6 +249,104 @@ def filter_relevant_sources(
     return kept, dropped
 
 
+_SEARCH_INTENT_WORDS = frozenset(
+    "search find show give official documentation docs api reference quickstart guide guides "
+    "research report reports sources source information overview latest current please".split()
+)
+_DOCUMENTATION_QUERY_RE = re.compile(r"\b(?:documentation|docs|api reference|quickstart)\b", re.I)
+_DOCUMENTATION_SOURCE_RE = re.compile(
+    r"\b(?:documentation|docs|reference|quickstart|sdk|developer|developers|tutorial)\b", re.I
+)
+_SOURCE_INSTRUCTION_RE = re.compile(
+    r"^\s*(?:ignore|disregard)\s+(?:all\s+)?(?:previous|prior|above)\s+instructions\b"
+    r"|\[(?:system|developer)\s+(?:note|message)\s+for\s+(?:ai|llm)\b"
+    r"|(?:^|\n)\s*(?:system|developer)\s*:\s*(?:ignore|disregard)\b",
+    re.I,
+)
+
+
+def filter_search_sources(
+    sources: Sequence[Dict[str, Any]], query: str,
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Strict retrieval hygiene, not authority or factual verification.
+
+    Rank by subject overlap, not generic search intent. Keep supplied sources
+    exempt from topical pruning, but never pass obvious source instructions on
+    as evidence. Instruction detection is deliberately bounded, not a guarantee.
+    """
+    subject = " ".join(word for word in keywords(query) if word not in _SEARCH_INTENT_WORDS)
+    subject_terms = stems(subject or query)
+    entities = [{stem(word) for word in entity} for entity in entity_terms(query)]
+    documentation = bool(_DOCUMENTATION_QUERY_RE.search(query))
+    candidates, dropped = [], []
+    seen = set()
+    for index, source in enumerate(sources or []):
+        if not isinstance(source, dict):
+            continue
+        title = str(source.get("title") or "")
+        snippet = str(source.get("snippet") or "")
+        url = str(source.get("url") or "")
+        if _SOURCE_INSTRUCTION_RE.search(title) or _SOURCE_INSTRUCTION_RE.search(snippet):
+            dropped.append({**source, "drop_reason": "source_instructions"})
+            continue
+        if not snippet.strip():
+            dropped.append({**source, "drop_reason": "missing_excerpt"})
+            continue
+        if source.get("source_type") != "provided" and is_disambiguation(source):
+            dropped.append({**source, "drop_reason": "disambiguation_page"})
+            continue
+        try:
+            parsed = urllib.parse.urlsplit(url)
+        except ValueError:
+            dropped.append({**source, "drop_reason": "invalid_url"})
+            continue
+        identity = urllib.parse.urlunsplit((
+            parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"),
+            urllib.parse.urlencode(sorted(
+                (key, value) for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+                if not key.lower().startswith("utm_") and key.lower() not in {"gclid", "fbclid"}
+            )), "",
+        )) if url else ""
+        if identity and identity in seen:
+            dropped.append({**source, "drop_reason": "duplicate_url"})
+            continue
+        url_text = re.sub(r"[\W_]+", " ", f"{parsed.hostname or ''} {parsed.path}")
+        source_text = f"{title} {snippet} {url_text}"
+        if source.get("source_type") != "provided":
+            if documentation and not _DOCUMENTATION_SOURCE_RE.search(
+                f"{title} {url_text}"
+            ):
+                dropped.append({**source, "drop_reason": "intent_mismatch"})
+                continue
+            if subject_terms and not subject_terms & stems(source_text):
+                dropped.append({**source, "drop_reason": "off_topic"})
+                continue
+        if identity:
+            seen.add(identity)
+        score = (
+            5 * int(any(entity <= stems(source_text) for entity in entities))
+            + 3 * len(subject_terms & stems(title))
+            + 2 * len(subject_terms & stems(url_text))
+            + len(subject_terms & stems(snippet))
+        )
+        candidates.append((score, index, source))
+    candidates.sort(key=lambda row: (
+        row[2].get("source_type") != "provided", -row[0], row[1],
+    ))
+    return [row[2] for row in candidates], dropped
+
+
+def search_quality(kept: Sequence[Dict[str, Any]], dropped: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Safe aggregate diagnostics; do not echo excluded snippets or instructions."""
+    return {
+        "retained_count": len(kept),
+        "dropped_count": len(dropped),
+        "drop_reasons": dict(Counter(str(source["drop_reason"]) for source in dropped)),
+        "evidence_status": "search_results_not_fact_verified" if kept else "insufficient_evidence",
+        "instruction_filter": "heuristic_not_complete",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Dedupe
 # ---------------------------------------------------------------------------
@@ -325,11 +425,13 @@ __all__ = [
     "entity_terms",
     "fallback_section_headings",
     "filter_relevant_sources",
+    "filter_search_sources",
     "is_disambiguation",
     "is_truncated",
     "keywords",
     "stem",
     "stems",
+    "search_quality",
     "strip_echoed_heading",
     "strip_reasoning",
     "trim_to_last_sentence",

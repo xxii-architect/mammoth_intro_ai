@@ -270,6 +270,14 @@ The runtime now keeps structured payloads intact for coding and brand-voice work
 - The UI prompt box works best when the user enters: objective + scope + constraints + expected output.
 
 **Research hygiene** (`research_quality.py`, used by `ResearchAgent`):
+- Web search and research fallback sources share subject-aware filtering:
+  generic "API/docs" words do not establish relevance to a named product,
+  documentation requests exclude non-documentation hits, duplicate URLs are
+  collapsed, and obvious source instructions are excluded. Search tool results
+  include retained/dropped counts and reason counts in `quality`. No usable hits
+  means insufficient evidence, not invented findings or increased confidence.
+  Filtering adds no paid calls; it does not verify facts/domain ownership, and
+  instruction detection is heuristic rather than comprehensive protection.
 - Model reasoning and meta-commentary are removed from research output and long-form documents and returned separately as `reasoning_trace` / per-section `trace`.
 - Off-topic sources and disambiguation pages are filtered (`sources_filtered`). Entity mismatches are ranked lower, never silently dropped.
 - Duplicate findings and repeated cross-section paragraphs are removed. Truncated sections are trimmed to the last full sentence; failed sections retry once, then show as `status: "failed"`.

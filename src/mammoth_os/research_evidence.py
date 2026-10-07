@@ -22,7 +22,7 @@ def resolve_research_query(prompt: str, context: dict[str, Any]) -> str:
 def relevant_evidence_sources(sources: list[dict], query: str) -> tuple[list[dict], list[dict]]:
     generic = {"research", "curriculum", "lesson", "course", "learning", "topic", "subject", "deeper", "dive", "beginner"}
     domain_query = " ".join(word for word in re.split(r"\W+", query) if word.casefold() not in generic)
-    relevant, dropped = rq.filter_relevant_sources(sources, domain_query, min_strong=0)
+    relevant, dropped = rq.filter_search_sources(sources, domain_query)
     usable = []
     for source in relevant:
         if not str(source.get("snippet") or "").strip():

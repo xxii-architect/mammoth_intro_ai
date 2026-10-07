@@ -25,6 +25,8 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from mammoth_os.research_quality import filter_search_sources, search_quality
+
 CONTRACT = "mammoth.websearch.v1"
 PROVIDERS = ("brave", "tavily")
 MAX_RESULTS = 10
@@ -205,7 +207,12 @@ class WebSearch:
         except (urllib.error.URLError, TimeoutError, OSError, ValueError):
             return {**base, "status": "error", "code": "unreachable", "error": "Search provider could not be reached.", "results": []}
 
-        result = {**base, "status": "ok", "results": parse(payload)[:limit], "cached": False}
+        kept, dropped = filter_search_sources(parse(payload), q)
+        selected = kept[:limit]
+        result = {
+            **base, "status": "ok", "results": selected, "cached": False,
+            "quality": search_quality(selected, dropped),
+        }
         with self._lock:
             self._cache[cache_key] = (now, result)
             while len(self._cache) > CACHE_SIZE:
