@@ -60,6 +60,7 @@ class ToolSpec:
     requires_approval: Optional[bool] = None
     source: str = "builtin"
     available: Optional[Callable[["ToolContext"], bool]] = None
+    timeout_s: float = 60.0
 
     def __post_init__(self) -> None:
         if self.tier not in TIERS:
@@ -187,10 +188,11 @@ class ToolRegistry:
             return None
         return spec
 
-    async def invoke(self, name: str, args: Any, ctx: ToolContext, *, timeout_s: float = 60.0) -> Dict[str, Any]:
+    async def invoke(self, name: str, args: Any, ctx: ToolContext, *, timeout_s: Optional[float] = None) -> Dict[str, Any]:
         spec = self.resolve(name, ctx)
         if spec is None:
             return {"status": "error", "code": "unknown_tool", "error": f"Tool not available: {name}"}
+        timeout_s = spec.timeout_s if timeout_s is None else timeout_s
         if args is None:
             args = {}
         errors = validate_args(spec.input_schema, args)

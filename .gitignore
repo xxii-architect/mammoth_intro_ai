@@ -87,3 +87,5 @@ generated_docs/
 .mammoth/tenant_repos/
 .mammoth/repo_sources/
 .mammoth/agent_runs/
+.mammoth/owner_executions/
+.mammoth/owner_benchmarks/

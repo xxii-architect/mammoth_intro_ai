@@ -410,6 +410,24 @@ class MammothPaths:
     def clear_artifacts(self) -> Dict[str, Any]:
         return self._json("artifacts", "DELETE", "/workspace/artifacts")
 
+    def owner_execution_capabilities(self, repo: str = "") -> Dict[str, Any]:
+        return self._json("owner_execution", "GET", "/owner-executions/capabilities", query={"repo": repo})
+
+    def prepare_owner_execution(self, repo: str, changes: List[Dict[str, str]], *, base_sha: str, profile: str) -> Dict[str, Any]:
+        return self._json("owner_execution", "POST", "/owner-executions", body={
+            "repo_context": {"root": repo}, "changes": changes, "base_sha": base_sha, "profile": profile,
+        })
+
+    def get_owner_execution(self, execution_id: str) -> Dict[str, Any]:
+        return self._json("owner_execution", "GET", f"/owner-executions/{self._seg(execution_id)}")
+
+    def approve_owner_execution(self, execution_id: str, *, repo: str, approval_digest: str) -> Dict[str, Any]:
+        return self._json("owner_execution", "POST", f"/owner-executions/{self._seg(execution_id)}/approve",
+                          body={"repo_context": {"root": repo}, "approval_digest": approval_digest})
+
+    def cancel_owner_execution(self, execution_id: str) -> Dict[str, Any]:
+        return self._json("owner_execution", "POST", f"/owner-executions/{self._seg(execution_id)}/cancel", body={})
+
     # ── Notes ─────────────────────────────────────────────────────────────
 
     def list_notes(self) -> List[Dict[str, Any]]:

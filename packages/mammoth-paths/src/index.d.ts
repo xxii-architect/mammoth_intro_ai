@@ -113,6 +113,18 @@ export interface PathsClient {
   syncRepo(sourceId: string): Promise<Record<string, unknown>>
   removeRepo(sourceId: string): Promise<Record<string, unknown>>
   proposeChange(sourceId: string, changes: Array<Record<string, unknown>>, options?: { title?: string }): Promise<Record<string, unknown>>
+  listTasks(): Promise<Record<string, unknown>>
+  saveTask(task: Record<string, unknown>): Promise<Record<string, unknown>>
+  listArtifacts(): Promise<Record<string, unknown>>
+  saveArtifact(artifact: Record<string, unknown>): Promise<Record<string, unknown>>
+  getArtifactRun(id: string): Promise<Record<string, unknown>>
+  deleteArtifact(id: string): Promise<Record<string, unknown>>
+  clearArtifacts(): Promise<Record<string, unknown>>
+  ownerExecutionCapabilities(repo?: string): Promise<Record<string, unknown>>
+  prepareOwnerExecution(repo: string, changes: Array<{ path: string; content: string }>, options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' }): Promise<Record<string, unknown>>
+  getOwnerExecution(id: string): Promise<Record<string, unknown>>
+  approveOwnerExecution(id: string, options: { repo: string; approvalDigest: string }): Promise<Record<string, unknown>>
+  cancelOwnerExecution(id: string): Promise<Record<string, unknown>>
   listNotes(): Promise<Array<Record<string, unknown>>>
   saveNote(content: string, options?: { title?: string; id?: string; [field: string]: unknown }): Promise<Record<string, unknown>>
   deleteNote(noteId: string): Promise<Record<string, unknown>>

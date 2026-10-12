@@ -52,7 +52,7 @@ function buildBackendErrorMessage(status, text, requestUrl = '') {
   return body || `Request failed (${status})`
 }
 
-async function parseApiResponse(res) {
+export async function parseApiResponse(res) {
   if (res.status === 204) {
     return null
   }

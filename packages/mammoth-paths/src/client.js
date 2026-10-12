@@ -175,6 +175,13 @@ export function createPathsClient(options = {}) {
     getArtifactRun: (artifactId) => json('artifacts', 'GET', `/workspace/artifacts/${seg(artifactId)}/run`),
     deleteArtifact: (artifactId) => json('artifacts', 'DELETE', `/workspace/artifacts/${seg(artifactId)}`),
     clearArtifacts: () => json('artifacts', 'DELETE', '/workspace/artifacts'),
+    ownerExecutionCapabilities: (repo = '') => json('owner_execution', 'GET', '/owner-executions/capabilities', { query: { repo } }),
+    prepareOwnerExecution: (repo, changes, { baseSha, profile }) =>
+      json('owner_execution', 'POST', '/owner-executions', { body: { repo_context: { root: repo }, changes, base_sha: baseSha, profile } }),
+    getOwnerExecution: (id) => json('owner_execution', 'GET', `/owner-executions/${seg(id)}`),
+    approveOwnerExecution: (id, { repo, approvalDigest }) =>
+      json('owner_execution', 'POST', `/owner-executions/${seg(id)}/approve`, { body: { repo_context: { root: repo }, approval_digest: approvalDigest } }),
+    cancelOwnerExecution: (id) => json('owner_execution', 'POST', `/owner-executions/${seg(id)}/cancel`, { body: {} }),
 
     // ── Notes ────────────────────────────────────────────────────────────
     listNotes: () => json('notes', 'GET', '/notes'),

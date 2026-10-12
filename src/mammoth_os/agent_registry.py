@@ -466,6 +466,8 @@ def _auto_register_agents() -> None:
         name = "".join(w.title() for w in stem.split("_"))
         # infer capabilities from the filename
         caps = [stem.replace("_agent", "")]
+        if stem == "coding_agent":
+            caps.append("owner_isolated_validation")
 
         manifest = AgentManifest(
             agent_id=agent_id,

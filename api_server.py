@@ -1806,6 +1806,17 @@ def _task_origin(task: Dict[str, Any]) -> str:
 def _decorate_task(task: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(task, dict):
         return {}
+    if _task_source(task) == "owner_execution":
+        try:
+            execution = _OWNER_EXECUTION.get(str(task.get("id") or ""), str(task.get("owner_id") or ""))
+            state = execution["status"]
+            status = {"validated": "completed", "failed": "failed", "cancelled": "cancelled",
+                      "running": "running", "pending_approval": "pending_approval"}[state]
+            task = {**task, "status": status, "details": {**task["details"], "execution_status": state,
+                    "failure_code": execution.get("failure_code", ""), "execution_error": execution.get("error", "")}}
+        except ExecutionError as exc:
+            logger.warning("Owner task execution evidence unavailable for %s: %s", task.get("id"), exc)
+            task = {**task, "status": "unknown", "details": {**task["details"], "execution_error": str(exc)}}
     return {**task, "status_editable": _task_status_editable(task), "status_origin": _task_origin(task)}
 
 
@@ -4371,9 +4382,12 @@ def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None)
     artifact_id = str(raw.get("id") or "").strip() or f"artifact-{uuid.uuid4().hex[:12]}"
     title = str(raw.get("title") or "").strip() or "Saved artifact"
     summary = str(raw.get("summary") or "").strip() or "Saved from MammothOS workspace."
-    body = str(raw.get("body") or "").strip()
-    if not body:
+    format_ = str(raw.get("format") or "txt").strip().lower() or "txt"
+    body = str(raw.get("body") or "")
+    if not body.strip():
         return None
+    if format_ != "diff":
+        body = body.strip()
     return {
         "id": artifact_id,
         "created_at": created_at,
@@ -4382,7 +4396,7 @@ def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None)
         "body": body,
         "path": str(raw.get("path") or "").strip(),
         "source": str(raw.get("source") or "workspace").strip() or "workspace",
-        "format": str(raw.get("format") or "txt").strip().lower() or "txt",
+        "format": format_,
         "meta": raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
         **artifact_metadata(raw),
         "updated_at": str(raw.get("updated_at") or created_at),
@@ -6671,6 +6685,9 @@ def _build_agent_tool_registry() -> "tuple[ToolRegistry, MCPBridge]":
 
     registry = ToolRegistry()
     register_repo_tools(registry)
+    from mammoth_os.owner_execution_tools import register_owner_execution_tools
+    register_owner_execution_tools(registry, _OWNER_EXECUTION, record_execution=_record_owner_execution,
+                                   record_started=_record_owner_execution_started)
     # Registered only when a licensed provider key is configured (env change → restart).
     if default_web_search().configured():
         register_query_tool(
@@ -6723,6 +6740,42 @@ def _build_agent_tool_registry() -> "tuple[ToolRegistry, MCPBridge]":
     return registry, bridge
 
 
+def _record_owner_execution_started(job: Dict[str, Any], run_id: str = "") -> None:
+    _append_activity("Owner isolated validation approval accepted", agent_id="coding_agent", task_id=job["id"],
+                     kind="approval_resolved", details={"approval_digest": job["approval_digest"], "approved_at": job.get("approved_at")})
+    _upsert_task(job["id"], "Owner isolated coding validation", status="running", agent_id="coding_agent",
+                 details={"source": "owner_execution", "execution_id": job["id"], "base_sha": job["base_sha"], "run_id": run_id, "trace_id": run_id},
+                 description="Isolated baseline/candidate checks in progress; checkout remains unchanged.")
+
+
+async def _record_owner_execution(job: Dict[str, Any], run_id: str = "") -> None:
+    status = "completed" if job["status"] == "validated" else "cancelled" if job["status"] == "cancelled" else "failed"
+    _upsert_task(job["id"], "Owner isolated coding validation", status=status, agent_id="coding_agent",
+                 details={"source": "owner_execution", "execution_id": job["id"], "base_sha": job["base_sha"], "run_id": run_id, "trace_id": run_id},
+                 description="Patch remains unapplied. Review baseline/candidate test evidence before applying.")
+    artifact = await create_workspace_artifact({
+        "id": job["id"], "title": "Owner isolated coding validation", "body": job["patch"],
+        "artifact_type": "patch_proposal", "artifact_status": "failed" if job["status"] == "failed" else "draft", "agent_id": "coding_agent",
+        "origin": {"page": "agent", "task_id": job["id"], "trace_id": run_id}, "format": "diff",
+        "lineage": {"repo": job["repo"], "base_sha": job["base_sha"]},
+        "verification": {"baseline": job.get("baseline", {}), "candidate": job.get("candidate", {}),
+                         "execution_status": job["status"], "regression": job.get("regression")},
+        "quality": {"ready": False, "tests_are_independent": False},
+    })
+    if not isinstance(artifact, dict) or artifact.get("status") != "ok":
+        raise ExecutionError("Execution finished, but saving its patch evidence failed.", "evidence_save_failed", 500)
+    _append_activity("Owner isolated validation finished", agent_id="coding_agent", task_id=job["id"],
+                     kind="task_completed" if job["status"] == "validated" else "task_cancelled" if job["status"] == "cancelled" else "task_failed",
+                     details={"status": job["status"], "run_id": run_id})
+
+
+from mammoth_os.owner_execution import ContainerExecutor, OwnerExecution, ExecutionError
+
+_OWNER_EXECUTION = OwnerExecution(
+    MAMMOTH_DIR / "owner_executions",
+    ContainerExecutor(os.environ.get("MAMMOTH_OWNER_EXEC_IMAGE", "")),
+    enabled=os.environ.get("MAMMOTH_OWNER_EXEC_ENABLED") == "1",
+)
 _AGENT_TOOLS, _AGENT_MCP = _build_agent_tool_registry()
 _AGENT_RUNS = RunStore(MAMMOTH_DIR / "agent_runs")
 
@@ -8180,6 +8233,7 @@ _ROUTE_FRAGMENT_FILES = (
     "mammoth_routes.py",
     "team_routes.py",
     "workspace_routes.py",
+    "owner_execution_routes.py",
     "governance_routes.py",
 )
 _ROUTE_FRAGMENTS_LOADED = False

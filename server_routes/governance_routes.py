@@ -121,6 +121,8 @@ async def get_modules():
             )
         )
 
+    if "coding_agent" in module_map and _request_is_admin():
+        module_map["coding_agent"]["owner_execution"] = await asyncio.to_thread(_OWNER_EXECUTION.capabilities)
     return list(module_map.values())
 
 @app.get("/api/mcp/servers")

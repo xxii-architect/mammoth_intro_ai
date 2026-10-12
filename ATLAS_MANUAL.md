@@ -703,6 +703,31 @@ Open **http://localhost:5173**
 | **Build Log** | Log + browse project build entries with tags, persisted to `.mammoth/buildlog.json` |
 | **Settings** | System info, env key inspector, ATLAS reset, Dark-only appearance status, AI runtime status |
 
+### Owner isolated validation and coding measurements
+
+The Coding workspace now includes an owner/admin-only, opt-in isolated validation
+pilot. It requires an explicitly selected repository and a frozen, expiring
+approval. Baseline/candidate checks use disposable worktrees and offline,
+non-root, resource-bounded Docker containers. There is no host fallback,
+automatic merge or push. Uncommitted checkout content is not included or changed.
+The preview remains an unapplied draft; repository test success is not independent
+acceptance verification. Cancellation and restart cleanup are job-scoped; failed
+cleanup blocks further owner execution, not the whole platform.
+
+Enable `MAMMOTH_OWNER_EXEC_ENABLED=1` only on an operator-reviewed backend host with
+Docker and a locally installed immutable `MAMMOTH_OWNER_EXEC_IMAGE` digest.
+The reviewed image needs Python 3.11.8+ and any tools/dependencies required by the
+fixed unittest/pytest/Node test profile. Containers share the host kernel and
+are not a hostile-code VM. See the README's **Owner isolated coding validation
+pilot** for limits, SDK methods, configuration and benchmark commands.
+
+`python -m mammoth_os.coding_benchmark` measures the harness using known solutions;
+`--model` explicitly spends provider credits on CodingAgent proposals evaluated
+against fixed independent tests. Reports distinguish reference/model modes,
+failures, observed regressions, p95 latency and only actually reported costs.
+Neither reference success nor the small synthetic model corpus certifies general
+coding reliability or enables autonomy.
+
 ### Agent Console safety flow
 - Turn on **Preview first** before using the coding agent for file edits.
 - Switch to **Plan + Execute** mode to run multi-agent orchestration from one objective.

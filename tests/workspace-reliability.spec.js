@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
-async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '' } = {}) {
+async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '', repo = '' } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
@@ -27,7 +27,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) })
   })
   await page.goto(baseURL)
-  await page.evaluate(async ({ component, authFailure, stalledAuth, savedTheme }) => {
+  await page.evaluate(async ({ component, authFailure, stalledAuth, savedTheme, repo }) => {
     const { supabase } = await import('/src/lib/supabase.js')
     let attempts = 0
     supabase.auth.getSession = async () => {
@@ -59,7 +59,8 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     function BrokenView() { throw new Error('Simulated render error') }
     const View = component === 'auth' ? AuthProbe : component === 'broken' ? BrokenView
       : (await import(`/src/${component}.jsx`)).default
-    const props = component === 'components/agent-workspace/AgentWorkspace' ? { agents: [], temperature: 0.3, approvalMode: true }
+    const props = component === 'components/agent-workspace/OwnerExecutionPanel' ? { repo }
+      : component === 'components/agent-workspace/AgentWorkspace' ? { agents: [], temperature: 0.3, approvalMode: true }
       : component === 'components/AgentCommandLibrary' ? { onClose() {} }
       : component === 'components/RunTimeline' ? {
         run: { id: 'run-test', status: 'partial', can_continue: true, events: [], plan: [], diagnostics: [
@@ -71,9 +72,69 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     ReactDOM.createRoot(document.getElementById('root')).render(
       React.createElement(Boundary, null, React.createElement(AuthProvider, null, React.createElement(View, props))),
     )
-  }, { component, authFailure, stalledAuth, savedTheme })
+  }, { component, authFailure, stalledAuth, savedTheme, repo })
   return errors
 }
+
+const ownerPanel = 'components/agent-workspace/OwnerExecutionPanel'
+const ownerCapabilities = { status: 'ok', enabled: true, isolation: { ready: true, reason: 'Pinned Linux image available.' }, profiles: ['python_unittest'], base_sha: 'a'.repeat(40) }
+const ownerJob = { id: `exec-${'a'.repeat(24)}`, status: 'pending_approval', patch: '--- a/app.py\n+++ b/app.py\n-return 0\n+return 1\n', base_sha: 'a'.repeat(40), profile: 'python_unittest', approval_digest: 'b'.repeat(64), expires_at: 1999999999 }
+
+test('owner panel hides tenant-denied execution and honestly shows a disabled pilot', async ({ page }) => {
+  let errors = await mount(page, ownerPanel, { '/api/owner-executions/capabilities': { status: 403, body: '{"error":"Owner only"}' } })
+  await expect(page.getByText('Owner isolated validation pilot')).toHaveCount(0)
+  errors = errors.concat(await mount(page, ownerPanel, { '/api/owner-executions/capabilities': { enabled: false, isolation: { ready: false, reason: 'Owner execution pilot is disabled.' } } }))
+  await page.getByText('Owner isolated validation pilot').click()
+  await expect(page.getByText('Owner execution pilot is disabled.')).toBeVisible()
+  await expect(page.getByText('Select a repository first. No default repository is used.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Prepare proposal' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('owner panel submits frozen approval and renders unapplied check evidence on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  let approval
+  const errors = await mount(page, ownerPanel, {
+    '/api/owner-executions/capabilities': ownerCapabilities,
+    '/api/owner-executions': request => {
+      const body = request.postDataJSON()
+      expect(body.repo_context.root).toBe('owner/repo')
+      expect(body.base_sha).toBe(ownerCapabilities.base_sha)
+      expect(body.changes[0].path).toBe('app.py')
+      return { status: 'ok', execution: ownerJob }
+    },
+    [`/api/owner-executions/${ownerJob.id}/approve`]: request => {
+      approval = request.postDataJSON()
+      return { status: 'ok', execution: { ...ownerJob, status: 'validated', baseline: { passed: false, duration_ms: 10, log: 'baseline fails' }, candidate: { passed: true, duration_ms: 10, log: 'candidate passes' } } }
+    },
+  }, { repo: 'owner/repo' })
+  await page.getByText('Owner isolated validation pilot').click()
+  await page.getByRole('textbox').fill('[{"path":"app.py","content":"return 1\\n"}]')
+  await page.getByRole('button', { name: 'Prepare proposal' }).click()
+  await page.getByRole('button', { name: 'Approve isolated baseline and candidate checks' }).click()
+  await expect(page.getByText('validated', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Passing a profile is not review approval/)).toBeVisible()
+  await expect(page.getByText('candidate: profile passed (10 ms)')).toBeVisible()
+  expect(approval).toEqual({ repo_context: { root: 'owner/repo' }, approval_digest: ownerJob.approval_digest })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('owner panel surfaces stale approval and cancels the prepared job', async ({ page }) => {
+  const errors = await mount(page, ownerPanel, {
+    '/api/owner-executions/capabilities': ownerCapabilities,
+    '/api/owner-executions': { status: 'ok', execution: ownerJob },
+    [`/api/owner-executions/${ownerJob.id}/approve`]: { status: 409, body: '{"status":"error","error":"Repository HEAD changed. Prepare a new proposal."}' },
+    [`/api/owner-executions/${ownerJob.id}/cancel`]: { status: 'ok', execution: { ...ownerJob, status: 'cancelled' } },
+  }, { repo: 'owner/repo' })
+  await page.getByText('Owner isolated validation pilot').click()
+  await page.getByRole('button', { name: 'Prepare proposal' }).click()
+  await page.getByRole('button', { name: 'Approve isolated baseline and candidate checks' }).click()
+  await expect(page.getByRole('alert')).toContainText('HEAD changed')
+  await page.getByRole('button', { name: 'Cancel validation' }).click()
+  await expect(page.getByText('cancelled', { exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+})
 
 test('startup import failure displays recovery instead of a black screen', async ({ page }) => {
   await page.route('**/src/App*', route => route.abort())

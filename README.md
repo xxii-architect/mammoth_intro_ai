@@ -516,6 +516,80 @@ Run lookup is account-scoped and read-only; saved history is explicitly
 client-supplied. Output-contract and syntax checks do not establish acceptance
 test success, factual accuracy, review approval, or safe-to-apply code.
 
+## Owner isolated coding validation pilot
+
+This is **opt-in validation, not autonomous repository editing**. Owner/admin
+authorization and an explicitly selected repository are checked by the backend.
+Tenants cannot use these routes or tools. Existing tenant edits remain proposals.
+No repository selected means no repository context.
+
+- Frozen proposals bind the repository, committed HEAD, full text changes, fixed
+  test profile, snapshot digest and immutable container image to one approval.
+  Approval expires after 15 minutes; reuse, changed HEAD or mismatched inputs fail.
+- A detached disposable worktree holds the candidate. Uncommitted checkout files
+  are neither included nor overwritten. No checkout hooks/filters/submodules run.
+- Baseline and candidate checks run offline in a non-root Linux Docker container:
+  read-only root and input, no capabilities, no Docker socket or host environment
+  credentials, bounded tmpfs, 256 MB memory, one CPU and 64 processes. There is
+  **no host execution fallback**, dependency installation, automatic merge or push.
+- Containers share the host kernel. This is not a hostile-code VM or a security
+  certification. Use only reviewed repositories/images; never bake secrets into
+  source or the image. Known secret paths and Git metadata are excluded.
+- Cancellation stops only the job's container. Interrupted jobs are not resumed;
+  restart recovery cleans their worktrees/containers. A cleanup failure blocks
+  further execution without preventing the rest of the platform from starting.
+- The resulting draft patch, run-backed task and baseline/candidate evidence are
+  saved for review through both the direct API and Mammoth Mind tool flow.
+  Passing repository tests is **not independent acceptance verification**.
+
+Operator setup (backend host, disabled by default):
+
+```powershell
+$env:MAMMOTH_OWNER_EXEC_ENABLED = '1'
+$env:MAMMOTH_OWNER_EXEC_IMAGE = 'your-reviewed-image@sha256:<64-character-digest>'
+python api_server.py
+```
+
+Install the pinned image yourself first; the service never pulls it. The image
+must contain Python 3.11.8+ for the trusted archive launcher. The fixed profiles are
+`python_unittest`, `python_pytest` and `node_test`; pytest/Node must already exist
+in the image when those profiles are chosen. Network access is disabled, so
+dependencies must be supplied by the reviewed image. Snapshot limits: 32 MB /
+3000 files; proposals: 1-20 text files / 500 KB; rendered patch: 1 MB;
+each phase: 60 seconds; logs:
+16 KB. Symlinks and submodules are rejected. The Coding workspace exposes live
+readiness, HEAD, preview, explicit approval, cancellation and recorded evidence.
+
+Mammoth Paths exposes matching owner-only methods:
+`owner_execution_capabilities` / `ownerExecutionCapabilities`,
+`prepare_owner_execution` / `prepareOwnerExecution`,
+`get_owner_execution` / `getOwnerExecution`,
+`approve_owner_execution` / `approveOwnerExecution`, and
+`cancel_owner_execution` / `cancelOwnerExecution`.
+Use a client timeout of at least 300 seconds for the synchronous approval request;
+after a transport timeout, query the saved execution rather than reapprove it.
+
+### Coding benchmark evidence
+
+```powershell
+# No model credits: calibrates the real Docker harness with known solutions.
+python -m mammoth_os.coding_benchmark --output-dir .mammoth\owner_benchmarks
+# Opt-in model calls: three synthetic tasks per repetition; consumes provider credits.
+python -m mammoth_os.coding_benchmark --model --repetitions 7 --output-dir .mammoth\owner_benchmarks
+```
+
+Reports identify their fixed source/prompt/test corpus with a SHA-256 fingerprint,
+and persist baseline/candidate outcomes,
+preservation-test regressions, success rate and p95 end-to-end latency. Models
+receive source and task text, never the reference solutions or acceptance tests.
+Missing/invalid/no-op proposals count as failures. Provider/model/usage/cost are
+recorded only when actually reported; absent cost remains null.
+The measured coding threshold is at least 20 samples across all three task types,
+90% success, zero observed regressions and p95 at most 120 seconds. Reference mode
+never qualifies as model reliability. Three synthetic Python cases are not
+evidence for arbitrary repositories, and no report enables autonomous execution.
+Isolation/approval/cancellation/recovery tests are separate safety evidence.
+
 ## Mammoth Mind tutor SDK (formerly ATLAS FAB)
 
 MammothOS exposes an embeddable Python SDK surface for the tutor so it can be positioned as a standalone product inside another app, workflow, or developer tool.

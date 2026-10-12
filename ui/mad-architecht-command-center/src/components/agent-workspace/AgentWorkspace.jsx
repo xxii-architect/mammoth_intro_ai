@@ -11,6 +11,7 @@ import PlanExecuteResultPanel from '../PlanExecuteResultPanel'
 import ResearchArtifactPanel from '../ResearchArtifactPanel'
 import CodingArtifactPanel from '../CodingArtifactPanel'
 import RepoPicker from './RepoPicker'
+import OwnerExecutionPanel from './OwnerExecutionPanel'
 import { normalizeCodingArtifact, normalizeResearchArtifact } from './artifacts'
 import { AGENT_CATALOG, CATALOG_BY_ID, TEAM_FITS, agentDisplay, agentStatusLabel, parseMention, codingRoute } from './agentCatalog'
 import useIsMobile from '../../lib/useIsMobile'
@@ -498,6 +499,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
           {agentId === 'coding_agent' && (
             <div style={{ marginTop: 6 }}>
               <RepoPicker userId={user?.id || 'local'} value={repo} onChange={(value, label) => { setRepo(value); setRepoLabel(label) }} />
+              <OwnerExecutionPanel repo={repo} />
             </div>
           )}
         </div>

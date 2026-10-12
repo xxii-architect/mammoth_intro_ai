@@ -35,6 +35,34 @@ Read-only tools run automatically. Anything that would run a command or change s
 
 Both clients accept a usage hook that reports each call (surface, status, duration) so you can meter usage in your own product.
 
+## Owner-only isolated validation
+
+The disabled-by-default owner pilot adds matching Python/JS methods:
+
+| Python | JavaScript |
+| --- | --- |
+| `owner_execution_capabilities(repo)` | `ownerExecutionCapabilities(repo)` |
+| `prepare_owner_execution(repo, changes, base_sha=..., profile=...)` | `prepareOwnerExecution(repo, changes, {baseSha, profile})` |
+| `get_owner_execution(id)` | `getOwnerExecution(id)` |
+| `approve_owner_execution(id, repo=..., approval_digest=...)` | `approveOwnerExecution(id, {repo, approvalDigest})` |
+| `cancel_owner_execution(id)` | `cancelOwnerExecution(id)` |
+
+These preserve backend response objects and meter the `owner_execution` surface.
+The backend enforces owner/admin access, explicit repo selection and frozen
+approval. Changes are full text `{path, content}` objects. Fixed profiles:
+`python_unittest`, `python_pytest`, `node_test`. Baseline/candidate checks use
+committed snapshots in disposable offline Docker containers, not host fallback.
+Uncommitted changes are excluded. Patches remain unapplied; no merge or push.
+Use Python `timeout=300` for synchronous approval and query saved state after
+transport failures. Approval expires after 15 minutes; changed HEAD/reused
+approval fails. Containers share the host kernel and require reviewed pinned
+images with dependencies preinstalled. This is not hostile-code VM isolation.
+
+The standalone coding benchmark uses fixed independent acceptance tests.
+Reference mode only calibrates the harness; `--model` explicitly consumes credits.
+Small synthetic measurements never authorize autonomous execution. See the root
+README for operator setup, limits and report thresholds.
+
 ## Tasks and saved artifacts
 
 Python / JavaScript method pairs:

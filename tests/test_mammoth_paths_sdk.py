@@ -227,3 +227,28 @@ def test_usage_hook_failures_do_not_break_calls(backend):
 def test_run_event_from_dict_defaults():
     event = RunEvent.from_dict({"type": "run.completed", "seq": "3"})
     assert event.seq == 3 and event.is_terminal and event.contract == "mammoth.run.v1"
+
+
+def test_owner_execution_sdk_explicit_payloads_and_error_preservation(backend):
+    job_id = "exec-" + "a" * 24
+    changes = [{"path": "app.py", "content": "pass\n"}]
+    for method, path in [
+        ("GET", "/api/owner-executions/capabilities"), ("POST", "/api/owner-executions"),
+        ("GET", f"/api/owner-executions/{job_id}"), ("POST", f"/api/owner-executions/{job_id}/approve"),
+        ("POST", f"/api/owner-executions/{job_id}/cancel"),
+    ]:
+        backend.route(method, path, body={"status": "ok", "execution": {"id": job_id}})
+    client = MammothPaths(backend.url, timeout=300)
+    client.owner_execution_capabilities("owner/repo")
+    client.prepare_owner_execution("owner/repo", changes, base_sha="b" * 40, profile="python_unittest")
+    client.get_owner_execution(job_id)
+    client.approve_owner_execution(job_id, repo="owner/repo", approval_digest="c" * 64)
+    client.cancel_owner_execution(job_id)
+    assert backend.requests[0]["path"].endswith("?repo=owner%2Frepo")
+    assert backend.requests[1]["body"] == {"repo_context": {"root": "owner/repo"}, "changes": changes,
+                                           "base_sha": "b" * 40, "profile": "python_unittest"}
+    assert backend.requests[3]["body"]["approval_digest"] == "c" * 64
+    backend.route("GET", "/api/owner-executions/capabilities", status=403, body={"error": "Owner only", "code": "admin_required"})
+    with pytest.raises(PathsError) as error:
+        client.owner_execution_capabilities()
+    assert error.value.status == 403 and error.value.code == "admin_required"

@@ -16,7 +16,7 @@ import json
 import re
 import secrets
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 
@@ -557,7 +557,8 @@ class AgentRunner:
         call_id = call_id or f"call-{secrets.token_hex(4)}"
         trace_kind = spec.trace_kind if spec else "tool"
         yield self._emit(run, ev.TOOL_CALL, {"call_id": call_id, "tool": name, "args": args, "trace_kind": trace_kind, "tier": spec.tier if spec else None})
-        result = await self.registry.invoke(name, args, ctx)
+        tool_ctx = replace(ctx, extras={**ctx.extras, "cancel_requested": lambda: run.cancel_requested, "run_id": run.id})
+        result = await self.registry.invoke(name, args, tool_ctx)
         yield self._emit(run, ev.TOOL_RESULT, {"call_id": call_id, "tool": name, "status": result.get("status"), "trace_kind": trace_kind, "result": result})
         if result.get("status") == "ok" and result.get("diff"):
             yield self._emit(run, ev.DIFF_PROPOSED, {

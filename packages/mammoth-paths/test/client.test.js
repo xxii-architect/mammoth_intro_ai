@@ -38,6 +38,28 @@ function fakeFetch(routes) {
   return { impl, calls }
 }
 
+test('owner execution methods preserve explicit approval payloads and backend denial', async () => {
+  const id = `exec-${'a'.repeat(24)}`
+  const routes = Object.fromEntries([
+    ['GET', '/api/owner-executions/capabilities'], ['POST', '/api/owner-executions'],
+    ['GET', `/api/owner-executions/${id}`], ['POST', `/api/owner-executions/${id}/approve`],
+    ['POST', `/api/owner-executions/${id}/cancel`],
+  ].map(([method, path]) => [`${method} ${path}`, { body: { status: 'ok', execution: { id } } }]))
+  const fetch = fakeFetch(routes)
+  const client = createPathsClient({ baseUrl: 'http://localhost', fetch: fetch.impl })
+  await client.ownerExecutionCapabilities('owner/repo')
+  await client.prepareOwnerExecution('owner/repo', [{ path: 'app.py', content: 'pass\n' }], { baseSha: 'b'.repeat(40), profile: 'python_unittest' })
+  await client.getOwnerExecution(id)
+  await client.approveOwnerExecution(id, { repo: 'owner/repo', approvalDigest: 'c'.repeat(64) })
+  await client.cancelOwnerExecution(id)
+  assert.equal(new URL(fetch.calls[0].url).searchParams.get('repo'), 'owner/repo')
+  assert.deepEqual(fetch.calls[1].body.repo_context, { root: 'owner/repo' })
+  assert.equal(fetch.calls[1].body.base_sha, 'b'.repeat(40))
+  assert.equal(fetch.calls[3].body.approval_digest, 'c'.repeat(64))
+  routes['GET /api/owner-executions/capabilities'] = { status: 403, body: { error: 'Owner only', code: 'admin_required' } }
+  await assert.rejects(client.ownerExecutionCapabilities(), error => error instanceof PathsError && error.status === 403)
+})
+
 test('sse parser handles CRLF, split chunks, and multi-line data', () => {
   const out = []
   const parser = createSseParser((d) => out.push(d))

@@ -79,6 +79,22 @@ do not certify correctness, acceptance-test success, or approval to apply code.
 Run lookup returns 404 when unavailable; task edits return 409 for run-backed
 records. These additions do not change the `mammoth.paths.v1` contract.
 
+## Owner isolated execution pilot
+
+`ownerExecutionCapabilities(repo)`, `prepareOwnerExecution(repo, changes,
+{baseSha, profile})`, `getOwnerExecution(id)`, `approveOwnerExecution(id,
+{repo, approvalDigest})`, and `cancelOwnerExecution(id)` preserve backend payloads.
+Python has matching snake_case methods. Changes are `{path, content}` full-text
+objects. Profiles: `python_unittest`, `python_pytest`, `node_test`.
+Owner/admin checks and explicit repository access are backend-enforced;
+embedding the SDK does not grant access. The backend pilot is disabled by default.
+Approval binds a committed snapshot and image and expires after 15 minutes.
+Tests run in offline Docker only, never on the host, with no automatic merge/push.
+Query the saved job after a request timeout rather than retrying its approval.
+Uncommitted source is not included. Passing a profile is not independent
+acceptance evidence or permission to apply the patch. Containers share the host
+kernel; see the root README for reviewed-image setup and benchmark limitations.
+
 ## Run events
 
 `run.started`, `plan.updated`, `reasoning.summary`, `tool.call`, `tool.result`, `approval.requested`, `approval.resolved`, `diff.proposed`, `message.delta`, `message.completed`, `run.awaiting_approval`, `run.completed`, `run.failed`, `run.cancelled`, `run.partial`, `run.continued`, `run.recovering`, `model.completed`.
