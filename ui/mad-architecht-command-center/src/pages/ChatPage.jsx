@@ -781,8 +781,8 @@ export default function ChatPage({ setPage }) {
           },
         },
       })
-    } catch {
-      // Keep local task cards available even when the inbox API is unavailable.
+    } catch (cause) {
+      setError(`Task card saved in this browser, but not synced to Task Inbox: ${cause.message || 'Task API unavailable.'}`)
     }
   }
 

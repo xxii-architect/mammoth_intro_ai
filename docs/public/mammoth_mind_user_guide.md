@@ -56,6 +56,23 @@ When an agent changes code in a connected repository, MammothOS creates a local 
 
 ## Reading the trace
 
+### Saved work and provenance
+
+Task Inbox reads saved backend tasks. Manual cards can be moved through queued,
+in progress, and complete; run-backed tasks are read-only. Manual completion is
+not verified agent-run completion. Failed or unconfirmed updates show an error
+and roll back the displayed status. Chat cards saved only in your browser show
+an explicit warning if syncing to Task Inbox fails.
+
+Artifacts retain their task/trace IDs, recorded repository and base revision
+when available, quality/check details, and up to ten previous snapshots when
+the same artifact ID is updated. Missing metadata is not invented. The base
+revision identifies the selected Git ref, not a clean-working-tree guarantee.
+**View recorded run** opens your saved task state or client-supplied run history
+without executing anything. Unavailable runs show an error; the artifact stays
+available. Ready labels, output-contract checks, and syntax checks do not prove
+correctness or approval to apply code. Generated tests/diffs are proposals.
+
 Every run shows what the agents did, using one fixed set of labelled glyphs:
 
 | Glyph | Meaning |

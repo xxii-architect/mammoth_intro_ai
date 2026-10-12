@@ -128,7 +128,7 @@ class MammothPaths:
     """Client for the Mammoth Paths workspace surfaces.
 
     Surfaces: Mammoth Mind agent runs, tool catalog, repository sources,
-    notes, build log, and (owner-only) terminal.
+    tasks, saved artifacts, notes, build log, and (owner-only) terminal.
 
     Args:
         base_url: Backend origin, e.g. ``https://app.example.com``. ``/api`` is appended.
@@ -388,6 +388,27 @@ class MammothPaths:
             "repos", "POST", f"/mammoth/repo-sources/{self._seg(source_id)}/propose",
             body={"changes": changes, "title": title},
         )
+
+    def list_tasks(self) -> List[Dict[str, Any]]:
+        return self._json("tasks", "GET", "/tasks")
+
+    def save_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+        return self._json("tasks", "POST", "/tasks", body=task)
+
+    def list_artifacts(self) -> Dict[str, Any]:
+        return self._json("artifacts", "GET", "/workspace/artifacts")
+
+    def save_artifact(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
+        return self._json("artifacts", "POST", "/workspace/artifacts", body=artifact)
+
+    def get_artifact_run(self, artifact_id: str) -> Dict[str, Any]:
+        return self._json("artifacts", "GET", f"/workspace/artifacts/{self._seg(artifact_id)}/run")
+
+    def delete_artifact(self, artifact_id: str) -> Dict[str, Any]:
+        return self._json("artifacts", "DELETE", f"/workspace/artifacts/{self._seg(artifact_id)}")
+
+    def clear_artifacts(self) -> Dict[str, Any]:
+        return self._json("artifacts", "DELETE", "/workspace/artifacts")
 
     # ── Notes ─────────────────────────────────────────────────────────────
 

@@ -21,6 +21,58 @@ function saveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
+function ArtifactProvenance({ item }) {
+  const [run, setRun] = useState(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const loadRun = async () => {
+    setLoading(true)
+    setError('')
+    setRun(null)
+    setOpen(true)
+    try {
+      const data = await api(`/workspace/artifacts/${encodeURIComponent(item.id)}/run`)
+      if (data?.status !== 'ok' || (!data.task && !data.saved_history)) throw new Error('Run index returned an invalid response.')
+      setRun(data)
+    } catch (cause) {
+      setError(cause.message || 'Recorded run unavailable.')
+    } finally { setLoading(false) }
+  }
+  return <>
+    <details>
+      <summary>Provenance and recorded evidence</summary>
+      <p className="artifact-meta">Revision {item.revision || 1}. Assessment: {STATUS_LABELS[item.artifact_status] || STATUS_LABELS.unknown}. This is not an approval to apply code.</p>
+      {Object.entries(item.lineage || {}).map(([key, value]) => <p className="artifact-meta" key={key}>{key.replaceAll('_', ' ')}: {value}</p>)}
+      {!Object.keys(item.lineage || {}).length && <p className="artifact-meta">Repository and base SHA not recorded.</p>}
+      <p className="artifact-meta">Recorded checks are not acceptance tests. Generated tests and diffs are proposals, not execution evidence.</p>
+      {Object.keys(item.quality || {}).length > 0 && <details><summary>Recorded quality</summary><pre>{JSON.stringify(item.quality, null, 2)}</pre></details>}
+      {Object.keys(item.verification || {}).length > 0
+        ? <details><summary>Recorded verification</summary><pre>{JSON.stringify(item.verification, null, 2)}</pre></details>
+        : <p className="artifact-meta">No verification evidence recorded.</p>}
+      {item.revisions?.length > 0 && <details>
+        <summary>Previous revisions ({item.revisions.length})</summary>
+        <p className="artifact-meta">Up to ten previous snapshots are retained.</p>
+        {item.revisions.map(previous => <details key={previous.revision}>
+          <summary>Revision {previous.revision} - {previous.title}</summary>
+          <p className="artifact-meta">{formatStamp(previous.updated_at || previous.created_at)}</p>
+          <pre>{previous.body}</pre>
+        </details>)}
+      </details>}
+    </details>
+    {(item.origin?.task_id || item.origin?.trace_id) && <button onClick={loadRun} disabled={loading}>{loading ? 'Loading recorded run...' : 'View recorded run'}</button>}
+    {open && <section aria-label="Recorded run">
+      <button onClick={() => setOpen(false)}>Close recorded run</button>
+      {error && <p role="alert">{error}</p>}
+      {run && <>
+        <p className="artifact-meta">{run.notice}</p>
+        {run.task && <><p>Task: {run.task.id} - {run.task.status}</p><pre>{JSON.stringify(run.task, null, 2)}</pre></>}
+        {run.saved_history && <details><summary>Saved result (client-supplied)</summary><pre>{JSON.stringify(run.saved_history, null, 2)}</pre></details>}
+      </>}
+    </section>}
+  </>
+}
+
 export default function ArtifactLibraryPage({ setPage }) {
   const { user, loading, isGuest } = useAuth()
   if (loading) return <p role="status">Loading your account...</p>
@@ -91,7 +143,9 @@ function ArtifactLibrary({ setPage }) {
   const agentIds = useMemo(() => [...new Set(items.map(item => item.agent_id).filter(Boolean))].sort(), [items])
   const dateError = from && to && from > to ? 'Start date must be on or before end date.' : ''
   const filtered = useMemo(() => items.filter(item => {
-    const text = [item.title, item.summary, item.body, item.searchText, item.source, item.agent_id].filter(Boolean).join(' ').toLowerCase()
+    const text = [item.title, item.summary, item.body, item.searchText, item.source, item.agent_id,
+      ...Object.values(item.origin || {}), ...Object.values(item.lineage || {}),
+    ].filter(Boolean).join(' ').toLowerCase()
     const date = new Date(item.created_at)
     const lower = from ? new Date(`${from}T00:00:00`).getTime() : -Infinity
     const upper = to ? new Date(`${to}T23:59:59.999`).getTime() : Infinity
@@ -202,6 +256,7 @@ function ArtifactLibrary({ setPage }) {
               : <pre>{item.body}</pre>}
           </details>
           {Object.entries(item.origin || {}).filter(([key]) => key !== 'page').map(([key, value]) => <p className="artifact-meta" key={key}>{key.replaceAll('_', ' ')}: {value}</p>)}
+          {!item.curriculum && <ArtifactProvenance key={`${item.id}:${item.revision || 1}`} item={item} />}
           <div className="artifact-actions">
             <button onClick={() => download(item)} disabled={busy}>Download {item.curriculum ? 'JSON' : 'text'}</button>
             {item.docx_filename && <button onClick={() => downloadDocx(item)} disabled={busy}>Download DOCX</button>}

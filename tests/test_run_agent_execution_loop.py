@@ -117,3 +117,34 @@ def test_run_auto_save_keeps_full_content_type_provenance_and_distinct_runs(monk
         assert artifact["origin"]["page"] == "agent"
         assert artifact["origin"]["trace_id"] in {"run-one", "run-two"}
         assert artifact["docx_filename"] == "report.docx"
+        assert "output_contract" in artifact["verification"]
+        assert artifact["lineage"] == {}
+        assert artifact["revision"] == 1
+
+
+def test_run_auto_save_retains_supplied_repo_snapshot_and_revisions(monkeypatch):
+    state = {}
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+    monkeypatch.setattr(api_server, "_agent_registry_ok", True)
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    monkeypatch.setattr(api_server, "_upsert_task", lambda *args, **kwargs: {"id": args[0], "title": args[1]})
+    monkeypatch.setattr(api_server, "_append_activity", lambda *args, **kwargs: None)
+    monkeypatch.setattr(agent_registry_mod, "agent_registry", _DummyRegistry())
+    output = {"status": "ok", "summary": "A source-grounded proposal. " * 10, "diff": "Proposed diff",
+              "quality": {"ready": False}, "lineage": {"repo": "invented/repo"},
+              "validation": {"checks": [{"status": "passed", "name": "python_syntax"}], "tests": "not_run"}}
+    monkeypatch.setattr(api_server, "registry_run_agent", lambda name, payload: dict(output))
+    body = {"intent": "generate_code", "agent_id": "coding_agent", "trace_id": "repeat-trace",
+            "payload": {"prompt": "Generate a proposal", "context": {"repo_context": {
+                "requested_root": "alice/project", "source_id": "source-one", "branch": "feature", "base_sha": "a" * 40,
+            }}}, "execution_policy": {"max_attempts": 1, "required_fields": ["status", "summary"]}}
+    asyncio.run(api_server.run_agent(body))
+    output["summary"] = "Revised source-grounded proposal. " * 10
+    asyncio.run(api_server.run_agent(body))
+    artifact = state["workspace_artifacts"][0]
+    assert len(state["workspace_artifacts"]) == 1
+    assert artifact["lineage"] == {"repo": "alice/project", "source_id": "source-one", "branch": "feature", "base_sha": "a" * 40}
+    assert artifact["revision"] == 2
+    assert artifact["verification"]["validation"] == output["validation"]
+    assert "A source-grounded proposal." in artifact["revisions"][0]["body"]

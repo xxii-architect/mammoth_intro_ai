@@ -162,7 +162,8 @@ Details for each are in the sections below and in `ATLAS_MANUAL.md`.
 
 - UI story surfaces are now workflow-first:
   - Artifact Library with type categories, search, agent/status/date filters,
-    full-text previews and exports, and linked private ATLAS curricula
+    full-text previews and exports, linked private ATLAS curricula, recorded
+    run/task/repository provenance, and ten previous revision snapshots
   - Task Inbox for queued workflow cards with backend-authoritative loading, explicit failure alerts, and read-only status for run-backed tasks
   - Structured Coding Artifact panel in Agent Console (overview/code/tests/docs/diff)
 - Observability surfaces are now tighter:
@@ -502,6 +503,18 @@ Surface access:
 | Terminal | Owner/admin only |
 
 `usage_hook` / `usageHook` receives `{surface, method, path, status, duration}` for every call. Use it for client-side metering until server-side tenant metering ships. The JS package is `private: true` until you decide to publish it. The app consumes it from source (Vite alias) so the UI and embedders fold run events identically.
+
+The workspace clients also expose `list_tasks` / `listTasks`, `save_task` /
+`saveTask`, `list_artifacts` / `listArtifacts`, `save_artifact` / `saveArtifact`,
+`get_artifact_run` / `getArtifactRun`, `delete_artifact` / `deleteArtifact`, and
+`clear_artifacts` / `clearArtifacts`. Responses preserve the backend payloads.
+Updating a saved artifact ID retains up to ten previous snapshots; revision
+numbers are server-assigned. Recorded repository/base-SHA metadata stays empty
+when unavailable. A base SHA identifies the observed selected Git ref, not a
+claim that every source snippet came from a clean working tree.
+Run lookup is account-scoped and read-only; saved history is explicitly
+client-supplied. Output-contract and syntax checks do not establish acceptance
+test success, factual accuracy, review approval, or safe-to-apply code.
 
 ## Mammoth Mind tutor SDK (formerly ATLAS FAB)
 

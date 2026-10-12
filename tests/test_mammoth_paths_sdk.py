@@ -75,6 +75,40 @@ def test_rejects_non_http_base_url():
         MammothPaths("ftp://example.com")
 
 
+def test_task_and_artifact_methods_preserve_contract_and_metering(backend):
+    artifact = {"id": "patch #1", "body": "Proposal", "lineage": {"base_sha": "a" * 40}}
+    task = {"id": "card", "status": "in_progress"}
+    routes = [
+        ("GET", "/api/tasks", [task]),
+        ("POST", "/api/tasks", task),
+        ("GET", "/api/workspace/artifacts", {"artifacts": [artifact], "categories": []}),
+        ("POST", "/api/workspace/artifacts", {"status": "ok", "artifact": artifact}),
+        ("GET", "/api/workspace/artifacts/patch%20%231/run", {"status": "ok", "task": task}),
+        ("DELETE", "/api/workspace/artifacts/patch%20%231", {"status": "ok", "removed": True}),
+        ("DELETE", "/api/workspace/artifacts", {"status": "ok", "cleared": 1}),
+    ]
+    for method, path, response in routes:
+        backend.route(method, path, body=response)
+    usage = []
+    client = MammothPaths(backend.url, token="test-only", usage_hook=usage.append)
+    assert client.list_tasks() == [task]
+    assert client.save_task(task) == task
+    assert client.list_artifacts()["artifacts"] == [artifact]
+    assert client.save_artifact(artifact)["artifact"] == artifact
+    assert client.get_artifact_run(artifact["id"])["task"] == task
+    assert client.delete_artifact(artifact["id"])["removed"] is True
+    assert client.clear_artifacts()["cleared"] == 1
+    assert [(request["method"], request["path"]) for request in backend.requests] == [(method, path) for method, path, _ in routes]
+    assert backend.requests[1]["body"] == task
+    assert backend.requests[3]["body"] == artifact
+    assert [item["surface"] for item in usage] == ["tasks", "tasks", *["artifacts"] * 5]
+    assert all(request["headers"]["X-Mammoth-Contract"] == "mammoth.paths.v1" for request in backend.requests)
+    backend.route("POST", "/api/tasks", status=409, body={"status": "error", "error": "Run-backed tasks are read-only."})
+    with pytest.raises(PathsError, match="read-only") as error:
+        client.save_task(task)
+    assert error.value.status == 409
+
+
 def test_iter_sse_handles_multiline_and_trailing_block():
     lines = [b"event: x\n", b'data: {"a":\n', b"data: 1}\n", b"\n", b'data: {"b": 2}\n']
     assert list(iter_sse(lines)) == [{"a": 1}, {"b": 2}]

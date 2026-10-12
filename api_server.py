@@ -4385,6 +4385,7 @@ def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None)
         "format": str(raw.get("format") or "txt").strip().lower() or "txt",
         "meta": raw.get("meta") if isinstance(raw.get("meta"), dict) else {},
         **artifact_metadata(raw),
+        "updated_at": str(raw.get("updated_at") or created_at),
     }
 
 
@@ -6092,6 +6093,11 @@ def _collect_repo_context_snapshot(repo_request: Dict[str, Any]) -> Dict[str, An
         }
 
     git_ref = str(repo_request.get("branch") or "main")
+    git_revision = _run_git_command(["rev-parse", "--verify", "--end-of-options", f"{git_ref}^{{commit}}"], cwd=repo_cwd)
+    if git_revision.get("status") == "ok":
+        base_sha = str(git_revision.get("stdout") or "").strip()
+        if re.fullmatch(r"[0-9a-fA-F]{40,64}", base_sha):
+            snapshot["base_sha"] = base_sha
     tracked_files: List[str] = []
     snippet_paths: List[str] = []
     for relative_path in (repo_request.get("files") or [])[: int(repo_request.get("max_snippets") or 3)]:

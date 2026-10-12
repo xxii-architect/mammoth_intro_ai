@@ -168,6 +168,14 @@ export function createPathsClient(options = {}) {
     proposeChange: (sourceId, changes, { title = '' } = {}) =>
       json('repos', 'POST', `/mammoth/repo-sources/${seg(sourceId)}/propose`, { body: { changes, title } }),
 
+    listTasks: () => json('tasks', 'GET', '/tasks'),
+    saveTask: (task) => json('tasks', 'POST', '/tasks', { body: task }),
+    listArtifacts: () => json('artifacts', 'GET', '/workspace/artifacts'),
+    saveArtifact: (artifact) => json('artifacts', 'POST', '/workspace/artifacts', { body: artifact }),
+    getArtifactRun: (artifactId) => json('artifacts', 'GET', `/workspace/artifacts/${seg(artifactId)}/run`),
+    deleteArtifact: (artifactId) => json('artifacts', 'DELETE', `/workspace/artifacts/${seg(artifactId)}`),
+    clearArtifacts: () => json('artifacts', 'DELETE', '/workspace/artifacts'),
+
     // ── Notes ────────────────────────────────────────────────────────────
     listNotes: () => json('notes', 'GET', '/notes'),
     saveNote: (content, { title, id, ...fields } = {}) =>

@@ -53,6 +53,7 @@ This repo has completed the reliability + eval + tutor-outcome + SDK hardening s
 - Run History replay now preserves backend-linked metadata (`task_id`, `trace_id`, runtime adapter/model).
 - FAB chat responses can be saved directly into Artifact Library records (`.md` or `.txt`).
 - Task Inbox provides a lightweight queue for follow-through on workflow cards; load/update failures are shown directly, and run-backed task statuses stay read-only while manual cards remain editable.
+- Artifact provenance exposes recorded task/trace IDs, repository/base SHA when available, quality and verification details, and up to ten previous revisions. View recorded run loads account-scoped task state or explicitly client-supplied saved history; it never executes or replays work. A recorded base SHA is the selected Git ref, not a clean-working-tree guarantee. Generated tests/diffs and output-contract checks are not acceptance-test evidence or approval to apply code. Missing run records produce an explicit error while the artifact remains available.
 - Internet commands are available in chat:
   - `/research <query>`
   - `/web <url>`

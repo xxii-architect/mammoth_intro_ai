@@ -443,6 +443,9 @@ async function persistArtifactRecord(entry) {
     artifact_type: entry.artifact_type || '',
     agent_id: entry.agent_id || '',
     origin: entry.origin || {},
+    lineage: entry.lineage || {},
+    quality: entry.quality || {},
+    verification: entry.verification || {},
     meta: entry.meta && typeof entry.meta === 'object' ? entry.meta : {},
   }
   if (!item.body) return

@@ -62,6 +62,69 @@ def test_workspace_artifact_rejects_empty_body(monkeypatch):
     assert response.status_code == 400
 
 
+def test_artifact_revisions_are_server_assigned_bounded_and_idempotent(monkeypatch):
+    state = {"workspace_artifacts": []}
+    _auth_setup(monkeypatch)
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    client = TestClient(api_server.app)
+    headers = {"Authorization": "Bearer token-alpha"}
+    initial = client.post("/api/workspace/artifacts", headers=headers, json={
+        "id": "patch", "title": "Patch", "body": "Original",
+        "revision": 99, "revisions": [{"body": "Forged history"}],
+        "lineage": {"repo": "alice/project", "base_sha": "a" * 40, "branch": "main"},
+        "quality": {"ready": False}, "verification": {"syntax_checks": {"passed": True}},
+    }).json()["artifact"]
+    assert initial["revision"] == 1 and initial["revisions"] == []
+    assert initial["lineage"]["base_sha"] == "a" * 40
+    assert initial["quality"] == {"ready": False}
+    assert initial == api_server._normalize_workspace_artifact_record(initial)
+    repeated = client.post("/api/workspace/artifacts", headers=headers, json=initial).json()["artifact"]
+    assert repeated["revision"] == 1 and repeated["revisions"] == []
+    for number in range(2, 14):
+        repeated["body"] = f"Revision {number}"
+        repeated = client.post("/api/workspace/artifacts", headers=headers, json=repeated).json()["artifact"]
+        assert repeated["revision"] == number
+    assert len(repeated["revisions"]) == 10
+    assert repeated["revisions"][0]["body"] == "Revision 3"
+    assert repeated["revisions"][-1]["body"] == "Revision 12"
+    assert repeated["created_at"] == initial["created_at"]
+    assert all("revisions" not in item for item in repeated["revisions"])
+
+
+def test_artifact_run_lookup_never_reads_foreign_tasks(monkeypatch):
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", True)
+    monkeypatch.setattr(api_server, "_resolve_supabase_user", lambda token: (
+        {"id": token, "email": f"{token}@example.test", "is_admin": False} if token in {"alice", "bob"} else None
+    ))
+    states = {"alice": {"workspace_artifacts": [
+        {"id": "own", "body": "Own report", "origin": {"task_id": "own-task", "trace_id": "own-trace"}},
+        {"id": "foreign-ref", "body": "Claimed link", "origin": {"task_id": "bob-task", "trace_id": "bob-trace"}},
+        {"id": "mismatch", "body": "Bad link", "origin": {"task_id": "own-task", "trace_id": "wrong"}},
+        {"id": "history", "body": "Saved report", "origin": {"trace_id": "saved-trace"}},
+    ], "agent_run_history": [{"id": "saved", "prompt": "Earlier run", "trace_id": "saved-trace", "status": "partial"}]},
+              "bob": {"workspace_artifacts": []}}
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: deepcopy(states[api_server._current_request_user_id()]))
+    monkeypatch.setattr(api_server, "_load_tasks", lambda: [
+        {"id": "own-task", "owner_id": "alice", "status": "failed", "details": {"trace_id": "own-trace"}},
+        {"id": "bob-task", "owner_id": "bob", "status": "completed", "description": "Bob secret", "details": {"trace_id": "bob-trace"}},
+    ])
+    client = TestClient(api_server.app)
+    alice = {"Authorization": "Bearer alice"}
+    own = client.get("/api/workspace/artifacts/own/run", headers=alice)
+    assert own.status_code == 200 and own.json()["task"]["status"] == "failed"
+    assert own.json()["saved_history"] is None
+    for artifact_id in ("foreign-ref", "mismatch", "missing"):
+        response = client.get(f"/api/workspace/artifacts/{artifact_id}/run", headers=alice)
+        assert response.status_code == 404
+        assert "Bob secret" not in response.text
+    saved = client.get("/api/workspace/artifacts/history/run", headers=alice).json()
+    assert saved["task"] is None and saved["saved_history"]["status"] == "partial"
+    assert "client-supplied" in saved["notice"]
+    assert client.get("/api/workspace/artifacts/own/run", headers={"Authorization": "Bearer bob"}).status_code == 404
+    assert client.get("/api/workspace/artifacts/own/run").status_code == 401
+
+
 def test_workspace_run_history_crud(monkeypatch):
     state = {"agent_run_history": []}
     _auth_setup(monkeypatch)

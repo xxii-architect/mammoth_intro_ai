@@ -60,11 +60,24 @@ function useRunStore() {
 | `cancelRun`, `getRun(runId, { after })`, `listRuns()` | Run control and replay | run owner |
 | `listRepos`, `connectRepo`, `syncRepo`, `removeRepo` | Bring-your-own public GitHub repos | signed in |
 | `proposeChange(sourceId, changes, { title })` | Branch plus git patch; never pushed | repo owner |
+| `listTasks()`, `saveTask(task)` | Backend task state; only manual cards are editable | signed in, own items |
+| `listArtifacts()`, `saveArtifact(artifact)` | Saved outputs, metadata and server-assigned revisions | signed in, own items |
+| `getArtifactRun(id)` | Read-only associated task / client-supplied saved history | signed in, own items |
+| `deleteArtifact(id)`, `clearArtifacts()` | Remove saved outputs, not curricula/notes/flashcards | signed in, own items |
 | `listNotes`, `saveNote`, `deleteNote` | Personal notes | Pro tier or above |
 | `listBuildLog`, `logBuild` | Personal build log | Pro tier or above |
 | `execTerminal(cmd)` | Allow-listed host command | owner/admin only |
 
 Errors throw `PathsError` with `status` and `code` (for example `tier_required` or `platform_denied`).
+
+Task/artifact methods return unmodified backend payloads. Python offers matching
+snake-case methods. Saving an existing artifact ID retains up to ten previous
+snapshots with server-assigned revision numbers. `origin` and `lineage` record
+run/task/repository/base-SHA context only when available. A base SHA identifies
+the selected Git ref, not a clean working tree. `quality` and `verification`
+do not certify correctness, acceptance-test success, or approval to apply code.
+Run lookup returns 404 when unavailable; task edits return 409 for run-backed
+records. These additions do not change the `mammoth.paths.v1` contract.
 
 ## Run events
 

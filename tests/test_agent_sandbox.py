@@ -329,16 +329,32 @@ def test_task_inbox_cannot_override_run_backed_status(task_store, monkeypatch):
     assert "read-only" in response.body.decode("utf-8")
 
 
-def test_task_upsert_defaults_new_cards_to_manual_source(task_store, monkeypatch):
+@pytest.mark.parametrize("details", [{}, {"source": "agent_run", "allow_manual_status": False}])
+def test_task_upsert_defaults_new_cards_to_manual_source(task_store, monkeypatch, details):
     tokens = _as_user(monkeypatch, is_admin=False)
     try:
-        created = asyncio.run(api_server.upsert_task({"title": "Inbox card"}))
+        created = asyncio.run(api_server.upsert_task({"title": "Inbox card", "details": details}))
     finally:
         _reset(tokens)
     details = created.get("details") if isinstance(created.get("details"), dict) else {}
     assert details.get("source") == "manual_task_card"
     assert details.get("allow_manual_status") is True
     assert created["status_editable"] is True
+
+
+@pytest.mark.parametrize("is_admin", [False, True])
+def test_task_inbox_cannot_reclassify_run_as_manual(task_store, monkeypatch, is_admin):
+    tokens = _as_user(monkeypatch, is_admin=is_admin)
+    try:
+        response = asyncio.run(api_server.upsert_task({
+            "id": "plan-mine", "status": "active",
+            "details": {"source": "manual_task_card", "allow_manual_status": True},
+        }))
+    finally:
+        _reset(tokens)
+    assert response.status_code == 409
+    stored = next(task for task in api_server._load_tasks() if task["id"] == "plan-mine")
+    assert stored["details"] == {"source": "agent_run"}
 
 
 def test_task_inbox_rejects_anonymous(task_store, monkeypatch):

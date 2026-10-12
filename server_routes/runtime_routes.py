@@ -522,15 +522,15 @@ async def upsert_task(body: Dict[str, Any]):
     requested_status = str(body.get("status") or (existing.get("status") if existing else "queued")).strip().lower()
     if requested_status not in allowed_statuses:
         return JSONResponse({"status": "error", "error": f"Unsupported task status: {requested_status}."}, status_code=400)
-    if existing is not None and requested_status != str(existing.get("status") or "").strip().lower() and not _task_status_editable(existing):
+    if existing is not None and not _task_status_editable(existing):
         return JSONResponse(
-            {"status": "error", "error": "Run-backed task status is read-only. Track progress from the run timeline."},
+            {"status": "error", "error": "Run-backed tasks are read-only. Track progress from the run timeline."},
             status_code=409,
         )
     existing_details = existing.get("details") if isinstance((existing or {}).get("details"), dict) else {}
     incoming_details = body.get("details") if isinstance(body.get("details"), dict) else {}
     details = {**existing_details, **incoming_details}
-    if (not existing) and not str(details.get("source") or "").strip():
+    if not existing and str(details.get("source") or "").strip().lower() not in _MANUAL_TASK_SOURCES:
         details["source"] = "manual_task_card"
     if str(details.get("source") or "").strip().lower() in _MANUAL_TASK_SOURCES:
         details["allow_manual_status"] = True
@@ -1616,6 +1616,17 @@ async def run_agent(body: Dict[str, Any]):
                     try:
                         import uuid as _uuid
                         from datetime import datetime as _adt, timezone as _atz
+                        from mammoth_os.workspace_artifacts import record_artifact_revision
+                        _auto_context = payload_dict.get("context") if isinstance(payload_dict.get("context"), dict) else {}
+                        _auto_repo = _auto_context.get("repo_context") if isinstance(_auto_context.get("repo_context"), dict) else {}
+                        _auto_lineage = {
+                            key: value for key, value in {
+                                "repo": _auto_repo.get("requested_root") or _auto_repo.get("source_id"),
+                                "source_id": _auto_repo.get("source_id"),
+                                "branch": _auto_repo.get("branch"),
+                                "base_sha": _auto_repo.get("base_sha"),
+                            }.items() if value
+                        }
                         _auto_payload = {
                             "id": _uuid.uuid5(_uuid.NAMESPACE_URL, trace_id).hex,
                             "title": _auto_title,
@@ -1625,6 +1636,13 @@ async def run_agent(body: Dict[str, Any]):
                             "status": result.get("status"),
                             "artifact_status": _auto_out.get("status") if isinstance(_auto_out, dict) else "",
                             "quality": _auto_out.get("quality") if isinstance(_auto_out, dict) else {},
+                            "lineage": _auto_lineage,
+                            "verification": {
+                                "output_contract": verification,
+                                "evidence": _auto_out.get("evidence", {}) if isinstance(_auto_out, dict) else {},
+                                "validation": _auto_out.get("validation", {}) if isinstance(_auto_out, dict) else {},
+                                "execution": _auto_out.get("execution", {}) if isinstance(_auto_out, dict) else {},
+                            },
                             "docx_filename": _auto_out.get("docx_filename") if isinstance(_auto_out, dict) else "",
                             "origin": {"page": "agent", "trace_id": trace_id, "task_id": task_id},
                             "source_url": "",
@@ -1634,6 +1652,8 @@ async def run_agent(body: Dict[str, Any]):
                         if _auto_record:
                             _auto_state = _load_atlas_state()
                             _auto_arts = _normalize_workspace_artifact_collection(_auto_state.get("workspace_artifacts"))
+                            _auto_previous = next((x for x in _auto_arts if x["id"] == _auto_record["id"]), None)
+                            _auto_record = record_artifact_revision(_auto_record, _auto_previous, now=_adt.now(_atz.utc).isoformat())
                             _auto_arts = [x for x in _auto_arts if x.get("id") != _auto_record["id"]]
                             _auto_arts.insert(0, _auto_record)
                             _auto_state["workspace_artifacts"] = _auto_arts[:120]

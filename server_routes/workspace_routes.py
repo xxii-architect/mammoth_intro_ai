@@ -14,6 +14,8 @@ async def list_workspace_artifacts():
 
 @app.post("/api/workspace/artifacts")
 async def create_workspace_artifact(body: Dict[str, Any]):
+    from mammoth_os.workspace_artifacts import record_artifact_revision
+
     artifact = _normalize_workspace_artifact_record(body)
     if not artifact:
         return JSONResponse(
@@ -22,12 +24,41 @@ async def create_workspace_artifact(body: Dict[str, Any]):
         )
     state = _load_atlas_state()
     artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+    previous = next((item for item in artifacts if item["id"] == artifact["id"]), None)
+    artifact = record_artifact_revision(artifact, previous, now=datetime.now(timezone.utc).isoformat())
     artifacts = [item for item in artifacts if item.get("id") != artifact["id"]]
     artifacts.insert(0, artifact)
     state["workspace_artifacts"] = artifacts[:120]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     _save_atlas_state(state)
     return {"status": "ok", "artifact": artifact}
+
+@app.get("/api/workspace/artifacts/{artifact_id}/run")
+async def get_workspace_artifact_run(artifact_id: str):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    state = _load_atlas_state()
+    artifact = next((item for item in _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
+                     if item["id"] == artifact_id), None)
+    if artifact is None:
+        return JSONResponse({"status": "error", "error": "Artifact not found."}, status_code=404)
+    origin = artifact["origin"]
+    task_id, trace_id = origin.get("task_id"), origin.get("trace_id")
+    task = None
+    for item in _visible_tasks():
+        details = item.get("details") if isinstance(item.get("details"), dict) else {}
+        same_task = item.get("id") == task_id if task_id else bool(trace_id) and details.get("trace_id") == trace_id
+        if same_task and (not trace_id or details.get("trace_id") == trace_id):
+            task = item
+            break
+    history = next((item for item in _normalize_agent_run_history_collection(state.get("agent_run_history"))
+                    if (task_id and item.get("task_id") == task_id and (not trace_id or item.get("trace_id") == trace_id))
+                    or (not task_id and trace_id and item.get("trace_id") == trace_id)), None)
+    if task is None and history is None:
+        return JSONResponse({"status": "error", "error": "Recorded run is unavailable or no longer retained for your account."}, status_code=404)
+    return {"status": "ok", "task": task, "saved_history": history,
+            "notice": "Recorded state only. Saved history is client-supplied; run success does not verify artifact correctness or code safety."}
 
 @app.delete("/api/workspace/artifacts/{artifact_id}")
 async def delete_workspace_artifact(artifact_id: str):

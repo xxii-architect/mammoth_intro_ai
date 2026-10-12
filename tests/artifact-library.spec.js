@@ -8,12 +8,15 @@ const categories = [
 ].map(([id, label]) => ({ id, label }))
 const fixtures = [
   { id: 'research', title: 'Nutrition research', body: 'Sources and evidence\nDetailed findings.', category: 'research', artifact_status: 'draft', agent_id: 'research_agent', format: 'md', created_at: '2026-10-05T12:00:00', docx_filename: 'nutrition.docx', origin: { page: 'agent', trace_id: 'run-one' } },
-  { id: 'code', title: 'Parser patch', body: 'A proposal, not applied.', category: 'code', artifact_status: 'failed', agent_id: 'coding_agent', created_at: '2026-10-02T12:00:00' },
+  { id: 'code', title: 'Parser patch', body: 'A proposal, not applied.', category: 'code', artifact_status: 'failed', agent_id: 'coding_agent', created_at: '2026-10-02T12:00:00',
+    origin: { task_id: 'task-parser', trace_id: 'trace-parser' }, lineage: { repo: 'alice/parser', branch: 'feature', base_sha: 'a'.repeat(40) },
+    revision: 2, revisions: [{ revision: 1, title: 'Original patch', body: 'Earlier patch proposal.' }],
+    quality: { ready: false }, verification: { output_contract: { passed: true }, syntax_checks: { passed: true } } },
   { id: 'old', title: 'Legacy output', body: 'Original legacy text.', category: 'uncategorized', artifact_status: 'unknown', created_at: 'invalid-date' },
   { id: 'lesson', title: 'Variable practice', body: 'Explain assignment.', category: 'lessons', artifact_status: 'ready', agent_id: 'tutor_agent', created_at: '2026-10-04T12:00:00', origin: { page: 'atlas', lesson_id: 'lesson-one' } },
 ]
 
-async function mountLibrary(page, { loadFailure = false, deleteFailure = false, curriculaFailure = false, docxFailure = false } = {}) {
+async function mountLibrary(page, { loadFailure = false, deleteFailure = false, curriculaFailure = false, docxFailure = false, runFailure = false } = {}) {
   let outputs = fixtures.map(item => ({ ...item }))
   const requests = []
   const errors = []
@@ -25,6 +28,11 @@ async function mountLibrary(page, { loadFailure = false, deleteFailure = false, 
     requests.push({ path, method: request.method(), headers: request.headers() })
     const account = request.headers().authorization
     let data
+    if (path.endsWith('/run')) {
+      return route.fulfill({ status: runFailure ? 404 : 200, contentType: 'application/json', body: JSON.stringify(runFailure
+        ? { error: 'Recorded run is unavailable for your account.' }
+        : { status: 'ok', task: { id: 'task-parser', status: 'failed', details: { trace_id: 'trace-parser' } }, saved_history: null, notice: 'Recorded state only. Run success does not verify code safety.' }) })
+    }
     if (path.startsWith('/api/download-docx/')) {
       return route.fulfill({ status: docxFailure ? 404 : 200, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', body: Buffer.from(docxFailure ? 'Expired' : 'test-only-document') })
     }
@@ -90,6 +98,33 @@ test('categories, combined filters and legacy status organize real saved items',
   expect(errors).toEqual([])
 })
 
+test('artifact provenance shows recorded lineage, previous revisions and the actual failed task', async ({ page }) => {
+  const { requests, errors } = await mountLibrary(page)
+  await page.getByLabel('Search artifacts').fill('alice/parser')
+  const patch = page.getByRole('article', { name: 'Parser patch' })
+  await expect(page.getByRole('article')).toHaveCount(1)
+  await patch.getByText('Provenance and recorded evidence', { exact: true }).click()
+  await expect(patch).toContainText('base sha: ' + 'a'.repeat(40))
+  await expect(patch).toContainText('not an approval to apply code')
+  await patch.getByText('Recorded verification', { exact: true }).click()
+  await expect(patch).toContainText('"passed": true')
+  await patch.getByText('Previous revisions (1)', { exact: true }).click()
+  await patch.getByText('Revision 1 - Original patch', { exact: true }).click()
+  await expect(patch).toContainText('Earlier patch proposal.')
+  await patch.getByRole('button', { name: 'View recorded run', exact: true }).click()
+  await expect(patch.getByRole('region', { name: 'Recorded run' })).toContainText('Task: task-parser - failed')
+  expect(requests.some(request => request.path === '/api/workspace/artifacts/code/run')).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('missing recorded runs stay explicit without erasing the saved artifact', async ({ page }) => {
+  await mountLibrary(page, { runFailure: true })
+  const patch = page.getByRole('article', { name: 'Parser patch' })
+  await patch.getByRole('button', { name: 'View recorded run', exact: true }).click()
+  await expect(patch.getByRole('alert')).toContainText('unavailable for your account')
+  await expect(patch).toContainText('A proposal, not applied.')
+})
+
 test('curricula stay previewable and exportable without destructive library actions', async ({ page }) => {
   const { requests } = await mountLibrary(page)
   await page.getByRole('button', { name: 'Curricula (1)', exact: true }).click()
@@ -152,6 +187,11 @@ test('partial curriculum and document errors remain explicit', async ({ page }) 
 test('portrait filters fit and account changes discard previous private records', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await mountLibrary(page)
+  const patch = page.getByRole('article', { name: 'Parser patch' })
+  await patch.getByText('Provenance and recorded evidence', { exact: true }).click()
+  await patch.getByText('Recorded verification', { exact: true }).click()
+  await patch.getByRole('button', { name: 'View recorded run', exact: true }).click()
+  await expect(patch.getByRole('region', { name: 'Recorded run' })).toContainText('task-parser')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.evaluate(() => globalThis.changeArtifactAccount())
   await expect(page.getByRole('article')).toHaveCount(0)

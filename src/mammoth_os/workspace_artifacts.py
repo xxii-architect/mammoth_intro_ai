@@ -60,4 +60,53 @@ def artifact_metadata(raw: dict[str, Any]) -> dict[str, Any]:
         "artifact_type": artifact_type, "category": category, "artifact_status": status,
         "agent_id": str(raw.get("agent_id") or meta.get("agent_id") or "").strip(),
         "origin": safe_origin, "docx_filename": filename,
+        **artifact_lineage(raw),
     }
+
+
+def artifact_lineage(raw: dict[str, Any]) -> dict[str, Any]:
+    meta = raw.get("meta") if isinstance(raw.get("meta"), dict) else {}
+    lineage = raw.get("lineage") if isinstance(raw.get("lineage"), dict) else meta.get("lineage")
+    lineage = lineage if isinstance(lineage, dict) else {}
+    recorded = {}
+    for key in ("repo", "branch", "base_sha", "source_id"):
+        value = lineage.get(key)
+        if isinstance(value, str) and value.strip():
+            recorded[key] = value.strip()[:200]
+    quality = raw.get("quality") if isinstance(raw.get("quality"), dict) else meta.get("quality")
+    verification = raw.get("verification") if isinstance(raw.get("verification"), dict) else meta.get("verification")
+    revision = raw.get("revision")
+    revisions = raw.get("revisions")
+    return {
+        "lineage": recorded,
+        "quality": quality if isinstance(quality, dict) else {},
+        "verification": verification if isinstance(verification, dict) else {},
+        "revision": revision if type(revision) is int and revision > 0 else 1,
+        "revisions": [
+            {key: item[key] for key in (
+                "revision", "title", "body", "format", "created_at", "updated_at",
+                "artifact_status", "origin", "lineage", "quality", "verification",
+            ) if key in item}
+            for item in revisions[-10:] if isinstance(item, dict) and isinstance(item.get("body"), str)
+        ] if isinstance(revisions, list) else [],
+        "updated_at": str(raw.get("updated_at") or raw.get("created_at") or ""),
+    }
+
+
+def record_artifact_revision(artifact: dict[str, Any], previous: dict[str, Any] | None, *, now: str) -> dict[str, Any]:
+    """Keep ten previous snapshots; revisions are assigned by the save operation."""
+    record = dict(artifact)
+    record["revision"] = previous["revision"] if previous else 1
+    record["revisions"] = list(previous.get("revisions") or []) if previous else []
+    record["updated_at"] = now
+    if previous:
+        record["created_at"] = previous["created_at"]
+        fields = (
+            "title", "summary", "body", "format", "artifact_status", "origin",
+            "lineage", "quality", "verification", "agent_id", "artifact_type", "docx_filename",
+        )
+        if any(record.get(key) != previous.get(key) for key in fields):
+            snapshot = {key: value for key, value in previous.items() if key not in {"revisions", "meta"}}
+            record["revisions"] = [*record["revisions"], snapshot][-10:]
+            record["revision"] += 1
+    return record

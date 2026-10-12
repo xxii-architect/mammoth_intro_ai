@@ -1,5 +1,7 @@
 import asyncio
 
+import pytest
+
 import api_server
 import mammoth_os.llm_client as llm_client_mod
 
@@ -455,6 +457,24 @@ def test_collect_repo_context_resolves_file_hint_when_no_explicit_files(monkeypa
     assert snapshot["snippets"]
     assert snapshot["snippets"][0]["status"] == "ok"
     assert snapshot["snippets"][0]["path"] == "src/mammoth_os/atlas_session.py"
+
+
+@pytest.mark.parametrize("git_output", ["a" * 40, "", "not-a-revision"])
+def test_repo_snapshot_records_only_observed_base_sha(monkeypatch, git_output):
+    calls = []
+    def fake_git(args, **kwargs):
+        calls.append(args)
+        return {"status": "ok", "stdout": git_output, "stderr": ""}
+    monkeypatch.setattr(api_server, "_run_git_command", fake_git)
+    snapshot = api_server._collect_repo_context_snapshot({
+        "root": str(api_server.ROOT), "branch": "selected-branch", "files": [], "query": "",
+        "requested_root": "platform", "include_git_status": False,
+    })
+    assert calls == [["rev-parse", "--verify", "--end-of-options", "selected-branch^{commit}"]]
+    assert snapshot.get("base_sha", "") == (git_output if len(git_output) == 40 else "")
+    calls.clear()
+    assert api_server._collect_repo_context_snapshot({}) == {}
+    assert calls == []
 
 
 def test_mammoth_chat_response_includes_dynamic_trust_metadata(monkeypatch):

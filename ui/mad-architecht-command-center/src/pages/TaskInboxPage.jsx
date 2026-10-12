@@ -10,14 +10,19 @@ const STATUS_LABELS = {
   pending_approval: 'Pending approval',
   completed: 'Completed',
   failed: 'Failed',
+  planned: 'Planned',
+  partial: 'Partial',
+  unknown: 'Unknown',
 }
 
 function normalizeStatus(value) {
   const raw = String(value || '').trim().toLowerCase()
-  if (['active', 'running', 'queued', 'in_progress', 'complete', 'completed', 'pending_approval', 'failed'].includes(raw)) {
+  if (raw === 'ok') return 'complete'
+  if (raw === 'error') return 'failed'
+  if (Object.hasOwn(STATUS_LABELS, raw) || raw === 'running') {
     return raw === 'running' ? 'active' : raw === 'completed' ? 'complete' : raw
   }
-  return 'queued'
+  return 'unknown'
 }
 
 function isClosedStatus(status) {
@@ -34,10 +39,11 @@ export default function TaskInboxPage() {
   const [updateError, setUpdateError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [pendingIds, setPendingIds] = useState([])
 
   const loadRemoteCards = async ({ background = false } = {}) => {
     if (!background) setLoading(true)
-    if (!background) setLoadError('')
+    setLoadError('')
     setRefreshing(background)
     try {
       const remote = await api('/tasks')
@@ -70,27 +76,18 @@ export default function TaskInboxPage() {
       method: 'POST',
       body: {
         id: card.id,
-        title: card.title || 'Untitled task',
         status: nextStatus,
-        agent_id: card.agent_id || '',
-        description: card.description || card.prompt || card.reply || '',
-        details: {
-          ...(card.details || {}),
-          source: String(card?.details?.source || 'manual_task_card'),
-          allow_manual_status: true,
-          prompt: card.prompt || '',
-          reply: card.reply || '',
-          task_id: card.task_id || '',
-        },
       },
     })
-    return saved && typeof saved === 'object'
-      ? saved
-      : { ...card, status: nextStatus, updated_at: new Date().toISOString() }
+    if (!saved || Array.isArray(saved) || saved.id !== card.id || saved.status !== nextStatus) {
+      throw new Error('Task API did not confirm the status update. Sync to check the saved state.')
+    }
+    return saved
   }
 
   const bumpStatus = async (card, currentStatus) => {
-    if (!canManuallyMove(card)) return
+    if (!canManuallyMove(card) || pendingIds.includes(card.id)) return
+    setPendingIds(previous => [...previous, card.id])
     setUpdateError('')
     const current = normalizeStatus(currentStatus)
     const nextStatus = current === 'queued' ? 'in_progress' : current === 'in_progress' ? 'complete' : 'queued'
@@ -103,6 +100,8 @@ export default function TaskInboxPage() {
     } catch (cause) {
       setCards((prev) => prev.map((item) => (item.id === card.id ? original : item)))
       setUpdateError(cause.message || 'Task status update failed.')
+    } finally {
+      setPendingIds(previous => previous.filter(id => id !== card.id))
     }
   }
 
@@ -121,6 +120,7 @@ export default function TaskInboxPage() {
           <span style={{ color: 'var(--txt-mut)', fontWeight: 600 }}>backend</span>
           <button
             type="button"
+            disabled={refreshing || loading || pendingIds.length > 0}
             onClick={() => loadRemoteCards({ background: true })}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: 'none', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.68rem', padding: 0 }}
           >
@@ -146,9 +146,9 @@ export default function TaskInboxPage() {
       ) : sorted.length === 0 ? (
         <div className="glass-card-solid" style={{ padding: 28, textAlign: 'center', maxWidth: 760, margin: '0 auto' }}>
           <Sparkles size={28} color="var(--mm-color-system-default)" style={{ marginBottom: 12 }} />
-          <h2 style={{ margin: '0 0 10px', color: 'var(--txt-pri)' }}>No active tasks yet</h2>
+          <h2 style={{ margin: '0 0 10px', color: 'var(--txt-pri)' }}>{loadError ? 'Task inbox unavailable' : 'No active tasks yet'}</h2>
           <p style={{ margin: 0, color: 'var(--txt-sec)', lineHeight: 1.7 }}>
-            Save a task card from Mammoth Mind or create a plan from the chat surface to populate this task inbox.
+            {loadError ? 'Use Sync to retry. Your saved tasks have not been removed.' : 'Save a task card from Mammoth Mind or create a plan from the chat surface to populate this task inbox.'}
           </p>
         </div>
       ) : (
@@ -170,7 +170,7 @@ export default function TaskInboxPage() {
                   </div>
                   <button
                     type="button"
-                    disabled={!statusEditable}
+                    disabled={!statusEditable || pendingIds.includes(card.id) || refreshing}
                     onClick={() => bumpStatus(card, status)}
                     title={statusEditable ? 'Cycle queued → in progress → complete.' : 'Run-backed task status is read-only.'}
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', cursor: statusEditable ? 'pointer' : 'not-allowed', opacity: statusEditable ? 1 : 0.62 }}
@@ -196,11 +196,7 @@ export default function TaskInboxPage() {
                   </div>
                   <div style={{ fontSize: '0.68rem', color: statusTone, fontWeight: 700 }}>
                     {statusEditable
-                      ? ((status === 'complete' || status === 'completed')
-                        ? 'Manual card complete'
-                        : status === 'in_progress'
-                          ? 'Manual card in progress'
-                          : 'Manual card queued')
+                      ? `Manual card ${(STATUS_LABELS[status] || STATUS_LABELS.unknown).toLowerCase()}`
                       : 'Run-backed status'}
                   </div>
                 </div>

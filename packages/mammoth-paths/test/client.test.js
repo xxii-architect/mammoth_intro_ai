@@ -128,6 +128,40 @@ test('rejects non-http base urls', () => {
   assert.throws(() => createPathsClient({ baseUrl: 'ftp://x' }), TypeError)
 })
 
+test('tasks and artifacts preserve route, payload, contract and metering parity', async () => {
+  const artifact = { id: 'patch #1', body: 'Proposal', lineage: { base_sha: 'a'.repeat(40) } }
+  const task = { id: 'card', status: 'in_progress' }
+  const { impl, calls } = fakeFetch({
+    'GET /api/tasks': { body: [task] },
+    'POST /api/tasks': { body: task },
+    'GET /api/workspace/artifacts': { body: { artifacts: [artifact], categories: [] } },
+    'POST /api/workspace/artifacts': { body: { status: 'ok', artifact } },
+    'GET /api/workspace/artifacts/patch%20%231/run': { body: { status: 'ok', task } },
+    'DELETE /api/workspace/artifacts/patch%20%231': { body: { status: 'ok', removed: true } },
+    'DELETE /api/workspace/artifacts': { body: { status: 'ok', cleared: 1 } },
+  })
+  const usage = []
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl, token: 'test-only', usageHook: u => usage.push(u) })
+  assert.deepEqual(await client.listTasks(), [task])
+  assert.deepEqual(await client.saveTask(task), task)
+  assert.deepEqual((await client.listArtifacts()).artifacts, [artifact])
+  assert.deepEqual((await client.saveArtifact(artifact)).artifact, artifact)
+  assert.deepEqual((await client.getArtifactRun(artifact.id)).task, task)
+  assert.equal((await client.deleteArtifact(artifact.id)).removed, true)
+  assert.equal((await client.clearArtifacts()).cleared, 1)
+  assert.deepEqual(calls.map(call => `${call.init.method} ${call.pathname}`), [
+    'GET /api/tasks', 'POST /api/tasks', 'GET /api/workspace/artifacts', 'POST /api/workspace/artifacts',
+    'GET /api/workspace/artifacts/patch%20%231/run', 'DELETE /api/workspace/artifacts/patch%20%231', 'DELETE /api/workspace/artifacts',
+  ])
+  assert.deepEqual(calls[1].body, task)
+  assert.deepEqual(calls[3].body, artifact)
+  assert.deepEqual(usage.map(item => item.surface), ['tasks', 'tasks', ...Array(5).fill('artifacts')])
+  assert.ok(calls.every(call => call.init.headers['X-Mammoth-Contract'] === 'mammoth.paths.v1'))
+  const failing = fakeFetch({ 'POST /api/tasks': { status: 409, body: { status: 'error', error: 'Run-backed tasks are read-only.' } } })
+  await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: failing.impl }).saveTask(task),
+    error => error instanceof PathsError && error.status === 409)
+})
+
 test('partial and failed outcomes retain continuation state and diagnostics', () => {
   let run = reduceRunEvent(null, ev(1, 'model.completed', { finish_reason: 'length', usage: { total_tokens: 12 } }))
   run = reduceRunEvent(run, ev(2, 'run.partial', { reply: 'Saved', code: 'step_limit', can_continue: true }))

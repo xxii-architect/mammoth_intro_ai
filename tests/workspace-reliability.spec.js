@@ -18,7 +18,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
       const body = response === undefined ? {} : response
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
     }
-    if (configured && typeof configured === 'object' && ('status' in configured || 'contentType' in configured || 'body' in configured)) {
+    if (configured && typeof configured === 'object' && (typeof configured.status === 'number' || 'contentType' in configured || 'body' in configured)) {
       return route.fulfill(configured)
     }
     const result = configured || (path.endsWith('/capabilities')
@@ -428,5 +428,39 @@ test('task inbox surfaces backend failures instead of local success fallbacks', 
     },
   })
   await expect(page.getByRole('alert')).toContainText('Task API unavailable')
-  await expect(page.getByText('No active tasks yet')).toBeVisible()
+  await expect(page.getByText('Task inbox unavailable', { exact: true })).toBeVisible()
+})
+
+for (const invalidResponse of [false, true]) {
+  test(`task inbox rolls back failed or invalid writes (${invalidResponse}) without overwriting card details`, async ({ page }) => {
+    let posted
+    await mount(page, 'pages/TaskInboxPage', {
+      '/api/tasks': request => {
+        if (request.method() === 'POST') {
+          posted = JSON.parse(request.postData())
+          return invalidResponse ? { unrelated: 'response' } : { status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Write unavailable' }) }
+        }
+        return [{ id: 'manual', title: 'Original card', status: 'queued', status_editable: true, details: { prompt: 'Preserve me' } }]
+      },
+    })
+    await page.getByRole('button', { name: 'Queued', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText(invalidResponse ? 'did not confirm' : 'Write unavailable')
+    await expect(page.getByRole('button', { name: 'Queued', exact: true })).toBeEnabled()
+    expect(posted).toEqual({ id: 'manual', status: 'in_progress' })
+  })
+}
+
+test('task inbox preserves partial and unknown states and clears recovered load errors', async ({ page }) => {
+  let failed = true
+  await mount(page, 'pages/TaskInboxPage', {
+    '/api/tasks': () => failed
+      ? { status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Temporarily unavailable' }) }
+      : [{ id: 'partial', title: 'Partial run', status: 'partial' }, { id: 'unknown', title: 'Old run', status: 'unrecognized' }],
+  })
+  await expect(page.getByRole('alert')).toBeVisible()
+  failed = false
+  await page.getByRole('button', { name: 'Sync', exact: true }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Partial', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Unknown', exact: true })).toBeDisabled()
 })
