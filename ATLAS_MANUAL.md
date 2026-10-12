@@ -52,7 +52,7 @@ This repo has completed the reliability + eval + tutor-outcome + SDK hardening s
 - Agent Console now renders structured coding artifacts (overview/code/tests/docs/diff) with apply/write feedback.
 - Run History replay now preserves backend-linked metadata (`task_id`, `trace_id`, runtime adapter/model).
 - FAB chat responses can be saved directly into Artifact Library records (`.md` or `.txt`).
-- Task Inbox provides a lightweight queue for follow-through on workflow cards.
+- Task Inbox provides a lightweight queue for follow-through on workflow cards; load/update failures are shown directly, and run-backed task statuses stay read-only while manual cards remain editable.
 - Internet commands are available in chat:
   - `/research <query>`
   - `/web <url>`

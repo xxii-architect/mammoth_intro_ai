@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, Clock3, ListTodo, RefreshCw, Sparkles } from 'lucide-react'
 import { api } from '../api/client'
 
-const STORAGE_KEY = 'mammoth_chat_task_cards_v1'
-
 const STATUS_LABELS = {
   queued: 'Queued',
   in_progress: 'In progress',
@@ -22,42 +20,35 @@ function normalizeStatus(value) {
   return 'queued'
 }
 
-function loadCards() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
+function isClosedStatus(status) {
+  return ['complete', 'completed', 'failed'].includes(normalizeStatus(status))
+}
+
+function canManuallyMove(card) {
+  return card?.status_editable === true
 }
 
 export default function TaskInboxPage() {
-  const [cards, setCards] = useState(() => loadCards())
-  const [source, setSource] = useState('local')
+  const [cards, setCards] = useState([])
+  const [loadError, setLoadError] = useState('')
+  const [updateError, setUpdateError] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cards))
-  }, [cards])
-
   const loadRemoteCards = async ({ background = false } = {}) => {
     if (!background) setLoading(true)
+    if (!background) setLoadError('')
     setRefreshing(background)
     try {
       const remote = await api('/tasks')
       if (Array.isArray(remote)) {
         setCards(remote)
-        setSource('backend')
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(remote))
         return
       }
       throw new Error('tasks response was not an array')
-    } catch {
-      setCards(loadCards())
-      setSource('local')
+    } catch (cause) {
+      if (!background) setCards([])
+      setLoadError(cause.message || 'Task inbox is unavailable right now.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -72,45 +63,46 @@ export default function TaskInboxPage() {
     () => [...cards].sort((a, b) => new Date(b.updated_at || b.created_at || 0) - new Date(a.updated_at || a.created_at || 0)),
     [cards],
   )
+  const openCount = useMemo(() => sorted.filter(card => !isClosedStatus(card.status)).length, [sorted])
 
   const persistCard = async (card, nextStatus) => {
-    const nextCard = { ...card, status: nextStatus, updated_at: new Date().toISOString() }
-    if (source === 'backend') {
-      const saved = await api('/tasks', {
-        method: 'POST',
-        body: {
-          id: card.id,
-          title: card.title || 'Untitled task',
-          status: nextStatus,
-          agent_id: card.agent_id || '',
-          description: card.description || card.prompt || card.reply || '',
-          details: {
-            ...(card.details || {}),
-            prompt: card.prompt || '',
-            reply: card.reply || '',
-            task_id: card.task_id || '',
-          },
+    const saved = await api('/tasks', {
+      method: 'POST',
+      body: {
+        id: card.id,
+        title: card.title || 'Untitled task',
+        status: nextStatus,
+        agent_id: card.agent_id || '',
+        description: card.description || card.prompt || card.reply || '',
+        details: {
+          ...(card.details || {}),
+          source: String(card?.details?.source || 'manual_task_card'),
+          allow_manual_status: true,
+          prompt: card.prompt || '',
+          reply: card.reply || '',
+          task_id: card.task_id || '',
         },
-      })
-      return saved && typeof saved === 'object' ? saved : nextCard
-    }
-    return nextCard
+      },
+    })
+    return saved && typeof saved === 'object'
+      ? saved
+      : { ...card, status: nextStatus, updated_at: new Date().toISOString() }
   }
 
   const bumpStatus = async (card, currentStatus) => {
+    if (!canManuallyMove(card)) return
+    setUpdateError('')
     const current = normalizeStatus(currentStatus)
     const nextStatus = current === 'queued' ? 'in_progress' : current === 'in_progress' ? 'complete' : 'queued'
     const optimistic = { ...card, status: nextStatus, updated_at: new Date().toISOString() }
+    const original = card
     setCards((prev) => prev.map((item) => (item.id === card.id ? optimistic : item)))
     try {
       const saved = await persistCard(card, nextStatus)
       setCards((prev) => prev.map((item) => (item.id === card.id ? { ...item, ...saved } : item)))
-    } catch {
-      setSource('local')
-      setCards((prev) => {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(prev))
-        return prev
-      })
+    } catch (cause) {
+      setCards((prev) => prev.map((item) => (item.id === card.id ? original : item)))
+      setUpdateError(cause.message || 'Task status update failed.')
     }
   }
 
@@ -125,8 +117,8 @@ export default function TaskInboxPage() {
         </div>
         <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 999, background: 'rgba(37, 99, 235, 0.1)', border: '1px solid rgba(96, 165, 250, 0.2)', color: 'var(--photon)', fontSize: '0.72rem', fontWeight: 700 }}>
           <ListTodo size={14} />
-          {sorted.length} queued
-          <span style={{ color: 'var(--txt-mut)', fontWeight: 600 }}>{source}</span>
+          {openCount} open
+          <span style={{ color: 'var(--txt-mut)', fontWeight: 600 }}>backend</span>
           <button
             type="button"
             onClick={() => loadRemoteCards({ background: true })}
@@ -137,6 +129,17 @@ export default function TaskInboxPage() {
           </button>
         </div>
       </div>
+
+      {loadError && (
+        <div role="alert" style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(248,113,113,0.34)', background: 'rgba(248,113,113,0.1)', color: '#fca5a5', fontSize: '0.8rem' }}>
+          {loadError}
+        </div>
+      )}
+      {updateError && (
+        <div role="alert" style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(245,185,66,0.34)', background: 'rgba(245,185,66,0.1)', color: '#fcd34d', fontSize: '0.8rem' }}>
+          {updateError}
+        </div>
+      )}
 
       {loading ? (
         <div style={{ color: 'var(--txt-mut)', fontSize: '0.9rem' }}>Loading task inbox…</div>
@@ -152,7 +155,8 @@ export default function TaskInboxPage() {
         <div style={{ display: 'grid', gap: 14 }}>
           {sorted.map((card) => {
             const status = normalizeStatus(card.status)
-            const statusTone = status === 'complete' ? '#16a34a' : status === 'pending_approval' ? '#f59e0b' : status === 'failed' ? '#f87171' : '#60a5fa'
+            const statusTone = (status === 'complete' || status === 'completed') ? '#16a34a' : status === 'pending_approval' ? '#f59e0b' : status === 'failed' ? '#f87171' : '#60a5fa'
+            const statusEditable = canManuallyMove(card)
             const taskDetails = card.details && typeof card.details === 'object' ? card.details : {}
 
             return (
@@ -166,10 +170,12 @@ export default function TaskInboxPage() {
                   </div>
                   <button
                     type="button"
+                    disabled={!statusEditable}
                     onClick={() => bumpStatus(card, status)}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', cursor: 'pointer' }}
+                    title={statusEditable ? 'Cycle queued → in progress → complete.' : 'Run-backed task status is read-only.'}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-pri)', cursor: statusEditable ? 'pointer' : 'not-allowed', opacity: statusEditable ? 1 : 0.62 }}
                   >
-                    {status === 'complete' ? <CheckCircle2 size={14} color={statusTone} /> : <Clock3 size={14} color={statusTone} />}
+                    {(status === 'complete' || status === 'completed') ? <CheckCircle2 size={14} color={statusTone} /> : <Clock3 size={14} color={statusTone} />}
                     {STATUS_LABELS[status] || 'Queued'}
                   </button>
                 </div>
@@ -186,10 +192,16 @@ export default function TaskInboxPage() {
 
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
                   <div style={{ fontSize: '0.68rem', color: 'var(--txt-mut)' }}>
-                    {card.task_id ? `task: ${card.task_id}` : 'local task'}
+                    {card.task_id ? `task: ${card.task_id}` : `task: ${card.id}`}
                   </div>
                   <div style={{ fontSize: '0.68rem', color: statusTone, fontWeight: 700 }}>
-                    {status === 'complete' ? 'Done' : status === 'in_progress' ? 'Actively moving' : 'Waiting'}
+                    {statusEditable
+                      ? ((status === 'complete' || status === 'completed')
+                        ? 'Manual card complete'
+                        : status === 'in_progress'
+                          ? 'Manual card in progress'
+                          : 'Manual card queued')
+                      : 'Run-backed status'}
                   </div>
                 </div>
               </div>

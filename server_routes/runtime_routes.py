@@ -510,17 +510,40 @@ async def upsert_task(body: Dict[str, Any]):
     if blocked is not None:
         return blocked
     task_id = str(body.get("id") or "").strip() or f"task-{uuid.uuid4().hex[:8]}"
+    tasks = [item for item in _load_tasks() if isinstance(item, dict)]
+    existing = next((t for t in tasks if t.get("id") == task_id), None)
     if not _request_is_admin():
-        existing = next((t for t in _load_tasks() if isinstance(t, dict) and t.get("id") == task_id), None)
         if existing is not None and str(existing.get("owner_id") or "") != _current_request_user_id(""):
             return JSONResponse({"status": "error", "error": "Task not found."}, status_code=404)
+    allowed_statuses = {
+        "queued", "in_progress", "complete", "active", "pending_approval", "completed",
+        "failed", "planned", "partial", "ok", "error",
+    }
+    requested_status = str(body.get("status") or (existing.get("status") if existing else "queued")).strip().lower()
+    if requested_status not in allowed_statuses:
+        return JSONResponse({"status": "error", "error": f"Unsupported task status: {requested_status}."}, status_code=400)
+    if existing is not None and requested_status != str(existing.get("status") or "").strip().lower() and not _task_status_editable(existing):
+        return JSONResponse(
+            {"status": "error", "error": "Run-backed task status is read-only. Track progress from the run timeline."},
+            status_code=409,
+        )
+    existing_details = existing.get("details") if isinstance((existing or {}).get("details"), dict) else {}
+    incoming_details = body.get("details") if isinstance(body.get("details"), dict) else {}
+    details = {**existing_details, **incoming_details}
+    if (not existing) and not str(details.get("source") or "").strip():
+        details["source"] = "manual_task_card"
+    if str(details.get("source") or "").strip().lower() in _MANUAL_TASK_SOURCES:
+        details["allow_manual_status"] = True
+    title = str(body.get("title") or (existing.get("title") if existing else "Untitled task"))
+    description = str(body.get("description") or (existing.get("description") if existing else ""))
+    agent_id = str(body.get("agent_id") or (existing.get("agent_id") if existing else ""))
     return _upsert_task(
         task_id,
-        str(body.get("title", "Untitled task")),
-        status=str(body.get("status", "queued") or "queued"),
-        agent_id=str(body.get("agent_id", "") or ""),
-        description=str(body.get("description", "") or ""),
-        details=body.get("details") or {},
+        title.strip() or "Untitled task",
+        status=requested_status,
+        agent_id=agent_id,
+        description=description,
+        details=details,
     )
 
 @app.get("/api/observability/runs")

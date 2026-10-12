@@ -240,7 +240,8 @@ def test_api_forces_browser_sandbox(capture_dispatch, monkeypatch, is_admin):
 def task_store(monkeypatch, tmp_path):
     tasks_file = tmp_path / "tasks.json"
     tasks_file.write_text(
-        '[{"id": "plan-mine", "title": "plan+execute run", "owner_id": "tenant-user", "details": {}},'
+        '[{"id": "plan-mine", "title": "plan+execute run", "owner_id": "tenant-user", "status": "active", "details": {"source": "agent_run"}},'
+        ' {"id": "manual-mine", "title": "manual card", "owner_id": "tenant-user", "status": "queued", "details": {"source": "manual_task_card", "allow_manual_status": true}},'
         ' {"id": "plan-other", "title": "plan+execute run", "owner_id": "other-user", "details": {}},'
         ' {"id": "legacy", "title": "legacy task", "details": {}}]',
         encoding="utf-8",
@@ -262,10 +263,10 @@ def test_observability_runs_scoped(task_store, monkeypatch, is_admin):
         _reset(tokens)
     run_ids = {run["run_id"] for run in result["runs"]}
     if is_admin:
-        assert run_ids == {"plan-mine", "plan-other", "legacy"}
+        assert run_ids == {"plan-mine", "manual-mine", "plan-other", "legacy"}
         assert result["activities"] and result["approvals"] and result["snapshots"]
     else:
-        assert run_ids == {"plan-mine"}
+        assert run_ids == {"plan-mine", "manual-mine"}
         assert result["activities"] == [] and result["approvals"] == [] and result["snapshots"] == []
 
 
@@ -275,7 +276,7 @@ def test_autonomous_runs_scoped_for_non_admin(task_store, monkeypatch):
         visible = api_server._visible_tasks()
     finally:
         _reset(tokens)
-    assert [task["id"] for task in visible] == ["plan-mine"]
+    assert [task["id"] for task in visible] == ["plan-mine", "manual-mine"]
 
 
 def test_upsert_task_stamps_and_preserves_owner(task_store, monkeypatch):
@@ -297,7 +298,11 @@ def test_task_inbox_lists_only_own_tasks(task_store, monkeypatch, is_admin):
     finally:
         _reset(tokens)
     ids = {task["id"] for task in result}
-    assert ids == ({"plan-mine", "plan-other", "legacy"} if is_admin else {"plan-mine"})
+    assert ids == ({"plan-mine", "manual-mine", "plan-other", "legacy"} if is_admin else {"plan-mine", "manual-mine"})
+    manual = next(task for task in result if task["id"] == "manual-mine")
+    assert manual["status_editable"] is True and manual["status_origin"] == "manual"
+    run_backed = next(task for task in result if task["id"] == "plan-mine")
+    assert run_backed["status_editable"] is False and run_backed["status_origin"] == "run"
 
 
 def test_task_inbox_cannot_edit_foreign_task(task_store, monkeypatch):
@@ -305,13 +310,35 @@ def test_task_inbox_cannot_edit_foreign_task(task_store, monkeypatch):
     try:
         foreign = asyncio.run(api_server.upsert_task({"id": "plan-other", "title": "hijack", "status": "complete"}))
         legacy = asyncio.run(api_server.upsert_task({"id": "legacy", "title": "hijack"}))
-        own = asyncio.run(api_server.upsert_task({"id": "plan-mine", "title": "mine", "status": "complete"}))
+        own = asyncio.run(api_server.upsert_task({"id": "manual-mine", "title": "mine", "status": "complete"}))
     finally:
         _reset(tokens)
     assert foreign.status_code == 404 and legacy.status_code == 404
     assert own["status"] == "complete" and own["owner_id"] == "tenant-user"
     stored = {task["id"]: task for task in api_server._load_tasks()}
     assert stored["plan-other"]["title"] == "plan+execute run"
+
+
+def test_task_inbox_cannot_override_run_backed_status(task_store, monkeypatch):
+    tokens = _as_user(monkeypatch, is_admin=False)
+    try:
+        response = asyncio.run(api_server.upsert_task({"id": "plan-mine", "status": "complete"}))
+    finally:
+        _reset(tokens)
+    assert response.status_code == 409
+    assert "read-only" in response.body.decode("utf-8")
+
+
+def test_task_upsert_defaults_new_cards_to_manual_source(task_store, monkeypatch):
+    tokens = _as_user(monkeypatch, is_admin=False)
+    try:
+        created = asyncio.run(api_server.upsert_task({"title": "Inbox card"}))
+    finally:
+        _reset(tokens)
+    details = created.get("details") if isinstance(created.get("details"), dict) else {}
+    assert details.get("source") == "manual_task_card"
+    assert details.get("allow_manual_status") is True
+    assert created["status_editable"] is True
 
 
 def test_task_inbox_rejects_anonymous(task_store, monkeypatch):

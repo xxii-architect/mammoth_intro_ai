@@ -760,6 +760,32 @@ export default function ChatPage({ setPage }) {
     })
   }
 
+  const syncTaskCardToInbox = async (card) => {
+    try {
+      await api('/tasks', {
+        method: 'POST',
+        body: {
+          id: card.id,
+          title: card.title || 'MammothOS task card',
+          status: 'queued',
+          agent_id: card.agent_id || 'assistant',
+          description: card.reply || card.prompt || '',
+          details: {
+            source: 'chat_task_card',
+            allow_manual_status: true,
+            prompt: card.prompt || '',
+            reply: card.reply || '',
+            task_id: card.task_id || '',
+            replay: card.replay || null,
+            evidence_items: Array.isArray(card.evidence_items) ? card.evidence_items : [],
+          },
+        },
+      })
+    } catch {
+      // Keep local task cards available even when the inbox API is unavailable.
+    }
+  }
+
   const saveTaskCardFromEntry = (entry, extras = {}) => {
     if (!entry) return
     const card = {
@@ -776,6 +802,7 @@ export default function ChatPage({ setPage }) {
       status: 'queued',
     }
     persistTaskCards((prev) => [card, ...prev].slice(0, 20))
+    void syncTaskCardToInbox(card)
   }
 
   const loadTaskCard = (card) => {

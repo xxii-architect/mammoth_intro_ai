@@ -1784,6 +1784,31 @@ def _save_tasks(tasks: List[Dict[str, Any]]):
     _write_json(TASKS_FILE, tasks)
 
 
+_MANUAL_TASK_SOURCES = {"manual_task_card", "chat_task_card"}
+
+
+def _task_source(task: Dict[str, Any]) -> str:
+    details = task.get("details") if isinstance(task.get("details"), dict) else {}
+    return str(details.get("source") or "").strip().lower()
+
+
+def _task_status_editable(task: Dict[str, Any]) -> bool:
+    details = task.get("details") if isinstance(task.get("details"), dict) else {}
+    if details.get("allow_manual_status") is True:
+        return True
+    return _task_source(task) in _MANUAL_TASK_SOURCES
+
+
+def _task_origin(task: Dict[str, Any]) -> str:
+    return "manual" if _task_status_editable(task) else "run"
+
+
+def _decorate_task(task: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(task, dict):
+        return {}
+    return {**task, "status_editable": _task_status_editable(task), "status_origin": _task_origin(task)}
+
+
 def _upsert_task(task_id: str, title: str, *, status: str = "queued", agent_id: str = "", description: str = "", details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     tasks = _load_tasks()
     now = datetime.now(timezone.utc).isoformat()
@@ -1804,7 +1829,7 @@ def _upsert_task(task_id: str, title: str, *, status: str = "queued", agent_id: 
         tasks = [t for t in tasks if t.get("id") != task_id]
     tasks.append(task)
     _save_tasks(tasks)
-    return task
+    return _decorate_task(task)
 
 
 def _visible_tasks() -> List[Dict[str, Any]]:
@@ -1812,11 +1837,11 @@ def _visible_tasks() -> List[Dict[str, Any]]:
     Legacy tasks without an ``owner_id`` stay admin-only."""
     tasks = [item for item in _load_tasks() if isinstance(item, dict)]
     if _request_is_admin():
-        return tasks
+        return [_decorate_task(task) for task in tasks]
     user_id = _current_request_user_id("")
     if not user_id or user_id == "anonymous":
         return []
-    return [task for task in tasks if str(task.get("owner_id") or "") == user_id]
+    return [_decorate_task(task) for task in tasks if str(task.get("owner_id") or "") == user_id]
 
 
 _DOC_OWNERS_LOCK = threading.Lock()

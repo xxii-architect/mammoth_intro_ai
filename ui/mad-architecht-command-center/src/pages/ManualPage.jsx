@@ -151,7 +151,7 @@ const repoContextRules = [
   },
   {
     title: 'Your runs, tasks, and artifacts are private',
-    body: 'The Agent Workbench (Pro), Task Inbox, and Artifacts only show items you created. Shared agents run sandboxed for your account: they cannot read the host machine, run host tests, or fetch private-network addresses. The Terminal stays owner-only.',
+    body: 'The Agent Workbench (Pro), Task Inbox, and Artifacts only show items you created. Task Inbox reads backend state directly, surfaces load/update failures instead of local success fallbacks, and keeps run-backed task statuses read-only while manual cards remain editable. Shared agents run sandboxed for your account: they cannot read the host machine, run host tests, or fetch private-network addresses. The Terminal stays owner-only.',
   },
   {
     title: 'Find and review saved artifacts',

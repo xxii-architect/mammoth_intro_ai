@@ -163,7 +163,7 @@ Details for each are in the sections below and in `ATLAS_MANUAL.md`.
 - UI story surfaces are now workflow-first:
   - Artifact Library with type categories, search, agent/status/date filters,
     full-text previews and exports, and linked private ATLAS curricula
-  - Task Inbox for queued workflow cards
+  - Task Inbox for queued workflow cards with backend-authoritative loading, explicit failure alerts, and read-only status for run-backed tasks
   - Structured Coding Artifact panel in Agent Console (overview/code/tests/docs/diff)
 - Observability surfaces are now tighter:
   - Run History replay keeps task metadata (`task_id`, `trace_id`) and runtime adapter/model context

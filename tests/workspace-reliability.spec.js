@@ -9,7 +9,19 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
   await page.route(url => url.pathname.startsWith('/api/'), route => {
     const path = new URL(route.request().url()).pathname
-    const result = payloads[path] || (path.endsWith('/capabilities')
+    const configured = payloads[path]
+    if (typeof configured === 'function') {
+      const response = configured(route.request())
+      const isFulfillShape = response && typeof response === 'object'
+        && (typeof response.status === 'number' || Object.prototype.hasOwnProperty.call(response, 'body') || Object.prototype.hasOwnProperty.call(response, 'contentType'))
+      if (isFulfillShape) return route.fulfill(response)
+      const body = response === undefined ? {} : response
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify(body) })
+    }
+    if (configured && typeof configured === 'object' && ('status' in configured || 'contentType' in configured || 'body' in configured)) {
+      return route.fulfill(configured)
+    }
+    const result = configured || (path.endsWith('/capabilities')
       ? { extensions: ['.pdf'], max_file_bytes: 50 * 1048576, max_storage_bytes: 500 * 1048576, usage: {} }
       : {})
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) })
@@ -382,4 +394,39 @@ test('module cards use backend MCP state and explicitly report failed refreshes'
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('Registry unavailable')
   await expect(page.getByText('CodingAgent', { exact: true })).toHaveCount(0)
+})
+
+test('task inbox uses backend truth and keeps run-backed statuses read-only', async ({ page }) => {
+  let status = 'queued'
+  await mount(page, 'pages/TaskInboxPage', {
+    '/api/tasks': (request) => {
+      if (request.method() === 'POST') {
+        const body = JSON.parse(request.postData() || '{}')
+        status = body.status
+        return { id: 'manual-1', title: 'Inbox card', status, status_editable: true, status_origin: 'manual', details: { source: 'manual_task_card' } }
+      }
+      return [
+        { id: 'run-1', title: 'plan+execute run', status: 'pending_approval', status_editable: false, status_origin: 'run', details: { source: 'plan_execute' } },
+        { id: 'manual-1', title: 'Inbox card', status, status_editable: true, status_origin: 'manual', details: { source: 'manual_task_card' } },
+      ]
+    },
+  })
+  await expect(page.getByText('2 open')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Pending approval' })).toBeDisabled()
+  await expect(page.getByText('Run-backed status', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Queued' }).click()
+  await expect(page.getByRole('button', { name: 'In progress' })).toBeVisible()
+  await expect(page.getByText('Manual card in progress', { exact: true })).toBeVisible()
+})
+
+test('task inbox surfaces backend failures instead of local success fallbacks', async ({ page }) => {
+  await mount(page, 'pages/TaskInboxPage', {
+    '/api/tasks': {
+      status: 503,
+      contentType: 'application/json',
+      body: JSON.stringify({ error: 'Task API unavailable' }),
+    },
+  })
+  await expect(page.getByRole('alert')).toContainText('Task API unavailable')
+  await expect(page.getByText('No active tasks yet')).toBeVisible()
 })
