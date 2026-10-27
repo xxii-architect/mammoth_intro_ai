@@ -236,6 +236,7 @@ def test_owner_execution_sdk_explicit_payloads_and_error_preservation(backend):
         ("GET", "/api/owner-executions/capabilities"), ("POST", "/api/owner-executions"),
         ("GET", f"/api/owner-executions/{job_id}"), ("POST", f"/api/owner-executions/{job_id}/approve"),
         ("POST", f"/api/owner-executions/{job_id}/cancel"),
+        ("POST", f"/api/owner-executions/{job_id}/apply"),
     ]:
         backend.route(method, path, body={"status": "ok", "execution": {"id": job_id}})
     client = MammothPaths(backend.url, timeout=300)
@@ -244,10 +245,12 @@ def test_owner_execution_sdk_explicit_payloads_and_error_preservation(backend):
     client.get_owner_execution(job_id)
     client.approve_owner_execution(job_id, repo="owner/repo", approval_digest="c" * 64)
     client.cancel_owner_execution(job_id)
+    client.apply_owner_execution(job_id, repo="owner/repo", approval_digest="d" * 64)
     assert backend.requests[0]["path"].endswith("?repo=owner%2Frepo")
     assert backend.requests[1]["body"] == {"repo_context": {"root": "owner/repo"}, "changes": changes,
                                            "base_sha": "b" * 40, "profile": "python_unittest"}
     assert backend.requests[3]["body"]["approval_digest"] == "c" * 64
+    assert backend.requests[5]["body"]["approval_digest"] == "d" * 64
     backend.route("GET", "/api/owner-executions/capabilities", status=403, body={"error": "Owner only", "code": "admin_required"})
     with pytest.raises(PathsError) as error:
         client.owner_execution_capabilities()

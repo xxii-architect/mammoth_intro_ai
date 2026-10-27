@@ -83,7 +83,8 @@ records. These additions do not change the `mammoth.paths.v1` contract.
 
 `ownerExecutionCapabilities(repo)`, `prepareOwnerExecution(repo, changes,
 {baseSha, profile})`, `getOwnerExecution(id)`, `approveOwnerExecution(id,
-{repo, approvalDigest})`, and `cancelOwnerExecution(id)` preserve backend payloads.
+{repo, approvalDigest})`, `cancelOwnerExecution(id)`, and
+`applyOwnerExecution(id, {repo, approvalDigest})` preserve backend payloads.
 Python has matching snake_case methods. Changes are `{path, content}` full-text
 objects. Profiles: `python_unittest`, `python_pytest`, `node_test`.
 Owner/admin checks and explicit repository access are backend-enforced;
@@ -94,6 +95,16 @@ Query the saved job after a request timeout rather than retrying its approval.
 Uncommitted source is not included. Passing a profile is not independent
 acceptance evidence or permission to apply the patch. Containers share the host
 kernel; see the root README for reviewed-image setup and benchmark limitations.
+
+Application is a separate approval after successful validation with no observed
+regressions. Pass `execution.application.approval_digest`, not the test approval
+digest. It creates a commit on a new local owner branch and never changes the
+selected checkout/index or pushes/merges/deploys. The approval expires after
+15 minutes and is bound to the proposal, image, base and candidate evidence.
+Python exposes `apply_owner_execution(id, repo=..., approval_digest=...)`.
+Query `getOwnerExecution` after transport/storage errors before taking further
+action; restart reconciliation does not automatically retry branch creation.
+Tenant application and paid entitlements are not enabled.
 
 ## Run events
 

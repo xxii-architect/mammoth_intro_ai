@@ -428,6 +428,10 @@ class MammothPaths:
     def cancel_owner_execution(self, execution_id: str) -> Dict[str, Any]:
         return self._json("owner_execution", "POST", f"/owner-executions/{self._seg(execution_id)}/cancel", body={})
 
+    def apply_owner_execution(self, execution_id: str, *, repo: str, approval_digest: str) -> Dict[str, Any]:
+        return self._json("owner_execution", "POST", f"/owner-executions/{self._seg(execution_id)}/apply",
+                          body={"repo_context": {"root": repo}, "approval_digest": approval_digest})
+
     # ── Notes ─────────────────────────────────────────────────────────────
 
     def list_notes(self) -> List[Dict[str, Any]]:

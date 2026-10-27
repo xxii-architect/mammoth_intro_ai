@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Copy, Check, Square, CircleDashed, CheckSquare2 } from 'lucide-react'
 import TraceGlyph from './TraceGlyph'
+import OwnerExecutionReview from './OwnerExecutionReview'
 
 const MONO = 'var(--mm-font-mono, "JetBrains Mono", monospace)'
 
@@ -131,6 +132,10 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
   const steps = useMemo(() => buildSteps(run?.events || []), [run?.events])
   const finished = ['completed', 'failed', 'cancelled', 'partial'].includes(run?.status)
   const [expanded, setExpanded] = useState(null)
+  const [reviewedApproval, setReviewedApproval] = useState(null)
+  const approvalId = run?.approval?.id
+  const markReviewed = useCallback(ready => setReviewedApproval(ready ? approvalId : null), [approvalId])
+  const ownerApproval = ['owner_execution_run', 'owner_execution_apply'].includes(run?.approval?.tool)
   const isOpen = expanded ?? !finished
   if (!run) return null
   const toolCalls = steps.filter((s) => s.tool).length
@@ -197,8 +202,9 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
           <pre style={{ margin: 0, padding: 8, borderRadius: 8, background: 'rgba(0,0,0,0.25)', fontFamily: MONO, fontSize: '0.7rem', color: 'var(--txt-sec)', maxHeight: 160, overflow: 'auto', whiteSpace: 'pre-wrap' }}>
             {JSON.stringify(run.approval.args || {}, null, 2)}
           </pre>
+          {ownerApproval && <OwnerExecutionReview key={approvalId} approval={run.approval} onReady={markReviewed} />}
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" disabled={busy} onClick={onApprove} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: 'var(--mm-color-status-success, #34d399)', color: '#04110b', fontWeight: 700, fontSize: '0.76rem', cursor: busy ? 'not-allowed' : 'pointer' }}>Approve</button>
+            <button type="button" disabled={busy || (ownerApproval && reviewedApproval !== approvalId)} onClick={onApprove} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: 'var(--mm-color-status-success, #34d399)', color: '#04110b', fontWeight: 700, fontSize: '0.76rem', cursor: busy ? 'not-allowed' : 'pointer' }}>{run.approval.tool === 'owner_execution_apply' ? 'Approve changes to new branch' : 'Approve'}</button>
             <button type="button" disabled={busy} onClick={onReject} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: busy ? 'not-allowed' : 'pointer' }}>Reject</button>
           </div>
         </div>

@@ -1813,7 +1813,8 @@ def _decorate_task(task: Dict[str, Any]) -> Dict[str, Any]:
             status = {"validated": "completed", "failed": "failed", "cancelled": "cancelled",
                       "running": "running", "pending_approval": "pending_approval"}[state]
             task = {**task, "status": status, "details": {**task["details"], "execution_status": state,
-                    "failure_code": execution.get("failure_code", ""), "execution_error": execution.get("error", "")}}
+                    "failure_code": execution.get("failure_code", ""), "execution_error": execution.get("error", ""),
+                    "application": execution.get("application", {})}}
         except ExecutionError as exc:
             logger.warning("Owner task execution evidence unavailable for %s: %s", task.get("id"), exc)
             task = {**task, "status": "unknown", "details": {**task["details"], "execution_error": str(exc)}}
@@ -6749,17 +6750,21 @@ def _record_owner_execution_started(job: Dict[str, Any], run_id: str = "") -> No
 
 
 async def _record_owner_execution(job: Dict[str, Any], run_id: str = "") -> None:
+    application = job.get("application", {})
+    applied = application.get("status") == "applied"
     status = "completed" if job["status"] == "validated" else "cancelled" if job["status"] == "cancelled" else "failed"
     _upsert_task(job["id"], "Owner isolated coding validation", status=status, agent_id="coding_agent",
-                 details={"source": "owner_execution", "execution_id": job["id"], "base_sha": job["base_sha"], "run_id": run_id, "trace_id": run_id},
-                 description="Patch remains unapplied. Review baseline/candidate test evidence before applying.")
+                 details={"source": "owner_execution", "execution_id": job["id"], "base_sha": job["base_sha"],
+                          "run_id": run_id, "trace_id": run_id, "application": application},
+                 description="Applied to a new local owner branch; selected checkout and remote unchanged." if applied else
+                             "Patch remains unapplied. Review baseline/candidate test evidence before applying.")
     artifact = await create_workspace_artifact({
         "id": job["id"], "title": "Owner isolated coding validation", "body": job["patch"],
         "artifact_type": "patch_proposal", "artifact_status": "failed" if job["status"] == "failed" else "draft", "agent_id": "coding_agent",
         "origin": {"page": "agent", "task_id": job["id"], "trace_id": run_id}, "format": "diff",
-        "lineage": {"repo": job["repo"], "base_sha": job["base_sha"]},
+        "lineage": {"repo": job["repo"], "base_sha": job["base_sha"], "branch": application.get("branch", "") if applied else ""},
         "verification": {"baseline": job.get("baseline", {}), "candidate": job.get("candidate", {}),
-                         "execution_status": job["status"], "regression": job.get("regression")},
+                         "execution_status": job["status"], "regression": job.get("regression"), "application": application},
         "quality": {"ready": False, "tests_are_independent": False},
     })
     if not isinstance(artifact, dict) or artifact.get("status") != "ok":
@@ -6767,6 +6772,11 @@ async def _record_owner_execution(job: Dict[str, Any], run_id: str = "") -> None
     _append_activity("Owner isolated validation finished", agent_id="coding_agent", task_id=job["id"],
                      kind="task_completed" if job["status"] == "validated" else "task_cancelled" if job["status"] == "cancelled" else "task_failed",
                      details={"status": job["status"], "run_id": run_id})
+    if applied:
+        _append_activity("Owner-approved changes applied to local branch", agent_id="coding_agent", task_id=job["id"],
+                         kind="patch_applied", details={"branch": application["branch"], "commit_sha": application["commit_sha"],
+                         "approval_digest": application["approval_digest"], "approved_at": application["approved_at"],
+                         "automatic_push": False})
 
 
 from mammoth_os.owner_execution import ContainerExecutor, OwnerExecution, ExecutionError

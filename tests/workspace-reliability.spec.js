@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
-async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '', repo = '' } = {}) {
+async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '', repo = '', runOverride = null } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
@@ -27,7 +27,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) })
   })
   await page.goto(baseURL)
-  await page.evaluate(async ({ component, authFailure, stalledAuth, savedTheme, repo }) => {
+  await page.evaluate(async ({ component, authFailure, stalledAuth, savedTheme, repo, runOverride }) => {
     const { supabase } = await import('/src/lib/supabase.js')
     let attempts = 0
     supabase.auth.getSession = async () => {
@@ -63,16 +63,18 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
       : component === 'components/agent-workspace/AgentWorkspace' ? { agents: [], temperature: 0.3, approvalMode: true }
       : component === 'components/AgentCommandLibrary' ? { onClose() {} }
       : component === 'components/RunTimeline' ? {
-        run: { id: 'run-test', status: 'partial', can_continue: true, events: [], plan: [], diagnostics: [
+        run: runOverride || { id: 'run-test', status: 'partial', can_continue: true, events: [], plan: [], diagnostics: [
           { provider: 'test-provider', model: 'test-model', finish_reason: 'length', decision_protocol: 'json_schema', usage: { total_tokens: 42 } },
         ] },
         onContinue() { globalThis.continuationClicks = (globalThis.continuationClicks || 0) + 1 },
+        onApprove() { globalThis.ownerApprovalClicks = (globalThis.ownerApprovalClicks || 0) + 1 },
+        onReject() { globalThis.ownerRejectionClicks = (globalThis.ownerRejectionClicks || 0) + 1 },
       } : {}
     document.body.innerHTML = '<div id="root"></div>'
     ReactDOM.createRoot(document.getElementById('root')).render(
       React.createElement(Boundary, null, React.createElement(AuthProvider, null, React.createElement(View, props))),
     )
-  }, { component, authFailure, stalledAuth, savedTheme, repo })
+  }, { component, authFailure, stalledAuth, savedTheme, repo, runOverride })
   return errors
 }
 
@@ -135,6 +137,57 @@ test('owner panel surfaces stale approval and cancels the prepared job', async (
   await expect(page.getByText('cancelled', { exact: true })).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('owner panel applies only after a second approval and shows local branch evidence', async ({ page }) => {
+  const application = { status: 'ready', branch: `mammoth/owner/${ownerJob.id}`, approval_digest: 'c'.repeat(64), expires_at: 1999999999 }
+  let submitted
+  await mount(page, ownerPanel, {
+    '/api/owner-executions/capabilities': ownerCapabilities,
+    '/api/owner-executions': { status: 'ok', execution: ownerJob },
+    [`/api/owner-executions/${ownerJob.id}/approve`]: { status: 'ok', execution: { ...ownerJob, status: 'validated', application } },
+    [`/api/owner-executions/${ownerJob.id}/apply`]: request => {
+      submitted = request.postDataJSON()
+      return { status: 'ok', execution: { ...ownerJob, status: 'validated', application: { ...application, status: 'applied', commit_sha: 'd'.repeat(40) } } }
+    },
+  }, { repo: 'owner/repo' })
+  await page.getByText('Owner isolated validation pilot').click()
+  await page.getByRole('button', { name: 'Prepare proposal' }).click()
+  await expect(page.getByRole('button', { name: 'Approve changes to new branch' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Approve isolated baseline and candidate checks' }).click()
+  await page.getByRole('button', { name: 'Approve changes to new branch' }).click()
+  await expect(page.getByText('applied', { exact: true })).toBeVisible()
+  await expect(page.getByText(/Not pushed or deployed/)).toBeVisible()
+  expect(submitted).toEqual({ repo_context: { root: 'owner/repo' }, approval_digest: application.approval_digest })
+})
+
+for (const evidence of ['valid', 'denied', 'mismatched', 'missing-expiry']) {
+  test(`Mind apply approval loads full patch and fails closed on invalid evidence (${evidence})`, async ({ page }) => {
+    const application = { status: 'ready', branch: `mammoth/owner/${ownerJob.id}`, approval_digest: 'c'.repeat(64), expires_at: 1999999999 }
+    await mount(page, 'components/RunTimeline', {
+      [`/api/owner-executions/${ownerJob.id}`]: evidence === 'denied' ? { status: 403, body: '{"error":"Owner only"}' }
+        : { status: 'ok', execution: { ...ownerJob, status: 'validated',
+          application: { ...application, ...(evidence === 'mismatched' ? { approval_digest: 'wrong' } : {}),
+            ...(evidence === 'missing-expiry' ? { expires_at: null } : {}) },
+          candidate: { passed: true, log: 'Ran fixed checks' } } },
+    }, { runOverride: { id: 'run-test', status: 'awaiting_approval', events: [], plan: [], approval: {
+      id: 'apr-owner', tool: 'owner_execution_apply', tier: 'exec',
+      args: { execution_id: ownerJob.id, approval_digest: application.approval_digest },
+    } } })
+    const approve = page.getByRole('button', { name: 'Approve changes to new branch' })
+    if (evidence !== 'valid') {
+      await expect(page.getByRole('alert')).toContainText(evidence === 'denied' ? 'Owner only' : 'Approval no longer matches')
+      await expect(approve).toBeDisabled()
+      await page.getByRole('button', { name: 'Reject', exact: true }).click()
+      expect(await page.evaluate(() => globalThis.ownerApprovalClicks || 0)).toBe(0)
+    } else {
+      await expect(page.getByRole('region', { name: 'Owner approval evidence' })).toContainText(ownerJob.patch)
+      await expect(page.getByText(/Your selected checkout, remote and production deployment stay unchanged/)).toBeVisible()
+      await expect(approve).toBeEnabled()
+      await approve.click()
+      expect(await page.evaluate(() => globalThis.ownerApprovalClicks)).toBe(1)
+    }
+  })
+}
 
 test('startup import failure displays recovery instead of a black screen', async ({ page }) => {
   await page.route('**/src/App*', route => route.abort())

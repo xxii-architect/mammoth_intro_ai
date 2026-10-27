@@ -710,7 +710,13 @@ pilot. It requires an explicitly selected repository and a frozen, expiring
 approval. Baseline/candidate checks use disposable worktrees and offline,
 non-root, resource-bounded Docker containers. There is no host fallback,
 automatic merge or push. Uncommitted checkout content is not included or changed.
-The preview remains an unapplied draft; repository test success is not independent
+The preview remains an unapplied draft until a separate owner approval creates a
+commit on a new local `mammoth/owner/<execution-id>` branch. The selected checkout,
+HEAD, staged index and remote stay unchanged. Application never merges, pushes or
+deploys. It requires successful validation, no observed regression and a fresh
+application digest; changed HEAD, expired/reused approvals or changed proposals
+are rejected. Mammoth Mind Agent mode and the Coding workspace expose both
+approval steps with recorded patch/test evidence. Repository test success is not independent
 acceptance verification. Cancellation and restart cleanup are job-scoped; failed
 cleanup blocks further owner execution, not the whole platform.
 

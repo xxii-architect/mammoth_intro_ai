@@ -518,7 +518,8 @@ test success, factual accuracy, review approval, or safe-to-apply code.
 
 ## Owner isolated coding validation pilot
 
-This is **opt-in validation, not autonomous repository editing**. Owner/admin
+This is **opt-in validation and separately approved local-branch application,
+not autonomous repository editing**. Owner/admin
 authorization and an explicitly selected repository are checked by the backend.
 Tenants cannot use these routes or tools. Existing tenant edits remain proposals.
 No repository selected means no repository context.
@@ -541,6 +542,23 @@ No repository selected means no repository context.
 - The resulting draft patch, run-backed task and baseline/candidate evidence are
   saved for review through both the direct API and Mammoth Mind tool flow.
   Passing repository tests is **not independent acceptance verification**.
+- After successful validation without observed regressions, a **second approval**
+  can create a commit on `mammoth/owner/<execution-id>` in the selected repository.
+  The selected checkout, HEAD, staged index and uncommitted files stay unchanged.
+  The application uses a private Git index and create-only branch ref, not checkout
+  hooks or repository programs. No merge, push or deployment is performed.
+  The application digest is different from the validation digest and expires
+  after 15 minutes. Changed HEAD/image, modified proposals and reused approvals
+  fail closed. Restart recovery reconciles a recorded branch/commit intent; it
+  never silently retries application or overwrites an existing branch.
+- Mammoth Mind **Agent mode** exposes `owner_execution_status`, `prepare`, `run`
+  and `apply` tools (the latter three use the `owner_execution_` prefix).
+  Ask it to inspect a selected repo, prepare changes, run checks, then apply to a
+  new local branch. Testing and application each pause at their own approval.
+  The approval card loads the full recorded patch and test evidence; unavailable
+  evidence disables approval. The Coding workspace also has a direct second
+  approval button. Application results record branch and commit in artifacts,
+  tasks and activity; a passed test profile never means automatic approval.
 
 Operator setup (backend host, disabled by default):
 
@@ -564,8 +582,15 @@ Mammoth Paths exposes matching owner-only methods:
 `owner_execution_capabilities` / `ownerExecutionCapabilities`,
 `prepare_owner_execution` / `prepareOwnerExecution`,
 `get_owner_execution` / `getOwnerExecution`,
-`approve_owner_execution` / `approveOwnerExecution`, and
-`cancel_owner_execution` / `cancelOwnerExecution`.
+`approve_owner_execution` / `approveOwnerExecution`,
+`cancel_owner_execution` / `cancelOwnerExecution`, and
+`apply_owner_execution` / `applyOwnerExecution`.
+Application accepts `{repo, approvalDigest}` in JS, or keyword `repo` and
+`approval_digest` in Python; use `execution.application.approval_digest`, not
+`execution.approval_digest`. Its `/api/owner-executions/{id}/apply` endpoint is
+owner/admin-only and returns the saved execution, including application state.
+Existing clients and `mammoth.paths.v1` remain compatible. Tenant application and
+paid access are not enabled; future monetization must enforce access on the backend.
 Use a client timeout of at least 300 seconds for the synchronous approval request;
 after a transport timeout, query the saved execution rather than reapprove it.
 

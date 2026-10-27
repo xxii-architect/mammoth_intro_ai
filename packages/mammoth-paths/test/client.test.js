@@ -44,6 +44,7 @@ test('owner execution methods preserve explicit approval payloads and backend de
     ['GET', '/api/owner-executions/capabilities'], ['POST', '/api/owner-executions'],
     ['GET', `/api/owner-executions/${id}`], ['POST', `/api/owner-executions/${id}/approve`],
     ['POST', `/api/owner-executions/${id}/cancel`],
+    ['POST', `/api/owner-executions/${id}/apply`],
   ].map(([method, path]) => [`${method} ${path}`, { body: { status: 'ok', execution: { id } } }]))
   const fetch = fakeFetch(routes)
   const client = createPathsClient({ baseUrl: 'http://localhost', fetch: fetch.impl })
@@ -52,10 +53,12 @@ test('owner execution methods preserve explicit approval payloads and backend de
   await client.getOwnerExecution(id)
   await client.approveOwnerExecution(id, { repo: 'owner/repo', approvalDigest: 'c'.repeat(64) })
   await client.cancelOwnerExecution(id)
+  await client.applyOwnerExecution(id, { repo: 'owner/repo', approvalDigest: 'd'.repeat(64) })
   assert.equal(new URL(fetch.calls[0].url).searchParams.get('repo'), 'owner/repo')
   assert.deepEqual(fetch.calls[1].body.repo_context, { root: 'owner/repo' })
   assert.equal(fetch.calls[1].body.base_sha, 'b'.repeat(40))
   assert.equal(fetch.calls[3].body.approval_digest, 'c'.repeat(64))
+  assert.equal(fetch.calls[5].body.approval_digest, 'd'.repeat(64))
   routes['GET /api/owner-executions/capabilities'] = { status: 403, body: { error: 'Owner only', code: 'admin_required' } }
   await assert.rejects(client.ownerExecutionCapabilities(), error => error instanceof PathsError && error.status === 403)
 })

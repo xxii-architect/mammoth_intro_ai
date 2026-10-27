@@ -125,6 +125,7 @@ export interface PathsClient {
   getOwnerExecution(id: string): Promise<Record<string, unknown>>
   approveOwnerExecution(id: string, options: { repo: string; approvalDigest: string }): Promise<Record<string, unknown>>
   cancelOwnerExecution(id: string): Promise<Record<string, unknown>>
+  applyOwnerExecution(id: string, options: { repo: string; approvalDigest: string }): Promise<Record<string, unknown>>
   listNotes(): Promise<Array<Record<string, unknown>>>
   saveNote(content: string, options?: { title?: string; id?: string; [field: string]: unknown }): Promise<Record<string, unknown>>
   deleteNote(noteId: string): Promise<Record<string, unknown>>

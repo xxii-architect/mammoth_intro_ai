@@ -182,6 +182,8 @@ export function createPathsClient(options = {}) {
     approveOwnerExecution: (id, { repo, approvalDigest }) =>
       json('owner_execution', 'POST', `/owner-executions/${seg(id)}/approve`, { body: { repo_context: { root: repo }, approval_digest: approvalDigest } }),
     cancelOwnerExecution: (id) => json('owner_execution', 'POST', `/owner-executions/${seg(id)}/cancel`, { body: {} }),
+    applyOwnerExecution: (id, { repo, approvalDigest }) =>
+      json('owner_execution', 'POST', `/owner-executions/${seg(id)}/apply`, { body: { repo_context: { root: repo }, approval_digest: approvalDigest } }),
 
     // ── Notes ────────────────────────────────────────────────────────────
     listNotes: () => json('notes', 'GET', '/notes'),

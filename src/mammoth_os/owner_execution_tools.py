@@ -76,6 +76,19 @@ def register_owner_execution_tools(
         except ExecutionError as exc:
             return {"status": "error", "code": exc.code, "error": str(exc)}
 
+    async def apply(args: dict, ctx: ToolContext) -> dict:
+        try:
+            if ctx.repo_root is None:
+                raise ExecutionError("Select the original repository explicitly.", "repo_required", 403)
+            job = await asyncio.to_thread(service.apply, args["execution_id"], ctx.user_id,
+                                          ctx.repo_root, args["approval_digest"])
+            if record_execution:
+                await record_execution(job, ctx.extras.get("run_id", ""))
+            return {"status": "ok", "execution": tool_job(job),
+                    "notice": "Changes committed on the recorded new local owner branch only. Selected checkout, remote and deployment are unchanged."}
+        except ExecutionError as exc:
+            return {"status": "error", "code": exc.code, "error": str(exc)}
+
     registry.register(ToolSpec(
         name="owner_execution_status", description="Owner-only isolated execution readiness and observed selected-repo HEAD.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
@@ -92,6 +105,14 @@ def register_owner_execution_tools(
                                          "properties": {"path": {"type": "string", "maxLength": 240},
                                                         "content": {"type": "string", "maxLength": 500000}}}}}},
         tier=TIER_WRITE, handler=prepare, trace_kind="proposed", admin_only=True, needs_repo=True,
+    ))
+    registry.register(ToolSpec(
+        name="owner_execution_apply",
+        description="After successful isolated validation, apply the exact tested changes to a NEW LOCAL owner branch as a commit. Requires a separate explicit user approval using execution.application.approval_digest (not the validation digest). Never switches or changes the selected checkout, merges, pushes or deploys. Application approval expires after 15 minutes. Show the user the patch and branch before requesting approval.",
+        input_schema={"type": "object", "required": ["execution_id", "approval_digest"], "additionalProperties": False,
+                      "properties": {"execution_id": {"type": "string", "maxLength": 32},
+                                     "approval_digest": {"type": "string", "minLength": 64, "maxLength": 64}}},
+        tier=TIER_EXEC, handler=apply, trace_kind="applied", admin_only=True, needs_repo=True, timeout_s=120,
     ))
     registry.register(ToolSpec(
         name="owner_execution_run",

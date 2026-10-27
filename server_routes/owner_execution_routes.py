@@ -69,3 +69,17 @@ async def cancel_owner_execution(execution_id: str):
     if job["status"] == "cancelled":
         _append_activity("Owner isolated validation cancellation requested", agent_id="coding_agent", task_id=job["id"], kind="task_cancelled")
     return {"status": "ok", "execution": job}
+
+
+@app.post("/api/owner-executions/{execution_id}/apply")
+async def apply_owner_execution(execution_id: str, body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    ctx, notice = _agent_tool_context(body.get("repo_context"))
+    if notice or not ctx.has_repo:
+        raise ExecutionError("Select the original accessible repository explicitly.", "repo_required", 403)
+    job = await asyncio.to_thread(_OWNER_EXECUTION.apply, execution_id, ctx.user_id, ctx.repo_root,
+                                 str(body.get("approval_digest") or ""))
+    await _record_owner_execution(job)
+    return {"status": "ok", "execution": job}

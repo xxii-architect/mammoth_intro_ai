@@ -268,8 +268,9 @@ Rules:
 - Set exactly one of "tool" or "final".
 - For a long answer, set both to null to request a separate prose finalization instead of putting a long document inside JSON.
 - Only call tools from the catalog. Arguments must match the tool's input_schema.
-- Changes are proposals: use repo_propose_patch. For existing files send small exact "edits" (old → new snippets
-  copied from what you read); send full "content" only for new or small files. Never claim you applied or pushed anything.
+- Changes are proposals by default: use repo_propose_patch. For existing files send small exact "edits" (old → new snippets
+  copied from what you read); send full "content" only for new or small files. Never claim application without successful
+  application tool evidence. Never claim a push or production deployment from a proposal or local branch.
 - Large files: repo_search for the symbol or text first to get line numbers, then repo_read_file a focused
   start_line/end_line range around it (follow next_start_line to continue). Copy "old" snippets only from text shown
   between <<<content and content>>>, never from memory.
@@ -311,7 +312,7 @@ def render_observation(result: Any, budget: int) -> str:
     return text[:budget] + f" …[clipped {len(text) - budget} chars; narrow the query or read a smaller range]"
 
 
-def describe_repo(ctx: Optional[ToolContext]) -> str:
+def describe_repo(ctx: Optional[ToolContext], *, approved_application: bool = False) -> str:
     """One-line, model-facing description of the run's repository context."""
     if ctx is None or not ctx.has_repo:
         return "Repository context: none. No repository is connected for this run."
@@ -322,7 +323,9 @@ def describe_repo(ctx: Optional[ToolContext]) -> str:
     return (
         f"Repository context: connected to {label} (scope={ctx.repo_scope}). "
         "You can list, read, and search its files with the repo tools, and propose changes as patches "
-        "(proposal-only; nothing is applied or pushed)."
+        + ("(proposal-only by default; the owner application tool can commit validated changes to a new local "
+           "branch after separate approval. Never claim application without successful tool evidence; no push)."
+           if approved_application else "(proposal-only; nothing is applied or pushed).")
     )
 
 
@@ -359,7 +362,7 @@ class AgentRunner:
             {"name": t["name"], "description": t["description"], "tier": t["tier"], "input_schema": t["input_schema"]}
             for t in self.registry.catalog(ctx)
         ]
-        repo_line = describe_repo(ctx)
+        repo_line = describe_repo(ctx, approved_application=self.registry.resolve("owner_execution_apply", ctx) is not None)
         history = str(run.request.get("history_text") or "").strip()
         parts = [
             SYSTEM_PROMPT,
@@ -367,6 +370,17 @@ class AgentRunner:
             f"Agent lane: {run.agent_id}.",
             "Tool catalog:\n" + json.dumps(catalog, default=str),
         ]
+        if self.registry.resolve("owner_execution_apply", ctx) is not None:
+            parts.append(
+                "Owner-only approved coding workflow: when asked to make actual changes, inspect the selected repo, "
+                "call owner_execution_status for readiness and base_sha, then owner_execution_prepare with exact full "
+                "file contents and a supported test profile. owner_execution_run pauses for user approval to validate. "
+                "Only after successful checks and no observed regression, owner_execution_apply pauses for a SECOND "
+                "user approval using execution.application.approval_digest. Application creates a commit on a NEW "
+                "LOCAL branch only; the selected checkout, remote and production are unchanged. Report the exact "
+                "branch and commit from tool evidence. Never bypass approvals or execute repository code on the host. "
+                "If unavailable, explain the actual blocker; do not claim changes were applied."
+            )
         if run.request.get("extra_context"):
             parts.append("Additional context:\n" + str(run.request["extra_context"])[:24000])
         if history:
@@ -403,7 +417,8 @@ class AgentRunner:
             "helpful structure (headings, steps, bullets, or code only where useful). Lead with the answer, then include "
             "necessary explanation, caveats, and next steps. Avoid filler, canned openings, and repetitive conclusions. "
             "Do not reveal private chain-of-thought; share concise rationale and evidence instead. Do not output JSON.",
-            describe_repo(ctx) if ctx is not None else "",
+            describe_repo(ctx, approved_application=self.registry.resolve("owner_execution_apply", ctx) is not None)
+            if ctx is not None else "",
             f"User request:\n{run.message}",
             ("Additional context:\n" + str(run.request["extra_context"])[:24000])
             if run.request.get("extra_context") else "",

@@ -77,13 +77,24 @@ function ExecutionPanel({ repo = '' }) {
         catch (cause) { setError(cause.message) }
       }}>Cancel validation</button>}
       <button disabled={busy} onClick={() => act(() => api(`/owner-executions/${job.id}`))}>Refresh execution</button>
+      {job.application?.status === 'ready' && <>
+        <p>Second approval: create a commit on new local branch <code>{job.application.branch}</code>. This does not modify the selected checkout, push, merge or deploy.</p>
+        <button disabled={busy} onClick={() => act(() => api(`/owner-executions/${job.id}/apply`, {
+          method: 'POST', body: { repo_context: { root: repo }, approval_digest: job.application.approval_digest },
+        }))}>Approve changes to new branch</button>
+      </>}
+      {job.application && <p>Branch application: <strong>{job.application.status}</strong>
+        {job.application.commit_sha && <>. Commit: <code>{job.application.commit_sha}</code></>}
+        {job.application.status === 'applied' && <>. Local branch: <code>{job.application.branch}</code>. Not pushed or deployed.</>}
+      </p>}
+      {job.application?.error && <p role="alert">{job.application.error}</p>}
       {job.error && <p role="alert">{job.error}</p>}
       {['baseline', 'candidate'].map(phase => job[phase] && <details key={phase}>
         <summary>{phase}: {job[phase].passed ? 'profile passed' : 'profile failed'} ({job[phase].duration_ms} ms)</summary>
         <pre style={{ whiteSpace: 'pre-wrap' }}>{job[phase].log}</pre>
         {job[phase].log_truncated && <p>Logs truncated at the bounded output limit.</p>}
       </details>)}
-      <p>Passing a profile is not review approval or independent acceptance verification. Generated tests can be wrong. Review the patch and evidence before applying it yourself.</p>
+      <p>Passing a profile is not review approval or independent acceptance verification. Generated tests can be wrong. Review the patch and evidence before the separate branch-application approval.</p>
     </section>}
   </details>
 }

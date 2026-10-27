@@ -112,6 +112,158 @@ def test_disabled_and_missing_isolation_never_use_host_fallback(repository, tmp_
     assert service.get(job["id"], "owner")["status"] == "pending_approval"
 
 
+def validated(service, repository):
+    job = prepared(service, repository)
+    return service.execute(job["id"], "owner", repository, job["approval_digest"])
+
+
+def test_approved_application_creates_exact_branch_without_touching_checkout_or_index(repository, tmp_path):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    job = validated(service, repository)
+    before_head = head_sha(repository)
+    (repository / "app.py").write_text("UNCOMMITTED OWNER WORK\n", encoding="utf-8")
+    (repository / "staged.txt").write_text("staged work", encoding="utf-8")
+    git(repository, "add", "staged.txt")
+    index_before = git(repository, "write-tree")
+    result = service.apply(job["id"], "owner", repository, job["application"]["approval_digest"])
+    application = result["application"]
+    assert application["status"] == "applied"
+    assert head_sha(repository) == before_head
+    assert (repository / "app.py").read_text() == "UNCOMMITTED OWNER WORK\n"
+    assert git(repository, "write-tree") == index_before
+    commit = application["commit_sha"]
+    assert git(repository, "show", f"{commit}:app.py") == b"def add(a, b):\n    return a + b\n"
+    assert git(repository, "show", f"{commit}:.env") == git(repository, "show", f"{before_head}:.env")
+    assert git(repository, "rev-parse", f"{commit}^").decode().strip() == before_head
+    assert git(repository, "diff-tree", "--no-commit-id", "--name-only", "-r", commit).decode().splitlines() == ["app.py"]
+    assert git(repository, "rev-parse", f"refs/heads/{application['branch']}").decode().strip() == commit
+    with pytest.raises(ExecutionError, match="already used"):
+        service.apply(job["id"], "owner", repository, job["application"]["approval_digest"])
+
+
+@pytest.mark.parametrize("reason", ["wrong_digest", "validation_digest", "expired", "wrong_root", "wrong_owner",
+                                  "changed_head", "changed_image", "regression", "tampered_changes", "disabled"])
+def test_branch_application_fails_closed(repository, tmp_path, reason):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    job = validated(service, repository)
+    digest, owner, root = job["application"]["approval_digest"], "owner", repository
+    record = service._load(job["id"], "owner")
+    if reason == "wrong_digest":
+        digest = "0" * 64
+    elif reason == "validation_digest":
+        digest = job["approval_digest"]
+    elif reason == "expired":
+        record["application"]["expires_at"] = 0
+    elif reason == "wrong_root":
+        root = tmp_path
+    elif reason == "wrong_owner":
+        owner = "tenant"
+    elif reason == "changed_head":
+        git(repository, "-c", "user.name=Test", "-c", "user.email=t@example.test", "commit", "--allow-empty", "-m", "New head")
+    elif reason == "changed_image":
+        service.executor.image = "different@sha256:" + "0" * 64
+    elif reason == "regression":
+        record["regression"] = True
+    elif reason == "tampered_changes":
+        record["changes"][0]["content"] = "pass\n"
+    elif reason == "disabled":
+        service.enabled = False
+    service._save(record)
+    with pytest.raises(ExecutionError):
+        service.apply(job["id"], owner, root, digest)
+    assert not git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
+
+
+def test_unvalidated_proposal_cannot_be_applied(repository, tmp_path):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    job = prepared(service, repository)
+    with pytest.raises(ExecutionError, match="unavailable"):
+        service.apply(job["id"], "owner", repository, job["approval_digest"])
+
+
+@pytest.mark.parametrize("ref_created", [False, True])
+def test_application_restart_reconciles_intent_without_reapplying(repository, tmp_path, monkeypatch, ref_created):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    job = validated(service, repository)
+    original_git = git
+    def interrupt(root, *args, **kwargs):
+        if args[0] == "update-ref":
+            if ref_created:
+                original_git(root, *args, **kwargs)
+            raise OSError("Simulated worker interruption")
+        return original_git(root, *args, **kwargs)
+    monkeypatch.setattr("mammoth_os.owner_execution.git", interrupt)
+    with pytest.raises(ExecutionError, match="did not finish cleanly"):
+        service.apply(job["id"], "owner", repository, job["application"]["approval_digest"])
+    monkeypatch.setattr("mammoth_os.owner_execution.git", original_git)
+    restarted = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    recovered = restarted.get(job["id"], "owner")["application"]
+    assert recovered["status"] == ("applied" if ref_created else "failed")
+    with pytest.raises(ExecutionError, match="already used"):
+        restarted.apply(job["id"], "owner", repository, job["application"]["approval_digest"])
+
+
+def test_existing_owner_branch_is_never_overwritten(repository, tmp_path):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    job = validated(service, repository)
+    original = head_sha(repository)
+    git(repository, "update-ref", f"refs/heads/{job['application']['branch']}", original)
+    with pytest.raises(ExecutionError, match="did not finish cleanly"):
+        service.apply(job["id"], "owner", repository, job["application"]["approval_digest"])
+    assert git(repository, "rev-parse", f"refs/heads/{job['application']['branch']}").decode().strip() == original
+
+
+def test_application_preserves_exact_multifile_content_and_empty_new_files(repository, tmp_path):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    changes = [{"path": "app.py", "content": "def add(a, b):\n    return a + b"},
+               {"path": "new module.txt", "content": "no final newline"},
+               {"path": "empty file.txt", "content": ""}]
+    job = service.prepare(repository, "explicit/repo", "owner", changes,
+                          base_sha=head_sha(repository), profile="python_unittest")
+    checked = service.execute(job["id"], "owner", repository, job["approval_digest"])
+    applied = service.apply(job["id"], "owner", repository, checked["application"]["approval_digest"])
+    for change in changes:
+        assert git(repository, "show", f"{applied['application']['branch']}:{change['path']}") == change["content"].encode()
+    assert "new file mode 100644" in job["patch"]
+
+
+@pytest.mark.parametrize("approved", [False, True])
+def test_mind_application_pauses_for_user_decision_even_in_never_approval_mode(repository, tmp_path, approved):
+    import json
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    job = validated(service, repository)
+    class Model:
+        model = "scripted"
+        def __init__(self):
+            self.called = False
+        async def generate(self, prompt, **kwargs):
+            if not self.called:
+                self.called = True
+                return json.dumps({"reasoning": "Validation passed; request the separate branch approval.",
+                                   "tool": "owner_execution_apply", "args": {
+                                       "execution_id": job["id"], "approval_digest": job["application"]["approval_digest"]}})
+            return json.dumps({"final": "Reviewed the recorded branch application result."})
+    model = Model()
+    registry = ToolRegistry()
+    register_owner_execution_tools(registry, service)
+    runner = AgentRunner(registry, lambda: model, RunStore(tmp_path / "runs"))
+    run = AgentRun(id=AgentRun.new_id(), user_id="owner", message="Apply the validated changes",
+                   request={"approval_mode": "never"})
+    ctx = ToolContext(user_id="owner", is_admin=True, repo_root=repository)
+    async def exercise():
+        initial = [event async for event in runner.start(run, ctx)]
+        assert run.status == "awaiting_approval"
+        assert initial[-1].type == "run.awaiting_approval"
+        assert not git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
+        decision = run.pending_approval["id"]
+        return [event async for event in runner.resume(run, ctx, approval_id=decision, approved=approved)]
+    asyncio.run(exercise())
+    refs = git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
+    assert bool(refs) == approved
+    assert service.get(job["id"], "owner")["application"]["status"] == ("applied" if approved else "ready")
+    assert "separate approval" in runner._final_prompt(run, ctx)
+
+
 def test_working_tree_changes_are_not_implicitly_included(repository, tmp_path):
     (repository / "app.py").write_text("UNCOMMITTED OWNER WORK", encoding="utf-8")
     assert b"return a - b" in snapshot(repository, head_sha(repository))["app.py"]
@@ -259,7 +411,7 @@ def test_api_requires_owner_and_explicit_repo(repository, tmp_path, monkeypatch)
         assert client.get(path, headers={"Authorization": "Bearer tenant"}).status_code == 403
         assert client.get(path).status_code == 401
     assert client.post("/api/owner-executions", headers={"Authorization": "Bearer owner"}, json={}).status_code == 403
-    for suffix in ("approve", "cancel"):
+    for suffix in ("approve", "cancel", "apply"):
         assert client.post("/api/owner-executions/exec-" + "0" * 24 + "/" + suffix,
                            headers={"Authorization": "Bearer tenant"}, json={}).status_code == 403
 
@@ -308,6 +460,14 @@ def test_api_accepted_execution_saves_task_patch_and_truthful_approval(repositor
     assert artifact["body"] == result.json()["execution"]["patch"]
     git(repository, "apply", "--cached", "--check", "--whitespace=nowarn", "-", input_bytes=artifact["body"].encode())
     assert any(item[1]["kind"] == "approval_resolved" for item in activity)
+    application = result.json()["execution"]["application"]
+    applied = client.post(f"/api/owner-executions/{job['id']}/apply", headers=headers,
+                         json={"repo_context": {"root": "owner/repo"}, "approval_digest": application["approval_digest"]})
+    assert applied.status_code == 200, applied.text
+    assert applied.json()["execution"]["application"]["status"] == "applied"
+    assert state["workspace_artifacts"][0]["verification"]["application"]["status"] == "applied"
+    assert state["workspace_artifacts"][0]["lineage"]["branch"] == application["branch"]
+    assert any(item[1]["kind"] == "patch_applied" for item in activity)
     record = service._load(job["id"], "owner")
     record.update(status="failed", failure_code="worker_restart", error="Worker restarted.")
     service._save(record)
@@ -333,6 +493,7 @@ def test_tool_visibility_approval_and_bounded_approval_identity(repository, tmp_
     runner = AgentRunner(registry, lambda: None, RunStore(tmp_path / "runs"))
     run = AgentRun(id="run-" + "a" * 16, user_id="owner", message="Validate", request={"approval_mode": "never"})
     assert runner._needs_approval(registry.get("owner_execution_run"), run) is True
+    assert runner._needs_approval(registry.get("owner_execution_apply"), run) is True
 
 
 def test_run_stop_cancels_owner_tool_and_records_evidence(repository, tmp_path):
@@ -416,6 +577,10 @@ def test_real_docker_baseline_candidate_and_isolation(repository, tmp_path):
     assert result["baseline"]["passed"] is False
     assert result["candidate"]["passed"] is True
     assert result["candidate"]["isolation"] == "docker"
+    applied = service.apply(job["id"], "owner", repository, result["application"]["approval_digest"])
+    assert applied["application"]["status"] == "applied"
+    assert git(repository, "show", f"{applied['application']['branch']}:app.py").decode() == "def add(a, b):\n    return a + b\n"
+    assert head_sha(repository) == job["base_sha"]
     files = {"tests/test_isolation.py": (
         b"import os,socket,unittest\n"
         b"class TestIsolation(unittest.TestCase):\n"

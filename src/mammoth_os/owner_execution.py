@@ -1,7 +1,8 @@
 """Approval-bound owner proposals validated in disposable, network-free containers.
 
 Containers share the host kernel. This opt-in pilot is not a hostile-code VM,
-and never merges, commits or pushes a proposal into the selected repository.
+and never changes the selected checkout, merges, or pushes. Separately approved
+application creates a new local branch containing only the validated changes.
 """
 from __future__ import annotations
 
@@ -88,10 +89,12 @@ def fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-def git(root: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
+def git(root: Path, *args: str, input_bytes: bytes | None = None, index_path: Path | None = None) -> bytes:
     # Do not inherit git credentials, alternate object directories, or injected config.
     env = {key: os.environ[key] for key in ("PATH", "SystemRoot", "TEMP", "TMP", "HOME") if key in os.environ}
     env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
+    if index_path is not None:
+        env["GIT_INDEX_FILE"] = str(index_path)
     result = subprocess.run(
         ["git", "--no-pager", "-c", f"core.hooksPath={os.devnull}", "-c", "core.fsmonitor=false",
          "-c", "core.autocrlf=false", *args], cwd=root, env=env, capture_output=True, timeout=30, input=input_bytes, check=False,
@@ -175,6 +178,10 @@ def patch_text(before: dict[str, bytes], changes: list[dict[str, str]]) -> str:
     chunks: list[str] = []
     for change in changes:
         rel = change["path"]
+        if rel not in before and change["content"] == "":
+            old_path, new_path = (json.dumps(prefix + rel, ensure_ascii=False) for prefix in ("a/", "b/"))
+            chunks.append(f"diff --git {old_path} {new_path}\nnew file mode 100644\n")
+            continue
         try:
             original = before.get(rel, b"").decode("utf-8")
         except UnicodeDecodeError as exc:
@@ -329,6 +336,13 @@ class OwnerExecution:
                     or record.get("status") not in {"pending_approval", "running", "validated", "failed", "cancelled"}):
                 self.recovery_error = "An execution record has invalid metadata; owner execution is blocked until operator repair."
                 continue
+            application = record.get("application", {})
+            if application.get("status") == "applying":
+                try:
+                    self._recover_application(record)
+                except (ExecutionError, OSError, subprocess.SubprocessError) as exc:
+                    self.recovery_error = f"Branch application recovery failed; owner execution is blocked: {exc}"
+                self._save(record)
             if record.get("status") != "running" and record.get("failure_code") != "cleanup_failed":
                 continue
             for phase in ("baseline", "candidate"):
@@ -412,7 +426,90 @@ class OwnerExecution:
                     "snapshot_bytes": MAX_BYTES, "files": MAX_FILES, "change_bytes": MAX_CHANGE_BYTES, "patch_bytes": MAX_PATCH_BYTES},
                 "isolation": {"ready": False, "reason": self.recovery_error} if self.recovery_error else
                     self.executor.readiness() if self.enabled else {"ready": False, "reason": "Owner execution pilot is disabled."},
-                "automatic_merge": False, "automatic_push": False, "benchmark_gated_autonomy": False}
+                "approved_application": "new_local_branch", "automatic_merge": False,
+                "automatic_push": False, "benchmark_gated_autonomy": False}
+
+    @staticmethod
+    def _application_digest(record: dict[str, Any]) -> str:
+        application = record["application"]
+        return fingerprint({"operation": "create_owner_branch", "execution_id": record["id"],
+                            "validation_digest": record["approval_digest"], "branch": application["branch"],
+                            "expires_at": application["expires_at"], "candidate": record["candidate"]})
+
+    def _recover_application(self, record: dict[str, Any]) -> None:
+        application = record["application"]
+        expected_branch = f"mammoth/owner/{record['id']}"
+        if application.get("branch") != expected_branch:
+            raise ExecutionError("Unexpected application branch.", "invalid_application")
+        refs = git(Path(record["root"]), "for-each-ref", "--format=%(refname) %(objectname)",
+                   f"refs/heads/{expected_branch}").decode().splitlines()
+        expected = f"refs/heads/{expected_branch} {application.get('commit_sha', '')}"
+        if expected in refs and application.get("commit_sha"):
+            application.update(status="applied", recovered_at=stamp())
+        else:
+            application.update(status="failed", error="Application interrupted; no matching branch was confirmed. Prepare a new proposal.")
+
+    def apply(self, job_id: str, user_id: str, root: Path, approval_digest: str) -> dict[str, Any]:
+        if not self.enabled or self.recovery_error:
+            raise ExecutionError(self.recovery_error or "Owner execution pilot is disabled.", "application_unavailable", 503)
+        with self.lock:
+            lease = ExecutionLease(self.storage)
+            try:
+                self._recover()
+                if self.recovery_error:
+                    raise ExecutionError(self.recovery_error, "cleanup_failed", 503)
+                record = self._load(job_id, user_id)
+                application = record.get("application", {})
+                if (record["root"] != str(root) or record["status"] != "validated"
+                        or record.get("candidate", {}).get("passed") is not True or record.get("regression") is True
+                        or record["image"] != self.executor.image or application.get("status") != "ready"
+                        or time.time() > application.get("expires_at", 0)
+                        or approval_digest != application.get("approval_digest")
+                        or approval_digest != self._application_digest(record)):
+                    raise ExecutionError("Application approval is expired, mismatched, unavailable, or already used.", "stale_application", 409)
+                if record["approval_digest"] != fingerprint({key: record[key] for key in
+                        ("repo", "base_sha", "profile", "changes", "image", "snapshot_digest")}):
+                    raise ExecutionError("Validated proposal changed.", "stale_application", 409)
+                if head_sha(root) != record["base_sha"]:
+                    raise ExecutionError("Repository HEAD changed. Validate and approve a new proposal.", "stale_base", 409)
+                files = snapshot(root, record["base_sha"])
+                if fingerprint({k: hashlib.sha256(v).hexdigest() for k, v in files.items()}) != record["snapshot_digest"]:
+                    raise ExecutionError("Approved snapshot changed.", "stale_application", 409)
+                changes = validate_changes(record["changes"], root)
+                patch = patch_text(files, changes)
+                if patch != record["patch"]:
+                    raise ExecutionError("Approved patch changed.", "stale_application", 409)
+                branch = f"mammoth/owner/{job_id}"
+                if application["branch"] != branch:
+                    raise ExecutionError("Application target changed.", "stale_application", 409)
+                application.update(status="applying", approved_at=stamp())
+                self._save(record)
+                try:
+                    # A private index preserves the full base tree without checkout filters,
+                    # hooks, user index changes, or execution of repository code.
+                    with tempfile.TemporaryDirectory(prefix="mammoth-owner-index-") as directory:
+                        index = Path(directory) / "index"
+                        git(root, "read-tree", record["base_sha"], index_path=index)
+                        git(root, "apply", "--cached", "--whitespace=nowarn", "-", input_bytes=patch.encode(), index_path=index)
+                        tree = git(root, "write-tree", index_path=index).decode().strip()
+                        commit = git(root, "-c", "user.name=Mammoth owner-approved changes",
+                                     "-c", "user.email=owner-approval@mammoth.invalid", "commit-tree", tree,
+                                     "-p", record["base_sha"], input_bytes=f"Apply owner-approved proposal {job_id}\n".encode()).decode().strip()
+                    application["commit_sha"] = commit
+                    self._save(record)  # Durable intent precedes the atomic, create-only ref.
+                    if head_sha(root) != record["base_sha"]:
+                        raise ExecutionError("Repository HEAD changed during application.", "stale_base", 409)
+                    git(root, "update-ref", f"refs/heads/{branch}", commit, "0" * len(commit))
+                    application.update(status="applied", applied_at=stamp())
+                    self._save(record)
+                except (ExecutionError, OSError, subprocess.SubprocessError) as exc:
+                    # The ref may have been created before a storage/process failure.
+                    # Keep durable 'applying' intent so restart recovery can reconcile it.
+                    raise ExecutionError(f"Branch application did not finish cleanly; inspect saved execution before retrying: {exc}",
+                                         "application_failed", 503) from exc
+                return self.public(record)
+            finally:
+                lease.close()
 
     def prepare(self, root: Path, repo_ref: str, user_id: str, changes: Any, *, base_sha: str, profile: str) -> dict[str, Any]:
         if not self.enabled:
@@ -556,6 +653,10 @@ class OwnerExecution:
                         self.recovery_error = record["error"]
                     elif self._load(job_id, user_id)["status"] == "cancelled":
                         record["status"] = "cancelled"
+                    if record["status"] == "validated" and not record.get("regression"):
+                        record["application"] = {"status": "ready", "branch": f"mammoth/owner/{job_id}",
+                                                 "expires_at": time.time() + APPROVAL_TTL}
+                        record["application"]["approval_digest"] = self._application_digest(record)
                     self._save(record)
             finally:
                 self.active.pop(job_id, None)

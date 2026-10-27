@@ -46,13 +46,21 @@ The disabled-by-default owner pilot adds matching Python/JS methods:
 | `get_owner_execution(id)` | `getOwnerExecution(id)` |
 | `approve_owner_execution(id, repo=..., approval_digest=...)` | `approveOwnerExecution(id, {repo, approvalDigest})` |
 | `cancel_owner_execution(id)` | `cancelOwnerExecution(id)` |
+| `apply_owner_execution(id, repo=..., approval_digest=...)` | `applyOwnerExecution(id, {repo, approvalDigest})` |
 
 These preserve backend response objects and meter the `owner_execution` surface.
 The backend enforces owner/admin access, explicit repo selection and frozen
 approval. Changes are full text `{path, content}` objects. Fixed profiles:
 `python_unittest`, `python_pytest`, `node_test`. Baseline/candidate checks use
 committed snapshots in disposable offline Docker containers, not host fallback.
-Uncommitted changes are excluded. Patches remain unapplied; no merge or push.
+Uncommitted changes are excluded. Patches remain unapplied until a second owner
+approval creates a commit on a new local branch; no checkout/index changes,
+merge, push or deployment. Use `execution.application.approval_digest` for this
+second approval, available only after successful validation without observed
+regressions. Its approval expires after 15 minutes. Application returns branch
+and commit evidence and refuses to overwrite an existing branch. After an
+interruption query the saved execution; do not assume success or retry blindly.
+Tenant/paid application is not enabled.
 Use Python `timeout=300` for synchronous approval and query saved state after
 transport failures. Approval expires after 15 minutes; changed HEAD/reused
 approval fails. Containers share the host kernel and require reviewed pinned
