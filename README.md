@@ -590,7 +590,10 @@ that a repository's dependencies are installed or that its tests cover an edit.
 These profiles do not run `npm run build` or validate GitHub Actions YAML.
 
 The standalone **UI Build** workflow runs `npm ci` and `npm run build` with Node
-22 on relevant PRs, pushes to `main`, and manual dispatch. Triggers include the
+22 using the versioned command-center lockfile on relevant PRs, pushes to `main`,
+and manual dispatch. Keep that lockfile synchronized when changing UI
+dependencies; a local-only ignored lockfile cannot support clean CI installs.
+Triggers include the
 command-center UI, `packages/mammoth-paths` (imported by Vite), and the workflow
 itself. It is post-publication CI, not a pre-application owner validation profile.
 Making it a required merge check is a separate GitHub branch-protection setting.
