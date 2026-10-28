@@ -61,6 +61,10 @@ regressions. Its approval expires after 15 minutes. Application returns branch
 and commit evidence and refuses to overwrite an existing branch. After an
 interruption query the saved execution; do not assume success or retry blindly.
 Tenant/paid application is not enabled.
+Capabilities expose `isolation.profiles`, a mapping of configured profile names
+to tool-availability booleans from a bounded offline image probe. Preparation
+rejects unavailable profiles. This is not a dependency or coverage guarantee,
+and none of these profiles runs the UI production build.
 Use Python `timeout=300` for synchronous approval and query saved state after
 transport failures. Approval expires after 15 minutes; changed HEAD/reused
 approval fails. Containers share the host kernel and require reviewed pinned

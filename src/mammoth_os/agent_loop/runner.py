@@ -368,13 +368,24 @@ class AgentRunner:
             SYSTEM_PROMPT,
             repo_line,
             f"Agent lane: {run.agent_id}.",
+            f"Decision budget remaining: {max(0, (run.step_limit or self.max_steps) - run.steps)}. "
+            "Read the necessary exact ranges, then perform the requested tool action when ready. "
+            "Do not repeatedly ask for permission to perform ordinary reads or proposal preparation. "
+            "A chat reply containing a patch is not a saved proposal; use the proposal tool. "
+            "Mandatory tool approvals remain required; do not bypass them.",
             "Tool catalog:\n" + json.dumps(catalog, default=str),
         ]
         if self.registry.resolve("owner_execution_apply", ctx) is not None:
             parts.append(
                 "Owner-only approved coding workflow: when asked to make actual changes, inspect the selected repo, "
                 "call owner_execution_status for readiness and base_sha, then owner_execution_prepare with exact full "
-                "file contents and a supported test profile. owner_execution_run pauses for user approval to validate. "
+                "file contents and a profile marked true in isolation.profiles. Tool availability does not prove that "
+                "repository dependencies are installed or that checks cover the change. The test profiles do not "
+                "validate a UI build or GitHub Actions workflow. An unrelated passing test is not acceptance evidence. "
+                "An unsupported_snapshot error names the blocking source path; do not remove or bypass source symlinks "
+                "or submodules to force validation. A file-not-readable result can mean a proposed file does not exist "
+                "yet; preparing a new file does not require reading it first. "
+                "owner_execution_run pauses for user approval to validate. "
                 "Only after successful checks and no observed regression, owner_execution_apply pauses for a SECOND "
                 "user approval using execution.application.approval_digest. Application creates a commit on a NEW "
                 "LOCAL branch only; the selected checkout, remote and production are unchanged. Report the exact "

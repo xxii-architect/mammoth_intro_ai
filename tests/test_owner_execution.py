@@ -50,7 +50,7 @@ class FakeExecutor:
     def __init__(self):
         self.calls = []
     def readiness(self):
-        return {"ready": True}
+        return {"ready": True, "profiles": {"python_unittest": True, "python_pytest": False, "node_test": False}}
     def run(self, files, profile, cancelled, **kwargs):
         self.calls.append(files)
         return {"passed": b"return a + b" in files["app.py"], "log": "fixture evidence", "duration_ms": 1}
@@ -84,6 +84,64 @@ def test_unsafe_changes_are_rejected(repository, path):
         validate_changes([{"path": path, "content": "x"}], repository)
 
 
+@pytest.mark.parametrize("mode", ["120000", "160000"])
+@pytest.mark.parametrize("excluded", [True, False])
+def test_snapshot_excludes_environment_entries_but_rejects_source_links(repository, mode, excluded):
+    rel = "venv/lib64" if excluded else "source-link"
+    oid = (git(repository, "hash-object", "-w", "--stdin", input_bytes=b"/outside-the-repo\n").decode().strip()
+           if mode == "120000" else head_sha(repository))
+    git(repository, "update-index", "--add", "--cacheinfo", f"{mode},{oid},{rel}")
+    git(repository, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "Add link fixture")
+    if excluded:
+        files = snapshot(repository, head_sha(repository))
+        assert rel not in files and "app.py" in files
+        assert b"/outside-the-repo" not in b"".join(files.values())
+    else:
+        with pytest.raises(ExecutionError, match=f"Unsupported source entry '{rel}'") as error:
+            snapshot(repository, head_sha(repository))
+        assert error.value.code == "unsupported_snapshot"
+
+
+def test_prepare_rejects_unavailable_profile_without_freezing(repository, tmp_path):
+    executor = FakeExecutor()
+    service = OwnerExecution(tmp_path / "jobs", executor, enabled=True)
+    assert service.capabilities()["isolation"]["profiles"]["node_test"] is False
+    with pytest.raises(ExecutionError, match="unavailable in the pinned image") as error:
+        service.prepare(repository, "owner/repo", "owner", [{"path": "app.py", "content": "x"}],
+                        base_sha=head_sha(repository), profile="node_test")
+    assert error.value.code == "profile_unavailable"
+    assert not list(service.storage.glob("exec-*.json")) and not executor.calls
+
+
+@pytest.mark.parametrize("probe_result", ["available", "invalid", "failure", "timeout"])
+def test_image_probe_reports_actual_tools_and_cleans_up(monkeypatch, probe_result):
+    import json
+    calls = []
+    def run(command, **kwargs):
+        calls.append(command)
+        if command[1] == "info":
+            return subprocess.CompletedProcess(command, 0, stdout="linux\n", stderr="")
+        if command[1] == "run":
+            assert "--network=none" in command and "--read-only" in command and "--pull=never" in command
+            assert "--user=65534:65534" in command and "--memory=256m" in command
+            assert not any("mount" in arg for arg in command)
+            if probe_result == "timeout":
+                raise subprocess.TimeoutExpired(command, 15)
+            return subprocess.CompletedProcess(command, 1 if probe_result == "failure" else 0,
+                stdout="{}" if probe_result == "invalid" else json.dumps(
+                    {"python_unittest": True, "python_pytest": False, "node_test": False}), stderr="probe error")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+    monkeypatch.setattr(subprocess, "run", run)
+    readiness = ContainerExecutor(IMAGE).readiness()
+    assert readiness["ready"] is (probe_result == "available")
+    if readiness["ready"]:
+        assert readiness["profiles"] == {"python_unittest": True, "python_pytest": False, "node_test": False}
+    else:
+        assert readiness["reason"]
+    assert calls[-1][:3] == ["docker", "rm", "-f"]
+    assert calls[-1][-1] == calls[2][calls[2].index("--name") + 1]
+
+
 def test_stale_approval_wrong_owner_and_cancellation(repository, tmp_path):
     service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
     job = prepared(service, repository)
@@ -106,10 +164,9 @@ def test_disabled_and_missing_isolation_never_use_host_fallback(repository, tmp_
     with pytest.raises(ExecutionError, match="disabled"):
         prepared(service, repository)
     service.enabled = True
-    job = prepared(service, repository)
     with pytest.raises(ExecutionError, match="operator-reviewed"):
-        service.execute(job["id"], "owner", repository, job["approval_digest"])
-    assert service.get(job["id"], "owner")["status"] == "pending_approval"
+        prepared(service, repository)
+    assert not list(service.storage.glob("exec-*.json"))
 
 
 def validated(service, repository):
@@ -568,8 +625,12 @@ def test_real_docker_timeout_no_tests_and_bounded_output():
 
 @pytest.mark.skipif(os.environ.get("MAMMOTH_TEST_OWNER_DOCKER") != "1", reason="Explicit Docker integration opt-in")
 def test_real_docker_baseline_candidate_and_isolation(repository, tmp_path):
+    oid = git(repository, "hash-object", "-w", "--stdin", input_bytes=b"/outside-the-repo\n").decode().strip()
+    git(repository, "update-index", "--add", "--cacheinfo", f"120000,{oid},venv/lib64")
+    git(repository, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "Excluded environment link")
     executor = ContainerExecutor(os.environ.get("MAMMOTH_OWNER_EXEC_IMAGE", IMAGE), timeout=20)
-    assert executor.readiness()["ready"]
+    readiness = executor.readiness()
+    assert readiness["ready"] and readiness["profiles"]["python_unittest"]
     service = OwnerExecution(tmp_path / "jobs", executor, enabled=True)
     job = prepared(service, repository)
     result = service.execute(job["id"], "owner", repository, job["approval_digest"])
@@ -579,6 +640,7 @@ def test_real_docker_baseline_candidate_and_isolation(repository, tmp_path):
     assert result["candidate"]["isolation"] == "docker"
     applied = service.apply(job["id"], "owner", repository, result["application"]["approval_digest"])
     assert applied["application"]["status"] == "applied"
+    assert git(repository, "show", f"{applied['application']['branch']}:venv/lib64") == b"/outside-the-repo\n"
     assert git(repository, "show", f"{applied['application']['branch']}:app.py").decode() == "def add(a, b):\n    return a + b\n"
     assert head_sha(repository) == job["base_sha"]
     files = {"tests/test_isolation.py": (

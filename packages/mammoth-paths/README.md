@@ -92,6 +92,9 @@ embedding the SDK does not grant access. The backend pilot is disabled by defaul
 Approval binds a committed snapshot and image and expires after 15 minutes.
 Tests run in offline Docker only, never on the host, with no automatic merge/push.
 Query the saved job after a request timeout rather than retrying its approval.
+Read `isolation.profiles` in capabilities for actual tool availability in the
+pinned image. Unknown/unavailable profiles are rejected before preparation;
+availability is not proof of project dependencies or change coverage.
 Uncommitted source is not included. Passing a profile is not independent
 acceptance evidence or permission to apply the patch. Containers share the host
 kernel; see the root README for reviewed-image setup and benchmark limitations.

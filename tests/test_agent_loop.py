@@ -98,6 +98,8 @@ def test_run_reads_file_then_answers(tmp_path, repo):
     result = next(e for e in events if e.type == "tool.result")
     assert call.data["trace_kind"] == "read"
     assert "return 'hi'" in result.data["result"]["content"]
+    assert "Decision budget remaining:" in llm.prompts[0]
+    assert "use the proposal tool" in llm.prompts[0]
     assert types[-1] == "run.completed"
     assert events[-1].data["reply"] == "hello() returns 'hi'."
     assert [e.seq for e in events] == list(range(1, len(events) + 1))

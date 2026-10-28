@@ -151,9 +151,13 @@ def snapshot(root: Path, sha: str) -> dict[str, bytes]:
         metadata, path = entry.split(b"\t", 1)
         mode, kind, oid, size = metadata.decode().split()
         rel = path.decode("utf-8", errors="strict")
+        if any(part in SKIP_DIRS for part in rel.split("/")):
+            continue
         if mode not in {"100644", "100755"} or kind != "blob":
-            raise ExecutionError("Symlinks and submodules are not supported by isolated execution.", "unsupported_snapshot")
-        if safe_repo_path(root, rel) is None or any(part in SKIP_DIRS for part in rel.split("/")):
+            raise ExecutionError(f"Unsupported source entry {rel!r} (Git mode {mode}). "
+                                 "Symlinks and submodules outside excluded directories are not supported.",
+                                 "unsupported_snapshot")
+        if safe_repo_path(root, rel) is None:
             continue
         length = int(size)
         total += length
@@ -208,12 +212,51 @@ class ContainerExecutor:
             return {"ready": False, "reason": "Docker daemon unavailable. Host fallback is forbidden."}
         if server.returncode or server.stdout.strip() != "linux" or image.returncode:
             return {"ready": False, "reason": "A Linux Docker daemon and the pinned local image are required; automatic image pulls are disabled."}
-        return {"ready": True, "reason": "Pinned Linux image available.", "image": self.image}
+        name = "mammoth-owner-probe-" + uuid.uuid4().hex[:24]
+        probe = (
+            "import importlib.util,json,re,shutil,subprocess,sys\n"
+            "node=shutil.which('node')\n"
+            "version=subprocess.run([node,'--version'],capture_output=True,text=True,timeout=3) if node else None\n"
+            "match=re.match(r'^v([0-9]+)\\.',version.stdout) if version and version.returncode==0 else None\n"
+            "print(json.dumps({'python_unittest':sys.version_info>=(3,11,8),"
+            "'python_pytest':sys.version_info>=(3,11,8) and importlib.util.find_spec('pytest') is not None,"
+            "'node_test':sys.version_info>=(3,11,8) and bool(match and int(match.group(1))>=18)}))"
+        )
+        try:
+            result = subprocess.run(
+                ["docker", "run", "--rm", "--pull=never", "--name", name, "--network=none",
+                 "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=65534:65534",
+                 "--pids-limit=64", "--memory=256m", "--memory-swap=256m", "--cpus=1",
+                 "--log-driver=none", "--env=PYTHONDONTWRITEBYTECODE=1",
+                 "--entrypoint=python", self.image, "-I", "-c", probe],
+                capture_output=True, text=True, timeout=15, check=False,
+            )
+            if result.returncode:
+                return {"ready": False, "reason": "Pinned image runtime probe failed: " + result.stderr[:400]}
+            profiles = json.loads(result.stdout)
+            if not isinstance(profiles, dict) or set(profiles) != set(PROFILES) or any(type(value) is not bool for value in profiles.values()):
+                return {"ready": False, "reason": "Pinned image runtime probe returned invalid profile evidence."}
+            return {"ready": profiles["python_unittest"], "profiles": profiles, "image": self.image,
+                    "reason": "Pinned Linux image runtime checked; profile availability does not verify repository dependencies."
+                    if profiles["python_unittest"] else "Pinned image requires Python 3.11.8+ for the archive launcher."}
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+            return {"ready": False, "reason": f"Pinned image runtime probe failed: {exc}"}
+        finally:
+            try:
+                removed = subprocess.run(["docker", "rm", "-f", name], capture_output=True, text=True, timeout=15, check=False)
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ExecutionError(f"Runtime probe cleanup failed: {exc}", "cleanup_failed", 503) from exc
+            if removed.returncode and "No such container" not in removed.stderr:
+                raise ExecutionError("Runtime probe cleanup failed; operator intervention required.", "cleanup_failed", 503)
 
     def run(self, files: dict[str, bytes], profile: str, cancelled: threading.Event, *, container_name: str) -> dict[str, Any]:
         readiness = self.readiness()
         if not readiness["ready"]:
             raise ExecutionError(readiness["reason"], "isolation_unavailable", 503)
+        if readiness["profiles"].get(profile) is not True:
+            raise ExecutionError(f"Profile {profile!r} is unavailable in the pinned image. "
+                                 "Use an available profile or an operator-reviewed image containing its tools.",
+                                 "profile_unavailable", 409)
         if not re.fullmatch(r"mammoth-owner-exec-[a-f0-9]{24}-(baseline|candidate)", container_name):
             raise ExecutionError("Invalid isolated container identity.", "invalid_execution")
         name = container_name
@@ -518,6 +561,12 @@ class OwnerExecution:
             raise ExecutionError(self.recovery_error, "cleanup_failed", 503)
         if not isinstance(profile, str) or profile not in PROFILES:
             raise ExecutionError("Unknown approved test profile.", "invalid_profile")
+        readiness = self.executor.readiness()
+        if not readiness["ready"]:
+            raise ExecutionError(readiness["reason"], "isolation_unavailable", 503)
+        if readiness["profiles"].get(profile) is not True:
+            raise ExecutionError(f"Profile {profile!r} is unavailable in the pinned image; no proposal was frozen.",
+                                 "profile_unavailable", 409)
         if head_sha(root) != base_sha:
             raise ExecutionError("Repository HEAD changed. Prepare a new proposal.", "stale_base", 409)
         normalized = validate_changes(changes, root)

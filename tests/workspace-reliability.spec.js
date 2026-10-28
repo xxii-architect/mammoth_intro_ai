@@ -79,7 +79,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
 }
 
 const ownerPanel = 'components/agent-workspace/OwnerExecutionPanel'
-const ownerCapabilities = { status: 'ok', enabled: true, isolation: { ready: true, reason: 'Pinned Linux image available.' }, profiles: ['python_unittest'], base_sha: 'a'.repeat(40) }
+const ownerCapabilities = { status: 'ok', enabled: true, isolation: { ready: true, reason: 'Pinned Linux image available.', profiles: { python_unittest: true, python_pytest: false, node_test: false } }, profiles: ['python_unittest', 'python_pytest', 'node_test'], base_sha: 'a'.repeat(40) }
 const ownerJob = { id: `exec-${'a'.repeat(24)}`, status: 'pending_approval', patch: '--- a/app.py\n+++ b/app.py\n-return 0\n+return 1\n', base_sha: 'a'.repeat(40), profile: 'python_unittest', approval_digest: 'b'.repeat(64), expires_at: 1999999999 }
 
 test('owner panel hides tenant-denied execution and honestly shows a disabled pilot', async ({ page }) => {
@@ -158,6 +158,15 @@ test('owner panel applies only after a second approval and shows local branch ev
   await expect(page.getByText('applied', { exact: true })).toBeVisible()
   await expect(page.getByText(/Not pushed or deployed/)).toBeVisible()
   expect(submitted).toEqual({ repo_context: { root: 'owner/repo' }, approval_digest: application.approval_digest })
+})
+
+test('owner profile picker disables tools absent from the pinned image', async ({ page }) => {
+  await mount(page, ownerPanel, { '/api/owner-executions/capabilities': ownerCapabilities }, { repo: 'owner/repo' })
+  await page.getByText('Owner isolated validation pilot').click()
+  await expect(page.getByRole('option', { name: 'node_test (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
+  await expect(page.getByRole('option', { name: 'python_pytest (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
+  await expect(page.getByRole('option', { name: 'python_unittest', exact: true })).toHaveJSProperty('disabled', false)
+  await expect(page.getByText(/These test profiles do not run the UI build/)).toBeVisible()
 })
 
 for (const evidence of ['valid', 'denied', 'mismatched', 'missing-expiry']) {

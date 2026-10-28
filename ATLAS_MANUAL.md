@@ -720,6 +720,17 @@ approval steps with recorded patch/test evidence. Repository test success is not
 acceptance verification. Cancellation and restart cleanup are job-scoped; failed
 cleanup blocks further owner execution, not the whole platform.
 
+The profile picker uses `isolation.profiles` from a bounded offline image probe.
+Unavailable tools are rejected before freezing a proposal; installed tools do
+not imply installed project dependencies or relevant coverage. Excluded
+environments are omitted before checking Git entry types; source symlinks and
+submodules remain unsupported and report the blocking path. The separate UI
+Build GitHub workflow verifies lockfile installation and the production Vite
+build after publication; it is not an isolated owner-execution UI build profile.
+Runs remain limited to eight model decisions per segment, with up to two
+continuations. Use **Continue task** to preserve saved progress rather than
+starting the same investigation over. This does not bypass either approval.
+
 Enable `MAMMOTH_OWNER_EXEC_ENABLED=1` only on an operator-reviewed backend host with
 Docker and a locally installed immutable `MAMMOTH_OWNER_EXEC_IMAGE` digest.
 The reviewed image needs Python 3.11.8+ and any tools/dependencies required by the

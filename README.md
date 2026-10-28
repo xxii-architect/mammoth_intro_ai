@@ -575,8 +575,27 @@ in the image when those profiles are chosen. Network access is disabled, so
 dependencies must be supplied by the reviewed image. Snapshot limits: 32 MB /
 3000 files; proposals: 1-20 text files / 500 KB; rendered patch: 1 MB;
 each phase: 60 seconds; logs:
-16 KB. Symlinks and submodules are rejected. The Coding workspace exposes live
+16 KB. Excluded directories (including `venv`, `.venv`, `node_modules` and build
+outputs) are omitted before Git entry-type validation. Source symlinks and
+submodules outside those directories remain rejected, with their path and Git
+mode in the error; they are never followed. The Coding workspace exposes live
 readiness, HEAD, preview, explicit approval, cancellation and recorded evidence.
+
+Readiness runs a bounded, offline, non-root probe of the pinned image.
+`isolation.profiles` reports available tools for each configured profile;
+unavailable profiles are disabled in the picker and rejected before freezing a
+proposal and again before container execution. A plain Python image typically
+supports `python_unittest`, not pytest or Node. Tool availability does not prove
+that a repository's dependencies are installed or that its tests cover an edit.
+These profiles do not run `npm run build` or validate GitHub Actions YAML.
+
+The standalone **UI Build** workflow runs `npm ci` and `npm run build` with Node
+22 on relevant PRs, pushes to `main`, and manual dispatch. Triggers include the
+command-center UI, `packages/mammoth-paths` (imported by Vite), and the workflow
+itself. It is post-publication CI, not a pre-application owner validation profile.
+Making it a required merge check is a separate GitHub branch-protection setting.
+An isolated pre-application UI build still needs a reviewed image containing
+Node and locked dependencies plus appropriately reviewed resource limits.
 
 Mammoth Paths exposes matching owner-only methods:
 `owner_execution_capabilities` / `ownerExecutionCapabilities`,

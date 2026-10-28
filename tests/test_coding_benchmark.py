@@ -10,7 +10,7 @@ class FakeExecutor:
     image = "python@sha256:" + "0" * 64
     timeout = 20
     def readiness(self):
-        return {"ready": True}
+        return {"ready": True, "profiles": {"python_unittest": True, "python_pytest": False, "node_test": False}}
     def run(self, files, profile, cancelled, **kwargs):
         assert b"class Acceptance" in files["tests/test_acceptance.py"]
         return {"passed": True, "test_results": {}, "duration_ms": 1}

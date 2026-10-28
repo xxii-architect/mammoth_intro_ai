@@ -39,6 +39,7 @@ function ExecutionPanel({ repo = '' }) {
     finally { setBusy(false) }
   }
   const ready = repo && capabilities?.enabled && capabilities?.isolation?.ready
+  const profileAvailable = capabilities?.isolation?.profiles?.[profile] === true
   if (denied) return null
   return <details style={{ marginTop: 10, fontSize: '.76rem', overflowWrap: 'anywhere' }}>
     <summary>Owner isolated validation pilot</summary>
@@ -51,13 +52,16 @@ function ExecutionPanel({ repo = '' }) {
       <p>Observed HEAD: <code>{capabilities.base_sha}</code></p>
       <label>Approved test profile
         <select value={profile} onChange={event => setProfile(event.target.value)} disabled={busy}>
-          {capabilities.profiles.map(value => <option key={value}>{value}</option>)}
+          {capabilities.profiles.map(value => <option key={value} value={value} disabled={capabilities.isolation.profiles?.[value] !== true}>
+            {value}{capabilities.isolation.profiles?.[value] !== true ? ' (unavailable in image)' : ''}
+          </option>)}
         </select>
       </label>
+      <p>Profile availability checks tools in the image, not repository dependencies or coverage. These test profiles do not run the UI build.</p>
       <label style={{ display: 'block', marginTop: 8 }}>Proposal changes (JSON array of path and full text content)
         <textarea value={changes} onChange={event => setChanges(event.target.value)} rows={5} disabled={busy} style={{ width: '100%', boxSizing: 'border-box' }} />
       </label>
-      <button disabled={busy} onClick={() => act(() => api('/owner-executions', { method: 'POST', body: {
+      <button disabled={busy || !profileAvailable} onClick={() => act(() => api('/owner-executions', { method: 'POST', body: {
         repo_context: { root: repo }, base_sha: capabilities.base_sha, profile, changes: JSON.parse(changes),
       } }))}>Prepare proposal</button>
     </>}
