@@ -131,6 +131,22 @@ test('run without policy stops at approval', async () => {
   assert.equal(result.pendingApproval.id, 'apr-1')
 })
 
+test('required result and evidence survive SDK streaming and reduction', async () => {
+  const progress = { goal: 'applied', stage: 'proposal', goal_met: false, blocker: 'Not approved.' }
+  const { impl, calls } = fakeFetch({
+    'POST /api/mammoth/runs': { sse: [ev(1, 'run.partial', { reply: 'Incomplete', code: 'missing_evidence', progress })] },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  const result = await client.run('Apply this change', { completionGoal: 'applied', repo: 'owner/repo' })
+  assert.equal(calls[0].body.completion_goal, 'applied')
+  assert.equal(result.status, 'partial')
+  assert.deepEqual(result.progress, progress)
+  assert.deepEqual(result.state.progress, progress)
+  assert.equal(result.state.failure_code, 'missing_evidence')
+  assert.throws(() => client.streamRun('Invalid', { completionGoal: 'anything' }), TypeError)
+  assert.equal(calls.length, 1)
+})
+
 test('errors surface as PathsError with code', async () => {
   const { impl } = fakeFetch({
     'GET /api/buildlog': { status: 403, body: { status: 'error', error: 'Needs pro', code: 'tier_required' } },

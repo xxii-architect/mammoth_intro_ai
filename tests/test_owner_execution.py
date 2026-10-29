@@ -2,6 +2,7 @@ import asyncio
 import os
 import subprocess
 import threading
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +18,7 @@ from mammoth_os.owner_execution import (
     ContainerExecutor,
     ExecutionError,
     OwnerExecution,
+    PROFILES,
     git,
     head_sha,
     snapshot,
@@ -50,7 +52,7 @@ class FakeExecutor:
     def __init__(self):
         self.calls = []
     def readiness(self):
-        return {"ready": True, "profiles": {"python_unittest": True, "python_pytest": False, "node_test": False}}
+        return {"ready": True, "profiles": {name: name == "python_unittest" for name in PROFILES}}
     def run(self, files, profile, cancelled, **kwargs):
         self.calls.append(files)
         return {"passed": b"return a + b" in files["app.py"], "log": "fixture evidence", "duration_ms": 1}
@@ -129,17 +131,80 @@ def test_image_probe_reports_actual_tools_and_cleans_up(monkeypatch, probe_resul
                 raise subprocess.TimeoutExpired(command, 15)
             return subprocess.CompletedProcess(command, 1 if probe_result == "failure" else 0,
                 stdout="{}" if probe_result == "invalid" else json.dumps(
-                    {"python_unittest": True, "python_pytest": False, "node_test": False}), stderr="probe error")
+                    {name: name == "python_unittest" for name in PROFILES}), stderr="probe error")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
     monkeypatch.setattr(subprocess, "run", run)
     readiness = ContainerExecutor(IMAGE).readiness()
     assert readiness["ready"] is (probe_result == "available")
     if readiness["ready"]:
-        assert readiness["profiles"] == {"python_unittest": True, "python_pytest": False, "node_test": False}
+        assert readiness["profiles"] == {name: name == "python_unittest" for name in PROFILES}
     else:
         assert readiness["reason"]
     assert calls[-1][:3] == ["docker", "rm", "-f"]
     assert calls[-1][-1] == calls[2][calls[2].index("--name") + 1]
+
+
+def test_exact_edits_use_committed_base_preserving_dirty_checkout_and_large_files(repository, tmp_path):
+    source = "header\n" + ("unchanged line\n" * 10000) + "return a - b\n"
+    (repository / "large.txt").write_bytes(source.encode())
+    git(repository, "add", "large.txt")
+    git(repository, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "Large file")
+    (repository / "large.txt").write_text("dirty owner work\n", encoding="utf-8")
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    job = service.prepare(repository, "owner/repo", "owner",
+                          [{"path": "large.txt", "edits": [{"old": "return a - b", "new": "return a + b"}]}],
+                          base_sha=head_sha(repository), profile="python_unittest")
+    record = service._load(job["id"], "owner")
+    assert record["changes"][0]["content"] == source.replace("return a - b", "return a + b")
+    assert (repository / "large.txt").read_text() == "dirty owner work\n"
+    assert len(job["patch"]) < 500
+    with pytest.raises(ExecutionError, match="was not found"):
+        service.prepare(repository, "owner/repo", "owner",
+                        [{"path": "large.txt", "edits": [{"old": "dirty owner work", "new": "oops"}]}],
+                        base_sha=head_sha(repository), profile="python_unittest")
+
+
+@pytest.mark.parametrize("change", [
+    {"path": "app.py", "content": "x", "edits": [{"old": "a", "new": "b"}]},
+    {"path": "app.py", "edits": []},
+    {"path": "app.py", "edits": [{"old": "", "new": "x"}]},
+    {"path": "app.py", "edits": [{"old": "a", "new": "x"}]},
+    {"path": "missing.py", "edits": [{"old": "x", "new": "y"}]},
+    {"path": ".env", "edits": [{"old": "SECRET", "new": "x"}]},
+])
+def test_invalid_exact_edits_never_freeze_a_proposal(repository, tmp_path, change):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    with pytest.raises(ExecutionError):
+        service.prepare(repository, "owner/repo", "owner", [change],
+                        base_sha=head_sha(repository), profile="python_unittest")
+    assert not list(service.storage.glob("exec-*.json"))
+
+
+@pytest.mark.parametrize("standard_ready", [True, False])
+def test_frontend_profile_uses_separate_pinned_executor(repository, tmp_path, standard_ready):
+    class Standard(FakeExecutor):
+        def readiness(self):
+            return super().readiness() if standard_ready else {"ready": False, "reason": "Standard image missing."}
+    class Frontend(FakeExecutor):
+        image = "sha256:" + "1" * 64
+        def readiness(self):
+            return {"ready": True, "profiles": {name: name in {"ui_build", "ui_component"} for name in PROFILES}}
+    executor = Frontend()
+    service = OwnerExecution(tmp_path / "jobs", Standard(), enabled=True, frontend_executor=executor)
+    capabilities = service.capabilities()
+    assert capabilities["isolation"]["ready"] is True
+    assert capabilities["isolation"]["profiles"]["python_unittest"] is standard_ready
+    assert capabilities["isolation"]["profiles"]["ui_build"] is True
+    job = service.prepare(repository, "owner/repo", "owner",
+                          [{"path": "app.py", "edits": [{"old": "return a - b", "new": "return a + b"}]}],
+                          base_sha=head_sha(repository), profile="ui_build")
+    assert job["image"] == executor.image
+    checked = service.execute(job["id"], "owner", repository, job["approval_digest"])
+    assert checked["status"] == "validated" and len(executor.calls) == 2
+    assert not service.executor.calls
+    executor.image = "sha256:" + "2" * 64
+    with pytest.raises(ExecutionError):
+        service.apply(job["id"], "owner", repository, checked["application"]["approval_digest"])
 
 
 def test_stale_approval_wrong_owner_and_cancellation(repository, tmp_path):
@@ -318,6 +383,13 @@ def test_mind_application_pauses_for_user_decision_even_in_never_approval_mode(r
     refs = git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
     assert bool(refs) == approved
     assert service.get(job["id"], "owner")["application"]["status"] == ("applied" if approved else "ready")
+    assert run.status == ("completed" if approved else "partial")
+    assert run.progress()["goal"] == "applied"
+    assert run.progress()["goal_met"] is approved
+    if approved:
+        assert run.progress()["executions"][0]["application"]["commit_sha"]
+    else:
+        assert run.progress()["blocker"] == "User rejected this action."
     assert "separate approval" in runner._final_prompt(run, ctx)
 
 
@@ -657,3 +729,60 @@ def test_real_docker_baseline_candidate_and_isolation(repository, tmp_path):
     boundary = executor.run(files, "python_unittest", threading.Event(),
                             container_name="mammoth-owner-exec-" + "0" * 24 + "-candidate")
     assert boundary["passed"], boundary
+
+
+@pytest.mark.skipif(not os.environ.get("MAMMOTH_TEST_OWNER_UI_IMAGE"), reason="Reviewed frontend image integration opt-in")
+def test_real_frontend_build_rendering_regressions_and_approved_branch(tmp_path):
+    import json
+    import uuid
+    source = Path(__file__).parents[1]
+    files = snapshot(source, head_sha(source))
+    for rel in files:
+        if rel.startswith(("ui/mad-architecht-command-center/", "packages/mammoth-paths/")):
+            files[rel] = (source / rel).read_bytes()
+    executor = ContainerExecutor(os.environ["MAMMOTH_TEST_OWNER_UI_IMAGE"], timeout=120)
+
+    def check(content, profile):
+        return executor.run(content, profile, threading.Event(),
+                            container_name="mammoth-owner-exec-" + uuid.uuid4().hex[:24] + "-candidate")
+
+    assert check(files, "ui_build")["passed"]
+    assert check(files, "ui_component")["passed"]
+    rel = "ui/mad-architecht-command-center/src/components/TrustSurfaces.jsx"
+    broken = {**files, rel: files[rel] + b"\nconst = invalid syntax;\n"}
+    assert check(broken, "ui_build")["passed"] is False
+    old = b"const percentage = Math.round(score * 100)"
+    assert files[rel].count(old) == 1
+    wrong = {**files, rel: files[rel].replace(old, b"const percentage = 91")}
+    assert check(wrong, "ui_component")["passed"] is False
+    manifest_path = "ui/mad-architecht-command-center/package.json"
+    manifest = json.loads(files[manifest_path])
+    manifest["version"] = "0.0.0-unreviewed"
+    mismatch = check({**files, manifest_path: json.dumps(manifest).encode()}, "ui_build")
+    assert mismatch["passed"] is False and "Dependency manifest changed" in mismatch["log"]
+
+    root = tmp_path / "frontend-repo"
+    root.mkdir()
+    git(root, "init")
+    for path, content in files.items():
+        target = root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    git(root, "add", ".")
+    git(root, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "Frontend fixture")
+    base = head_sha(root)
+    dirty = files[rel] + b"\n// local uncommitted content\n"
+    (root / rel).write_bytes(dirty)
+    index = git(root, "ls-files", "--stage")
+    service = OwnerExecution(tmp_path / "frontend-jobs", FakeExecutor(), enabled=True, frontend_executor=executor)
+    job = service.prepare(root, "owner/frontend", "owner", [{"path": rel, "edits": [{
+        "old": old.decode(), "new": "const percentage = Math.round(100 * score)",
+    }]}], base_sha=base, profile="ui_component")
+    checked = service.execute(job["id"], "owner", root, job["approval_digest"])
+    assert checked["status"] == "validated", checked
+    assert checked["baseline"]["passed"] and checked["candidate"]["passed"]
+    applied = service.apply(job["id"], "owner", root, checked["application"]["approval_digest"])
+    assert applied["application"]["status"] == "applied"
+    assert b"Math.round(100 * score)" in git(root, "show", f"{applied['application']['branch']}:{rel}")
+    assert head_sha(root) == base and (root / rel).read_bytes() == dirty
+    assert git(root, "ls-files", "--stage") == index

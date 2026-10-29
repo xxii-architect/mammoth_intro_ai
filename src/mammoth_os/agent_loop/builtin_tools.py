@@ -9,12 +9,20 @@ from __future__ import annotations
 
 import difflib
 import fnmatch
+import hashlib
 import os
 import subprocess
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from .tools import TIER_NETWORK, TIER_READ, TIER_WRITE, ToolContext, ToolRegistry, ToolSpec
+from .tools import (
+    TIER_NETWORK,
+    TIER_READ,
+    TIER_WRITE,
+    ToolContext,
+    ToolRegistry,
+    ToolSpec,
+)
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv", "dist", "build", ".next", ".mammoth", ".pytest_cache", ".mypy_cache"}
 SECRET_PATTERNS = (
@@ -122,10 +130,28 @@ def _read_file(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
         "end_line": end,
         "total_lines": total,
         "content": "\n".join(kept),
+        "content_sha256": hashlib.sha256(raw).hexdigest(),
     }
     if end < total:
         result["next_start_line"] = end + 1
     return result
+
+
+def _recall_observation(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
+    observations = ctx.extras.get("observations") or []
+    index = args["observation"]
+    if index >= len(observations):
+        return {"status": "error", "code": "not_found", "error": "No such observation in this run."}
+    step = observations[index]
+    if step.get("tool") != "repo_read_file":
+        return {"status": "error", "code": "invalid_observation", "error": "Only recorded file reads can be recalled."}
+    result = step.get("result") or {}
+    target = safe_repo_path(ctx.repo_root, result.get("path"))
+    if target is None or not target.is_file() or target.stat().st_size > MAX_FILE_BYTES:
+        return {"status": "error", "code": "stale_observation", "error": "Recorded path is no longer readable; inspect it again."}
+    if not result.get("content_sha256") or hashlib.sha256(target.read_bytes()).hexdigest() != result["content_sha256"]:
+        return {"status": "error", "code": "stale_observation", "error": "File changed since the recorded read; inspect the exact range again."}
+    return dict(result)
 
 
 def _search(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
@@ -193,6 +219,25 @@ def _edit_location_hint(text: str, old: str) -> str:
     return f" Its first line appears at line(s) {shown}; read around there (whitespace or later lines likely differ)."
 
 
+def apply_exact_edits(text: str, edits: Any, rel: str) -> str:
+    """Apply ordered, uniquely matching replacements without guessing."""
+    if not isinstance(edits, list) or not 1 <= len(edits) <= 40:
+        raise ValueError(f"{rel}: supply 1-40 exact edits.")
+    for idx, edit in enumerate(edits, start=1):
+        if (not isinstance(edit, dict) or set(edit) != {"old", "new"}
+                or not isinstance(edit["old"], str) or not isinstance(edit["new"], str) or not edit["old"]
+                or "\x00" in edit["old"] or "\x00" in edit["new"]):
+            raise ValueError(f"{rel} edit {idx}: requires non-empty old text and new text.")
+        old, new = edit["old"], edit["new"]
+        count = text.count(old)
+        if count != 1:
+            problem = "was not found" if count == 0 else f"matches {count} places; include more surrounding lines"
+            hint = _edit_location_hint(text, old) if count == 0 else ""
+            raise ValueError(f"{rel} edit {idx}: 'old' text {problem}. Re-read the exact base lines.{hint}")
+        text = text.replace(old, new, 1)
+    return text
+
+
 def _resolve_changes(root: Path, raw_changes: List[Dict[str, Any]]) -> "tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]":
     """Turn each change into ``{path, content}``.
 
@@ -216,17 +261,10 @@ def _resolve_changes(root: Path, raw_changes: List[Dict[str, Any]]) -> "tuple[Li
         if not target.is_file():
             return [], {"status": "error", "code": "not_found", "error": f"{rel}: 'edits' need an existing file; use 'content' to create it."}
         text = target.read_text(encoding="utf-8", errors="replace")
-        for idx, edit in enumerate(edits, start=1):
-            old, new = str(edit.get("old") or ""), str(edit.get("new") or "")
-            count = text.count(old) if old else 0
-            if count != 1:
-                problem = "was not found" if count == 0 else f"matches {count} places; include more surrounding lines"
-                hint = _edit_location_hint(text, old) if count == 0 else ""
-                return [], {
-                    "status": "error", "code": "edit_mismatch",
-                    "error": f"{rel} edit {idx}: 'old' text {problem}. Re-read the file and copy the exact lines.{hint}",
-                }
-            text = text.replace(old, new, 1)
+        try:
+            text = apply_exact_edits(text, edits, rel)
+        except ValueError as exc:
+            return [], {"status": "error", "code": "edit_mismatch", "error": str(exc)}
         resolved.append({"path": rel, "content": text})
     return resolved, None
 
@@ -332,6 +370,14 @@ QUERY_SCHEMA = {
 
 
 def register_repo_tools(registry: ToolRegistry) -> None:
+    registry.register(ToolSpec(
+        name="repo_recall_observation",
+        description="Recover an exact prior file excerpt by its observation index from persistent work evidence. "
+                    "Checks the current file hash and rejects stale or inaccessible evidence. Same run only.",
+        input_schema={"type": "object", "required": ["observation"], "additionalProperties": False,
+                      "properties": {"observation": {"type": "integer", "minimum": 0}}},
+        tier=TIER_READ, handler=_recall_observation, trace_kind="read", needs_repo=True,
+    ))
     registry.register(ToolSpec(
         name="repo_list_files",
         description="List files in the connected repository.",

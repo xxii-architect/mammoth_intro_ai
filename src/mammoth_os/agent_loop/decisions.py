@@ -26,13 +26,14 @@ def decision_schema(tool_names: Iterable[str]) -> Dict[str, Any]:
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": ["tool", "answer", "finalize"]},
+            "goal": {"type": "string", "enum": ["answer", "proposal", "validated", "applied"]},
             "reasoning": {"type": "string"},
             "plan": {"type": "array", "items": {"type": "string"}},
             "tool": {"type": ["string", "null"], "enum": [None, *sorted(set(tool_names))]},
             "args_json": {"type": "string"},
             "final": {"type": ["string", "null"]},
         },
-        "required": ["action", "reasoning", "plan", "tool", "args_json", "final"],
+        "required": ["action", "goal", "reasoning", "plan", "tool", "args_json", "final"],
         "additionalProperties": False,
     }
 
@@ -42,8 +43,10 @@ def parse_structured_decision(text: str, tool_names: Iterable[str]) -> Optional[
         raw = _json(text)
     except (ValueError, TypeError):
         return None
-    required = {"action", "reasoning", "plan", "tool", "args_json", "final"}
+    required = {"action", "goal", "reasoning", "plan", "tool", "args_json", "final"}
     if not isinstance(raw, dict) or set(raw) != required:
+        return None
+    if not isinstance(raw["goal"], str) or raw["goal"] not in {"answer", "proposal", "validated", "applied"}:
         return None
     if not isinstance(raw["reasoning"], str) or not isinstance(raw["plan"], list):
         return None
@@ -71,4 +74,4 @@ def parse_structured_decision(text: str, tool_names: Iterable[str]) -> Optional[
             return None
     else:
         return None
-    return {"reasoning": raw["reasoning"], "plan": raw["plan"], "tool": tool, "args": args, "final": final}
+    return {"goal": raw["goal"], "reasoning": raw["reasoning"], "plan": raw["plan"], "tool": tool, "args": args, "final": final}

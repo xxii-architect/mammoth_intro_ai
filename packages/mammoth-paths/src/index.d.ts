@@ -55,6 +55,16 @@ export interface RunState {
   failure_code?: string
   diagnostics?: Array<Record<string, unknown>>
   recovery?: Record<string, unknown> | null
+  progress?: {
+    goal: 'answer' | 'proposal' | 'validated' | 'applied'
+    stage: 'answer' | 'proposal' | 'validated' | 'applied'
+    goal_met: boolean
+    state: string
+    blocker: string
+    inspected: Array<Record<string, unknown>>
+    proposals: Array<Record<string, unknown>>
+    executions: Array<{ id: string; status: string; profile: string; application?: { status: string; branch?: string; commit_sha?: string } }>
+  }
 }
 
 export interface RunResult {
@@ -63,6 +73,7 @@ export interface RunResult {
   reply: string
   error: string
   pendingApproval: Approval | null
+  progress?: RunState['progress'] | null
   state: RunState | null
 }
 
@@ -87,6 +98,7 @@ export interface RunOptions {
   agentId?: string
   repo?: string
   approvalMode?: 'tools' | 'always'
+  completionGoal?: 'answer' | 'proposal' | 'validated' | 'applied'
   threadId?: string
   signal?: AbortSignal
   onEvent?: (event: RunEvent, state?: RunState) => void
@@ -121,7 +133,7 @@ export interface PathsClient {
   deleteArtifact(id: string): Promise<Record<string, unknown>>
   clearArtifacts(): Promise<Record<string, unknown>>
   ownerExecutionCapabilities(repo?: string): Promise<Record<string, unknown>>
-  prepareOwnerExecution(repo: string, changes: Array<{ path: string; content: string }>, options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' }): Promise<Record<string, unknown>>
+  prepareOwnerExecution(repo: string, changes: Array<{ path: string } & ({ content: string; edits?: never } | { edits: Array<{ old: string; new: string }>; content?: never })>, options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' | 'ui_build' | 'ui_component' }): Promise<Record<string, unknown>>
   getOwnerExecution(id: string): Promise<Record<string, unknown>>
   approveOwnerExecution(id: string, options: { repo: string; approvalDigest: string }): Promise<Record<string, unknown>>
   cancelOwnerExecution(id: string): Promise<Record<string, unknown>>

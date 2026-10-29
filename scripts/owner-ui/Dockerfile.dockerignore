@@ -1,0 +1,8 @@
+**
+!ui/
+!ui/mad-architecht-command-center/
+!ui/mad-architecht-command-center/package.json
+!ui/mad-architecht-command-center/package-lock.json
+!scripts/
+!scripts/owner-ui/
+!scripts/owner-ui/validate.mjs

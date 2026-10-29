@@ -49,6 +49,15 @@ function useRunStore() {
 
 `run` exposes `status`, `plan` (`[{title, status}]`), `approval`, `reply`, `error`, and the raw `events`.
 
+Pass `completionGoal: 'proposal' | 'validated' | 'applied' | 'answer'` to
+`streamRun` / `run` (Python: `completion_goal`). It is a minimum requested
+result, not authorization. Models/tools can raise it, never lower it.
+`progress` on the result and reducer state records actual read ranges/hashes,
+executions/checks, blockers and branch/commit evidence. Python exposes
+`RunResult.progress`. A prose completion claim without the required evidence
+ends partial with `missing_evidence`, preserving explicit continuation and both
+approval gates. Saved plans remain model-written, not verified evidence.
+
 ## API
 
 | Method | Surface | Access |
@@ -86,12 +95,20 @@ records. These additions do not change the `mammoth.paths.v1` contract.
 {repo, approvalDigest})`, `cancelOwnerExecution(id)`, and
 `applyOwnerExecution(id, {repo, approvalDigest})` preserve backend payloads.
 Python has matching snake_case methods. Changes are `{path, content}` full-text
-objects. Profiles: `python_unittest`, `python_pytest`, `node_test`.
+objects or `{path, edits: [{old, new}]}`. Each exact old string must match once
+in the frozen committed base, not uncommitted checkout text. New files need
+content. Profiles: `python_unittest`, `python_pytest`, `node_test`, `ui_build`,
+`ui_component`. Frontend profiles require a separate operator-reviewed image
+with locked UI dependencies. Build compiles the production UI; component checks
+render the actual trust row at explicit zero/low/high scores. Neither claims
+general acceptance or browser-interaction coverage. Manifest changes require a
+reviewed image rebuild, never runtime network/package installation.
 Owner/admin checks and explicit repository access are backend-enforced;
 embedding the SDK does not grant access. The backend pilot is disabled by default.
 Approval binds a committed snapshot and image and expires after 15 minutes.
 Tests run in offline Docker only, never on the host, with no automatic merge/push.
-Query the saved job after a request timeout rather than retrying its approval.
+Allow at least 420 seconds for synchronous approval. Query the saved job after
+a request timeout rather than retrying its approval.
 Read `isolation.profiles` in capabilities for actual tool availability in the
 pinned image. Unknown/unavailable profiles are rejected before preparation;
 availability is not proof of project dependencies or change coverage.

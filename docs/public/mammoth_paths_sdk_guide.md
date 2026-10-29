@@ -50,8 +50,14 @@ The disabled-by-default owner pilot adds matching Python/JS methods:
 
 These preserve backend response objects and meter the `owner_execution` surface.
 The backend enforces owner/admin access, explicit repo selection and frozen
-approval. Changes are full text `{path, content}` objects. Fixed profiles:
-`python_unittest`, `python_pytest`, `node_test`. Baseline/candidate checks use
+approval. Changes accept full text `{path, content}` or small
+`{path, edits: [{old, new}]}` objects. Each old string must match once in the
+frozen committed base; new files need content. Fixed profiles:
+`python_unittest`, `python_pytest`, `node_test`, `ui_build`, `ui_component`.
+The optional frontend profiles need a separately reviewed, locked dependency
+image. Build compiles production assets; component checks render the actual
+trust row at explicit zero/low/high scores. These checks do not prove browser
+interactions, calibrated confidence or general acceptance. Baseline/candidate checks use
 committed snapshots in disposable offline Docker containers, not host fallback.
 Uncommitted changes are excluded. Patches remain unapplied until a second owner
 approval creates a commit on a new local branch; no checkout/index changes,
@@ -64,11 +70,19 @@ Tenant/paid application is not enabled.
 Capabilities expose `isolation.profiles`, a mapping of configured profile names
 to tool-availability booleans from a bounded offline image probe. Preparation
 rejects unavailable profiles. This is not a dependency or coverage guarantee,
-and none of these profiles runs the UI production build.
-Use Python `timeout=300` for synchronous approval and query saved state after
+and only `ui_build` runs the UI production build.
+Use Python `timeout=420` for synchronous approval and query saved state after
 transport failures. Approval expires after 15 minutes; changed HEAD/reused
 approval fails. Containers share the host kernel and require reviewed pinned
 images with dependencies preinstalled. This is not hostile-code VM isolation.
+
+Run options support Python `completion_goal` / JavaScript `completionGoal`:
+`answer`, `proposal`, `validated`, `applied`. The goal is a minimum result,
+not permission to bypass approvals. It can rise, never fall. Event and saved-run
+`progress` report read ranges/hashes, actual executions/checks, blockers, and
+branch/commit evidence. `RunResult.progress` (Python) and result/state `progress`
+(JS) expose the latest inventory. Missing evidence ends partial/incomplete,
+not a completed coding task; plans and model prose are not verification.
 
 The standalone coding benchmark uses fixed independent acceptance tests.
 Reference mode only calibrates the harness; `--model` explicitly consumes credits.

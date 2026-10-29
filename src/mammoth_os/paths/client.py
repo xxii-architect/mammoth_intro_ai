@@ -95,6 +95,15 @@ class RunResult:
     def diffs(self) -> List[Dict[str, Any]]:
         return [e.data for e in self.events if e.type == "diff.proposed"]
 
+    @property
+    def progress(self) -> Optional[Dict[str, Any]]:
+        """Latest evidence inventory supplied by the backend, if supported."""
+        for event in reversed(self.events):
+            progress = event.data.get("progress")
+            if isinstance(progress, dict):
+                return progress
+        return None
+
 
 def iter_sse(lines: Iterable[bytes]) -> Iterator[Dict[str, Any]]:
     """Parse a Server-Sent Events byte stream into decoded JSON ``data`` payloads."""
@@ -280,11 +289,16 @@ class MammothPaths:
         repo: Optional[str] = None,
         approval_mode: str = "tools",
         thread_id: Optional[str] = None,
+        completion_goal: Optional[str] = None,
     ) -> Iterator[RunEvent]:
         """Start a run and yield events until it completes, fails, is cancelled, or awaits approval."""
         if approval_mode not in {"tools", "always"}:
             raise ValueError("approval_mode must be 'tools' or 'always'")
         body: Dict[str, Any] = {"message": message, "agent_id": agent_id, "approval_mode": approval_mode}
+        if completion_goal is not None:
+            if completion_goal not in {"answer", "proposal", "validated", "applied"}:
+                raise ValueError("Invalid completion_goal")
+            body["completion_goal"] = completion_goal
         if repo:
             body["repo_context"] = {"root": repo}
         if thread_id:
@@ -413,7 +427,7 @@ class MammothPaths:
     def owner_execution_capabilities(self, repo: str = "") -> Dict[str, Any]:
         return self._json("owner_execution", "GET", "/owner-executions/capabilities", query={"repo": repo})
 
-    def prepare_owner_execution(self, repo: str, changes: List[Dict[str, str]], *, base_sha: str, profile: str) -> Dict[str, Any]:
+    def prepare_owner_execution(self, repo: str, changes: List[Dict[str, Any]], *, base_sha: str, profile: str) -> Dict[str, Any]:
         return self._json("owner_execution", "POST", "/owner-executions", body={
             "repo_context": {"root": repo}, "changes": changes, "base_sha": base_sha, "profile": profile,
         })

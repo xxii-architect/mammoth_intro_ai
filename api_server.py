@@ -6785,6 +6785,8 @@ _OWNER_EXECUTION = OwnerExecution(
     MAMMOTH_DIR / "owner_executions",
     ContainerExecutor(os.environ.get("MAMMOTH_OWNER_EXEC_IMAGE", "")),
     enabled=os.environ.get("MAMMOTH_OWNER_EXEC_ENABLED") == "1",
+    frontend_executor=ContainerExecutor(os.environ["MAMMOTH_OWNER_UI_IMAGE"], timeout=120)
+    if os.environ.get("MAMMOTH_OWNER_UI_IMAGE") else None,
 )
 _AGENT_TOOLS, _AGENT_MCP = _build_agent_tool_registry()
 _AGENT_RUNS = RunStore(MAMMOTH_DIR / "agent_runs")

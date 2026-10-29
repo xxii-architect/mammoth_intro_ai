@@ -159,7 +159,7 @@ const repoContextRules = [
   },
   {
     title: 'Owner isolated coding validation',
-    body: 'The owner/admin Coding workspace has an opt-in, approval-gated validation pilot. Select a repo, review explicit full-text changes and approve offline baseline/candidate Docker checks. The committed HEAD snapshot excludes uncommitted work; the selected checkout stays unchanged. No host fallback, dependency installation, automatic merge or push. Containers share the host kernel, so use reviewed code and pinned images. Approval expires after 15 minutes and changed HEAD requires a new proposal. Cancel stops the scoped job; restart recovery never resumes approvals. Draft patch artifacts and recorded test evidence remain proposals, not independent acceptance or review approval. A separate opt-in benchmark distinguishes known-solution harness calibration from actual model measurements; neither enables autonomy. Operators must configure the disabled-by-default pilot on a Docker-capable backend.',
+    body: 'The owner/admin Coding workspace has an opt-in, approval-gated validation pilot. Select a repo, review full-text changes or small exact old/new edits against the committed base, then approve offline baseline/candidate Docker checks. Uncommitted work and the selected checkout stay unchanged. Optional ui_build compiles production assets; ui_component checks actual trust-row rendering at explicit zero/low/high scores. These use a separate reviewed locked-dependency image, 768 MB memory and 120 seconds per phase; they do not prove browser interactions or general acceptance. No host fallback, runtime dependency installation, automatic merge or push. Containers share the host kernel. Approval expires after 15 minutes and changed HEAD requires a new proposal. Cancel stops the scoped job; restart recovery never resumes approvals. Draft patches and tests are not independent acceptance or review approval. A separate benchmark distinguishes known-solution harness calibration from actual model measurements. Operators must configure the disabled-by-default pilot on a Docker-capable backend.',
   },
   {
     title: 'Find and review saved artifacts',
@@ -218,7 +218,7 @@ const repoContextRules = [
 const agentRunRules = [
   {
     title: 'Agent mode shows its work',
-    body: 'Each run shows a collapsible “Worked · N tool calls” timeline: the plan, one-line reasoning summaries, what was read or searched, and any proposed diff. Reasoning lines are short summaries written by the model, not hidden chain-of-thought.',
+    body: 'Each run shows a collapsible timeline: Answered for a normal response, Completed when the required work goal has tool evidence, or Incomplete/Blocked when it does not. Coding Required result can demand a proposal, successful validation or actual branch application. Recorded progress lists file reads, executions/checks, blockers and branch/commit evidence; a prose claim cannot satisfy these goals. Saved progress survives continuation. Plans and one-line reasoning summaries are model-written, not independently verified or hidden chain-of-thought. Both validation and branch application still require separate approvals.',
   },
   {
     title: 'Risky tools stop and ask',

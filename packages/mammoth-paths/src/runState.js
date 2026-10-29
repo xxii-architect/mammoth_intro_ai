@@ -93,6 +93,7 @@ export function reduceRunEvent(run, event) {
   const base = run || { id: event.run_id, status: 'running', events: [], plan: [], approval: null, reply: '' }
   const next = { ...base, id: base.id || event.run_id, events: [...base.events, event] }
   const { type, data = {} } = event
+  if (data.progress) next.progress = data.progress
   if (type === 'run.started') { next.repo = data.repo || null; next.tools = data.tools || [] }
   if (type === 'run.continued') { next.status = 'running'; next.reply = ''; next.error = ''; next.can_continue = false; next.failure_code = '' }
   if (type === 'run.recovering') next.recovery = data

@@ -726,7 +726,25 @@ not imply installed project dependencies or relevant coverage. Excluded
 environments are omitted before checking Git entry types; source symlinks and
 submodules remain unsupported and report the blocking path. The separate UI
 Build GitHub workflow verifies lockfile installation and the production Vite
-build after publication; it is not an isolated owner-execution UI build profile.
+build after publication. Separately, optional `ui_build` and `ui_component`
+profiles provide pre-application production compilation and narrow actual
+React trust-row rendering checks. They require a separate reviewed
+`MAMMOTH_OWNER_UI_IMAGE`, with locked dependencies baked in, 768 MB memory and
+120 seconds per phase. Dependency changes require an image rebuild; runtime
+stays offline. Component rendering does not prove browser interactions or
+general acceptance. Full isolated browser interaction remains deferred rather
+than disabling Chromium's sandbox or granting extra container privileges.
+
+Preparation accepts full `{path, content}` changes or small
+`{path, edits: [{old, new}]}` changes, resolved against committed base bytes.
+Each old string must match exactly once. New files require content.
+Coding runs can require proposal, validation or application through **Required
+result**; both SDKs expose the same optional completion goal. Recorded `progress`
+tracks reads/hashes, frozen jobs, checks, blockers and branch/commit evidence.
+Goals can only increase. Unsupported completion claims end as incomplete,
+not successful work; normal replies say Answered. Same-run observation recall
+reuses saved reads only while accessible file hashes still match. Plans are
+model-written summaries, not independent evidence.
 Runs remain limited to eight model decisions per segment, with up to two
 continuations. Use **Continue task** to preserve saved progress rather than
 starting the same investigation over. This does not bypass either approval.

@@ -108,6 +108,30 @@ def test_run_is_private_to_its_owner(isolated, as_user):
     assert asyncio.run(api_server.mammoth_agent_run_continue(run_id)).status_code == 404
 
 
+@pytest.mark.parametrize("goal", ["proposal", "validated", "applied"])
+def test_required_result_is_persisted_and_prose_alone_does_not_complete(isolated, as_user, goal):
+    _, use_llm = isolated
+    as_user("tenant-a")
+    use_llm([{"final": "Everything is done."}])
+    response = asyncio.run(api_server.mammoth_agent_run_start({"message": "Do work", "completion_goal": goal}))
+    events = asyncio.run(_drain(response))
+    assert events[-1]["type"] == "run.partial"
+    assert events[-1]["data"]["code"] == "missing_evidence"
+    assert events[-1]["data"]["progress"]["goal"] == goal
+    fetched = asyncio.run(api_server.mammoth_agent_run_get(events[0]["run_id"]))["run"]
+    assert fetched["completion_goal"] == goal and fetched["can_continue"] is True
+    assert fetched["progress"]["goal_met"] is False
+
+
+def test_invalid_required_result_is_rejected_without_starting_a_run(isolated, as_user):
+    _, use_llm = isolated
+    as_user("tenant-a")
+    use_llm([])
+    response = asyncio.run(api_server.mammoth_agent_run_start({"message": "Do work", "completion_goal": "anything"}))
+    assert response.status_code == 400
+    assert api_server._AGENT_RUNS.list("tenant-a") == []
+
+
 def test_failed_run_continues_without_duplicate_chat_history(isolated, as_user, monkeypatch):
     state, _ = isolated
     as_user("tenant-a")

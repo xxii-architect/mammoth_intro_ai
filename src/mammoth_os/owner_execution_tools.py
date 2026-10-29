@@ -96,14 +96,19 @@ def register_owner_execution_tools(
     ))
     registry.register(ToolSpec(
         name="owner_execution_prepare",
-        description="Prepare an owner-only isolated patch validation; never writes to the selected checkout. Requires explicit base SHA from owner_execution_status. Frozen proposal expires after 15 minutes.",
+        description="Freeze an owner-only proposal against the explicit base SHA from owner_execution_status. For existing files send small exact edits (old/new); the server resolves full contents from committed Git objects, never the dirty checkout. Use content for new files. Do not reproduce entire large files. Never changes the checkout. Expires after 15 minutes.",
         input_schema={"type": "object", "required": ["base_sha", "profile", "changes"], "additionalProperties": False,
                       "properties": {"base_sha": {"type": "string", "minLength": 40, "maxLength": 64},
                                      "profile": {"type": "string", "enum": list(PROFILES)},
                                      "changes": {"type": "array", "minItems": 1, "maxItems": 20, "items": {
-                                         "type": "object", "required": ["path", "content"], "additionalProperties": False,
+                                         "type": "object", "required": ["path"], "additionalProperties": False,
                                          "properties": {"path": {"type": "string", "maxLength": 240},
-                                                        "content": {"type": "string", "maxLength": 500000}}}}}},
+                                                        "content": {"type": "string", "maxLength": 500000},
+                                                        "edits": {"type": "array", "minItems": 1, "maxItems": 40,
+                                                                  "items": {"type": "object", "required": ["old", "new"],
+                                                                            "additionalProperties": False, "properties": {
+                                                                                "old": {"type": "string", "minLength": 1, "maxLength": 500000},
+                                                                                "new": {"type": "string", "maxLength": 500000}}}}}}}}},
         tier=TIER_WRITE, handler=prepare, trace_kind="proposed", admin_only=True, needs_repo=True,
     ))
     registry.register(ToolSpec(
@@ -116,9 +121,9 @@ def register_owner_execution_tools(
     ))
     registry.register(ToolSpec(
         name="owner_execution_run",
-        description="Run frozen owner proposal baseline and candidate tests in disposable Docker isolation. Explicit approval is mandatory. No host fallback, merge or push. Allow up to 150 seconds.",
+        description="Run frozen owner proposal baseline and candidate tests in disposable Docker isolation. Explicit approval is mandatory. No host fallback, merge or push. Allow up to 360 seconds including image probes and cleanup.",
         input_schema={"type": "object", "required": ["execution_id", "approval_digest"], "additionalProperties": False,
                       "properties": {"execution_id": {"type": "string", "maxLength": 32},
                                      "approval_digest": {"type": "string", "minLength": 64, "maxLength": 64}}},
-        tier=TIER_EXEC, handler=execute, trace_kind="ran", admin_only=True, needs_repo=True, timeout_s=240,
+        tier=TIER_EXEC, handler=execute, trace_kind="ran", admin_only=True, needs_repo=True, timeout_s=360,
     ))

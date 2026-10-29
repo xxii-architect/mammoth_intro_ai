@@ -141,11 +141,19 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
   const toolCalls = steps.filter((s) => s.tool).length
   const done = (run.plan || []).filter((p) => p.status === 'done').length
   const header = finished
-    ? `${run.status === 'completed' ? 'Worked' : run.status === 'failed' ? 'Failed' : run.status === 'partial' ? 'Incomplete' : 'Stopped'} · ${toolCalls} tool call${toolCalls === 1 ? '' : 's'}${run.plan?.length ? ` · plan ${done}/${run.plan.length}` : ''}`
+    ? `${run.status === 'completed' ? (run.progress?.goal && run.progress.goal !== 'answer' ? 'Completed' : 'Answered') : run.status === 'failed' ? 'Failed' : run.status === 'partial' ? (run.progress?.blocker ? 'Blocked' : 'Incomplete') : 'Stopped'} · ${toolCalls} tool call${toolCalls === 1 ? '' : 's'}${run.plan?.length ? ` · plan ${done}/${run.plan.length}` : ''}`
     : run.status === 'awaiting_approval' ? 'Waiting for your approval' : 'Working…'
 
   return (
     <div style={{ marginBottom: run.reply ? 10 : 0, display: 'grid', gap: 6 }} aria-live="polite">
+      {run.progress && <section aria-label="Recorded work progress" style={{ fontSize: '.74rem', color: 'var(--txt-sec)' }}>
+        <p>Goal: {run.progress.goal}. Recorded stage: {run.progress.stage}.</p>
+        {run.progress.executions?.map(job => <p key={job.id}>
+          Execution <code>{job.id}</code>: {job.status} ({job.profile})
+          {job.application?.status === 'applied' && <> · branch <code>{job.application.branch}</code> · commit <code>{job.application.commit_sha}</code></>}
+        </p>)}
+        {run.progress.blocker && <p role="status">{run.progress.blocker}</p>}
+      </section>}
       {(steps.length > 0 || run.plan?.length > 0 || !finished || run.status !== 'completed') && (
         <button
           type="button"

@@ -18,7 +18,7 @@ import secrets
 import threading
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
+from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from mammoth_os.llm_completion import complete
 
@@ -30,6 +30,7 @@ DEFAULT_MAX_STEPS = 8
 DECISION_OUTPUT_TOKENS = 4096
 FINAL_OUTPUT_TOKENS = 8192
 MAX_CONTINUATIONS = 2
+WORK_GOALS = ("answer", "proposal", "validated", "applied")
 MAX_OBSERVATION_CHARS = 24_000
 MAX_OLD_OBSERVATION_CHARS = 2_000
 RECENT_OBSERVATIONS = 3
@@ -65,6 +66,48 @@ class AgentRun:
     failure_code: str = ""
     continuations: int = 0
     step_limit: int = 0
+    completion_goal: str = "answer"
+
+    def progress(self) -> Dict[str, Any]:
+        inspected = []
+        executions: Dict[str, Any] = {}
+        proposals = []
+        blocker = ""
+        for index, step in enumerate(self.transcript):
+            result = step.get("result") or {}
+            name = step.get("tool")
+            job = result.get("execution")
+            if name in {"owner_execution_prepare", "owner_execution_run", "owner_execution_apply"} and isinstance(job, dict) and job.get("id"):
+                executions[job["id"]] = {key: job.get(key) for key in
+                                        ("id", "status", "base_sha", "profile", "application")}
+                executions[job["id"]]["checks"] = job.get("checks") or {}
+            if result.get("status") != "ok":
+                if result.get("status") in {"error", "rejected"}:
+                    blocker = str(result.get("error") or result.get("note") or
+                                  (job.get("error") if isinstance(job, dict) else "") or "Tool action failed.")[:600]
+                continue
+            if name == "repo_read_file":
+                inspected.append({"observation": index, **{key: result.get(key) for key in
+                                  ("path", "start_line", "end_line", "content_sha256")}})
+            if name == "repo_propose_patch" and result.get("diff"):
+                proposals.append({"observation": index, "files": result.get("files"), "title": result.get("title")})
+                blocker = ""
+            if name in {"owner_execution_prepare", "owner_execution_run", "owner_execution_apply"} and isinstance(job, dict) and job.get("id"):
+                blocker = ""
+        stage = "proposal" if proposals or executions else "answer"
+        for job in executions.values():
+            if job["status"] == "validated" and job["checks"].get("candidate", {}).get("passed") is True:
+                stage = max((stage, "validated"), key=WORK_GOALS.index)
+                application = job.get("application") or {}
+                if application.get("status") == "applied" and application.get("branch") and application.get("commit_sha"):
+                    stage = "applied"
+        achieved = WORK_GOALS.index(stage) >= WORK_GOALS.index(self.completion_goal)
+        return {"goal": self.completion_goal, "stage": stage, "goal_met": achieved,
+                "inspected": inspected[-80:], "proposals": proposals[-20:],
+                "executions": list(executions.values())[-20:], "blocker": blocker,
+                "state": "awaiting_approval" if self.pending_approval else
+                         "completed" if achieved and self.status == "completed" else
+                         "blocked" if blocker else "needs_continuation" if self.status == "partial" else "working"}
 
     @staticmethod
     def new_id() -> str:
@@ -82,9 +125,10 @@ class AgentRun:
         data = self.to_dict()
         data.pop("request", None)
         data.pop("cancel_requested", None)
+        data["progress"] = self.progress()
         data["can_continue"] = (
             self.status in {"partial", "failed"}
-            and self.failure_code in {"invalid_response", "output_limit", "empty_response", "step_limit", "repeated_tool"}
+            and self.failure_code in {"invalid_response", "output_limit", "empty_response", "step_limit", "repeated_tool", "missing_evidence"}
             and self.continuations < MAX_CONTINUATIONS
         )
         return data
@@ -261,11 +305,14 @@ Conversation style:
 Rules:
 - Respond with exactly ONE JSON object and nothing else.
 - Shape: {"reasoning": "<1-2 sentence summary of why you are taking this step>",
+          "goal": "answer" | "proposal" | "validated" | "applied",
           "plan": ["short step", ...],            (optional; send it when the plan changes)
           "tool": "<tool name>" or null,
           "args": {...},                           (required when tool is set)
           "final": "<markdown answer>" or null}
 - Set exactly one of "tool" or "final".
+- Set goal to what the user requested: explanation=answer, saved patch=proposal, passing isolated checks=validated,
+  approved local branch commit=applied. A goal cannot be lowered to turn unfinished work into success.
 - For a long answer, set both to null to request a separate prose finalization instead of putting a long document inside JSON.
 - Only call tools from the catalog. Arguments must match the tool's input_schema.
 - Changes are proposals by default: use repo_propose_patch. For existing files send small exact "edits" (old → new snippets
@@ -347,6 +394,8 @@ class AgentRunner:
 
     # ── event plumbing ──────────────────────────────────────────────────────
     def _emit(self, run: AgentRun, kind: str, data: Dict[str, Any]) -> ev.RunEvent:
+        if kind in {ev.TOOL_RESULT, ev.APPROVAL_REQUESTED, ev.RUN_COMPLETED, ev.RUN_PARTIAL, ev.RUN_FAILED}:
+            data = {**data, "progress": run.progress()}
         event = ev.RunEvent(run_id=run.id, seq=len(run.events) + 1, type=kind, data=data)
         run.events.append(event.to_dict())
         return event
@@ -378,10 +427,14 @@ class AgentRunner:
         if self.registry.resolve("owner_execution_apply", ctx) is not None:
             parts.append(
                 "Owner-only approved coding workflow: when asked to make actual changes, inspect the selected repo, "
-                "call owner_execution_status for readiness and base_sha, then owner_execution_prepare with exact full "
-                "file contents and a profile marked true in isolation.profiles. Tool availability does not prove that "
-                "repository dependencies are installed or that checks cover the change. The test profiles do not "
-                "validate a UI build or GitHub Actions workflow. An unrelated passing test is not acceptance evidence. "
+                "call owner_execution_status FIRST for readiness and base_sha, then owner_execution_prepare with small "
+                "exact old/new edits copied from inspected ranges (full content only for new files) and a profile marked "
+                "true in isolation.profiles. Do not reread or output entire large files for a tiny change. Tool availability does not prove that "
+                "repository dependencies are installed or that checks cover the change. For this command-center UI, "
+                "ui_build compiles production assets; ui_component checks actual trust-row rendering at explicit "
+                "zero/low/high scores, not general behavior or browser interactions. Both require the separate locked "
+                "frontend image. Generic unittest/pytest/node_test profiles do not compile JSX or validate Actions YAML. "
+                "An unrelated passing test is not acceptance evidence. "
                 "An unsupported_snapshot error names the blocking source path; do not remove or bypass source symlinks "
                 "or submodules to force validation. A file-not-readable result can mean a proposed file does not exist "
                 "yet; preparing a new file does not require reading it first. "
@@ -400,6 +453,10 @@ class AgentRunner:
         if run.plan:
             parts.append("Current plan:\n" + json.dumps(run.plan))
         parts.append(self._observations_text(run))
+        parts.append("Persistent work evidence (observation indices refer to the full saved transcript):\n"
+                     + json.dumps(run.progress(), default=str))
+        parts.append("Use repo_recall_observation with an earlier read's observation index to recover an excerpt "
+                     "outside the recent window. It only returns same-run reads whose accessible file hash still matches.")
         parts.append(
             "Decide the next step. If the observations already answer the request, respond with \"final\" now. "
             "Never repeat a tool call you already made with the same arguments."
@@ -436,6 +493,7 @@ class AgentRunner:
             ("Recent conversation:\n" + str(run.request.get("history_text") or "").strip()[:4000])
             if str(run.request.get("history_text") or "").strip() else "",
             self._observations_text(run),
+            "Persistent work evidence:\n" + json.dumps(run.progress(), default=str),
             "The tool budget has ended or finalization was requested. Distinguish completed work from remaining work. "
             "Do not claim requested changes or checks were completed unless observations establish that.",
         ] if p)
@@ -522,6 +580,10 @@ class AgentRunner:
     # ── main loop ───────────────────────────────────────────────────────────
     async def start(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
         run.step_limit = self.max_steps
+        goal = run.request.get("completion_goal", "answer")
+        if goal not in WORK_GOALS:
+            raise ValueError("Invalid completion goal.")
+        run.completion_goal = goal
         yield self._emit(run, ev.RUN_STARTED, {
             "agent_id": run.agent_id,
             "message": run.message[:2000],
@@ -583,8 +645,10 @@ class AgentRunner:
         call_id = call_id or f"call-{secrets.token_hex(4)}"
         trace_kind = spec.trace_kind if spec else "tool"
         yield self._emit(run, ev.TOOL_CALL, {"call_id": call_id, "tool": name, "args": args, "trace_kind": trace_kind, "tier": spec.tier if spec else None})
-        tool_ctx = replace(ctx, extras={**ctx.extras, "cancel_requested": lambda: run.cancel_requested, "run_id": run.id})
+        tool_ctx = replace(ctx, extras={**ctx.extras, "cancel_requested": lambda: run.cancel_requested, "run_id": run.id,
+                                      "observations": run.transcript})
         result = await self.registry.invoke(name, args, tool_ctx)
+        run.transcript.append({"tool": name, "args": args, "result": result})
         yield self._emit(run, ev.TOOL_RESULT, {"call_id": call_id, "tool": name, "status": result.get("status"), "trace_kind": trace_kind, "result": result})
         if result.get("status") == "ok" and result.get("diff"):
             yield self._emit(run, ev.DIFF_PROPOSED, {
@@ -596,7 +660,6 @@ class AgentRunner:
                 "branch": result.get("branch"),
                 "next_step": result.get("next_step"),
             })
-        run.transcript.append({"tool": name, "args": args, "result": result})
 
     async def _loop(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
         try:
@@ -644,6 +707,14 @@ class AgentRunner:
                     })
                     return
                 invalid_streak = 0
+                goal = decision.get("goal")
+                if goal in WORK_GOALS and WORK_GOALS.index(goal) > WORK_GOALS.index(run.completion_goal):
+                    run.completion_goal = goal
+                tool_goals = {"repo_propose_patch": "proposal", "owner_execution_prepare": "proposal",
+                              "owner_execution_run": "validated", "owner_execution_apply": "applied"}
+                tool_goal = tool_goals.get(str(decision.get("tool") or ""), "answer")
+                if WORK_GOALS.index(tool_goal) > WORK_GOALS.index(run.completion_goal):
+                    run.completion_goal = tool_goal
                 if not stop_code:
                     run.steps += 1
                 reasoning = str(decision.get("reasoning") or "").strip()
@@ -655,7 +726,8 @@ class AgentRunner:
                     yield self._emit(run, ev.PLAN_UPDATED, {"plan": plan})
 
                 tool_name = decision.get("tool")
-                args = decision.get("args") if isinstance(decision.get("args"), dict) else {}
+                raw_args = decision.get("args")
+                args = raw_args if isinstance(raw_args, dict) else {}
                 if tool_name and self._is_repeat(run, str(tool_name), args):
                     # Models sometimes loop on an identical call; answer from what we have.
                     decision = await self._final_answer(run, ctx)
@@ -694,6 +766,15 @@ class AgentRunner:
                 if not final:
                     final = INVALID_FINAL_MESSAGE
                     stop_code = stop_code or "empty_response"
+                if not stop_code and not run.progress()["goal_met"]:
+                    stop_code = "missing_evidence"
+                if not run.progress()["goal_met"]:
+                    progress = run.progress()
+                    final = (
+                        f"Incomplete: the required result is {run.completion_goal}, but recorded tool evidence "
+                        f"only reaches {progress['stage']}. No completion is verified for the requested goal.\n\n"
+                        f"Model response (not completion evidence):\n{final}"
+                    )
                 run.reply = final
                 yield self._emit(run, ev.MESSAGE_DELTA, {"text": final})
                 yield self._emit(run, ev.MESSAGE_COMPLETED, {"text": final})
@@ -701,6 +782,7 @@ class AgentRunner:
                 run.failure_code = stop_code
                 yield self._emit(run, ev.RUN_PARTIAL if stop_code else ev.RUN_COMPLETED, {
                     "reply": final,
+                    "progress": run.progress(),
                     "steps": run.steps,
                     "tool_calls": sum(1 for e in run.events if e["type"] == ev.TOOL_CALL),
                     "provider": run.provider,

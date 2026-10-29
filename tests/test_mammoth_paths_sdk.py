@@ -148,6 +148,20 @@ def test_run_stops_at_approval_without_policy(backend):
     assert len(backend.requests) == 1
 
 
+def test_completion_goal_and_evidence_are_preserved_by_sdk(backend):
+    progress = {"goal": "applied", "stage": "proposal", "goal_met": False, "blocker": "Not approved."}
+    backend.route("POST", "/api/mammoth/runs", sse=[
+        _event(1, "run.partial", {"reply": "Incomplete", "code": "missing_evidence", "progress": progress}),
+    ])
+    client = MammothPaths(backend.url)
+    result = client.run("Apply this change", completion_goal="applied", repo="owner/repo")
+    assert result.progress == progress and result.status == "partial"
+    assert backend.requests[0]["body"]["completion_goal"] == "applied"
+    with pytest.raises(ValueError, match="completion_goal"):
+        client.stream_run("Invalid", completion_goal="anything")
+    assert len(backend.requests) == 1
+
+
 def test_partial_result_and_explicit_continuation(backend):
     run_id = "run-0123456789abcdef"
     backend.route("POST", "/api/mammoth/runs", sse=[

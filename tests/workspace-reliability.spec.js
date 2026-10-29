@@ -103,6 +103,7 @@ test('owner panel submits frozen approval and renders unapplied check evidence o
       expect(body.repo_context.root).toBe('owner/repo')
       expect(body.base_sha).toBe(ownerCapabilities.base_sha)
       expect(body.changes[0].path).toBe('app.py')
+      expect(body.changes[0].edits).toEqual([{ old: 'return 0', new: 'return 1' }])
       return { status: 'ok', execution: ownerJob }
     },
     [`/api/owner-executions/${ownerJob.id}/approve`]: request => {
@@ -111,7 +112,7 @@ test('owner panel submits frozen approval and renders unapplied check evidence o
     },
   }, { repo: 'owner/repo' })
   await page.getByText('Owner isolated validation pilot').click()
-  await page.getByRole('textbox').fill('[{"path":"app.py","content":"return 1\\n"}]')
+  await page.getByRole('textbox').fill('[{"path":"app.py","edits":[{"old":"return 0","new":"return 1"}]}]')
   await page.getByRole('button', { name: 'Prepare proposal' }).click()
   await page.getByRole('button', { name: 'Approve isolated baseline and candidate checks' }).click()
   await expect(page.getByText('validated', { exact: true })).toBeVisible()
@@ -166,7 +167,22 @@ test('owner profile picker disables tools absent from the pinned image', async (
   await expect(page.getByRole('option', { name: 'node_test (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
   await expect(page.getByRole('option', { name: 'python_pytest (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
   await expect(page.getByRole('option', { name: 'python_unittest', exact: true })).toHaveJSProperty('disabled', false)
-  await expect(page.getByText(/These test profiles do not run the UI build/)).toBeVisible()
+  await expect(page.getByText(/ui_build compiles the production UI/)).toBeVisible()
+})
+
+test('frontend picker exposes separate locked-image readiness and narrow component coverage', async ({ page }) => {
+  const capabilities = {
+    ...ownerCapabilities,
+    profiles: [...ownerCapabilities.profiles, 'ui_build', 'ui_component'],
+    isolation: { ...ownerCapabilities.isolation, profiles: { ...ownerCapabilities.isolation.profiles, ui_build: true, ui_component: false } },
+    frontend_isolation: { ready: true, reason: 'Reviewed frontend image checked.' },
+  }
+  await mount(page, ownerPanel, { '/api/owner-executions/capabilities': capabilities }, { repo: 'owner/repo' })
+  await page.getByText('Owner isolated validation pilot').click()
+  await expect(page.getByText('Frontend image: Reviewed frontend image checked.')).toBeVisible()
+  await expect(page.getByRole('option', { name: 'ui_build', exact: true })).toHaveJSProperty('disabled', false)
+  await expect(page.getByRole('option', { name: 'ui_component (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
+  await expect(page.getByText(/not browser interaction or general acceptance coverage/)).toBeVisible()
 })
 
 for (const evidence of ['valid', 'denied', 'mismatched', 'missing-expiry']) {
@@ -342,6 +358,55 @@ test('partial run shows honest status, credit notice and collapsed diagnostics o
   expect(await page.evaluate(() => globalThis.continuationClicks)).toBe(1)
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375)
   expect(errors).toEqual([])
+})
+
+for (const [status, goal, stage, header, blocker] of [
+  ['completed', 'answer', 'answer', 'Answered', ''],
+  ['partial', 'applied', 'proposal', 'Blocked', 'Application was not approved.'],
+  ['completed', 'applied', 'applied', 'Completed', ''],
+]) {
+  test(`timeline uses recorded ${stage} evidence for ${header} rather than Worked`, async ({ page }) => {
+    const application = stage === 'applied' ? { status: 'applied', branch: 'mammoth/owner/test', commit_sha: 'f'.repeat(40) } : null
+    const errors = await mount(page, 'components/RunTimeline', {}, { runOverride: {
+      id: 'run-test', status, reply: 'Model says done', plan: [],
+      events: [{ seq: 1, type: 'tool.call', data: { call_id: 'test', tool: 'owner_execution_apply' } }],
+      progress: { goal, stage, goal_met: status === 'completed', blocker,
+        executions: application ? [{ id: 'exec-test', status: 'validated', profile: 'ui_component', application }] : [] },
+    } })
+    await expect(page.getByRole('button', { name: new RegExp(`^${header}`) })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Recorded work progress' })).toContainText(`Goal: ${goal}. Recorded stage: ${stage}.`)
+    await expect(page.getByRole('button', { name: /^Worked/ })).toHaveCount(0)
+    if (blocker) await expect(page.getByRole('status')).toContainText(blocker)
+    if (application) await expect(page.getByText(application.commit_sha)).toBeVisible()
+    expect(errors).toEqual([])
+  })
+}
+
+test('required coding result demands explicit repo then reaches the run API without lowering its goal', async ({ page }) => {
+  let submitted
+  await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    '/api/mammoth/repo-sources': { options: [{ value: 'owner/repo', label: 'Owner repo' }] },
+    '/api/mammoth/runs': request => {
+      submitted = request.postDataJSON()
+      return { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
+        contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1, type: 'run.partial',
+        data: { reply: 'Application not completed.', code: 'missing_evidence', can_continue: true,
+          progress: { goal: 'applied', stage: 'answer', goal_met: false, blocker: '', executions: [] } },
+      })}\n\n` }
+    },
+  })
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Coding/ }).click()
+  await page.getByRole('combobox', { name: 'Required coding result' }).selectOption('applied')
+  await page.getByRole('textbox', { name: 'Message Coding' }).fill('What are your suggestions?')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByText(/required result \(applied\) needs an explicitly selected repository/)).toBeVisible()
+  expect(submitted).toBeUndefined()
+  await page.getByRole('combobox', { name: 'Repository context' }).selectOption('owner/repo')
+  await page.getByRole('textbox', { name: 'Message Coding' }).fill('What are your suggestions?')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByText('Application not completed.', { exact: true })).toBeVisible()
+  expect(submitted.completion_goal).toBe('applied')
+  expect(submitted.repo_context).toEqual({ root: 'owner/repo' })
 })
 
 test('Mammoth Mind continues saved work in the same message without a success toast for partial output', async ({ page }) => {

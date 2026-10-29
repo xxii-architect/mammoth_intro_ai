@@ -19,7 +19,7 @@ from mammoth_os.openai_adapter import OpenAIAdapter
 
 def envelope(action="answer", tool=None, args_json="{}", final="Answer", **overrides):
     return json.dumps({
-        "action": action, "reasoning": "Public summary.", "plan": [],
+        "action": action, "goal": "answer", "reasoning": "Public summary.", "plan": [],
         "tool": tool, "args_json": args_json, "final": final, **overrides,
     })
 
@@ -87,6 +87,10 @@ def test_schema_only_contains_authorized_tool_names():
     envelope(plan=[{"title": "bad"}]),
     envelope(reasoning="x" * 1201),
     envelope(extra="not allowed"),
+    envelope(goal="anything"),
+    envelope(goal=None),
+    envelope(goal=[]),
+    envelope(goal={}),
     'prose ' + envelope(),
     envelope().replace('"action": "answer"', '"action": "tool", "action": "answer"'),
 ])

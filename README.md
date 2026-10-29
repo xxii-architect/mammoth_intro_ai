@@ -527,6 +527,10 @@ No repository selected means no repository context.
 - Frozen proposals bind the repository, committed HEAD, full text changes, fixed
   test profile, snapshot digest and immutable container image to one approval.
   Approval expires after 15 minutes; reuse, changed HEAD or mismatched inputs fail.
+- Preparation accepts `{path, content}` or `{path, edits: [{old, new}]}`.
+  Exact edits are ordered, must each match once, and resolve against the frozen
+  committed snapshot, not the dirty checkout. Use full content for new files.
+  Large existing files no longer need to fit entirely in a model response.
 - A detached disposable worktree holds the candidate. Uncommitted checkout files
   are neither included nor overwritten. No checkout hooks/filters/submodules run.
 - Baseline and candidate checks run offline in a non-root Linux Docker container:
@@ -587,7 +591,8 @@ unavailable profiles are disabled in the picker and rejected before freezing a
 proposal and again before container execution. A plain Python image typically
 supports `python_unittest`, not pytest or Node. Tool availability does not prove
 that a repository's dependencies are installed or that its tests cover an edit.
-These profiles do not run `npm run build` or validate GitHub Actions YAML.
+The three generic profiles do not run `npm run build` or validate GitHub Actions
+YAML. Optional `ui_build` and `ui_component` profiles use a separate frontend image.
 
 The standalone **UI Build** workflow runs `npm ci` and `npm run build` with Node
 22 using the versioned command-center lockfile on relevant PRs, pushes to `main`,
@@ -597,8 +602,47 @@ Triggers include the
 command-center UI, `packages/mammoth-paths` (imported by Vite), and the workflow
 itself. It is post-publication CI, not a pre-application owner validation profile.
 Making it a required merge check is a separate GitHub branch-protection setting.
-An isolated pre-application UI build still needs a reviewed image containing
-Node and locked dependencies plus appropriately reviewed resource limits.
+For isolated pre-application frontend checks, build the reviewed image with
+immutable Node 22.12+ and Python 3.11.8+ base references:
+
+```powershell
+docker build --file scripts\owner-ui\Dockerfile --build-arg NODE_IMAGE=node@sha256:<reviewed-digest> --build-arg PYTHON_IMAGE=python@sha256:<reviewed-digest> --tag mammoth-owner-ui:reviewed .
+docker image inspect mammoth-owner-ui:reviewed --format '{{.Id}}'
+$env:MAMMOTH_OWNER_UI_IMAGE = 'sha256:<image-id-from-inspect>'
+```
+
+Set the optional image variable persistently on the backend host and restart the
+service. Both repo@sha256 references and immutable local image IDs are accepted.
+Install that image on the backend yourself; runtime never pulls it. The
+Dockerfile-specific allowlist sends only the UI manifests/lockfile and trusted
+validator to the build. Dependencies are installed from the versioned lockfile
+at image-build time, never during execution. Manifest-data changes fail closed
+until the image is reviewed and rebuilt; newline/formatting changes are ignored.
+`frontend_isolation` reports the separate image probe; `isolation.profiles`
+combines both images' actual availability.
+
+`ui_build` runs the real token generation and Vite production build.
+`ui_component` loads the actual React trust row through Vite and renders explicit
+0%, 30% and 91% confidence values, checking that the provider remains visible.
+This is a fixed, narrow rendering check, **not** browser interaction, visual
+coverage, calibrated-confidence verification or general acceptance coverage.
+These profiles are separate: choose the relevant one and review its evidence.
+Frontend phases allow 120 seconds, 768 MB memory, one CPU, 192 processes, 128 MB
+work tmpfs and 128 MB temporary tmpfs. Ordinary profile limits are unchanged.
+Offline networking, read-only dependencies/root, non-root execution, capability
+removal and no-new-privileges remain enforced. No browser sandbox is disabled;
+full isolated browser interaction remains deferred pending a reviewed runtime.
+
+Coding runs can require `answer`, `proposal`, `validated` or `applied` via the
+**Required result** selector or SDK `completion_goal` / `completionGoal`.
+Models may raise but never lower that goal. The run's `progress` inventory records
+inspected file ranges/hashes, frozen executions/checks, blockers, and actual
+branch/commit evidence. The inventory survives continuation and restart.
+Same-run `repo_recall_observation` retrieves a saved read only if the accessible
+file's hash is unchanged. Prose alone cannot satisfy validation/application:
+missing evidence ends as partial/incomplete, not successful work. Ordinary
+answers say **Answered**, not **Worked**. Plan ticks remain model-written, not
+independently verified. Existing decision and continuation limits stay unchanged.
 
 Mammoth Paths exposes matching owner-only methods:
 `owner_execution_capabilities` / `ownerExecutionCapabilities`,
@@ -613,7 +657,7 @@ Application accepts `{repo, approvalDigest}` in JS, or keyword `repo` and
 owner/admin-only and returns the saved execution, including application state.
 Existing clients and `mammoth.paths.v1` remain compatible. Tenant application and
 paid access are not enabled; future monetization must enforce access on the backend.
-Use a client timeout of at least 300 seconds for the synchronous approval request;
+Use a client timeout of at least 420 seconds for the synchronous approval request;
 after a transport timeout, query the saved execution rather than reapprove it.
 
 ### Coding benchmark evidence

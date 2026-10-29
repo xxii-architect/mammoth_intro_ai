@@ -112,9 +112,13 @@ export function createPathsClient(options = {}) {
     tools: ({ repo } = {}) => json('mind', 'GET', '/mammoth/tools', { query: { repo } }),
 
     /** Start a run; resolves with all events once the stream ends. */
-    streamRun(message, { agentId = 'assistant', repo, approvalMode = 'tools', threadId, onEvent, signal } = {}) {
+    streamRun(message, { agentId = 'assistant', repo, approvalMode = 'tools', completionGoal, threadId, onEvent, signal } = {}) {
       if (!['tools', 'always'].includes(approvalMode)) throw new TypeError("approvalMode must be 'tools' or 'always'")
       const body = { message, agent_id: agentId, approval_mode: approvalMode }
+      if (completionGoal !== undefined) {
+        if (!['answer', 'proposal', 'validated', 'applied'].includes(completionGoal)) throw new TypeError('Invalid completionGoal')
+        body.completion_goal = completionGoal
+      }
       if (repo) body.repo_context = { root: repo }
       if (threadId) body.thread_id = threadId
       return stream('/mammoth/runs', body, { onEvent, signal })
@@ -152,6 +156,7 @@ export function createPathsClient(options = {}) {
         reply: state?.reply || '',
         error: state?.error || '',
         pendingApproval: state?.status === 'awaiting_approval' ? state.approval : null,
+        progress: state?.progress || null,
         state,
       }
     },

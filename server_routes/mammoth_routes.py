@@ -257,6 +257,9 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
     user_id = ctx.user_id
     account_id = _active_account_id(_load_atlas_state())
     approval_mode = str(body.get("approval_mode") or "tools").lower()
+    completion_goal = str(body.get("completion_goal") or "answer")
+    if completion_goal not in {"answer", "proposal", "validated", "applied"}:
+        return JSONResponse({"status": "error", "error": "Invalid completion_goal"}, status_code=400)
     surface = str(body.get("surface") or "mind").strip().lower()
     surface = surface if surface in AGENT_RUN_SURFACES else "mind"
     history_text = (
@@ -276,6 +279,7 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
         request={
             "repo_context": {"root": (body.get("repo_context") or {}).get("root")} if isinstance(body.get("repo_context"), dict) else None,
             "approval_mode": approval_mode if approval_mode in {"tools", "always"} else "tools",
+            "completion_goal": completion_goal,
             "history_text": history_text,
             "thread_id": str(body.get("thread_id") or "")[:80] if surface == "mind" else "",
             "surface": surface,

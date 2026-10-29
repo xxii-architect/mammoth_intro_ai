@@ -24,14 +24,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from mammoth_os.agent_loop.builtin_tools import SKIP_DIRS, safe_repo_path
+from mammoth_os.agent_loop.builtin_tools import (
+    SKIP_DIRS,
+    apply_exact_edits,
+    safe_repo_path,
+)
 
 CONTRACT = "mammoth.owner-execution.v1"
 PROFILES = {
     "python_unittest": ["python", "-m", "unittest", "discover", "-s", "tests", "-v"],
     "python_pytest": ["python", "-m", "pytest", "tests", "-q"],
     "node_test": ["node", "--test"],
+    "ui_build": ["node", "/opt/mammoth-ui/validate.mjs", "build"],
+    "ui_component": ["node", "/opt/mammoth-ui/validate.mjs", "component"],
 }
+FRONTEND_PROFILES = {"ui_build", "ui_component"}
 MAX_BYTES = 32 * 1024 * 1024
 MAX_FILES = 3000
 MAX_CHANGE_BYTES = 500_000
@@ -39,7 +46,7 @@ MAX_PATCH_BYTES = 1_000_000
 LOG_BYTES = 16_000
 APPROVAL_TTL = 900
 JOB_RE = re.compile(r"^exec-[a-f0-9]{24}$")
-IMAGE_RE = re.compile(r"^[a-zA-Z0-9./:_-]+@sha256:[a-f0-9]{64}$")
+IMAGE_RE = re.compile(r"^(?:[a-zA-Z0-9./:_-]+@)?sha256:[a-f0-9]{64}$")
 
 
 class ExecutionError(Exception):
@@ -178,6 +185,30 @@ def snapshot(root: Path, sha: str) -> dict[str, bytes]:
     return files
 
 
+def resolve_changes(changes: Any, root: Path, files: dict[str, bytes]) -> list[dict[str, str]]:
+    if not isinstance(changes, list) or not 1 <= len(changes) <= 20:
+        raise ExecutionError("Supply 1-20 explicit file changes.", "invalid_changes")
+    resolved = []
+    for change in changes:
+        if not isinstance(change, dict) or set(change) not in ({"path", "content"}, {"path", "edits"}):
+            raise ExecutionError("Each change requires path and exactly one of content or edits.", "invalid_changes")
+        # Validate paths before looking up or decoding any base content.
+        rel = validate_changes([{"path": change["path"], "content": ""}], root)[0]["path"]
+        if "content" in change:
+            resolved.append({"path": rel, "content": change["content"]})
+            continue
+        if rel not in files:
+            raise ExecutionError(f"{rel}: exact edits require a permitted file in the frozen base; use content for new files.",
+                                 "edit_mismatch")
+        try:
+            original = files[rel].decode("utf-8")
+            content = apply_exact_edits(original, change["edits"], rel)
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise ExecutionError(str(exc), "edit_mismatch") from exc
+        resolved.append({"path": rel, "content": content})
+    return validate_changes(resolved, root)
+
+
 def patch_text(before: dict[str, bytes], changes: list[dict[str, str]]) -> str:
     chunks: list[str] = []
     for change in changes:
@@ -214,13 +245,15 @@ class ContainerExecutor:
             return {"ready": False, "reason": "A Linux Docker daemon and the pinned local image are required; automatic image pulls are disabled."}
         name = "mammoth-owner-probe-" + uuid.uuid4().hex[:24]
         probe = (
-            "import importlib.util,json,re,shutil,subprocess,sys\n"
+            "import importlib.util,json,os,re,shutil,subprocess,sys\n"
             "node=shutil.which('node')\n"
             "version=subprocess.run([node,'--version'],capture_output=True,text=True,timeout=3) if node else None\n"
             "match=re.match(r'^v([0-9]+)\\.',version.stdout) if version and version.returncode==0 else None\n"
             "print(json.dumps({'python_unittest':sys.version_info>=(3,11,8),"
             "'python_pytest':sys.version_info>=(3,11,8) and importlib.util.find_spec('pytest') is not None,"
-            "'node_test':sys.version_info>=(3,11,8) and bool(match and int(match.group(1))>=18)}))"
+            "'node_test':sys.version_info>=(3,11,8) and bool(match and int(match.group(1))>=18),"
+            "'ui_build':bool(match and int(match.group(1))>=22 and os.path.isfile('/opt/mammoth-ui/validate.mjs')),"
+            "'ui_component':bool(match and int(match.group(1))>=22 and os.path.isfile('/opt/mammoth-ui/validate.mjs'))}))"
         )
         try:
             result = subprocess.run(
@@ -260,6 +293,8 @@ class ContainerExecutor:
         if not re.fullmatch(r"mammoth-owner-exec-[a-f0-9]{24}-(baseline|candidate)", container_name):
             raise ExecutionError("Invalid isolated container identity.", "invalid_execution")
         name = container_name
+        frontend = profile in FRONTEND_PROFILES
+        memory, work_mb, tmp_mb, pids = (768, 128, 128, 192) if frontend else (256, 64, 16, 64)
         started = time.monotonic()
         # The only host mount is read-only. Test code writes exclusively to bounded tmpfs.
         with tempfile.TemporaryDirectory(prefix="mammoth-exec-input-") as folder:
@@ -280,10 +315,11 @@ class ContainerExecutor:
             command = [
                 "docker", "run", "--rm", "--init", "--pull=never", "--name", name, "--network=none",
                 "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-                "--user=65534:65534", "--pids-limit=64", "--memory=256m", "--memory-swap=256m",
-                "--cpus=1", "--ulimit=nofile=256:256", "--ulimit=fsize=16777216:16777216",
-                "--log-driver=none", "--tmpfs=/work:rw,nosuid,nodev,size=64m,mode=1777",
-                "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16m,mode=1777",
+                "--user=65534:65534", f"--pids-limit={pids}", f"--memory={memory}m", f"--memory-swap={memory}m",
+                "--cpus=1", "--ulimit=nofile=1024:1024" if frontend else "--ulimit=nofile=256:256",
+                "--ulimit=fsize=16777216:16777216",
+                "--log-driver=none", f"--tmpfs=/work:rw,nosuid,nodev,size={work_mb}m,mode=1777",
+                f"--tmpfs=/tmp:rw,noexec,nosuid,nodev,size={tmp_mb}m,mode=1777",
                 "--mount", f"type=bind,source={archive},target=/input/source.tar,readonly",
                 "--workdir=/work", "--env=HOME=/tmp", "--env=PYTHONDONTWRITEBYTECODE=1",
                 "--entrypoint=python", self.image, "-I", "-c", launcher,
@@ -337,6 +373,10 @@ class ContainerExecutor:
                 collected = bool(re.search(r"(?:# tests |ℹ tests )[1-9][0-9]*", log))
             if profile == "python_pytest":
                 collected = bool(re.search(r"[1-9][0-9]* passed", log))
+            if profile == "ui_component":
+                collected = "MAMMOTH_UI_COMPONENT_PASSED:" in log
+            if profile == "ui_build":
+                collected = "MAMMOTH_UI_BUILD_PASSED" in log
             passed = proc.returncode == 0 and collected and not reason and not cleanup_error
             test_results = dict(re.findall(r"^test\S+ \(([^)\r\n]+)\) \.\.\. (ok|FAIL|ERROR|skipped[^\r\n]*)$", log, re.MULTILINE))
             return {"passed": passed, "returncode": proc.returncode, "log": log,
@@ -348,8 +388,10 @@ class ContainerExecutor:
 
 
 class OwnerExecution:
-    def __init__(self, storage: Path, executor: ContainerExecutor, *, enabled: bool = False):
+    def __init__(self, storage: Path, executor: ContainerExecutor, *, enabled: bool = False,
+                 frontend_executor: ContainerExecutor | None = None):
         self.storage, self.executor, self.enabled = storage, executor, enabled
+        self.frontend_executor = frontend_executor
         self.lock = threading.RLock()
         self.active: dict[str, threading.Event] = {}
         self.recovery_error = ""
@@ -463,12 +505,30 @@ class OwnerExecution:
     def public(record: dict[str, Any]) -> dict[str, Any]:
         return {key: value for key, value in record.items() if key not in {"root", "changes", "snapshot_digest", "worktree"}}
 
+    def _executor(self, profile: str) -> ContainerExecutor:
+        if profile in FRONTEND_PROFILES:
+            if self.frontend_executor is None:
+                raise ExecutionError("Frontend validation image is not configured.", "profile_unavailable", 409)
+            return self.frontend_executor
+        return self.executor
+
     def capabilities(self) -> dict[str, Any]:
+        isolation: dict[str, Any] = ({"ready": False, "reason": self.recovery_error} if self.recovery_error else
+                     self.executor.readiness() if self.enabled else {"ready": False, "reason": "Owner execution pilot is disabled."})
+        frontend: dict[str, Any] = (self.frontend_executor.readiness() if self.enabled and not self.recovery_error and self.frontend_executor
+                    else {"ready": False, "reason": "Frontend validation image is not configured or execution is disabled."})
+        profiles = {name: bool((frontend if name in FRONTEND_PROFILES else isolation).get("profiles", {}).get(name))
+                    for name in PROFILES}
+        if frontend.get("ready") and not isolation.get("ready"):
+            isolation = {**isolation, "ready": True,
+                         "reason": "Frontend image is ready. Standard profiles unavailable: " + isolation["reason"]}
+        isolation = {**isolation, "profiles": profiles}
         return {"contract": CONTRACT, "enabled": self.enabled,
                 "profiles": list(PROFILES), "limits": {"timeout_s": self.executor.timeout, "memory_mb": 256,
                     "snapshot_bytes": MAX_BYTES, "files": MAX_FILES, "change_bytes": MAX_CHANGE_BYTES, "patch_bytes": MAX_PATCH_BYTES},
-                "isolation": {"ready": False, "reason": self.recovery_error} if self.recovery_error else
-                    self.executor.readiness() if self.enabled else {"ready": False, "reason": "Owner execution pilot is disabled."},
+                "isolation": isolation, "frontend_isolation": frontend,
+                "frontend_limits": {"memory_mb": 768, "work_mb": 128, "tmp_mb": 128, "pids": 192,
+                                    "timeout_s": self.frontend_executor.timeout if self.frontend_executor else 120},
                 "approved_application": "new_local_branch", "automatic_merge": False,
                 "automatic_push": False, "benchmark_gated_autonomy": False}
 
@@ -505,7 +565,7 @@ class OwnerExecution:
                 application = record.get("application", {})
                 if (record["root"] != str(root) or record["status"] != "validated"
                         or record.get("candidate", {}).get("passed") is not True or record.get("regression") is True
-                        or record["image"] != self.executor.image or application.get("status") != "ready"
+                        or record["image"] != self._executor(record["profile"]).image or application.get("status") != "ready"
                         or time.time() > application.get("expires_at", 0)
                         or approval_digest != application.get("approval_digest")
                         or approval_digest != self._application_digest(record)):
@@ -561,7 +621,8 @@ class OwnerExecution:
             raise ExecutionError(self.recovery_error, "cleanup_failed", 503)
         if not isinstance(profile, str) or profile not in PROFILES:
             raise ExecutionError("Unknown approved test profile.", "invalid_profile")
-        readiness = self.executor.readiness()
+        executor = self._executor(profile)
+        readiness = executor.readiness()
         if not readiness["ready"]:
             raise ExecutionError(readiness["reason"], "isolation_unavailable", 503)
         if readiness["profiles"].get(profile) is not True:
@@ -569,8 +630,8 @@ class OwnerExecution:
                                  "profile_unavailable", 409)
         if head_sha(root) != base_sha:
             raise ExecutionError("Repository HEAD changed. Prepare a new proposal.", "stale_base", 409)
-        normalized = validate_changes(changes, root)
         files = snapshot(root, base_sha)
+        normalized = resolve_changes(changes, root, files)
         patch = patch_text(files, normalized)
         if not patch:
             raise ExecutionError("Proposal makes no changes.", "empty_patch")
@@ -580,7 +641,7 @@ class OwnerExecution:
             "contract": CONTRACT, "id": "exec-" + uuid.uuid4().hex[:24], "owner_id": user_id,
             "root": str(root), "repo": repo_ref, "base_sha": base_sha, "profile": profile,
             "changes": normalized, "patch": patch, "snapshot_digest": fingerprint({k: hashlib.sha256(v).hexdigest() for k, v in files.items()}),
-            "image": self.executor.image, "status": "pending_approval", "created_at": stamp(),
+            "image": executor.image, "status": "pending_approval", "created_at": stamp(),
             "expires_at": time.time() + APPROVAL_TTL,
         }
         record["approval_digest"] = fingerprint({key: record[key] for key in ("repo", "base_sha", "profile", "changes", "image", "snapshot_digest")})
@@ -611,14 +672,14 @@ class OwnerExecution:
         with self.lock:
             record = self._load(job_id, user_id)
             if (record["status"] != "pending_approval" or record["approval_digest"] != approval_digest
-                    or record["root"] != str(root) or record["image"] != self.executor.image
+                    or record["root"] != str(root) or record["image"] != self._executor(record["profile"]).image
                     or time.time() > record["expires_at"]):
                 raise ExecutionError("Approval is expired, mismatched, or already used.", "stale_approval", 409)
             if self.active:
                 raise ExecutionError("Another owner validation is running; retry after it finishes.", "execution_busy", 409)
             if head_sha(root) != record["base_sha"]:
                 raise ExecutionError("Repository HEAD changed. Prepare and approve a new proposal.", "stale_base", 409)
-            readiness = self.executor.readiness()
+            readiness = self._executor(record["profile"]).readiness()
             if not readiness["ready"]:
                 raise ExecutionError(readiness["reason"], "isolation_unavailable", 503)
             lease = ExecutionLease(self.storage)
@@ -629,7 +690,7 @@ class OwnerExecution:
                 # Another worker may have completed this approval while we probed Docker.
                 record = self._load(job_id, user_id)
                 if (record["status"] != "pending_approval" or record["approval_digest"] != approval_digest
-                        or record["root"] != str(root) or record["image"] != self.executor.image
+                        or record["root"] != str(root) or record["image"] != self._executor(record["profile"]).image
                         or time.time() > record["expires_at"]):
                     raise ExecutionError("Approval is expired, mismatched, or already used.", "stale_approval", 409)
                 record.update(status="running", approved_at=stamp())
@@ -671,13 +732,13 @@ class OwnerExecution:
                 candidate[change["path"]] = change["content"].encode()
             if sum(map(len, candidate.values())) > MAX_BYTES or len(candidate) > MAX_FILES:
                 raise ExecutionError("Candidate exceeds snapshot limits.", "too_large")
-            record["baseline"] = self.executor.run(files, record["profile"], cancelled, container_name=f"mammoth-owner-{job_id}-baseline")
+            record["baseline"] = self._executor(record["profile"]).run(files, record["profile"], cancelled, container_name=f"mammoth-owner-{job_id}-baseline")
             if record["baseline"].get("failure_code") == "cleanup_failed":
                 raise ExecutionError(record["baseline"]["error"], "cleanup_failed")
             if cancelled.is_set():
                 record["status"] = "cancelled"
             else:
-                record["candidate"] = self.executor.run(candidate, record["profile"], cancelled, container_name=f"mammoth-owner-{job_id}-candidate")
+                record["candidate"] = self._executor(record["profile"]).run(candidate, record["profile"], cancelled, container_name=f"mammoth-owner-{job_id}-candidate")
                 if record["candidate"].get("failure_code") == "cleanup_failed":
                     raise ExecutionError(record["candidate"]["error"], "cleanup_failed")
                 record["status"] = "cancelled" if cancelled.is_set() else "validated" if record["candidate"]["passed"] else "failed"

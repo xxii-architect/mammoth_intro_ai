@@ -46,6 +46,7 @@ function ExecutionPanel({ repo = '' }) {
     <p>Disposable worktree and offline container checks. The selected checkout is never changed. Containers share the host kernel; no automatic merge or push.</p>
     {!repo && <p>Select a repository first. No default repository is used.</p>}
     <p>{capabilities?.isolation?.reason || 'Checking isolation availability...'}</p>
+    {capabilities?.frontend_isolation && <p>Frontend image: {capabilities.frontend_isolation.reason}</p>}
     <button disabled={busy} onClick={() => { setCapabilities(null); setRefresh(value => value + 1) }}>Refresh isolation and HEAD</button>
     {error && <p role="alert">{error}</p>}
     {ready && <>
@@ -57,10 +58,11 @@ function ExecutionPanel({ repo = '' }) {
           </option>)}
         </select>
       </label>
-      <p>Profile availability checks tools in the image, not repository dependencies or coverage. These test profiles do not run the UI build.</p>
-      <label style={{ display: 'block', marginTop: 8 }}>Proposal changes (JSON array of path and full text content)
+      <p>Availability checks tools, not coverage. ui_build compiles the production UI. ui_component checks actual trust-row rendering at explicit zero, low and high scores; it is not browser interaction or general acceptance coverage. Frontend profiles use a separately reviewed locked image, 768 MB memory and 120 seconds per phase.</p>
+      <label style={{ display: 'block', marginTop: 8 }}>Proposal changes (JSON array: path with content, or path with edits containing exact old/new text)
         <textarea value={changes} onChange={event => setChanges(event.target.value)} rows={5} disabled={busy} style={{ width: '100%', boxSizing: 'border-box' }} />
       </label>
+      <p>Exact edits must match once in the committed base, not uncommitted checkout text. Use content for new files. Testing and branch application still require separate approvals.</p>
       <button disabled={busy || !profileAvailable} onClick={() => act(() => api('/owner-executions', { method: 'POST', body: {
         repo_context: { root: repo }, base_sha: capabilities.base_sha, profile, changes: JSON.parse(changes),
       } }))}>Prepare proposal</button>

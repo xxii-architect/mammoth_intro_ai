@@ -109,6 +109,61 @@ def test_run_reads_file_then_answers(tmp_path, repo):
     assert runner.store.get(run.id, "someone-else") is None
 
 
+def test_requested_application_cannot_complete_on_a_prose_claim(tmp_path, repo):
+    llm = ScriptedLLM([{"final": "Done, everything was applied."}])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Make this change",
+                   request={"completion_goal": "applied"})
+    events = _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo)))
+    assert run.status == "partial" and run.failure_code == "missing_evidence"
+    assert events[-1].data["progress"]["goal_met"] is False
+    assert run.public()["can_continue"] is True
+    assert run.reply.startswith("Incomplete: the required result is applied")
+    loaded = RunStore(tmp_path / "runs").get(run.id, "u1")
+    assert loaded.completion_goal == "applied" and loaded.progress()["stage"] == "answer"
+
+
+def test_goal_cannot_be_lowered_and_read_evidence_can_be_recalled(tmp_path, repo):
+    llm = ScriptedLLM([
+        {"tool": "repo_read_file", "args": {"path": "src/app.py"}},
+        {"goal": "answer", "tool": "repo_recall_observation", "args": {"observation": 0}},
+        {"goal": "answer", "final": "Only inspected; not prepared."},
+    ])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Prepare changes",
+                   request={"completion_goal": "proposal"})
+    _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo)))
+    assert run.completion_goal == "proposal" and run.status == "partial"
+    assert run.transcript[1]["result"]["content"] == run.transcript[0]["result"]["content"]
+    assert run.progress()["inspected"][0]["content_sha256"]
+    assert "Persistent work evidence" in llm.prompts[-1]
+
+
+def test_recall_rejects_stale_file_and_other_run_evidence(tmp_path, repo):
+    from mammoth_os.agent_loop.builtin_tools import _read_file, _recall_observation
+    ctx = ToolContext(user_id="u1", repo_root=repo)
+    result = _read_file({"path": "src/app.py"}, ctx)
+    ctx.extras["observations"] = [{"tool": "repo_read_file", "result": result}]
+    (repo / "src" / "app.py").write_text("changed")
+    assert _recall_observation({"observation": 0}, ctx)["code"] == "stale_observation"
+    ctx.extras["observations"] = []
+    assert _recall_observation({"observation": 0}, ctx)["code"] == "not_found"
+
+
+def test_failed_checks_preserve_blocker_without_fabricating_validation():
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Validate",
+                   completion_goal="validated", status="partial")
+    run.transcript = [{"tool": "owner_execution_run", "result": {
+        "status": "error", "execution": {
+            "id": "exec-failed", "status": "failed", "error": "Candidate build failed.",
+            "checks": {"candidate": {"passed": False}},
+        },
+    }}]
+    progress = run.progress()
+    assert progress["stage"] == "proposal" and progress["goal_met"] is False
+    assert progress["blocker"] == "Candidate build failed." and progress["state"] == "blocked"
+
+
 def test_final_prompt_adapts_depth_and_includes_recent_conversation(tmp_path):
     llm = ScriptedLLM([])
     runner, _ = _runner(llm, tmp_path)

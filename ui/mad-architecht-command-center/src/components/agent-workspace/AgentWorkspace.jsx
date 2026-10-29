@@ -280,6 +280,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   const { user } = useAuth()
   const [threads, setThreads] = useState(() => loadThreads(storageKey))
   const [taskIntent, setTaskIntent] = useState(entry.tasks[0]?.intent || '')
+  const [completionGoal, setCompletionGoal] = useState('answer')
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [applying, setApplying] = useState(false)
@@ -403,11 +404,16 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
       .map(message => ({ role: message.role, agent_id: message.agent_id, text: message.text }))
     const userMessage = { id: `u-${Date.now()}`, role: 'user', text: prompt, mention: mention ? target.name : '', task: taskLabel, ts: new Date().toISOString() }
     const pendingId = `a-${Date.now()}`
-    const route = codingRoute({ agentId: target.id, intent, repo, prompt })
+    const codingGoal = target.id === 'coding_agent' ? completionGoal : 'answer'
+    const route = codingGoal !== 'answer'
+      ? (repo ? 'loop' : 'needs_repo')
+      : codingRoute({ agentId: target.id, intent, repo, prompt })
     if (route === 'needs_repo') {
       updateThread(prev => [...prev, userMessage, {
         id: pendingId, role: 'agent', agent_id: target.id, status: 'notice', task: taskLabel,
-        text: 'Pick a repository above so I can read the real files first, or paste the code you want changed. I won\'t guess at file contents I haven\'t seen.',
+        text: codingGoal !== 'answer'
+          ? `The required result (${codingGoal}) needs an explicitly selected repository. Pick one above before starting this task.`
+          : 'Pick a repository above so I can read the real files first, or paste the code you want changed. I won\'t guess at file contents I haven\'t seen.',
       }])
       setText('')
       return
@@ -423,6 +429,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
         agent_id: target.id,
         surface: 'agent_workspace',
         task: intent,
+        completion_goal: codingGoal,
         history,
         approval_mode: approvalMode ? 'always' : 'tools',
         repo_context: { root: repo },
@@ -546,6 +553,15 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
             ))}
           </div>
         )}
+        {agentId === 'coding_agent' && <label style={{ fontSize: '.74rem', color: 'var(--txt-sec)' }}>
+          Required result
+          <select aria-label="Required coding result" value={completionGoal} onChange={event => setCompletionGoal(event.target.value)} disabled={sending}>
+            <option value="answer">Answer / infer from request</option>
+            <option value="proposal">Prepared proposal</option>
+            <option value="validated">Passing isolated checks</option>
+            <option value="applied">Approved local branch commit</option>
+          </select>
+        </label>}
         {mentionOptions.length > 0 && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
             {mentionOptions.map(item => (
