@@ -4,6 +4,7 @@ import { api } from '../../api/client'
 import { useAuth } from '../../lib/authContext'
 import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent } from '../../lib/agentRuns'
 import RunTimeline from '../RunTimeline'
+import { describeRunActivity } from '../../lib/runActivity'
 import ChatMessageBody from '../ChatMessageBody'
 import { StepOutput, artifactSections } from '../PlanExecuteResultPanel'
 import CurriculumArtifactPanel from '../CurriculumArtifactPanel'
@@ -41,6 +42,7 @@ function loadThreads(storageKey = THREADS_KEY) {
     for (const messages of Object.values(parsed)) {
       if (!Array.isArray(messages)) continue
       for (const message of messages) {
+        if (message?.run?.decision_pending) message.run = { ...message.run, decision_pending: '' }
         if (message?.run && message.run.status !== 'awaiting_approval' && !FINISHED_RUN.has(message.run.status)) {
           message.run = { ...message.run, status: 'cancelled', approval: null }
         }
@@ -287,6 +289,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   const [repo, setRepo] = useState('')
   const [repoLabel, setRepoLabel] = useState('')
   const [runActive, setRunActive] = useState(false)
+  const [activeMessageId, setActiveMessageId] = useState('')
   const runControllerRef = useRef(null)
   const activeRunIdRef = useRef('')
   const listRef = useRef(null)
@@ -324,6 +327,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   const streamRun = async (messageId, targetId, invoke, meta = {}) => {
     const controller = new AbortController()
     runControllerRef.current = controller
+    setActiveMessageId(messageId)
     setRunActive(true)
     setSending(true)
     onBusy?.(targetId)
@@ -332,7 +336,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
       if (event?.run_id) activeRunIdRef.current = event.run_id
       replaceMessage(messageId, message => {
         const run = reduceRunEvent(message.run, event)
-        return { ...message, run, text: run.reply || message.text || '' }
+        return { ...message, run: { ...run, decision_pending: '' }, text: run.reply || message.text || '' }
       })
     }
     try {
@@ -341,16 +345,17 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
       const aborted = error?.name === 'AbortError'
       replaceMessage(messageId, message => ({
         ...message,
-        run: { ...(message.run || {}), status: aborted ? 'cancelled' : 'failed', error: aborted ? '' : (error?.message || 'Run failed'), approval: null },
+        run: { ...(message.run || {}), status: aborted ? 'cancelled' : 'failed', error: aborted ? '' : (error?.message || 'Run failed'), approval: null, decision_pending: '' },
       }))
     } finally {
       replaceMessage(messageId, message => ({
         ...message,
         duration_ms: (message.duration_ms || 0) + Math.round(performance.now() - started),
-        run: message.run?.status === 'running' ? { ...message.run, status: 'cancelled' } : message.run,
+        run: message.run?.status === 'running' ? { ...message.run, status: 'cancelled', decision_pending: '' } : message.run && { ...message.run, decision_pending: '' },
       }))
       runControllerRef.current = null
       activeRunIdRef.current = ''
+      setActiveMessageId('')
       setRunActive(false)
       setSending(false)
       onBusy?.('')
@@ -365,6 +370,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
       return streamRun(message.id, message.agent_id, (signal, onEvent) => continueAgentRun(run.id, { signal, onEvent }))
     }
     if (!run?.id || !run.approval?.id || sending) return
+    replaceMessage(message.id, current => ({ ...current, run: current.run && { ...current.run, decision_pending: decision } }))
     streamRun(message.id, message.agent_id, (signal, onEvent) => resolveRunApproval(run.id, run.approval.id, decision, { signal, onEvent }))
   }
 
@@ -571,6 +577,14 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
             ))}
           </div>
         )}
+        {runActive && (
+          <div role="status" aria-label="Composer run activity" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, fontSize: '0.74rem', color: 'var(--txt-sec)' }}>
+            <Loader size={12} color={GOLD} style={{ animation: 'spin 1s linear infinite', flexShrink: 0 }} />
+            <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {describeRunActivity(messages.find(message => message.id === activeMessageId)?.run) || 'Working…'}
+            </span>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <textarea ref={inputRef} value={text} onChange={event => setText(event.target.value)} onKeyDown={onKeyDown}
             aria-label={`Message ${entry.name}`}
@@ -579,8 +593,8 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
             style={{ flex: 1, minWidth: 0, resize: 'vertical', minHeight: 44, maxHeight: 200, background: SUNKEN, border: `1px solid ${BORDER}`, borderRadius: 8, padding: '10px 12px', fontSize: compact ? 16 : '0.84rem', color: 'var(--txt-pri)', fontFamily: 'inherit', lineHeight: 1.5 }}
           />
           {runActive ? (
-            <button onClick={stopRun} style={primaryButton(false)} aria-label="Stop run" title="Stop this run">
-              <Square size={13} />
+            <button onClick={stopRun} style={{ ...primaryButton(false), display: 'inline-flex', alignItems: 'center', gap: 6 }} aria-label="Stop run" title="Stop this run">
+              <Square size={13} /> Stop
             </button>
           ) : (
             <button onClick={send} disabled={sending || !text.trim()} style={primaryButton(sending || !text.trim())} aria-label="Send">

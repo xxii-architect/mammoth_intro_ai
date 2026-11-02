@@ -408,6 +408,8 @@ h3 { font-size: 0.9rem; font-weight: 600; color: var(--txt-pri); }
 .sidebar-item.active { border-left-color: var(--mm-color-agent-default); background: var(--mm-color-agent-soft); color: var(--mm-color-agent-default); }
 /* Spin animation for loaders */
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes mm-activity-pulse { 0%, 100% { opacity: .35; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
+@media (prefers-reduced-motion: reduce) { [data-activity-dot] { animation: none !important; } }
 
 /* ── Atlas Memory Badge ── */
 .atlas-memory-badge {

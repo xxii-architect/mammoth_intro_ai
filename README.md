@@ -584,7 +584,12 @@ No repository selected means no repository context.
   Ask it to inspect a selected repo, prepare changes, run checks, then apply to a
   new local branch. Testing and application each pause at their own approval.
   The approval card loads the full recorded patch and test evidence; unavailable
-  evidence disables approval. The Coding workspace also has a direct second
+  evidence disables approval. Evidence that does not load within 20 seconds
+  shows a **Retry loading evidence** action; nothing is approved meanwhile.
+  After you click Approve/Reject, the card shows "Approval sent" and the run
+  shows a live activity line derived from recorded events (for example
+  "Validating in isolation…" during `owner_execution_run`, or "Considering the
+  next step…" between tool calls). The Coding workspace also has a direct second
   approval button. Application results record branch and commit in artifacts,
   tasks and activity; a passed test profile never means automatic approval.
 

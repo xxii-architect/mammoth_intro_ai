@@ -10,6 +10,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
   await page.route(url => url.pathname.startsWith('/api/'), route => {
     const path = new URL(route.request().url()).pathname
     const configured = payloads[path]
+    if (configured === 'fallback') return route.fallback()
     if (typeof configured === 'function') {
       const response = configured(route.request())
       const isFulfillShape = response && typeof response === 'object'
@@ -337,6 +338,34 @@ for (const evidence of ['valid', 'denied', 'mismatched', 'missing-expiry']) {
   })
 }
 
+test('Mind approval evidence that stalls times out visibly and recovers on retry', async ({ page }) => {
+  const application = { status: 'ready', branch: `mammoth/owner/${ownerJob.id}`, approval_digest: 'c'.repeat(64), expires_at: 1999999999 }
+  let calls = 0
+  await page.clock.install()
+  await page.route(`**/api/owner-executions/${ownerJob.id}`, route => {
+    calls++
+    if (calls === 1) return
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', execution: {
+      ...ownerJob, status: 'validated', application, candidate: { passed: true, log: 'built' } } }) })
+  })
+  const errors = await mount(page, 'components/RunTimeline', { [`/api/owner-executions/${ownerJob.id}`]: 'fallback' }, { runOverride: { id: 'run-test', status: 'awaiting_approval', events: [], plan: [], approval: {
+    id: 'apr-owner', tool: 'owner_execution_apply', tier: 'exec',
+    args: { execution_id: ownerJob.id, approval_digest: application.approval_digest },
+  } } })
+  const approve = page.getByRole('button', { name: 'Approve changes to new branch' })
+  await expect(page.getByText('Loading recorded patch and approval evidence...')).toBeVisible()
+  await expect(approve).toBeDisabled()
+  await page.clock.runFor(20500)
+  await expect(page.getByRole('alert')).toContainText('did not load within 20 seconds. Nothing was approved.')
+  await expect(approve).toBeDisabled()
+  await page.getByRole('button', { name: 'Retry loading evidence' }).click()
+  await expect(page.getByRole('region', { name: 'Owner approval evidence' })).toContainText(ownerJob.patch)
+  await expect(approve).toBeEnabled()
+  expect(calls).toBe(2)
+  expect(await page.evaluate(() => globalThis.ownerApprovalClicks || 0)).toBe(0)
+  expect(errors).toEqual([])
+})
+
 test('startup import failure displays recovery instead of a black screen', async ({ page }) => {
   await page.route('**/src/App*', route => route.abort())
   await page.goto(baseURL)
@@ -610,6 +639,72 @@ test(`Coding saved preparation approval survives reload and reports its backend 
   expect(errors).toEqual([])
 })
 }
+
+test('Coding run approval hands off to apply evidence and shows working state', async ({ page }) => {
+  const runId = 'run-0123456789abcdef'
+  const application = { status: 'ready', branch: `mammoth/owner/${ownerJob.id}`, approval_digest: 'c'.repeat(64), expires_at: 1999999999 }
+  await page.addInitScript(({ runId, ownerJob }) => {
+    localStorage.setItem('mammoth_workspace_agent', 'coding_agent')
+    localStorage.setItem('mammoth_agent_threads_v1', JSON.stringify({ coding_agent: [{
+      id: 'saved-run-message', role: 'agent', agent_id: 'coding_agent', status: 'pending',
+      run: { id: runId, status: 'awaiting_approval', events: [], plan: [],
+        approval: { id: 'apr-run', tool: 'owner_execution_run', tier: 'exec', args: { execution_id: ownerJob.id, approval_digest: ownerJob.approval_digest } } },
+    }] }))
+  }, { runId, ownerJob })
+  let evidenceCalls = 0
+  let applied = false
+  const errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    [`/api/owner-executions/${ownerJob.id}`]: () => {
+      evidenceCalls++
+      return { status: 'ok', execution: applied
+        ? { ...ownerJob, status: 'validated', application, candidate: { passed: true, log: 'built' } }
+        : ownerJob }
+    },
+  })
+  await page.evaluate(({ runId, ownerJob, application }) => {
+    const original = globalThis.fetch
+    const encode = events => new TextEncoder().encode(events.map(event =>
+      `data: ${JSON.stringify({ ...event, run_id: runId, contract: 'mammoth.run.v1' })}\n\n`).join(''))
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(String(input), location.origin).pathname
+      if (path === `/api/mammoth/runs/${runId}/approval`) {
+        await new Promise(resolve => { globalThis.releaseApproval = resolve })
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(encode([
+              { seq: 10, type: 'approval.resolved', data: { approved: true, tool: 'owner_execution_run' } },
+              { seq: 11, type: 'tool.call', data: { call_id: 'call-run', tool: 'owner_execution_run', tier: 'exec', args: {} } },
+            ]))
+            globalThis.finishBuild = () => {
+              controller.enqueue(encode([
+                { seq: 12, type: 'tool.result', data: { call_id: 'call-run', tool: 'owner_execution_run', status: 'ok', result: { status: 'ok' } } },
+                { seq: 13, type: 'approval.requested', data: { id: 'apr-apply', tool: 'owner_execution_apply', tier: 'exec',
+                  args: { execution_id: ownerJob.id, approval_digest: application.approval_digest } } },
+                { seq: 14, type: 'run.awaiting_approval', data: {} },
+              ]))
+            }
+          },
+        }), { headers: { 'Content-Type': 'text/event-stream' } })
+      }
+      return original(input, init)
+    }
+  }, { runId, ownerJob, application })
+  const approve = page.getByRole('button', { name: 'Approve', exact: true })
+  await expect(approve).toBeEnabled()
+  await approve.click()
+  await expect(page.getByRole('status', { name: 'Run activity', exact: true })).toHaveText('Approval sent — resuming the run…')
+  await expect(page.getByRole('button', { name: /^Approve|^Reject/ })).toHaveCount(0)
+  await page.evaluate(() => globalThis.releaseApproval())
+  await expect(page.getByRole('status', { name: 'Run activity', exact: true })).toContainText(/Validating/)
+  await expect(page.getByRole('status', { name: 'Composer run activity' })).toContainText(/Validating/)
+  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0)
+  applied = true
+  await page.evaluate(() => globalThis.finishBuild())
+  await expect(page.getByRole('region', { name: 'Owner approval evidence' })).toContainText(ownerJob.patch)
+  await expect(page.getByRole('button', { name: 'Approve changes to new branch' })).toBeEnabled()
+  expect(evidenceCalls).toBe(2)
+  expect(errors).toEqual([])
+})
 
 test('Mammoth Mind continues saved work in the same message without a success toast for partial output', async ({ page }) => {
   const runId = 'run-0123456789abcdef'

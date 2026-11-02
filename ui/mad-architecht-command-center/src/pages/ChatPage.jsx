@@ -956,7 +956,7 @@ export default function ChatPage({ setPage }) {
   const applyRunEvent = (localId, effectiveAgentId) => (event) => {
     if (event?.run_id) activeRunIdRef.current = event.run_id
     updateRunEntry(localId, (item) => {
-      const run = reduceRunEvent(item.run, event)
+      const run = { ...reduceRunEvent(item.run, event), decision_pending: '' }
       const summary = run.summary || {}
       return {
         ...item,
@@ -988,6 +988,7 @@ export default function ChatPage({ setPage }) {
         ...item, stream: false,
         run: item.run ? {
           ...item.run,
+          decision_pending: '',
           status: item.run.status === 'running' ? (e?.name === 'AbortError' ? 'cancelled' : 'failed') : item.run.status,
           error: e?.name === 'AbortError' ? '' : (e instanceof Error ? e.message : 'Agent run failed'),
         } : item.run,
@@ -1007,6 +1008,7 @@ export default function ChatPage({ setPage }) {
     }
     const run = entry.run
     if (!run?.id || !run.approval?.id || busy) return
+    updateRunEntry(entry.local_id, (item) => ({ ...item, run: item.run && { ...item.run, decision_pending: decision } }))
     runWithStream(entry.local_id, entry.agent_id, (signal, onEvent) => resolveRunApproval(run.id, run.approval.id, decision, { signal, onEvent }))
   }
 

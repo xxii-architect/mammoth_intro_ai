@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Copy, Check, Square, CircleDashed, CheckSquare2 } from 'lucide-react'
 import TraceGlyph from './TraceGlyph'
 import OwnerExecutionReview from './OwnerExecutionReview'
+import { describeRunActivity } from '../lib/runActivity'
 
 const MONO = 'var(--mm-font-mono, "JetBrains Mono", monospace)'
 
@@ -138,6 +139,8 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
   const ownerApproval = ['owner_execution_run', 'owner_execution_apply'].includes(run?.approval?.tool)
   const isOpen = expanded ?? !finished
   if (!run) return null
+  const decisionInFlight = Boolean(busy && run.decision_pending)
+  const activity = describeRunActivity(run, { decisionInFlight })
   const toolCalls = steps.filter((s) => s.tool).length
   const done = (run.plan || []).filter((p) => p.status === 'done').length
   const header = finished
@@ -170,6 +173,12 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
         </button>
       )}
       {run.recovery && !finished && <div role="status" style={{ color: 'var(--txt-sec)', fontSize: '0.76rem' }}>{run.recovery.text}</div>}
+      {!readOnly && activity && (
+        <div role="status" aria-label="Run activity" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--txt-sec)', fontSize: '0.76rem' }}>
+          <span aria-hidden="true" data-activity-dot style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--photon, #4da6ff)', animation: 'mm-activity-pulse 1.2s ease-in-out infinite' }} />
+          {activity}
+        </div>
+      )}
       {!readOnly && finished && run.can_continue && onContinue && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <button type="button" disabled={busy} onClick={onContinue}>Continue task</button>
@@ -216,7 +225,7 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
           </pre>
           {readOnly && <p>Saved approval request only. No action is available in this read-only review.</p>}
           {!readOnly && ownerApproval && <OwnerExecutionReview key={approvalId} approval={run.approval} onReady={markReviewed} />}
-          {!readOnly && <div style={{ display: 'flex', gap: 8 }}>
+          {!readOnly && !decisionInFlight && <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" disabled={busy || (ownerApproval && reviewedApproval !== approvalId)} onClick={onApprove} style={{ padding: '6px 12px', borderRadius: 8, border: 'none', background: 'var(--mm-color-status-success, #34d399)', color: '#04110b', fontWeight: 700, fontSize: '0.76rem', cursor: busy ? 'not-allowed' : 'pointer' }}>{run.approval.tool === 'owner_execution_apply' ? 'Approve changes to new branch' : 'Approve'}</button>
             <button type="button" disabled={busy} onClick={onReject} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--txt-sec)', fontSize: '0.76rem', cursor: busy ? 'not-allowed' : 'pointer' }}>Reject</button>
           </div>}

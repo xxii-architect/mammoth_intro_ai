@@ -1,11 +1,17 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 
+const EVIDENCE_TIMEOUT_MS = 20000
+
 export default function OwnerExecutionReview({ approval, onReady }) {
   const [job, setJob] = useState(null)
   const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     let active = true
+    const controller = new AbortController()
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; controller.abort() }, EVIDENCE_TIMEOUT_MS)
     onReady(false)
     setJob(null)
     setError('')
@@ -13,7 +19,7 @@ export default function OwnerExecutionReview({ approval, onReady }) {
       try {
         const id = approval.args?.execution_id
         if (!/^exec-[a-f0-9]{24}$/.test(id || '')) throw new Error('Invalid execution identity.')
-        const result = await api(`/owner-executions/${encodeURIComponent(id)}`)
+        const result = await api(`/owner-executions/${encodeURIComponent(id)}`, { signal: controller.signal })
         const execution = result?.execution
         const apply = approval.tool === 'owner_execution_apply'
         const permission = apply ? execution?.application : execution
@@ -25,15 +31,20 @@ export default function OwnerExecutionReview({ approval, onReady }) {
         }
         if (active) { setJob(execution); onReady(true) }
       } catch (cause) {
-        if (active) setError(cause.message || 'Execution evidence unavailable.')
+        if (active) setError(timedOut
+          ? 'Approval evidence did not load within 20 seconds. Nothing was approved. Retry to load it again.'
+          : cause.message || 'Execution evidence unavailable.')
+      } finally {
+        clearTimeout(timer)
       }
     }
     load()
-    return () => { active = false }
-  }, [approval, onReady])
+    return () => { active = false; clearTimeout(timer); controller.abort() }
+  }, [approval, onReady, attempt])
   return <section aria-label="Owner approval evidence" style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
-    {!job && !error && <p>Loading recorded patch and approval evidence...</p>}
+    {!job && !error && <p role="status">Loading recorded patch and approval evidence...</p>}
     {error && <p role="alert">{error}</p>}
+    {error && <button type="button" onClick={() => setAttempt(value => value + 1)}>Retry loading evidence</button>}
     {job && <>
       <p>Repository: {job.repo}. Base: <code>{job.base_sha}</code></p>
       {approval.tool === 'owner_execution_apply'
