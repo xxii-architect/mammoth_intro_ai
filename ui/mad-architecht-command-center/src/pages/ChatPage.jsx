@@ -6,6 +6,7 @@ import { responseConfidence } from '../lib/confidence'
 import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent, restoreRecursiveEntries } from '../lib/agentRuns'
 import RunTimeline from '../components/RunTimeline'
 import ChatMessageBody from '../components/ChatMessageBody'
+import OutputActions from '../components/OutputActions'
 import AgentResultPanel from '../components/AgentResultPanel'
 import AtlasMemoryBadge from '../components/AtlasMemoryBadge'
 import GuideStepPanel from '../components/GuideStepPanel'
@@ -482,6 +483,14 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         </div>
       )}
 
+      {!isUser && !isStreamingBubble && entry.message && (
+        <details style={{ marginTop: 8 }}>
+          <summary>Save / export output</summary>
+          <OutputActions output={entry.run || entry} title="Mammoth Mind output"
+            artifactId={entry.run_id || entry.local_id} />
+          <p style={{ fontSize: '0.72rem', color: 'var(--txt-mut)' }}>Exports preserve the recorded response data. Full Agent-mode run history is also available in Run Review; saved output is not approval to execute tools.</p>
+        </details>
+      )}
       {/* Action row for assistant messages */}
       {!isUser && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 7, alignItems: 'center' }}>

@@ -4,7 +4,7 @@ import LessonsPage from './LessonsPage'
 import AtlasTutorPage from './AtlasTutorPage'
 import AgentWorkspace from '../components/agent-workspace/AgentWorkspace'
 import { useAuth } from '../lib/authContext'
-import useIsMobile from '../lib/useIsMobile'
+import useIsMobile, { COMPACT_WORKSPACE_QUERY } from '../lib/useIsMobile'
 import AtlasLearningProfile from '../components/AtlasLearningProfile'
 import CurriculumArtifactPanel from '../components/CurriculumArtifactPanel'
 import '../components/atlas-workspace.css'
@@ -18,10 +18,11 @@ export default function AtlasWorkspacePage() {
 
 function LearningWorkspace() {
   const { user } = useAuth()
-  const mobile = useIsMobile()
+  const mobile = useIsMobile(COMPACT_WORKSPACE_QUERY)
   const [view, setView] = useState('lesson')
   const [tutorOpen, setTutorOpen] = useState(false)
   const [advanced, setAdvanced] = useState(false)
+  const [readingFocus, setReadingFocus] = useState(false)
   const [state, setState] = useState(null)
   const [agents, setAgents] = useState([])
   const [error, setError] = useState('')
@@ -108,21 +109,24 @@ function LearningWorkspace() {
         </div>
         <nav aria-label="ATLAS workspace">
           {['lesson', 'tutor', 'agents', 'curricula'].map(mode => (
-            <button key={mode} type="button" aria-pressed={view === mode} onClick={() => setView(mode)}>
-              {mode === 'lesson' ? 'Lesson & practice' : mode === 'tutor' ? 'ATLAS Tutor' : mode === 'agents' ? 'Learning agents' : 'My curricula'}
+            <button key={mode} type="button" aria-label={mode === 'lesson' ? 'Lesson & practice' : mode === 'tutor' ? 'ATLAS Tutor' : mode === 'agents' ? 'Learning agents' : 'My curricula'} aria-pressed={view === mode} onClick={() => setView(mode)}>
+              <span className="atlas-nav-full">{mode === 'lesson' ? 'Lesson & practice' : mode === 'tutor' ? 'ATLAS Tutor' : mode === 'agents' ? 'Learning agents' : 'My curricula'}</span>
+              <span className="atlas-nav-short" aria-hidden="true">{mode === 'lesson' ? 'Lesson' : mode === 'tutor' ? 'Tutor' : mode === 'agents' ? 'Agents' : 'Curricula'}</span>
             </button>
           ))}
         </nav>
-        {showLesson && <button type="button" aria-expanded={tutorOpen && !mobile} onClick={() => mobile ? setView('tutor') : setTutorOpen(open => !open)}>
+        {showLesson && !mobile && <button type="button" aria-expanded={tutorOpen} onClick={() => setTutorOpen(open => !open)}>
           {tutorOpen && !mobile ? 'Hide tutor' : 'Consult tutor'}
         </button>}
         {view === 'tutor' && <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(value => !value)}>Advanced tutor tools</button>}
       </header>
-      <AtlasLearningProfile state={state} loadState={loadState} />
+      <div className="atlas-workspace-profile" hidden={readingFocus && showLesson}>
+        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} />
+      </div>
       {error && <div role="alert" className="atlas-workspace-error">{error} <button onClick={() => loadState().catch(() => {})}>Retry</button></div>}
       <div className={`atlas-workspace-content ${showLesson && showTutor ? 'with-tutor' : ''}`}>
         <section aria-label="Lesson and practice" hidden={!showLesson} className="atlas-workspace-lesson">
-          <LessonsPage embedded sharedState={state} loadSharedState={loadState} />
+          <LessonsPage embedded sharedState={state} loadSharedState={loadState} onFocusChange={setReadingFocus} />
         </section>
         <section aria-label="ATLAS tutor conversation" hidden={!showTutor} className="atlas-workspace-tutor">
           <AtlasTutorPage conversationOnly={!(view === 'tutor' && advanced)} sharedState={state} loadSharedState={loadState} />

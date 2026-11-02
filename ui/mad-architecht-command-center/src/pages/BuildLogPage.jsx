@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   ClipboardList,
   Plus,
@@ -13,6 +13,8 @@ import {
   Flag,
 } from 'lucide-react'
 import { api } from '../api/client'
+import { useAuth } from '../lib/authContext'
+import { downloadOutput } from '../components/OutputActions'
 
 const EMPTY_FORM = {
   date: '',
@@ -44,14 +46,6 @@ const EMPTY_FORM = {
   tags: '',
 }
 
-const MODULE_ROADMAP = [
-  'Wilderness navigation, survival, and safety',
-  'Hunting and fishing fundamentals',
-  'Ham radio and emergency comms',
-  'EMT and emergency management',
-  'Horticulture, botany, and weather literacy',
-]
-
 function normalizeEntry(entry) {
   const fields = entry?.fields && typeof entry.fields === 'object' ? entry.fields : {}
   return {
@@ -78,27 +72,44 @@ function statCard(label, value, note, accent = 'var(--photon)') {
 }
 
 export default function BuildLogPage() {
+  const { user, loading } = useAuth()
+  if (loading) return <p role="status">Loading your account…</p>
+  if (!user) return <p role="status">Sign in to access your private build log.</p>
+  return <BuildLog key={user.id} />
+}
+
+function BuildLog() {
   const [entries, setEntries] = useState([])
   const [open, setOpen] = useState({})
   const [showForm, setShowForm] = useState(false)
   const [filter, setFilter] = useState('')
   const [saving, setSaving] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const [form, setForm] = useState(() => ({
     ...EMPTY_FORM,
     date: new Date().toISOString().slice(0, 10),
   }))
 
-  useEffect(() => {
-    api('/buildlog')
-      .then((data) => setEntries(Array.isArray(data) ? data.map(normalizeEntry) : []))
-      .catch(() => {})
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await api('/buildlog')
+      if (!Array.isArray(data)) throw new Error('The build log returned an invalid response.')
+      setEntries(data.map(normalizeEntry))
+    } catch (cause) {
+      setError(cause.message || 'Could not load your build log. Retry to refresh.')
+    } finally { setLoading(false) }
   }, [])
+  useEffect(() => { load() }, [load])
 
   const toggleEntry = (id) => setOpen((prev) => ({ ...prev, [id]: !prev[id] }))
 
   const submit = async (e) => {
     e.preventDefault()
     setSaving(true)
+    setError('')
     const tags = form.tags.split(',').map((t) => t.trim()).filter(Boolean)
     const fields = {
       date: form.date,
@@ -143,6 +154,7 @@ export default function BuildLogPage() {
           fields,
         },
       })
+      if (!entry?.id || entry.status === 'error') throw new Error(entry?.error || 'The server did not confirm the session save.')
       setEntries((prev) => [...prev, normalizeEntry(entry)])
       setForm({
         ...EMPTY_FORM,
@@ -153,7 +165,7 @@ export default function BuildLogPage() {
       })
       setShowForm(false)
     } catch (err) {
-      alert(`Failed: ${err.message}`)
+      setError(`Could not save this session: ${err.message}. Your draft is retained.`)
     } finally {
       setSaving(false)
     }
@@ -164,9 +176,15 @@ export default function BuildLogPage() {
   const filtered = filter ? normalizedEntries.filter((e) => (e.tags || []).includes(filter)) : normalizedEntries
   const latest = filtered.length ? filtered[filtered.length - 1] : null
   const totalSessions = normalizedEntries.length
-  const avgConfidence = normalizedEntries.length
-    ? Math.round(normalizedEntries.reduce((sum, entry) => sum + Number(entry.fields?.confidence_level || 0), 0) / normalizedEntries.length)
-    : 0
+  const confidenceValues = normalizedEntries.map(entry => entry.fields?.confidence_level)
+    .filter(value => value !== '' && value != null && Number.isFinite(Number(value)))
+    .map(Number).filter(value => value >= 0 && value <= 10)
+  const avgConfidence = confidenceValues.length
+    ? Math.round(confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length)
+    : null
+  const recordedPhases = [...new Set(normalizedEntries.map(entry => entry.phase).filter(Boolean))]
+  const recordedProjects = [...new Set(normalizedEntries.map(entry => entry.project).filter(Boolean))]
+  const openQuestions = normalizedEntries.filter(entry => entry.fields.open_questions)
   const mostRecentProject = latest?.project || 'ATLAS/Mammoth'
 
   const notesBlock = (label, value, Icon) => (
@@ -183,6 +201,13 @@ export default function BuildLogPage() {
 
   return (
     <div className="page-enter page-shell">
+      {error && <p role="alert">{error}</p>}
+      {loading && <p role="status">Loading your build log…</p>}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+        <button onClick={load} disabled={loading || saving}>Refresh build log</button>
+        <button onClick={() => downloadOutput(entries, 'mammoth-build-log', 'json')} disabled={loading || !entries.length}>Export build log JSON</button>
+        <button onClick={() => downloadOutput(entries, 'mammoth-build-log', 'md')} disabled={loading || !entries.length}>Export build log Markdown</button>
+      </div>
       <div className="page-header" style={{ marginBottom: 22 }}>
         <div style={{ maxWidth: 840 }}>
           <div style={{ fontSize: '0.72rem', letterSpacing: '0.28em', textTransform: 'uppercase', color: 'var(--txt-mut)', marginBottom: 8 }}>
@@ -227,8 +252,8 @@ export default function BuildLogPage() {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 18 }}>
         {statCard('Sessions logged', String(totalSessions), 'Running total of operator records')}
         {statCard('Latest project', mostRecentProject, 'Most recent build target', 'var(--mm-color-system-default)')}
-        {statCard('Avg confidence', totalSessions ? `${avgConfidence}/10` : '0/10', 'Confidence trend from debriefs', 'var(--mm-color-agent-default)')}
-        {statCard('Future module lane', String(MODULE_ROADMAP.length), 'Domain tracks queued for curriculum expansion', 'var(--photon)')}
+        {statCard('Self-reported confidence', avgConfidence == null ? 'Not recorded' : `${avgConfidence}/10`, `${confidenceValues.length} scored debriefs; not a verification score`, 'var(--mm-color-agent-default)')}
+        {statCard('Projects recorded', String(recordedProjects.length), 'Distinct project names in your saved sessions', 'var(--photon)')}
       </div>
 
       <div className="buildlog-layout">
@@ -482,18 +507,14 @@ export default function BuildLogPage() {
         <div style={{ display: 'grid', gap: 16 }}>
           <div className="glass-card-solid" style={{ padding: 18 }}>
             <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, marginBottom: 10 }}>
-              Phase tracker
+              Recorded phases
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
-              {[
-                ['Phase 1 — Boot Sequence', 'Python, ML foundations, dev environment'],
-                ['Phase 2 — Model Forge', 'Deep learning, PyTorch, AWS AI Practitioner'],
-                ['Phase 3 — Systems Online', 'LLMs, LangChain, Azure AI-102'],
-                ['Phase 4 — Launch Sequence', 'Portfolio polish, applications, AWS MLA-C01'],
-              ].map(([phase, note]) => (
+              {!recordedPhases.length && <p>No phases recorded yet.</p>}
+              {recordedPhases.map(phase => (
                 <div key={phase} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: latest?.phase === phase ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.03)' }}>
                   <div style={{ fontSize: '0.82rem', color: 'var(--txt-pri)', fontWeight: 700 }}>{phase}</div>
-                  <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)', marginTop: 4 }}>{note}</div>
+                  <div style={{ fontSize: '0.74rem', color: 'var(--txt-sec)', marginTop: 4 }}>{normalizedEntries.filter(entry => entry.phase === phase).length} saved sessions</div>
                 </div>
               ))}
             </div>
@@ -501,12 +522,13 @@ export default function BuildLogPage() {
 
           <div className="glass-card-solid" style={{ padding: 18 }}>
             <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-sec)', fontWeight: 700, marginBottom: 10 }}>
-              Module roadmap
+              Questions to revisit
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
-              {MODULE_ROADMAP.map((item) => (
-                <div key={item} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)' }}>
-                  {item}
+              {!openQuestions.length && <p>No open questions recorded yet.</p>}
+              {openQuestions.slice(-5).reverse().map(entry => (
+                <div key={entry.id} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)', whiteSpace: 'pre-wrap' }}>
+                  {entry.title}: {entry.fields.open_questions}
                 </div>
               ))}
             </div>

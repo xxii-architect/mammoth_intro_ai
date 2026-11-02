@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 
-export default function AtlasLearningProfile({ state, loadState }) {
+export default function AtlasLearningProfile({ state, loadState, compact = false }) {
   const profile = state?.learner_model?.onboarding
   const [editing, setEditing] = useState(false)
   const [deferred, setDeferred] = useState(false)
@@ -18,7 +18,7 @@ export default function AtlasLearningProfile({ state, loadState }) {
     })
   }, [profile, editing])
   if (!state || !draft) return null
-  const open = editing || (!profile?.completed_at && !deferred)
+  const open = editing || (!compact && !profile?.completed_at && !deferred)
   const update = event => { setEditing(true); setDraft(current => ({ ...current, [event.target.name]: event.target.value })) }
   const save = async event => {
     event.preventDefault()
@@ -41,11 +41,13 @@ export default function AtlasLearningProfile({ state, loadState }) {
   return (
     <section aria-label="Learning profile" className="atlas-learning-profile">
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' }}>
-        <strong>{profile?.completed_at ? 'Your learning profile' : 'Set up your learning experience'}</strong>
-        <button type="button" onClick={() => { if (open) { setEditing(false); setDeferred(true) } else setEditing(true) }}>{open ? 'Close profile' : 'Edit learning profile'}</button>
+        <strong>{compact ? 'Learning profile' : profile?.completed_at ? 'Your learning profile' : 'Set up your learning experience'}</strong>
+        <button type="button" aria-label={open ? 'Close profile' : 'Edit learning profile'} aria-expanded={open} onClick={() => { if (open) { setEditing(false); setDeferred(true) } else setEditing(true) }}>{open ? 'Close profile' : compact && !profile?.completed_at ? 'Set up profile' : 'Edit learning profile'}</button>
       </div>
-      <p>Starting level: {state.learner_context?.starting_level || 'beginner'} · Current recommendation: {state.learner_context?.recommended_difficulty || 'beginner'}</p>
-      <p>{state.learner_context?.adaptation_reason || 'Choose a starting level; ATLAS adapts from your practice outcomes.'}</p>
+      {(open || notice) && <>
+        <p>Starting level: {state.learner_context?.starting_level || 'beginner'} · Current recommendation: {state.learner_context?.recommended_difficulty || 'beginner'}</p>
+        <p>{state.learner_context?.adaptation_reason || 'Choose a starting level; ATLAS adapts from your practice outcomes.'}</p>
+      </>}
       {open && <form onSubmit={save} className="atlas-profile-form">
         <p>Tell ATLAS what you already know and what you want to learn. Pacing is a preference, not proof of mastery. Expert study is not professional certification.</p>
         <label>Starting level<select name="experience_level" value={draft.experience_level} onChange={update}>

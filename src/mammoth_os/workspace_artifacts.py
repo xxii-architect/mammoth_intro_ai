@@ -1,5 +1,33 @@
-"""Additive metadata for saved outputs; categories confer no access or readiness."""
+"""Saved output snapshots and metadata; categories confer no access or readiness."""
+import json
 from typing import Any
+
+MAX_SNAPSHOT_BYTES = 4 * 1024 * 1024
+_TRACE_KEYS = {"reasoning_trace", "trace", "thought_steps", "diagnostics"}
+
+
+def readable_output(value: Any, *, level: int = 2) -> str:
+    """Render all result fields without promoting private traces into document prose."""
+    if isinstance(value, dict):
+        sections = []
+        for key, child in value.items():
+            if key in _TRACE_KEYS or child is None or child == "" or child == [] or child == {}:
+                continue
+            text = readable_output(child, level=min(level + 1, 6))
+            if text:
+                sections.append(f"{'#' * level} {str(key).replace('_', ' ').title()}\n\n{text}")
+        return "\n\n".join(sections)
+    if isinstance(value, list):
+        return "\n\n".join(readable_output(item, level=level) for item in value)
+    return str(value) if value is not None else ""
+
+
+def result_snapshot(value: Any) -> Any:
+    """Reject oversized/non-JSON results rather than silently truncating the archive."""
+    encoded = json.dumps(value, ensure_ascii=True, allow_nan=False)
+    if len(encoded.encode("utf-8")) > MAX_SNAPSHOT_BYTES:
+        raise ValueError("Result exceeds the 4 MB saved-output limit. Export the result before leaving this page.")
+    return json.loads(encoded)
 
 ARTIFACT_CATEGORIES = [
     {"id": "curricula", "label": "Curricula"},
@@ -20,7 +48,7 @@ _TYPES = {
     "note": "notes", "notes": "notes",
     "flashcard": "flashcards", "flashcards": "flashcards", "flashcard_deck": "flashcards",
     "code": "code", "coding": "code", "patch": "code", "patch_proposal": "code", "coding_report": "code",
-    "plan": "plans", "planner": "plans", "task_plan": "plans",
+    "plan": "plans", "planner": "plans", "task_plan": "plans", "team_run": "plans",
 }
 _PAGES = {"atlas", "agent", "chat", "notes", "flashcards", "lessonnotes", "taskinbox", "artifacts"}
 
@@ -86,6 +114,7 @@ def artifact_lineage(raw: dict[str, Any]) -> dict[str, Any]:
             {key: item[key] for key in (
                 "revision", "title", "body", "format", "created_at", "updated_at",
                 "artifact_status", "origin", "lineage", "quality", "verification",
+                "snapshot", "snapshot_contract",
             ) if key in item}
             for item in revisions[-10:] if isinstance(item, dict) and isinstance(item.get("body"), str)
         ] if isinstance(revisions, list) else [],
@@ -104,6 +133,7 @@ def record_artifact_revision(artifact: dict[str, Any], previous: dict[str, Any] 
         fields = (
             "title", "summary", "body", "format", "artifact_status", "origin",
             "lineage", "quality", "verification", "agent_id", "artifact_type", "docx_filename",
+            "snapshot",
         )
         if any(record.get(key) != previous.get(key) for key in fields):
             snapshot = {key: value for key, value in previous.items() if key not in {"revisions", "meta"}}

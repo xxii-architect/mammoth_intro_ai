@@ -29,7 +29,7 @@ function renderTokens(tokens) {
   })
 }
 
-export default function LessonContent({ content, navigation = false }) {
+export default function LessonContent({ content, navigation = false, collapsibleNavigation = false }) {
   const prefix = useId()
   const sectionsRef = useRef([])
   const sections = useMemo(() => {
@@ -49,6 +49,7 @@ export default function LessonContent({ content, navigation = false }) {
   }, [content])
   if (!sections.length) return null
   const headings = sections.map((section, index) => ({ ...section, index })).filter(section => section.title)
+  const Navigation = collapsibleNavigation ? 'details' : 'div'
   const jumpTo = index => {
     const section = sectionsRef.current[index]
     section?.focus({ preventScroll: true })
@@ -56,10 +57,13 @@ export default function LessonContent({ content, navigation = false }) {
   }
   return (
     <div className="lesson-reader">
-      {navigation && headings.length >= 3 && <nav aria-label="Lesson sections" className="lesson-reader-nav">
-        <span>In this lesson</span>
+      {navigation && headings.length >= 3 && <Navigation className="lesson-reader-outline">
+        {collapsibleNavigation && <summary>In this lesson</summary>}
+        <nav aria-label="Lesson sections" className="lesson-reader-nav">
+        {!collapsibleNavigation && <span>In this lesson</span>}
         {headings.map(section => <button key={section.index} type="button" aria-controls={`${prefix}-${section.index}`} onClick={() => jumpTo(section.index)}>{section.title}</button>)}
-      </nav>}
+        </nav>
+      </Navigation>}
       <div className="lesson-reader-body">
         {sections.map((section, index) => <section key={index} id={`${prefix}-${index}`} ref={element => { sectionsRef.current[index] = element }}
           tabIndex={-1} aria-label={section.title || 'Lesson text'}

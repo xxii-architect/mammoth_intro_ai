@@ -11,7 +11,7 @@ const useCreateNote = () => {
     try {
       const trimmed = content.trim()
       const title = trimmed.split(/\r?\n/, 1)[0]?.trim().slice(0, 72) || 'Untitled'
-      return await api('/notes', {
+      const saved = await api('/notes', {
         method: 'POST',
         body: {
           title,
@@ -25,6 +25,8 @@ const useCreateNote = () => {
           metadata: { origin: 'notes_panel' },
         },
       })
+      if (!saved?.id || saved.status === 'error') throw new Error(saved?.error || 'The server did not confirm the note save.')
+      return saved
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create note'
       setError(message)

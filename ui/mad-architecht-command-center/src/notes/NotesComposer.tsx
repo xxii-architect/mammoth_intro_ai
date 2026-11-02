@@ -39,15 +39,19 @@ const NotesComposer: React.FC<{ onCreate: (content: string) => Promise<void>; bu
 }) => {
   const [content, setContent] = useState<string>('')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
+  const [error, setError] = useState('')
 
   const handleSubmit = async () => {
     if (!content.trim() || busy || isSubmitting) {
       return
     }
     setIsSubmitting(true)
+    setError('')
     try {
       await onCreate(content.trim())
       setContent('')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Note could not be saved. Your draft is retained.')
     } finally {
       setIsSubmitting(false)
     }
@@ -65,12 +69,14 @@ const NotesComposer: React.FC<{ onCreate: (content: string) => Promise<void>; bu
         </button>
       </div>
       <textarea
+        aria-label="New note"
         value={content}
         onChange={(event) => setContent(event.target.value)}
         placeholder="Write a note, task, or prompt fragment..."
         style={inputStyle}
         disabled={busy || isSubmitting}
       />
+      {error && <p role="alert">{error}</p>}
       <div style={{ marginTop: 10, color: 'var(--txt-mut)', fontSize: '0.74rem' }}>
         The first line becomes the note title, and the full text is saved for preview + expansion in the list.
       </div>

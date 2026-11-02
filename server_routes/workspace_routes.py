@@ -16,7 +16,10 @@ async def list_workspace_artifacts():
 async def create_workspace_artifact(body: Dict[str, Any]):
     from mammoth_os.workspace_artifacts import record_artifact_revision
 
-    artifact = _normalize_workspace_artifact_record(body)
+    try:
+        artifact = _normalize_workspace_artifact_record(body)
+    except (ValueError, TypeError) as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
     if not artifact:
         return JSONResponse(
             {"status": "error", "error": "artifact body is required and must include non-empty text content."},
@@ -55,9 +58,9 @@ async def get_workspace_artifact_run(artifact_id: str):
     history = next((item for item in _normalize_agent_run_history_collection(state.get("agent_run_history"))
                     if (task_id and item.get("task_id") == task_id and (not trace_id or item.get("trace_id") == trace_id))
                     or (not task_id and trace_id and item.get("trace_id") == trace_id)), None)
-    if task is None and history is None:
+    if task is None and history is None and artifact.get("snapshot") is None:
         return JSONResponse({"status": "error", "error": "Recorded run is unavailable or no longer retained for your account."}, status_code=404)
-    return {"status": "ok", "task": task, "saved_history": history,
+    return {"status": "ok", "task": task, "saved_history": history, "snapshot": artifact.get("snapshot"),
             "notice": "Recorded state only. Saved history is client-supplied; run success does not verify artifact correctness or code safety."}
 
 @app.delete("/api/workspace/artifacts/{artifact_id}")

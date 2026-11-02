@@ -257,8 +257,16 @@ def retrieve_sections(chunks: list[dict], query: str, *, limit: int = 4) -> list
         score += 100 * sum(f"{kind} {number}" == chunk["location"].casefold() for kind, number in locations)
         ranked.append((score, index, chunk))
     ranked.sort(key=lambda row: (-row[0], row[1]))
-    selected = [row[2] for row in ranked[:limit]]
-    return [{**chunk, "retrieval": "lexical" if ranked and ranked[0][0] else "opening_sections"} for chunk in selected]
+    if ranked and ranked[0][0]:
+        selected = [(row[1], row[2]) for row in ranked[:limit]]
+        method = "lexical"
+    else:
+        # A broad overview samples the document, rather than only its introduction.
+        count = min(limit, len(chunks))
+        indices = [round(index * (len(chunks) - 1) / max(count - 1, 1)) for index in range(count)]
+        selected = [(index, chunks[index]) for index in indices]
+        method = "distributed_sample"
+    return [{**chunk, "chunk_index": index, "retrieval": method} for index, chunk in selected]
 
 
 def _extract_bounded(path: Path, filename: str) -> dict:
@@ -399,7 +407,7 @@ class DocumentLibrary:
         preview = "\n\n".join(chunk["text"] for chunk in extracted["chunks"][:2])[:1200]
         return {"status": "ok", **self.public(entry), "text_preview": preview}
 
-    def sections(self, entry: dict, query: str) -> list[dict]:
+    def _chunks(self, entry: dict) -> list[dict]:
         if entry.get("chunks_path"):
             path = self.folder / f"{entry['file_id']}.chunks.json"
             if not path.exists():
@@ -412,7 +420,23 @@ class DocumentLibrary:
                 raise DocumentError("Document index has an invalid shape. Re-upload or contact the operator.", 500)
         else:
             chunks = [{"location": "legacy preview", "text": str(entry.get("text_preview") or "")[:8000]}]
-        return retrieve_sections(chunks, query)
+        return chunks
+
+    def sections(self, entry: dict, query: str, *, limit: int = 4) -> list[dict]:
+        return retrieve_sections(self._chunks(entry), query, limit=limit)
+
+    def read_sections(self, entry: dict, *, start: int = 0, count: int = 6) -> dict:
+        if start < 0 or count < 1 or count > 10:
+            raise DocumentError("Use a nonnegative start and a count between 1 and 10.", 400)
+        chunks = self._chunks(entry)
+        if start >= len(chunks) and start != 0:
+            raise DocumentError("Section start is beyond the indexed document.", 400)
+        end = min(start + count, len(chunks))
+        return {
+            "sections": [{**chunk, "chunk_index": index} for index, chunk in enumerate(chunks[start:end], start)],
+            "total_chunks": len(chunks), "next_start": end if end < len(chunks) else None,
+            "coverage": "This response contains selected indexed sections, not proof the entire document was reviewed.",
+        }
 
     def delete(self, scope: str, file_id: str) -> dict:
         connection = self._connect()

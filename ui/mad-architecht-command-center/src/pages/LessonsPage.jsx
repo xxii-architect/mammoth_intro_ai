@@ -4,6 +4,8 @@ import { api } from '../api/client'
 import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 import { LessonGateNotice, LessonManifestCard, StallNotice } from '../components/LessonDelivery'
 import LessonContent from '../components/LessonContent'
+import '../components/atlas-workspace.css'
+import useIsMobile, { COMPACT_WORKSPACE_QUERY } from '../lib/useIsMobile'
 
 // ─── Expanded module catalog ──────────────────────────────────────────────────
 const FALLBACK_MODULE_TRACKS = [
@@ -133,7 +135,7 @@ function formatSourceLabel(source = '') {
 const CATEGORIES = ['Outdoors', 'Emergency', 'Business', 'Health', 'Human Systems', 'Technology', 'Creative', 'Life Skills']
 const CATEGORY_ICONS = { Outdoors: '🏕️', Emergency: '🚑', Business: '💼', Health: '💪', 'Human Systems': '🧠', Technology: '💻', Creative: '🎨', 'Life Skills': '🔑' }
 
-export default function LessonsPage({ setPage, embedded = false, sharedState, loadSharedState }) {
+export default function LessonsPage({ setPage, embedded = false, sharedState, loadSharedState, onFocusChange }) {
   const [atlasState, setAtlasState] = useState(null)
   const [topic, setTopic]           = useState('')
   const [code, setCode]             = useState('')
@@ -143,8 +145,8 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
   const [moduleCatalog, setModuleCatalog] = useState(FALLBACK_MODULE_TRACKS)
   const [moduleSearch, setModuleSearch] = useState('')
   const [lessonTypeFilter, setLessonTypeFilter] = useState('all')
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
-  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth < 768 : false)
+  const isMobile = useIsMobile(COMPACT_WORKSPACE_QUERY)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(isMobile)
   const [expandedModules, setExpandedModules] = useState({})
   const [adaptiveUI, setAdaptiveUI] = useState(embedded)
   const [activeTrack, setActiveTrack] = useState(null)
@@ -155,8 +157,23 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
   const [billingUsage, setBillingUsage] = useState(null)
   const [journeyStageOverride, setJourneyStageOverride] = useState(null)
   const [stateError, setStateError] = useState('')
+  const [libraryError, setLibraryError] = useState('')
+  const [moduleError, setModuleError] = useState('')
+  const [usageError, setUsageError] = useState('')
   const draftLessonId = useRef(null)
   const draftExerciseKey = useRef('')
+  const lessonScroll = useRef(null)
+  const practiceStart = useRef(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [focusedReading, setFocusedReading] = useState(false)
+  const [readingSize, setReadingSize] = useState('standard')
+  const [spaciousReading, setSpaciousReading] = useState(false)
+  useEffect(() => { onFocusChange?.(focusedReading) }, [focusedReading, onFocusChange])
+  const jumpToLesson = () => lessonScroll.current?.scrollTo({ top: 0 })
+  const jumpToPractice = () => {
+    practiceStart.current?.focus({ preventScroll: true })
+    practiceStart.current?.scrollIntoView({ block: 'start' })
+  }
   useEffect(() => {
     if (!sharedState) return
     setAtlasState(sharedState)
@@ -173,6 +190,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
       draftLessonId.current = lessonId
       setResult(null)
       setLessonGate(null)
+      lessonScroll.current?.scrollTo({ top: 0 })
     }
   }, [sharedState])
   const [showTopOverview, setShowTopOverview] = useState(() => {
@@ -264,47 +282,56 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
   const loadLibrary = async () => {
     try {
       const lib = await api('/atlas/library')
+      if (!Array.isArray(lib?.modules)) throw new Error('The saved lesson library returned an invalid response.')
       setAtlasLibrary(lib)
-    } catch (_) {}
+      setLibraryError('')
+    } catch (cause) {
+      setLibraryError(cause instanceof Error ? cause.message : 'Could not load the saved lesson library.')
+    }
+  }
+
+  const loadUsage = async () => {
+    try {
+      const usage = await api('/billing/usage/current')
+      setBillingUsage(usage)
+      setUsageError('')
+    } catch (cause) {
+      setUsageError(cause instanceof Error ? cause.message : 'Usage is unavailable.')
+    }
   }
 
   useEffect(() => {
     loadState()
     loadLibrary()
-    api('/billing/usage/current').then(setBillingUsage).catch(() => {})
+    loadUsage()
   }, [])
-  useEffect(() => {
-    const onResize = () => {
-      const mobile = window.innerWidth < 768
-      setIsMobile(mobile)
-      if (mobile) setSidebarCollapsed(true)
-    }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
-  useEffect(() => {
+  useEffect(() => { if (isMobile) setSidebarCollapsed(true) }, [isMobile])
+  const loadModules = () => {
     api('/atlas/modules').then((res) => {
+      if (!Array.isArray(res?.modules)) throw new Error('The module catalog returned an invalid response.')
       if (Array.isArray(res?.modules) && res.modules.length) {
         setModuleCatalog(res.modules.map(normalizeModuleTrack))
       }
       if (res?.active_module) {
         setActiveTrack(normalizeModuleTrack(res.active_module))
       }
-    }).catch(() => {})
-  }, [])
+      setModuleError('')
+    }).catch(cause => setModuleError(cause.message || 'Could not load module catalog.'))
+  }
+  useEffect(() => { loadModules() }, [])
   const startLesson = async (overrideTopic, moduleTrack = null) => {
     const requestedTopic = (overrideTopic || topic).trim()
     if (!requestedTopic) return
     setLoading(true)
     setResult(null)
-    setCode('')
-    setChecklistState({})
-    if (moduleTrack) setActiveTrack(normalizeModuleTrack(moduleTrack))
     try {
       const res = await api('/atlas/lesson', {
         method: 'POST',
         body: { topic: requestedTopic, module_id: moduleTrack?.id },
       })
+      if (moduleTrack) setActiveTrack(normalizeModuleTrack(moduleTrack))
+      setCode('')
+      setChecklistState({})
       setAtlasState(prev => ({ ...prev, ...res }))
       if (res.exercise?.starter_response) {
         setCode(res.exercise.starter_response)
@@ -314,6 +341,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
       }
       await loadState(true)
       await loadLibrary()
+      setSidebarCollapsed(true)
     } catch (e) {
       setResult({ error: e.message })
     } finally {
@@ -480,8 +508,29 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
   }, [exercise?.prompt])
 
   return (
-    <div className="page-enter" style={{ padding: embedded ? 12 : 24, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+    <div className={`page-enter atlas-lessons-page ${embedded ? 'atlas-lessons-embedded' : ''}`} data-reading-size={readingSize} data-reading-spacing={spaciousReading ? 'spacious' : 'standard'} style={{ padding: embedded ? 12 : 24, display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       {stateError && <div role="alert" style={{ color: '#fca5a5', fontSize: '0.78rem', marginBottom: 8 }}>{stateError} <button onClick={loadState}>Retry</button></div>}
+      {libraryError && <div role="alert">Saved lesson library unavailable: {libraryError} <button onClick={loadLibrary}>Retry lesson library</button></div>}
+      {moduleError && <div role="alert">Module catalog unavailable: {moduleError} <button onClick={loadModules}>Retry module catalog</button></div>}
+      {usageError && <div role="status">Usage could not be checked. No credit balance is assumed. <button onClick={loadUsage}>Retry usage</button></div>}
+      <nav className="atlas-lesson-toolbar" aria-label="Lesson controls">
+        <button type="button" aria-expanded={!sidebarCollapsed && !focusedReading} onClick={() => { setFocusedReading(false); setSidebarCollapsed(value => !value) }}>
+          {isMobile && !sidebarCollapsed && !focusedReading ? 'Back to lesson' : 'Modules'}
+        </button>
+        {exercise && (!isMobile || sidebarCollapsed || focusedReading) && <>
+          <button type="button" onClick={() => { setSidebarCollapsed(true); jumpToLesson() }}>Read</button>
+          <button type="button" onClick={() => { setSidebarCollapsed(true); jumpToPractice() }}>Practice</button>
+        </>}
+        <button type="button" aria-expanded={showSettings} onClick={() => setShowSettings(value => !value)}>Reading options</button>
+      </nav>
+      <div hidden={!showSettings} className="atlas-reading-options">
+        <label>Text size <select value={readingSize} onChange={event => setReadingSize(event.target.value)}>
+          <option value="standard">Standard</option><option value="comfortable">Comfortable</option><option value="large">Large</option>
+        </select></label>
+        <label><input type="checkbox" checked={spaciousReading} onChange={event => setSpaciousReading(event.target.checked)} /> More line spacing</label>
+        <button type="button" aria-pressed={focusedReading} onClick={() => { setFocusedReading(value => !value); setSidebarCollapsed(true); setShowSettings(false) }}>{focusedReading ? 'Exit focused reading' : 'Focus reading'}</button>
+      </div>
+      <div hidden={embedded && !showSettings}>
       {/* Hero header */}
       <div style={{ marginBottom: 14, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
         <div>
@@ -530,6 +579,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
           )}
         </div>
       </div>
+      </div>
 
       {billingWarning.show && (
         <div className="glass-card-solid" style={{ padding: '12px 14px', marginBottom: 14, border: `1px solid color-mix(in srgb, ${billingWarning.color} 33.33%, transparent)`, background: `color-mix(in srgb, ${billingWarning.color} 7.84%, transparent)` }}>
@@ -572,6 +622,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
         </div>
       )}
 
+      <div hidden={embedded && !showSettings}>
       <div className="glass-card-solid" style={{ padding: 10, marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
@@ -652,19 +703,12 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
       </div>
       </>
       )}
+      </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: embedded && isMobile && !sidebarCollapsed ? 'column' : 'row', gap: 16, minHeight: 0 }}>
+      <div className="atlas-lesson-layout" style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0 }}>
         {/* Mobile: floating module button when sidebar is collapsed */}
-        {isMobile && sidebarCollapsed && (
-          <button
-            onClick={() => setSidebarCollapsed(false)}
-            style={{ position: embedded ? 'static' : 'fixed', bottom: 88, left: 16, zIndex: 50, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--txt-sec)', fontWeight: 600, fontSize: '0.78rem', cursor: 'pointer', alignSelf: 'flex-start' }}
-          >
-            📚 Modules
-          </button>
-        )}
         {/* Left sidebar */}
-        <div style={{ width: sidebarCollapsed ? (isMobile ? 0 : 40) : (embedded && isMobile ? '100%' : 240), flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, transition: 'width 0.2s', overflow: 'hidden' }}>
+        <div className="atlas-lesson-sidebar" hidden={focusedReading || sidebarCollapsed} style={{ width: isMobile ? '100%' : 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10, overflow: 'hidden' }}>
           <button onClick={() => setSidebarCollapsed(c => !c)} title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChevronRight size={14} style={{ transform: sidebarCollapsed ? 'none' : 'rotate(180deg)', transition: 'transform 0.2s' }} />
@@ -919,30 +963,14 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
         </div>
 
         {/* Main content area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflowY: 'auto' }}>
+        <div ref={lessonScroll} className="atlas-lesson-scroll" aria-label="Lesson reading area" tabIndex={0} hidden={isMobile && !sidebarCollapsed && !focusedReading} style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0, overflowY: 'auto' }}>
           {exercise ? (
             <>
-              <TutorJourneyRail
-                currentStage={currentJourneyStage}
-                progress={journeyProgress}
-                onStageChange={setJourneyStageOverride}
-              />
-
-              <OutcomesCard
-                masteryTrend={Math.max(0, Math.min(1, outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery))}
-                timeToCompetency={Math.max(10, Math.round((lessonHistory.length + 1) * 12))}
-                retentionSignal={Math.max(0.4, Math.min(0.98, (outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery) || 0.55))}
-                lessonsCompleted={lessonHistory.length}
-                totalLessons={Math.max(totalLessons, lessonHistory.length + 1)}
-                nextMilestone={outcomeSummary.focusAreas.length ? `Focus next: ${outcomeSummary.focusAreas.slice(0, 2).join(' · ')}` : `Continue with ${outcomeSummary.recommendedDifficulty} pacing.`}
-              />
-
               {(lessonOverview || lessonTeachingPoints.length || lessonBody || lessonExamples.length) && (
                 <div className="glass-card-solid" style={{ padding: 18, flexShrink: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
                     <div>
-                      <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--txt-sec)', textTransform: 'uppercase', letterSpacing: '0.14em', margin: 0 }}>Lesson Flow</p>
-                      <h2 style={{ margin: '4px 0 0', fontSize: '1rem', color: 'var(--txt-pri)' }}>1. Introduction · 2. Content delivery · 3. Practice</h2>
+                      <h2 style={{ margin: '4px 0 0', fontSize: '1.1rem', color: 'var(--txt-pri)' }}>{atlasState?.current_lesson?.title || 'Current lesson'}</h2>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {activeTrack?.label && (
@@ -965,21 +993,13 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                   </div>
 
                   <div style={{ display: 'grid', gap: 12 }}>
-                    <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(var(--mm-color-system-rgb),0.06)', border: '1px solid rgba(var(--mm-color-system-rgb),0.22)', display: 'grid', gap: 6 }}>
-                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--mm-color-system-default)', fontWeight: 700 }}>1. Introduction</p>
-                      {lessonOverview ? (
-                        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>{lessonOverview}</p>
-                      ) : (
-                        <p style={{ margin: 0, fontSize: '0.84rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>
-                          This lesson introduces the key idea, why it matters, and what the learner should understand before they practice.
-                        </p>
-                      )}
-                    </div>
+                    {lessonOverview && <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(var(--mm-color-system-rgb),0.06)', border: '1px solid rgba(var(--mm-color-system-rgb),0.22)', display: 'grid', gap: 6 }}>
+                      <p style={{ margin: 0, fontSize: '0.94rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>{lessonOverview}</p>
+                    </div>}
 
                     <div style={{ display: 'grid', gap: 10 }}>
-                      <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', fontWeight: 700 }}>2. Content delivery</p>
                       {lessonBody && (
-                        <LessonContent content={lessonBody} navigation />
+                        <LessonContent content={lessonBody} navigation collapsibleNavigation />
                       )}
                       {lessonTeachingPoints.length > 0 && (
                         <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6 }}>
@@ -1022,7 +1042,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
 
               {/* Exercise card — shows adaptive type badge when enabled */}
               {exercise.generation_warning && <p role="status" style={{ fontSize: '0.78rem', color: 'var(--txt-sec)' }}>{exercise.generation_warning}</p>}
-              <div className="glass-card-solid" style={{ padding: 20, borderLeft: `3px solid ${adaptiveUI ? typeConfig.color : 'var(--photon)'}`, flexShrink: 0 }}>
+              <div ref={practiceStart} tabIndex={-1} aria-label="Practice exercise" className="glass-card-solid" style={{ padding: 20, borderLeft: `3px solid ${adaptiveUI ? typeConfig.color : 'var(--photon)'}`, flexShrink: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -1151,6 +1171,16 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                 </div>
               )}
 
+              <details className="atlas-learning-progress">
+                <summary>Learning progress &amp; lesson flow</summary>
+                <TutorJourneyRail currentStage={currentJourneyStage} progress={journeyProgress} onStageChange={setJourneyStageOverride} />
+                <OutcomesCard
+                  masteryTrend={Math.max(0, Math.min(1, outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery))}
+                  lessonsCompleted={lessonHistory.length}
+                  totalLessons={Math.max(totalLessons, lessonHistory.length + 1)}
+                  nextMilestone={outcomeSummary.focusAreas.length ? `Focus next: ${outcomeSummary.focusAreas.slice(0, 2).join(' · ')}` : `Continue with ${outcomeSummary.recommendedDifficulty} pacing.`}
+                />
+              </details>
             </>
           ) : (
             <div className="glass-card-solid" style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 16 }}>

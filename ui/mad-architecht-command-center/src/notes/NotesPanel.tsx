@@ -5,16 +5,23 @@ import { useCreateNote } from './hooks/useCreateNote'
 import { useDeleteNote } from './hooks/useDeleteNote'
 import { NotesList } from './NotesList'
 import { NotesComposer } from './NotesComposer'
+import { api } from '../api/client'
+import { NoteRecord } from './types/NoteRecord'
 
 const NotesPanel: React.FC = () => {
   const { notes, setNotes, loading, error, reload } = useAgentNotes()
   const { createNote, loading: creating, error: createError } = useCreateNote()
   const { deleteNote, loading: deleting, error: deleteError } = useDeleteNote()
 
-  const busy = creating || deleting
-  const statusMessage = error || createError || deleteError
-  const personalNotes = notes.filter((note) => note.source !== 'agent')
-  const agentNotes = notes.filter((note) => note.source === 'agent')
+  const [query, setQuery] = React.useState('')
+  const [editing, setEditing] = React.useState(false)
+  const [actionError, setActionError] = React.useState('')
+  const busy = creating || deleting || editing
+  const statusMessage = actionError || error || createError || deleteError
+  const filtered = notes.filter(note => [note.title, note.content, note.body, note.subsystem, note.agent_id]
+    .join(' ').toLowerCase().includes(query.trim().toLowerCase()))
+  const personalNotes = filtered.filter((note) => note.source !== 'agent')
+  const agentNotes = filtered.filter((note) => note.source === 'agent')
 
   const handleCreate = async (content: string) => {
     const created = await createNote(content)
@@ -26,8 +33,28 @@ const NotesPanel: React.FC = () => {
   }
 
   const handleDelete = async (id: string) => {
-    await deleteNote(id)
-    setNotes((prev) => prev.filter((note) => note.id !== id))
+    setActionError('')
+    try {
+      await deleteNote(id)
+      setNotes((prev) => prev.filter((note) => note.id !== id))
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Note could not be deleted.')
+    }
+  }
+
+  const handleUpdate = async (note: NoteRecord, content: string) => {
+    setEditing(true)
+    setActionError('')
+    try {
+      const saved = await api('/notes', { method: 'POST', body: {
+        ...note, body: content, content, title: content.split(/\r?\n/, 1)[0].trim().slice(0, 72) || 'Untitled',
+      } })
+      if (saved?.id !== note.id) throw new Error('The server did not confirm the note update. Your draft is retained.')
+      setNotes(previous => previous.map(item => item.id === saved.id ? saved : item))
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Note could not be updated.')
+      throw cause
+    } finally { setEditing(false) }
   }
 
   return (
@@ -38,10 +65,9 @@ const NotesPanel: React.FC = () => {
             <FileText size={14} color="var(--cyan)" />
             Command Center notes
           </div>
-          <h2 style={{ fontSize: '1rem', marginBottom: 6 }}>Layered capture panel</h2>
+          <h2 style={{ fontSize: '1rem', marginBottom: 6 }}>Your saved working notes</h2>
           <p style={{ color: 'var(--txt-sec)', fontSize: '0.84rem', lineHeight: 1.7, maxWidth: 640 }}>
-            Personal notes and agent-authored notes both live in the shared notes store. This panel now shows the saved note title,
-            a readable preview, and click-to-expand reading instead of just raw rows.
+            Personal and agent-authored notes are private to your account. Search, expand, edit or export the full note.
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -68,20 +94,22 @@ const NotesPanel: React.FC = () => {
       </div>
 
       {statusMessage ? (
-        <div style={{ marginBottom: 16, padding: 12, borderRadius: 12, border: '1px solid rgba(239,68,68,0.24)', background: 'rgba(127,29,29,0.18)', color: '#fecaca', fontSize: '0.8rem' }}>
+        <div role="alert" style={{ marginBottom: 16, padding: 12, borderRadius: 12, border: '1px solid rgba(239,68,68,0.24)', background: 'rgba(127,29,29,0.18)', color: '#fecaca', fontSize: '0.8rem' }}>
           {statusMessage}
         </div>
       ) : null}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(280px, 340px) minmax(0, 1fr)', gap: 16 }}>
+      <label>Search notes <input aria-label="Search notes" value={query} onChange={event => setQuery(event.target.value)} /></label>
+      <p role="status">{filtered.length} of {notes.length} notes shown</p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 16 }}>
         <NotesComposer onCreate={handleCreate} busy={busy} />
         <div className="glass-card" style={{ padding: 16 }}>
           {loading ? (
             <div style={{ color: 'var(--txt-sec)', fontSize: '0.84rem' }}>Loading notes…</div>
           ) : (
             <div style={{ display: 'grid', gap: 18 }}>
-              <NotesList notes={personalNotes} onDelete={handleDelete} busy={busy} />
-              <NotesList notes={agentNotes} onDelete={handleDelete} busy={busy} />
+              <NotesList notes={personalNotes} onDelete={handleDelete} onUpdate={handleUpdate} busy={busy} />
+              <NotesList notes={agentNotes} onDelete={handleDelete} onUpdate={handleUpdate} busy={busy} />
             </div>
           )}
         </div>

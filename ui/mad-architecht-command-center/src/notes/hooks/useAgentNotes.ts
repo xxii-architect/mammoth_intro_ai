@@ -12,7 +12,8 @@ const useAgentNotes = () => {
     setError(null)
     try {
       const data = await api('/notes')
-      setNotes(Array.isArray(data) ? data : [])
+      if (!Array.isArray(data)) throw new Error('The notes store returned an invalid response. Refresh to retry.')
+      setNotes(data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch notes')
     } finally {

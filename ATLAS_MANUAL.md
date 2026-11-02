@@ -6,6 +6,25 @@
 
 ## Production-readiness snapshot
 
+### Focused ATLAS workspace
+
+ATLAS uses four workspace views: Lesson, Tutor, Agents and Curricula. On phones,
+the module browser replaces the lesson pane while open; **Back to lesson**
+returns without discarding the current exercise draft. **Read** and **Practice**
+jump within one scrollable lesson rather than marking any work complete.
+
+**Reading options** provides text-size, line-spacing, focused-reading and adaptive
+exercise controls. Focused reading hides the profile strip and module sidebar;
+reopen Reading options to exit. Profile setup remains available explicitly on
+mobile. The lesson outline and learning-progress panel expand on demand.
+No measured retention or time-to-competency is inferred from lesson counts.
+Mastery gates, explicit overrides and backend assessment are unchanged.
+
+These layout changes preserve drafts across workspace tabs and rotation, not
+across a browser refresh. Durable recovery, contextual Explain this, connected
+notes/cards, remediation and narration remain in the
+[ATLAS roadmap](ATLAS_WORKSPACE_ROADMAP.md).
+
 The website uses a dark semantic palette: brass/copper primary actions and agent
 identity, blue keyboard focus/links/secondary interaction, and grey/white text.
 Runtime health and success/warning/failure colors remain meaningful; destructive

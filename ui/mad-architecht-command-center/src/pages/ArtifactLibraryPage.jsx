@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
 import CurriculumArtifactPanel from '../components/CurriculumArtifactPanel'
+import PlanExecuteResultPanel, { StepOutput } from '../components/PlanExecuteResultPanel'
+import { downloadOutput } from '../components/OutputActions'
 import './artifact-library.css'
 
 const STATUS_LABELS = { ready: 'Ready', draft: 'Draft / needs review', failed: 'Failed', unknown: 'Not assessed' }
@@ -33,7 +35,7 @@ function ArtifactProvenance({ item }) {
     setOpen(true)
     try {
       const data = await api(`/workspace/artifacts/${encodeURIComponent(item.id)}/run`)
-      if (data?.status !== 'ok' || (!data.task && !data.saved_history)) throw new Error('Run index returned an invalid response.')
+      if (data?.status !== 'ok' || (!data.task && !data.saved_history && !data.snapshot)) throw new Error('Run index returned an invalid response.')
       setRun(data)
     } catch (cause) {
       setError(cause.message || 'Recorded run unavailable.')
@@ -60,12 +62,15 @@ function ArtifactProvenance({ item }) {
         </details>)}
       </details>}
     </details>
-    {(item.origin?.task_id || item.origin?.trace_id) && <button onClick={loadRun} disabled={loading}>{loading ? 'Loading recorded run...' : 'View recorded run'}</button>}
+    {(item.snapshot || item.origin?.task_id || item.origin?.trace_id) && <button onClick={loadRun} disabled={loading}>{loading ? 'Loading recorded run...' : 'View recorded run'}</button>}
     {open && <section aria-label="Recorded run">
       <button onClick={() => setOpen(false)}>Close recorded run</button>
       {error && <p role="alert">{error}</p>}
       {run && <>
         <p className="artifact-meta">{run.notice}</p>
+        {run.snapshot && (item.artifact_type === 'team_run'
+          ? <PlanExecuteResultPanel planRun={run.snapshot} />
+          : <StepOutput artifact={run.snapshot} />)}
         {run.task && <><p>Task: {run.task.id} - {run.task.status}</p><pre>{JSON.stringify(run.task, null, 2)}</pre></>}
         {run.saved_history && <details><summary>Saved result (client-supplied)</summary><pre>{JSON.stringify(run.saved_history, null, 2)}</pre></details>}
       </>}
@@ -259,6 +264,7 @@ function ArtifactLibrary({ setPage }) {
           {!item.curriculum && <ArtifactProvenance key={`${item.id}:${item.revision || 1}`} item={item} />}
           <div className="artifact-actions">
             <button onClick={() => download(item)} disabled={busy}>Download {item.curriculum ? 'JSON' : 'text'}</button>
+            {item.snapshot != null && <button onClick={() => downloadOutput(item.snapshot, item.title, 'json')}>Export complete JSON</button>}
             {item.docx_filename && <button onClick={() => downloadDocx(item)} disabled={busy}>Download DOCX</button>}
             {item.body && <button onClick={() => action(async () => { await navigator.clipboard.writeText(item.body); setNotice('Artifact copied.') })} disabled={busy}>Copy</button>}
             {setPage && PAGE_LABELS[item.origin?.page] && <button onClick={() => setPage(item.origin.page)}>Open {PAGE_LABELS[item.origin.page]}</button>}
@@ -266,7 +272,7 @@ function ArtifactLibrary({ setPage }) {
           </div>
         </article>)}
       </div>
-      <p className="artifact-meta">Legacy outputs without type or assessment metadata remain Uncategorized / Not assessed. Notes and flashcards appear here only when saved as outputs; their live libraries remain separate. Origin buttons open the relevant workspace, not a replay of an old run.</p>
+      <p className="artifact-meta">The library retains up to 120 outputs and ten prior revisions per output. Export important work for an independent archive. Older text-only outputs cannot recover fields omitted when originally saved. Notes and flashcards appear here only when saved as outputs; their live libraries remain separate. Origin buttons open the workspace; View recorded run reopens saved data without executing agents.</p>
     </div>
   )
 }

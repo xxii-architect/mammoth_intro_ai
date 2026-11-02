@@ -14,6 +14,7 @@ import CodingArtifactPanel from '../CodingArtifactPanel'
 import RepoPicker from './RepoPicker'
 import OwnerExecutionPanel from './OwnerExecutionPanel'
 import { normalizeCodingArtifact, normalizeResearchArtifact } from './artifacts'
+import OutputActions from '../OutputActions'
 import { AGENT_CATALOG, CATALOG_BY_ID, TEAM_FITS, agentDisplay, agentStatusLabel, parseMention, codingRoute } from './agentCatalog'
 import useIsMobile from '../../lib/useIsMobile'
 
@@ -273,6 +274,10 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
         )}
       </div>
       {body}
+      {!run && message.artifact && message.status !== 'pending' && (
+        <OutputActions output={message.artifact} title={`${entry.name} output`}
+          artifactId={message.id} saved={message.raw?.result?.artifact_save} />
+      )}
     </div>
   )
 }
@@ -619,6 +624,8 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
   const [selected, setSelected] = useState({})
   const [phase, setPhase] = useState('compose')
   const [result, setResult] = useState(null)
+  const [parentArtifactId, setParentArtifactId] = useState('')
+  const [followUp, setFollowUp] = useState('')
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -627,6 +634,8 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
     if (draft.planProfile) setFit(draft.planProfile)
     setPreview(null)
     setResult(null)
+    setParentArtifactId('')
+    setFollowUp('')
     setPhase('compose')
   }, [draft?.nonce])
 
@@ -637,7 +646,7 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
     setError('')
     setPhase('previewing')
     try {
-      const res = await api('/plan-execute', { method: 'POST', body: { objective, plan_profile: fit, approval_mode: approvalMode, dry_run: true } })
+      const res = await api('/plan-execute', { method: 'POST', body: { objective, plan_profile: fit, approval_mode: approvalMode, dry_run: true, parent_artifact_id: parentArtifactId || undefined } })
       if (res?.status !== 'ok') throw new Error(res?.error || 'Could not build a plan')
       setPreview(res)
       setSelected(Object.fromEntries((res.plan_steps || []).map(step => [step.id, true])))
@@ -660,7 +669,7 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
     try {
       res = await api('/plan-execute', {
         method: 'POST',
-        body: { objective, plan_profile: fit, approval_mode: approvalMode, temperature, stop_on_failure: true, step_ids: stepIds },
+        body: { objective, plan_profile: fit, approval_mode: approvalMode, temperature, stop_on_failure: true, step_ids: stepIds, parent_artifact_id: parentArtifactId || undefined },
       })
       if (res?.status !== 'ok') throw new Error(res?.error || 'Team run failed')
       setResult(res)
@@ -697,12 +706,28 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
       {phase === 'done' && result ? (
         <>
           <PlanExecuteResultPanel planRun={result} rawJson={JSON.stringify(result, null, 2)} />
+          <OutputActions key={result.plan_id || objective} output={result} saved={result.artifact_save}
+            artifactId={result.plan_id} title={objective} team
+            onSaved={saved => setResult(previous => ({ ...previous, artifact_save: saved }))} />
+          <label style={{ marginTop: 16 }}>Follow up on this result
+            <textarea aria-label="Team follow-up" value={followUp} onChange={event => setFollowUp(event.target.value)} />
+          </label>
+          <p>Uses the saved result as reference for a new, approval-checked run. Additional model credits apply.</p>
+          <button disabled={!followUp.trim() || result.artifact_save?.status !== 'saved'} onClick={() => {
+            setParentArtifactId(result.artifact_save.artifact_id)
+            setObjective(followUp.trim())
+            setFollowUp('')
+            setResult(null)
+            setPreview(null)
+            setPhase('compose')
+          }}>Prepare follow-up plan</button>
           <div style={{ marginTop: 12 }}>
-            <button onClick={() => { setPhase('compose'); setResult(null); setPreview(null) }} style={ghostButton}>New team run</button>
+            <button onClick={() => { setPhase('compose'); setResult(null); setPreview(null); setParentArtifactId(''); setObjective(''); setFollowUp('') }} style={ghostButton}>New team run</button>
           </div>
         </>
       ) : (
         <>
+          {parentArtifactId && <p role="status">Follow-up using a saved team result. Prior context is bounded; the full result stays in Artifacts.</p>}
           <textarea value={objective} onChange={event => { setObjective(event.target.value); if (phase === 'review') setPhase('compose') }}
             aria-label="Objective" placeholder="What should the team accomplish? One or two sentences is enough." rows={3}
             disabled={phase === 'running'}

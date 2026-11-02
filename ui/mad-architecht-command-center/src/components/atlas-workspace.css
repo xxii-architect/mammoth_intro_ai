@@ -22,6 +22,7 @@
   line-height: 1.5;
 }
 .atlas-workspace-header nav { display: flex; flex-wrap: wrap; gap: 6px; }
+.atlas-nav-short { display: none; }
 .atlas-workspace button {
   cursor: pointer;
 }
@@ -57,6 +58,8 @@
   max-height: 45dvh; overflow-y: auto;
 }
 .atlas-learning-profile p { margin: 6px 0; color: var(--txt-sec); }
+.atlas-workspace-profile { flex-shrink: 0; }
+.atlas-workspace-profile[hidden] { display: none; }
 .atlas-profile-form { display: grid; gap: 8px; }
 .atlas-profile-form label { display: grid; gap: 4px; }
 .atlas-profile-form input, .atlas-profile-form select {
@@ -64,8 +67,47 @@
   background: var(--mm-color-surface-raised, #161b22); color: var(--txt-pri);
   border: 1px solid var(--border); border-radius: 6px;
 }
-@media (max-width: 767px) {
-  .atlas-workspace { padding: 10px; }
-  .atlas-workspace-header { gap: 8px; }
+.atlas-lesson-toolbar { display: flex; flex-shrink: 0; gap: 6px; align-items: center; margin-bottom: 8px; }
+.atlas-lesson-toolbar button, .atlas-reading-options button, .atlas-learning-profile button {
+  padding: 8px 10px; min-height: 40px; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--mm-color-surface-raised, #161b22);
+  color: var(--txt-sec); font-size: .76rem; cursor: pointer;
+}
+.atlas-reading-options:not([hidden]) {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding: 8px; margin-bottom: 8px; border: 1px solid var(--border); border-radius: 8px;
+}
+.atlas-reading-options label { font-size: .8rem; }
+.atlas-reading-options select { padding: 6px; color: var(--txt-pri); background: var(--card); }
+.atlas-lesson-sidebar[hidden], .atlas-lesson-scroll[hidden] { display: none !important; }
+.atlas-lesson-scroll { overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+.atlas-lesson-scroll > * { flex-shrink: 0; }
+.atlas-lesson-scroll:focus-visible { outline: 2px solid var(--photon); outline-offset: -2px; }
+.atlas-learning-progress summary { cursor: pointer; padding: 8px; font-size: .8rem; color: var(--txt-sec); }
+.atlas-lessons-page .lesson-reader-body { font-size: 1rem; }
+.atlas-lessons-page[data-reading-size="comfortable"] .lesson-reader-body { font-size: 1.125rem; }
+.atlas-lessons-page[data-reading-size="large"] .lesson-reader-body { font-size: 1.25rem; }
+.atlas-lessons-page[data-reading-spacing="spacious"] .lesson-reader-body { line-height: 2.1; }
+@media (max-width: 767px), (max-width: 1024px) and (max-height: 500px) {
+  .atlas-workspace { padding: 6px; gap: 6px; box-sizing: border-box; }
+  .atlas-workspace-header { gap: 4px; }
+  .atlas-workspace-header > div { width: 100%; }
+  .atlas-workspace-header p { display: none; }
+  .atlas-workspace-header nav { width: 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; }
+  .atlas-workspace-header nav button { min-height: 44px; padding: 8px 4px; }
+  .atlas-nav-full { display: none; }
+  .atlas-nav-short { display: inline; }
   .atlas-workspace-content { flex-direction: column; }
+  .atlas-learning-profile { padding: 4px 8px; }
+  .atlas-learning-profile strong { font-size: .7rem; }
+  .atlas-learning-profile button { min-height: 44px; padding: 4px 6px; font-size: .7rem; }
+  .atlas-lessons-embedded { padding: 6px !important; }
+  .atlas-lesson-toolbar { gap: 4px; }
+  .atlas-lesson-toolbar button { min-height: 44px; padding: 6px 8px; flex: 1; }
+  .atlas-lesson-layout { gap: 0 !important; }
+}
+@media (min-width: 768px) and (max-width: 1024px) and (max-height: 500px) {
+  .atlas-workspace-header { flex-wrap: nowrap; gap: 8px; }
+  .atlas-workspace-header > div { width: auto; }
+  .atlas-workspace-header nav { flex: 1; }
 }

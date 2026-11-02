@@ -21,6 +21,12 @@ const sectionStyle = {
 }
 
 const liveNow = [
+  'ATLAS mobile: Lesson, Tutor, Agents and Curricula use one compact navigation row. Modules opens a separate browser; Back to lesson preserves the current exercise draft. Read and Practice jump within the lesson. Reading options controls text size, line spacing, focused reading and adaptive exercises; profile setup and lesson outline remain available on demand. Layout changes do not demonstrate mastery or use AI credits. Refresh recovery is still a roadmap item.',
+  'Save and export: agent outputs and team runs preserve complete structured snapshots plus readable Markdown in your private Artifacts. Check the saved/failed message; export important results for an independent archive. Existing retention is 120 outputs and ten prior revisions. Snapshots over 4 MB fail explicitly rather than being shortened.',
+  'Use Export complete JSON for nested sources, findings and team step outputs; Markdown is the readable export. Mammoth Mind has Save / export output beneath finished replies. View recorded run in Artifacts reopens saved data without running agents. Older text-only artifacts cannot recover previously omitted fields.',
+  'Team follow-ups: enter a follow-up beneath a saved result, choose Prepare follow-up plan, review the plan, then explicitly run it. This is a new execution using bounded prior-result context and additional credits, not automatic continuation or approval.',
+  'Document access: attached files initially contribute selected excerpts. Agent mode can use document_list, document_search and document_read to inspect more indexed sections, including later pages. Classic chat uses selected excerpts only. Indexed does not mean fully read; extraction limits, OCR-disabled scans and legacy previews remain explicit.',
+  'Notes and Build Log now live in Workspace navigation. Notes supports search, edits, full-note exports and deletion confirmation. Build Log exports saved sessions, surfaces failures and derives phase/project summaries from actual entries. A failed ATLAS lesson start preserves the current exercise draft.',
   'Mammoth Mind supports multi-thread chat, file attachments, and repo-aware /guide flows.',
   'ATLAS Tutor now has clear Assistant / Tutor / Build lanes, Monaco lesson editing, and expandable guide cards.',
   'Learning materials can be uploaded into the ATLAS library for lesson-side context and reuse.',

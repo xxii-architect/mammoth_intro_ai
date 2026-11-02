@@ -19,6 +19,7 @@
 .lesson-reader table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 16px 0; font-size: .82rem; }
 .lesson-reader th, .lesson-reader td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
 .lesson-reader-nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; }
+.lesson-reader-outline summary { padding: 10px 0; cursor: pointer; color: var(--txt-sec); font-size: .85rem; }
 .lesson-reader-nav span { font-size: .7rem; color: var(--txt-mut); }
 .lesson-reader-nav button { padding: 6px 9px; border-radius: 8px; background: transparent; border: 1px solid var(--border); color: var(--txt-sec); cursor: pointer; font: inherit; font-size: .72rem; max-width: 100%; overflow-wrap: anywhere; }
 @media (max-width: 520px) { .lesson-reader-body { font-size: .9rem; line-height: 1.8; } }

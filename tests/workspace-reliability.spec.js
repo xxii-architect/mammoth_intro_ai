@@ -216,6 +216,8 @@ test('Run Review is reachable from workspace navigation without changing chat', 
   const errors = await mount(page, 'App', {
     '/api/entitlements': { admin_controls_enabled: true, tier: 'pro' },
     '/api/mammoth/runs': { runs: [] },
+    '/api/buildlog': [],
+    '/api/logsale': [],
   })
   await page.getByRole('button', { name: 'Run Review', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Run Review', exact: true })).toBeVisible()
@@ -331,6 +333,102 @@ const marketReport = {
     snippet: 'Just Black whole-bean coffee, 12-ounce bag.' }],
   citations: [], references: [], quality: { ready: true, evidence_status: 'source_linked' },
 }
+
+test('team results archive feedback, full exports and follow-up are explicit', async ({ page }) => {
+  const requests = []
+  const errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    '/api/plan-execute': request => {
+      const body = request.postDataJSON()
+      requests.push(body)
+      const plan_steps = [{ id: 'one', title: 'Inspect the evidence', agent_id: 'market_intel_agent', intent: 'market_intel',
+        status: body.dry_run ? 'planned' : 'completed', response: { result: { output: marketReport } } }]
+      return { status: 'ok', plan_id: 'plan-saved', objective: body.objective, plan_steps,
+        plan_status: body.dry_run ? 'preview' : 'completed', artifact_save: { status: 'saved', artifact_id: 'plan-saved' } }
+    },
+  })
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: 'Team run', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Objective', exact: true }).fill('Research the exact coffee variant.')
+  await page.getByRole('button', { name: 'Preview the plan' }).click()
+  await page.getByRole('button', { name: 'Run 2 steps' }).click()
+  await expect(page.getByText('Saved to your Artifacts. Reopening does not run agents.', { exact: true })).toBeVisible()
+  const downloaded = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export complete JSON', exact: true }).click()
+  expect((await downloaded).suggestedFilename()).toMatch(/\.json$/)
+  expect(requests).toHaveLength(2)
+  await page.getByRole('textbox', { name: 'Team follow-up' }).fill('Compare cost per ounce.')
+  await page.getByRole('button', { name: 'Prepare follow-up plan' }).click()
+  await expect(page.getByText(/Follow-up using a saved team result/)).toBeVisible()
+  expect(requests).toHaveLength(2) // Preparing a follow-up does not spend model calls.
+  await page.getByRole('button', { name: 'Preview the plan' }).click()
+  expect(requests[2].parent_artifact_id).toBe('plan-saved')
+  expect(requests[2].objective).toBe('Compare cost per ounce.')
+  expect(errors).toEqual([])
+})
+
+test('specialist output can be exported when archival saving fails', async ({ page }) => {
+  const errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    '/api/run': { status: 'ok', result: { status: 'ok', output: marketReport,
+      artifact_save: { status: 'failed', error: 'Archive unavailable. Export before leaving.' } } },
+    '/api/workspace/artifacts': { status: 503, body: '{"error":"Archive unavailable"}', contentType: 'application/json' },
+  })
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Market Intel/ }).click()
+  await page.getByRole('textbox', { name: 'Message Market Intel' }).fill('Research this product.')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Archive unavailable')
+  await page.getByRole('button', { name: 'Save output', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Archive unavailable')
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export Markdown', exact: true }).click()
+  expect((await download).suggestedFilename()).toMatch(/\.md$/)
+  expect(errors).toEqual([])
+})
+
+test('Notes supports search, edits, full export and confirmed deletion on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  let note = { id: 'notes-one', title: 'Coffee research', content: 'Coffee research\nKeep the exact variant.', body: 'Coffee research\nKeep the exact variant.', source: 'personal' }
+  const errors = await mount(page, 'pages/NotesPage', {
+    '/api/notes': request => {
+      if (request.method() === 'GET') return [note]
+      note = request.postDataJSON()
+      return note
+    },
+    '/api/notes/notes-one': { status: 'ok', deleted: 'notes-one' },
+  })
+  await page.getByLabel('Search notes').fill('missing term')
+  await expect(page.getByRole('status')).toContainText('0 of 1')
+  await page.getByLabel('Search notes').fill('coffee')
+  await page.getByRole('button', { name: 'Edit note', exact: true }).click()
+  await page.getByLabel('Edit note content').fill('Coffee research\nCheck whole-bean and current sizes.')
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click()
+  await expect(page.getByText('Coffee research\nCheck whole-bean and current sizes.', { exact: true })).toBeVisible()
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export note', exact: true }).click()
+  expect((await download).suggestedFilename()).toBe('Coffee-research.md')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
+  await expect(page.getByRole('group', { name: 'Confirm note deletion' })).toBeVisible()
+  await page.getByRole('button', { name: 'Confirm delete', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('0 of 0')
+  expect(errors).toEqual([])
+})
+
+test('Notes retains an unsaved draft and Build Log exposes load failures', async ({ page }) => {
+  let errors = await mount(page, 'pages/NotesPage', {
+    '/api/notes': request => request.method() === 'GET' ? [] : { status: 503, body: '{"error":"Notes storage unavailable"}', contentType: 'application/json' },
+  })
+  await page.getByLabel('New note').fill('Do not lose this draft.')
+  await page.getByRole('button', { name: 'Create note', exact: true }).click()
+  await expect(page.getByLabel('New note')).toHaveValue('Do not lose this draft.')
+  await expect(page.getByRole('alert').first()).toContainText('Notes storage unavailable')
+  expect(errors).toEqual([])
+  errors = await mount(page, 'pages/BuildLogPage', {
+    '/api/buildlog': { status: 503, body: '{"error":"Build log unavailable"}', contentType: 'application/json' },
+  })
+  await expect(page.getByRole('alert')).toContainText('Build log unavailable')
+  await expect(page.getByRole('button', { name: 'Refresh build log' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Export build log JSON' })).toBeDisabled()
+  expect(errors).toEqual([])
+})
 
 for (const surface of ['specialist', 'team']) {
   test(`Market Intel ${surface} shows evidence and useful depth, not empty sections`, async ({ page }) => {

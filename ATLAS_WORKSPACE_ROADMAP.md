@@ -138,6 +138,12 @@ feedback over adding more agents or permanent panels.
   lesson view, adjustable text size, comfortable line spacing, keyboard
   navigation, and captions/transcripts when audio arrives. On mobile, prioritize
   the current task and collapse secondary tools.
+  Mobile/focused-reading portion implemented: compact Lesson / Tutor /
+  Agents / Curricula navigation; on-demand profile and module browser; a single
+  lesson scroll surface with Read/Practice jumps; adjustable text size and line
+  spacing; collapsed outline and progress. Phone landscape uses the same compact
+  layout. Retention and time-to-competency figures are no longer fabricated from
+  counts/confidence. No audio/captions or durable draft recovery is claimed.
 - [ ] LEARN-06: cost and privacy controls. Show estimates before expensive
   research or narration only when they can be calculated reliably. Add per-user
   limits, cancellation, and clear retention/export/delete controls for learning
@@ -179,6 +185,11 @@ AUDIO-04 and SDK-01 follow validated AUDIO-03 behavior.
   research. New lessons reset old drafts and correction state.
 - On portrait mobile only one main learning surface is visible. Controls do not
   cover the composer or create horizontal overflow.
+- On phone portrait, the lesson reading viewport occupies more than 55% of
+  available workspace height at 320, 390 and 430px widths, with 64px reserved
+  for app navigation. Workspace tabs have 44px minimum touch targets. Landscape
+  focused reading meets the same height ratio. Opening Modules replaces rather
+  than stacks above the mobile lesson; returning preserves the exercise draft.
 - Agent catalog failure is explicit. Backend auth remains authoritative.
 - Research does not replace lesson content or satisfy mastery.
 - Audio listening never automatically implies comprehension.
@@ -187,6 +198,15 @@ AUDIO-04 and SDK-01 follow validated AUDIO-03 behavior.
 
 ## Execution log
 
+- Content-first mobile refinement: 122 browser checks passed, including 320/390/
+  430px portrait reading-space thresholds, 44px workspace touch targets,
+  landscape focused reading, profile deferral, module return/draft preservation,
+  text-size/spacing controls, section jumps, mastery override and failure recovery.
+  The combined archive/document/tenant/runtime/tutor pass also passed 239 Python
+  checks, 20 JavaScript SDK checks, the production build and the changed Notes
+  TypeScript graph. Whole-project TypeScript checking remains blocked by existing
+  parse errors in `WireNotesSubsystem.tsx`; these unrelated errors were not changed.
+  Checks use local API fixtures, not a live-provider teaching-quality evaluation.
 - 2026-10-05: backlog created; EDU-01/02 implementation started. Audio and plan
   routing remain pending; this file does not grant production or push access.
 - EDU-01/02/03 completed: 67 backend contract/access/SDK/delivery tests and ten

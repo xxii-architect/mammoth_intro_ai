@@ -873,8 +873,6 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
 
             <OutcomesCard
               masteryTrend={Math.max(0, Math.min(1, outcomeSummary.mastery > 1 ? outcomeSummary.mastery / 100 : outcomeSummary.mastery))}
-              timeToCompetency={Math.max(10, Math.round((lessonHistory.length + 1) * 12))}
-              retentionSignal={Math.max(0.4, Math.min(0.98, confidenceSummary.confidence / 100))}
               lessonsCompleted={lessonHistory.length}
               totalLessons={Math.max(totalLessons, lessonHistory.length + 1)}
               nextMilestone={confidenceSummary.nextStep}

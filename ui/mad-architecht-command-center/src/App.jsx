@@ -84,11 +84,12 @@ const NAV = [
   { id: 'chat',     label: 'Mammoth Mind', Icon: MessageSquare, accent: 'var(--photon)' },
   { id: 'runreview', label: 'Run Review', Icon: ClipboardList },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
+  { id: 'buildlog', label: 'Build Log',   Icon: ClipboardList },
+  { id: 'notes',    label: 'Notes',       Icon: FileText },
   { id: 'manual',   label: 'Manual',      Icon: BookOpen },
   { id: 'commandlib', label: 'Command Library', Icon: BookOpen, accent: 'var(--mm-color-system-default)' },
 
   { section: 'Tools' },
-  { id: 'notes',    label: 'Notes',       Icon: FileText },
   { id: 'artifacts', label: 'Artifacts',   Icon: FileText, accent: 'var(--mm-color-system-default)' },
   { id: 'taskinbox', label: 'Task Inbox', Icon: ClipboardList, accent: 'var(--photon)' },
   { id: 'modules',  label: 'Modules',     Icon: Package },
@@ -107,7 +108,6 @@ const NAV = [
   { id: 'lessonnotes', label: 'Lesson Notes', Icon: FileText, accent: 'var(--mm-color-system-default)' },
   { id: 'projects',    label: 'Projects',     Icon: ClipboardList, accent: 'var(--photon)' },
   { id: 'betafeedback', label: 'Beta Feedback', Icon: MessageSquare, accent: 'var(--mm-color-system-default)' },
-  { id: 'buildlog',   label: 'Build Log',   Icon: ClipboardList },
 
   { section: 'System' },
   { id: 'diagnostics', label: 'Diagnostics', Icon: Activity, accent: 'var(--mm-color-system-default)' },

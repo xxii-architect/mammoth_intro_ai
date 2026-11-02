@@ -290,6 +290,43 @@ and navigation contracts; Community retains deterministic reward and review poli
 The Agent panel and team-run drilldowns show Market Intel sources and evidence.
 These checks improve output contracts; they are not a guarantee of model accuracy.
 
+### Saved results, team follow-ups and document access
+
+- Specialist `/api/run` outputs and `/api/plan-execute` team results are archived
+  with a complete structured `snapshot` (`mammoth.artifact.v1`) and readable Markdown.
+  Team archives include individual step outputs and synthesis. Responses report
+  `artifact_save.status: saved|failed`; a run can finish while archival saving fails.
+  Export before leaving if saving fails. Snapshots over 4 MB are rejected explicitly,
+  never silently shortened. The existing library retains up to 120 outputs and ten
+  prior revisions per output; export important work for an independent archive.
+- Agent replies and team results offer save, Markdown export and complete JSON export.
+  Mammoth Mind exposes these under **Save / export output**. The Artifact library
+  reopens saved results without executing agents or charging model credits.
+  Older flattened artifacts remain readable but cannot recover omitted fields.
+- **Prepare follow-up plan** creates an explicitly reviewed new team execution.
+  `parent_artifact_id` references an accessible saved team result, not a filesystem
+  path or approval. Prior context is bounded to 16,000 characters, with a shortening
+  notice; the archive remains complete. New execution uses additional model credits.
+- Uploaded documents are indexed within the existing extraction limits (2 million
+  characters, 2,000 units). The initial chat context contains selected excerpts, not
+  the entire file. Agent-mode `document_list`, `document_search` and `document_read`
+  can inspect the caller's indexed chat/ATLAS documents without repository access.
+  Read offsets allow sequential inspection beyond search matches. Indexing is not
+  proof of a whole-document review. Classic chat still receives selected excerpts.
+  Scans/images need OCR, which is not enabled; legacy preview-only uploads need
+  re-uploading. Extraction warnings remain visible and are passed to the agent.
+- Notes and Build Log are in Workspace navigation, with unchanged routes and SDK
+  access. Notes supports searching, editing, export and confirmed deletion; Build Log
+  exposes load/save errors and exports real session records. ATLAS preserves the
+  exercise draft on a failed lesson start and surfaces unavailable supporting data.
+- ATLAS is content-first on phones: compact Lesson/Tutor/Agents/Curricula tabs,
+  an on-demand module browser and learning profile, Read/Practice jumps, and
+  collapsible outline/progress. Reading options adjusts text size/spacing and
+  enables focused reading. Phone landscape uses the compact layout too.
+  Reading and layout changes never satisfy mastery or trigger model calls.
+  Drafts survive view changes, not a browser refresh; durable recovery remains
+  on the ATLAS roadmap. Retention/time-to-competency is not inferred from counts.
+
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/mammoth/tools?repo=` | Tool catalog visible to *you* for that repo selection |

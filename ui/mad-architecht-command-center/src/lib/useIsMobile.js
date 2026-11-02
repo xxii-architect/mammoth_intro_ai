@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 export const MOBILE_QUERY = '(max-width: 767px)'
+export const COMPACT_WORKSPACE_QUERY = '(max-width: 767px), (max-width: 1024px) and (max-height: 500px)'
 
 function matches(query) {
   return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches

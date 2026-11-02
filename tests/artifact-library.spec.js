@@ -1,4 +1,5 @@
 const { test, expect } = require('@playwright/test')
+const { readFile } = require('node:fs/promises')
 
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const categories = [
@@ -7,7 +8,7 @@ const categories = [
   ['plans', 'Plans'], ['uncategorized', 'Uncategorized'],
 ].map(([id, label]) => ({ id, label }))
 const fixtures = [
-  { id: 'research', title: 'Nutrition research', body: 'Sources and evidence\nDetailed findings.', category: 'research', artifact_status: 'draft', agent_id: 'research_agent', format: 'md', created_at: '2026-10-05T12:00:00', docx_filename: 'nutrition.docx', origin: { page: 'agent', trace_id: 'run-one' } },
+  { id: 'research', title: 'Nutrition research', body: 'Sources and evidence\nDetailed findings.', snapshot: { summary: 'Complete saved result.', sources: [{ url: 'https://example.test/source' }] }, category: 'research', artifact_status: 'draft', agent_id: 'research_agent', format: 'md', created_at: '2026-10-05T12:00:00', docx_filename: 'nutrition.docx', origin: { page: 'agent', trace_id: 'run-one' } },
   { id: 'code', title: 'Parser patch', body: 'A proposal, not applied.', category: 'code', artifact_status: 'failed', agent_id: 'coding_agent', created_at: '2026-10-02T12:00:00',
     origin: { task_id: 'task-parser', trace_id: 'trace-parser' }, lineage: { repo: 'alice/parser', branch: 'feature', base_sha: 'a'.repeat(40) },
     revision: 2, revisions: [{ revision: 1, title: 'Original patch', body: 'Earlier patch proposal.' }],
@@ -31,7 +32,8 @@ async function mountLibrary(page, { loadFailure = false, deleteFailure = false, 
     if (path.endsWith('/run')) {
       return route.fulfill({ status: runFailure ? 404 : 200, contentType: 'application/json', body: JSON.stringify(runFailure
         ? { error: 'Recorded run is unavailable for your account.' }
-        : { status: 'ok', task: { id: 'task-parser', status: 'failed', details: { trace_id: 'trace-parser' } }, saved_history: null, notice: 'Recorded state only. Run success does not verify code safety.' }) })
+        : path.includes('/research/') ? { status: 'ok', task: null, saved_history: null, snapshot: fixtures[0].snapshot }
+          : { status: 'ok', task: { id: 'task-parser', status: 'failed', details: { trace_id: 'trace-parser' } }, saved_history: null, notice: 'Recorded state only. Run success does not verify code safety.' }) })
     }
     if (path.startsWith('/api/download-docx/')) {
       return route.fulfill({ status: docxFailure ? 404 : 200, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', body: Buffer.from(docxFailure ? 'Expired' : 'test-only-document') })
@@ -77,6 +79,19 @@ async function mountLibrary(page, { loadFailure = false, deleteFailure = false, 
   await expect(page.getByRole('button', { name: 'Refresh library' })).toBeEnabled()
   return { requests, errors }
 }
+
+test('snapshot-only results reopen and export the original complete JSON without execution', async ({ page }) => {
+  const { requests, errors } = await mountLibrary(page)
+  const report = page.getByRole('article').filter({ hasText: 'Nutrition research' })
+  await report.getByRole('button', { name: 'View recorded run', exact: true }).click()
+  await expect(report.getByRole('region', { name: 'Recorded run' })).toContainText('Complete saved result.')
+  const downloadPromise = page.waitForEvent('download')
+  await report.getByRole('button', { name: 'Export complete JSON', exact: true }).click()
+  const download = await downloadPromise
+  expect(JSON.parse(await readFile(await download.path(), 'utf8'))).toEqual(fixtures[0].snapshot)
+  expect(requests.every(request => request.method === 'GET')).toBe(true)
+  expect(errors).toEqual([])
+})
 
 test('categories, combined filters and legacy status organize real saved items', async ({ page }) => {
   const { errors } = await mountLibrary(page)

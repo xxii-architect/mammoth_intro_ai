@@ -129,12 +129,12 @@ export function TutorJourneyRail({ currentStage = 'start', progress = 0.25, onSt
  * OutcomesCard — Shows learning progress, mastery trend, and retention
  */
 export function OutcomesCard({
-  masteryTrend = 0.65, // 0–1 scale
-  timeToCompetency = 45, // minutes
-  retentionSignal = 0.78, // 0–1
-  lessonsCompleted = 3,
-  totalLessons = 10,
-  nextMilestone = 'Reach 80% mastery on Recursion',
+  masteryTrend = 0,
+  timeToCompetency = null,
+  retentionSignal = null,
+  lessonsCompleted = 0,
+  totalLessons = 0,
+  nextMilestone = '',
 }) {
   const masteryColor = masteryTrend >= 0.75 ? 'var(--mm-color-system-default)' : masteryTrend >= 0.6 ? 'var(--gold)' : '#ff9500'
 
@@ -162,7 +162,7 @@ export function OutcomesCard({
             fontSize: '0.8rem',
           }}
         >
-          <span style={{ fontWeight: 500 }}>Mastery</span>
+          <span style={{ fontWeight: 500 }}>Mastery signal</span>
           <span style={{ color: masteryColor, fontWeight: 600 }}>
             {(masteryTrend * 100).toFixed(0)}%
           </span>
@@ -188,7 +188,7 @@ export function OutcomesCard({
       </div>
 
       {/* Retention signal */}
-      <div style={{ marginBottom: 14 }}>
+      {Number.isFinite(retentionSignal) && <div style={{ marginBottom: 14 }}>
         <div
           style={{
             display: 'flex',
@@ -220,11 +220,11 @@ export function OutcomesCard({
             }}
           />
         </div>
-      </div>
+      </div>}
 
       {/* Quick stats */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-        <div
+        {Number.isFinite(timeToCompetency) && <div
           style={{
             padding: '8px 12px',
             background: 'rgba(77,166,255,0.08)',
@@ -234,7 +234,7 @@ export function OutcomesCard({
         >
           <div style={{ color: 'var(--txt-mut)', marginBottom: 2 }}>Time to competency</div>
           <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)' }}>{timeToCompetency} min</div>
-        </div>
+        </div>}
         <div
           style={{
             padding: '8px 12px',
@@ -249,6 +249,7 @@ export function OutcomesCard({
           </div>
         </div>
       </div>
+      <p style={{ fontSize: '0.75rem', color: 'var(--txt-mut)' }}>Practice signals are not certification. Retention and time to competency are not estimated from lesson counts.</p>
 
       {/* Next milestone */}
       <div

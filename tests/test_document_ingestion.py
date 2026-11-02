@@ -80,6 +80,47 @@ def test_late_compressed_pdf_page_is_retrieved_and_located(library, tmp_path):
     assert library.sections(entry, "page 120")[0]["location"] == "page 120"
 
 
+def test_document_tools_search_late_content_and_read_sequential_chunks(library, monkeypatch):
+    from mammoth_os.agent_loop.tools import ToolContext
+    result = upload(library, (("Routine background.\n" * 800) + "Zebrafish cardiac regeneration is in the closing section.\n").encode(), scope="chat")
+    monkeypatch.setattr(api_server, "_document_library", lambda user_id: library if user_id == "alice" else DocumentLibrary(
+        library.folder.parent / "bob-documents", {"chat": library.folder.parent / "bob-chat", "atlas": library.folder.parent / "bob-atlas"}))
+    ctx = ToolContext(user_id="alice")
+    args = {"file_id": result["file_id"], "scope": "chat", "query": "zebrafish cardiac"}
+    matches = asyncio.run(api_server._agent_document_search(args, ctx))
+    assert "Zebrafish" in matches["sections"][0]["text"]
+    assert matches["sections"][0]["chunk_index"] > 0
+    offset = matches["sections"][0]["chunk_index"]
+    read = asyncio.run(api_server._agent_document_read({**{k: v for k, v in args.items() if k != "query"}, "start": offset, "count": 1}, ctx))
+    assert read["sections"][0]["chunk_index"] == offset
+    assert read["total_chunks"] > offset
+    seen = []
+    start = 0
+    entry = library.list("chat")[0]
+    while True:
+        page = library.read_sections(entry, start=start, count=3)
+        seen.extend(row["chunk_index"] for row in page["sections"])
+        if page["next_start"] is None:
+            break
+        start = page["next_start"]
+    assert seen == list(range(page["total_chunks"]))
+    with pytest.raises(DocumentError, match="not found"):
+        asyncio.run(api_server._agent_document_search(args, ToolContext(user_id="bob")))
+    files = asyncio.run(api_server._agent_document_list({}, ctx))["files"]
+    assert len(files) == 1 and "path" not in files[0] and "chunks_path" not in files[0]
+    registry, _ = api_server._build_agent_tool_registry()
+    names = {tool["name"] for tool in registry.catalog(ctx)}
+    assert {"document_list", "document_search", "document_read"} <= names
+
+
+def test_overview_samples_end_of_document_and_warns_it_is_not_full_review():
+    chunks = [{"location": f"page {index + 1}", "text": f"Section {index + 1}."} for index in range(100)]
+    selected = retrieve_sections(chunks, "overview", limit=4)
+    assert selected[-1]["location"] == "page 100"
+    assert selected[0]["retrieval"] == "distributed_sample"
+    assert len(selected) == 4
+
+
 def test_real_docx_pptx_and_xlsx_readers(library, tmp_path):
     from docx import Document
     from openpyxl import Workbook
@@ -233,8 +274,8 @@ def test_delete_and_retag_are_persistent_and_scope_checked(library):
     assert not list(library.folder.glob("*.chunks.json"))
 
 
-def test_retrieval_reports_opening_fallback_not_semantic_certainty():
-    assert retrieve_sections([{"location": "page 1", "text": "Some unrelated text"}], "zebrafish")[0]["retrieval"] == "opening_sections"
+def test_retrieval_reports_sample_fallback_not_semantic_certainty():
+    assert retrieve_sections([{"location": "page 1", "text": "Some unrelated text"}], "zebrafish")[0]["retrieval"] == "distributed_sample"
 
 
 def test_multipart_request_limit_covers_declared_and_chunked_bodies(monkeypatch):

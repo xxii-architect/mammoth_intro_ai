@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const agentIds = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
-async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null } = {}) {
+async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null } = {}) {
   const requests = []
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -31,6 +31,8 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     requests.push({ path, body, headers: route.request().headers() })
     let result = {}
     if (path === '/api/atlas/status') result = snapshot()
+    if (path === '/api/atlas/library') result = { modules: [], totals: { persisted_lessons: 0, lessons: 0 } }
+    if (path === '/api/atlas/modules') result = { modules: [] }
     if (path === '/api/atlas/onboard') {
       onboarding = { ...body, goals: body.goals.split(',').filter(Boolean), focus_areas: body.focus_areas.split(',').filter(Boolean), completed_at: '2026-10-05' }
       result = { status: 'ok', learner_model: { onboarding } }
@@ -53,6 +55,7 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     }
     if (path === '/api/atlas/submit') result = { result: { passed: false, hint: 'Include a primary source.' } }
     if (path === '/api/atlas/lesson') {
+      if (lessonFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Lesson generation unavailable' }) })
       lessonId = 'lesson-2'
       result = { status: 'ok', exercise: snapshot().current_exercise }
     }
@@ -101,6 +104,17 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
   return { requests, errors }
 }
 
+test('a failed lesson start preserves the active exercise draft', async ({ page }) => {
+  const { errors } = await mountWorkspace(page, { lessonFailure: true })
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('Keep this unfinished exercise.')
+  await page.getByPlaceholder('e.g. Python for loops').fill('Compare sources')
+  await page.getByRole('button', { name: 'Start Lesson', exact: true }).click()
+  await expect(page.getByText(/Lesson action failed:.*Lesson generation unavailable/)).toBeVisible()
+  await expect(response).toHaveValue('Keep this unfinished exercise.')
+  expect(errors).toEqual([])
+})
+
 test('lesson drafts survive tabs; research stays scoped and receives lesson context', async ({ page }) => {
   const { requests, errors } = await mountWorkspace(page)
   const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
@@ -137,7 +151,7 @@ test('mobile switches primary panes without horizontal overflow and isolates acc
   const { errors } = await mountWorkspace(page)
   const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
   await response.fill('Private learner draft')
-  await page.getByRole('button', { name: 'Consult tutor', exact: true }).click()
+  await page.getByRole('button', { name: 'ATLAS Tutor', exact: true }).click()
   await expect(page.getByRole('region', { name: 'Lesson and practice' })).toBeHidden()
   await expect(page.getByRole('region', { name: 'ATLAS tutor conversation' })).toBeVisible()
   await page.getByRole('button', { name: 'Learning agents', exact: true }).click()
@@ -317,6 +331,7 @@ test('portrait onboarding can be deferred without covering the learning-agent co
   await page.setViewportSize({ width: 390, height: 844 })
   const { errors } = await mountWorkspace(page, { profileComplete: false })
   const profile = page.getByRole('region', { name: 'Learning profile' })
+  await profile.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
   await profile.getByRole('button', { name: 'Not now', exact: true }).click()
   await page.getByRole('button', { name: 'Learning agents', exact: true }).click()
   const composer = page.getByRole('region', { name: 'Education agents' }).locator('textarea').last()
@@ -344,10 +359,89 @@ test('lesson reader gives plain headings, paragraphs, lists and code a readable 
   await expect(lesson.locator('.lesson-reader ol > li')).toHaveCount(2)
   await expect(lesson.locator('.lesson-reader pre code')).toHaveText('Introduction\nprint("A code example, not a section heading")\n')
   const navigation = lesson.getByRole('navigation', { name: 'Lesson sections' })
+  await lesson.locator('.lesson-reader-outline > summary').click()
   await expect(navigation.getByRole('button')).toHaveCount(5)
   await navigation.getByRole('button', { name: 'Guided practice', exact: true }).click()
   await expect(lesson.locator('.lesson-reader-section[aria-label="Guided practice"]')).toBeFocused()
   await expect(lesson.locator('.lesson-reader p', { hasText: 'A second paragraph stays separate.' })).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 430, height: 932 }]) {
+  test(`mobile lesson prioritizes content and keeps controls reachable at ${viewport.width}px`, async ({ page }, testInfo) => {
+    await page.setViewportSize(viewport)
+    const { requests, errors } = await mountWorkspace(page, { lessonContent: readableLesson, profileComplete: false })
+    // Reserve room for the app's separate navigation header.
+    await page.locator('#test-root').evaluate(element => { element.style.height = 'calc(100dvh - 64px)' })
+    const readingArea = page.getByLabel('Lesson reading area', { exact: true })
+    await expect(readingArea).toBeVisible()
+    const bounds = await readingArea.boundingBox()
+    expect(bounds.height).toBeGreaterThan((viewport.height - 64) * 0.55)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height - 64 + 1)
+    await expect(page.getByRole('heading', { name: 'Reliable research', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Save learning profile', exact: true })).toBeHidden()
+    await expect(page.locator('.atlas-lesson-sidebar')).toBeHidden()
+    for (const button of await page.getByRole('navigation', { name: 'ATLAS workspace' }).getByRole('button').all()) {
+      await expect(button).toHaveCSS('min-height', '44px')
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    await page.screenshot({ path: testInfo.outputPath(`atlas-lesson-${viewport.width}.png`) })
+    await page.getByRole('button', { name: 'Modules', exact: true }).click()
+    await expect(readingArea).toBeHidden()
+    await expect(page.getByPlaceholder('e.g. Python for loops')).toBeVisible()
+    await page.getByRole('button', { name: 'Back to lesson', exact: true }).click()
+    await expect(readingArea).toBeVisible()
+    await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Save learning profile', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Not now', exact: true }).click()
+    expect(requests.some(request => ['/api/run', '/api/atlas/lesson', '/api/atlas/onboard'].includes(request.path))).toBe(false)
+    expect(errors).toEqual([])
+  })
+}
+
+test('reading controls, real progress and mobile modules preserve the exercise draft', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page, { lessonContent: readableLesson })
+  const readingArea = page.getByLabel('Lesson reading area', { exact: true })
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('Keep this response while changing layout.')
+  await page.getByRole('button', { name: 'Read', exact: true }).click()
+  await page.getByRole('button', { name: 'Reading options', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Text size', exact: true }).selectOption('large')
+  await page.getByRole('checkbox', { name: 'More line spacing', exact: true }).check()
+  await expect(page.locator('.atlas-lessons-page .lesson-reader-body').first()).toHaveCSS('font-size', '20px')
+  await expect(page.locator('.atlas-lessons-page .lesson-reader-body').first()).toHaveCSS('line-height', '42px')
+  await page.getByRole('button', { name: 'Focus reading', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Learning profile' })).toBeHidden()
+  await expect(page.locator('.atlas-lesson-sidebar')).toBeHidden()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Modules', exact: true }).click()
+  await expect(readingArea).toBeHidden()
+  await page.getByRole('button', { name: 'Back to lesson', exact: true }).click()
+  await page.getByRole('button', { name: 'Practice', exact: true }).click()
+  await expect(page.getByLabel('Practice exercise', { exact: true })).toBeFocused()
+  await expect(response).toHaveValue('Keep this response while changing layout.')
+  await page.getByRole('button', { name: 'Read', exact: true }).click()
+  await page.getByText('Learning progress & lesson flow', { exact: true }).click()
+  await expect(page.getByText('Retention (spaced recall)', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Time to competency', { exact: true })).toHaveCount(0)
+  expect(requests.some(request => ['/api/atlas/lesson', '/api/atlas/submit', '/api/atlas/next', '/api/run'].includes(request.path))).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('landscape phones keep a compact single-pane workspace and a usable focused reader', async ({ page }) => {
+  await page.setViewportSize({ width: 844, height: 390 })
+  const { errors } = await mountWorkspace(page, { lessonContent: readableLesson })
+  await page.locator('#test-root').evaluate(element => { element.style.height = 'calc(100dvh - 64px)' })
+  await expect(page.locator('.atlas-lesson-sidebar')).toBeHidden()
+  await page.getByRole('button', { name: 'Reading options', exact: true }).click()
+  await page.getByRole('button', { name: 'Focus reading', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Learning profile' })).toBeHidden()
+  const bounds = await page.getByLabel('Lesson reading area', { exact: true }).boundingBox()
+  expect(bounds.height).toBeGreaterThan((390 - 64) * 0.55)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByRole('button', { name: 'ATLAS Tutor', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Lesson and practice' })).toBeHidden()
+  await expect(page.getByRole('region', { name: 'ATLAS tutor conversation' })).toBeVisible()
   expect(errors).toEqual([])
 })
 
