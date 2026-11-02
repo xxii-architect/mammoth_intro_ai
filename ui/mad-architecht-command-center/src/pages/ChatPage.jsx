@@ -1420,7 +1420,7 @@ export default function ChatPage({ setPage }) {
               </button>
               <button
                 onClick={() => createThread()}
-                title="New Chat — clear history and start fresh"
+                title="New Chat — start a fresh thread (saved chats stay in history)"
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-system-rgb),0.35)', background: 'var(--mm-color-system-soft)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
               >
                 <Plus size={13} /> New Chat
