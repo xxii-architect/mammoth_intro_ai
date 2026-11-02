@@ -366,6 +366,80 @@ test('Mind approval evidence that stalls times out visibly and recovers on retry
   expect(errors).toEqual([])
 })
 
+test('Mind apply approval that already expired says so plainly and offers no retry', async ({ page }) => {
+  const application = { status: 'ready', branch: `mammoth/owner/${ownerJob.id}`, approval_digest: 'c'.repeat(64), expires_at: 1000000000 }
+  const errors = await mount(page, 'components/RunTimeline', {
+    [`/api/owner-executions/${ownerJob.id}`]: { status: 'ok', execution: { ...ownerJob, status: 'validated', application, candidate: { passed: true, log: 'built' } } },
+  }, { runOverride: { id: 'run-test', status: 'awaiting_approval', events: [], plan: [], approval: {
+    id: 'apr-owner', tool: 'owner_execution_apply', tier: 'exec',
+    args: { execution_id: ownerJob.id, approval_digest: application.approval_digest },
+  } } })
+  await expect(page.getByRole('alert')).toContainText('This approval expired at')
+  await expect(page.getByRole('alert')).toContainText('Nothing was approved or applied. Reject this request, then start a new run')
+  await expect(page.getByRole('button', { name: 'Approve changes to new branch' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Retry loading evidence' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Reject', exact: true })).toBeEnabled()
+  expect(errors).toEqual([])
+})
+
+test('Mind apply approval shows its window and disables Approve when the window closes', async ({ page }) => {
+  await page.clock.install({ time: new Date('2026-11-02T05:00:00Z') })
+  const expiresAt = Date.parse('2026-11-02T05:01:00Z') / 1000
+  const application = { status: 'ready', branch: `mammoth/owner/${ownerJob.id}`, approval_digest: 'c'.repeat(64), expires_at: expiresAt }
+  const errors = await mount(page, 'components/RunTimeline', {
+    [`/api/owner-executions/${ownerJob.id}`]: { status: 'ok', execution: { ...ownerJob, status: 'validated', application, candidate: { passed: true, log: 'built' } } },
+  }, { runOverride: { id: 'run-test', status: 'awaiting_approval', events: [], plan: [], approval: {
+    id: 'apr-owner', tool: 'owner_execution_apply', tier: 'exec',
+    args: { execution_id: ownerJob.id, approval_digest: application.approval_digest },
+  } } })
+  const approve = page.getByRole('button', { name: 'Approve changes to new branch' })
+  await expect(page.getByText(/Approval window closes at/)).toBeVisible()
+  await expect(approve).toBeEnabled()
+  await page.clock.runFor(61000)
+  await expect(page.getByRole('alert')).toContainText('This approval expired at')
+  await expect(approve).toBeDisabled()
+  expect(await page.evaluate(() => globalThis.ownerApprovalClicks || 0)).toBe(0)
+  expect(errors).toEqual([])
+})
+
+test('Agents page drops the right rail and keeps approvals, rollback and history in header panels', async ({ page }) => {
+  const calls = {}
+  const count = (path, body) => () => { calls[path] = (calls[path] || 0) + 1; return body }
+  let approvedPath = ''
+  const errors = await mount(page, 'pages/AgentPage', {
+    '/api/agents': count('/api/agents', []),
+    '/api/activity': count('/api/activity', []),
+    '/api/tasks': [],
+    '/api/approvals': count('/api/approvals', [{ id: 'ap-1', status: 'pending', operation: 'write_file', target: 'app.py' }]),
+    '/api/snapshots': count('/api/snapshots', [{ id: 'snap-1', operation: 'write_file', file_path: 'app.py', existed_before: true, created_at: '2026-11-02T05:00:00Z' }]),
+    '/api/autonomous/runs': { runs: [] },
+    '/api/workspace/run-history': { entries: [{ id: 'h1', prompt: 'Summarize the build log', agent_id: 'research_agent', created_at: '2026-11-02T05:00:00Z' }] },
+    '/api/approvals/ap-1/approve': request => { approvedPath = new URL(request.url()).pathname; return { status: 'ok' } },
+  })
+  await expect(page.getByRole('heading', { name: /Agents/ })).toBeVisible()
+  await expect(page.getByText('Reasoning Trace')).toHaveCount(0)
+  await expect(page.getByText('Pending Approvals')).toHaveCount(0)
+  const changes = page.getByRole('button', { name: 'Changes, 1 pending approval' })
+  await expect(changes).toBeVisible()
+  await changes.click()
+  const panel = page.getByRole('dialog', { name: 'Changes' })
+  await expect(panel).toContainText('Pending Approvals')
+  await expect(panel).toContainText('Rollback Snapshots')
+  await expect(panel.getByRole('button', { name: 'Restore' })).toBeVisible()
+  await panel.getByRole('button', { name: 'Approve' }).click()
+  await expect.poll(() => approvedPath).toBe('/api/approvals/ap-1/approve')
+  await page.keyboard.press('Escape')
+  await expect(panel).toHaveCount(0)
+  await page.getByRole('button', { name: 'History & memory' }).click()
+  await expect(page.getByRole('dialog', { name: 'History and memory' })).toContainText('Summarize the build log')
+  await page.getByRole('button', { name: 'Close panel' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  const snapshotCalls = calls['/api/snapshots'] || 0
+  await page.waitForTimeout(3000)
+  expect(calls['/api/snapshots'] || 0).toBe(snapshotCalls)
+  expect(errors).toEqual([])
+})
+
 test('startup import failure displays recovery instead of a black screen', async ({ page }) => {
   await page.route('**/src/App*', route => route.abort())
   await page.goto(baseURL)

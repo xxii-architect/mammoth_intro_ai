@@ -231,7 +231,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
   } else if (message.status === 'pending_approval') {
     body = (
       <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
-        Prepared a change that needs your approval. Review it under <strong style={{ color: 'var(--txt-pri)' }}>Pending Approvals</strong>.
+        Prepared a change that needs your approval. Review it under <strong style={{ color: 'var(--txt-pri)' }}>Changes</strong> at the top of the Agents page.
       </p>
     )
   } else if (showRaw) {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Bot, Play, Info, ChevronRight, Brain, CheckCircle, AlertTriangle, XCircle, Loader, SlidersHorizontal } from 'lucide-react'
+import { Bot, Play, Info, ChevronRight, Brain, CheckCircle, AlertTriangle, XCircle, Loader, SlidersHorizontal, ShieldCheck, History, X } from 'lucide-react'
 import { api } from '../api/client'
 import RunHistoryPanel from '../components/RunHistoryPanel'
 import AutonomousRunPanel from '../components/AutonomousRunPanel'
@@ -189,6 +189,8 @@ export default function AgentPage({ setPage }) {
   const [lastRunMode, setLastRunMode] = useState('single')
   const [classicConsole, setClassicConsole] = useState(() => safeStorageGet('mammoth_agent_classic') === '1')
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  // Workspace layout replaces the old right rail with on-demand slide-overs: 'changes' | 'history' | null.
+  const [sidePanel, setSidePanel] = useState(null)
   const isMobile = useIsMobile()
   const [replayRequest, setReplayRequest] = useState(null)
 
@@ -281,15 +283,26 @@ export default function AgentPage({ setPage }) {
     refreshSnapshots()
     refreshAutonomousRuns()
     refreshRunHistory()
+    // Full panel data refreshes quickly only while it is on screen; otherwise keep the agent
+    // statuses and the Changes badge current at a lighter rate.
+    const panelVisible = classicConsole || Boolean(sidePanel)
     const t = setInterval(() => {
       refreshAgents()
-      refreshTimeline()
       refreshApprovals()
+      if (!panelVisible) return
+      refreshTimeline()
       refreshSnapshots()
       refreshAutonomousRuns()
-    }, 2200)
+    }, panelVisible ? 2200 : 10000)
     return () => clearInterval(t)
-  }, [selectedAgent, intent, agentPinned])
+  }, [selectedAgent, intent, agentPinned, classicConsole, sidePanel])
+
+  useEffect(() => {
+    if (!sidePanel) return
+    const onKey = (event) => { if (event.key === 'Escape') setSidePanel(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [sidePanel])
 
   const chooseIntent = (i) => {
     setIntent(i)
@@ -690,11 +703,71 @@ export default function AgentPage({ setPage }) {
     })
   }
 
+  const pendingApprovals = approvals.filter(a => a.status === 'pending')
+  const sectionLabel = { fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }
+
+  const approvalsSection = (
+    <div style={{ marginTop: 16 }}>
+      <p style={sectionLabel}>Pending Approvals</p>
+      {pendingApprovals.length ? pendingApprovals.map(approval => (
+        <div key={approval.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+            <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{approval.operation}</span>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <button onClick={() => approveApproval(approval.id)} style={{ background: 'var(--mm-color-action-primary)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Approve</button>
+              <button onClick={() => deleteApproval(approval.id)} style={{ background: 'rgba(248,113,113,0.10)', color: '#fecaca', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Delete</button>
+            </div>
+          </div>
+          <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
+        </div>
+      )) : <MammothEmpty context="approvals" compact />}
+    </div>
+  )
+
+  const snapshotsSection = (
+    <div style={{ marginTop: 16 }}>
+      <p style={sectionLabel}>Rollback Snapshots</p>
+      {snapshots.length ? snapshots.slice().reverse().slice(0, 8).map(snapshot => (
+        <div key={snapshot.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
+            <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{snapshot.operation}</span>
+            <button onClick={() => restoreSnapshot(snapshot.id)} style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Restore</button>
+          </div>
+          <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{snapshot.file_path}</div>
+          <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
+            {snapshot.existed_before ? 'Previous file captured' : 'New file snapshot'} • {new Date(snapshot.created_at).toLocaleTimeString()}
+          </div>
+        </div>
+      )) : <MammothEmpty context="snapshots" compact />}
+    </div>
+  )
+
+  const headerButton = (active) => ({
+    display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 400,
+    color: active ? 'var(--mm-color-agent-default, #d08a52)' : 'var(--txt-sec)', background: 'transparent',
+    border: `1px solid ${active ? 'var(--mm-color-agent-default, #d08a52)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 11px', cursor: 'pointer',
+  })
+
   return (
     <div className="page-enter" style={{ padding: isMobile ? '12px 10px' : 24 }}>
       <h1 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
         <Bot size={20} color="var(--mm-color-agent-default, #d08a52)" /> Agents
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {!classicConsole && (
+            <>
+              <button onClick={() => setSidePanel(panel => panel === 'changes' ? null : 'changes')} aria-expanded={sidePanel === 'changes'}
+                aria-label={pendingApprovals.length ? `Changes, ${pendingApprovals.length} pending approval${pendingApprovals.length === 1 ? '' : 's'}` : 'Changes'}
+                style={headerButton(sidePanel === 'changes' || pendingApprovals.length > 0)}>
+                <ShieldCheck size={13} /> Changes
+                {pendingApprovals.length > 0 && (
+                  <span aria-hidden="true" style={{ minWidth: 18, padding: '0 5px', borderRadius: 999, background: 'var(--mm-color-agent-default, #d08a52)', color: '#050608', fontSize: '0.66rem', fontWeight: 700, lineHeight: '18px', textAlign: 'center' }}>{pendingApprovals.length}</span>
+                )}
+              </button>
+              <button onClick={() => setSidePanel(panel => panel === 'history' ? null : 'history')} aria-expanded={sidePanel === 'history'} style={headerButton(sidePanel === 'history')}>
+                <History size={13} /> History &amp; memory
+              </button>
+            </>
+          )}
           <button onClick={() => setAdvancedOpen(open => !open)} aria-expanded={advancedOpen}
             style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', fontWeight: 400, color: advancedOpen ? 'var(--mm-color-agent-default, #d08a52)' : 'var(--txt-sec)', background: 'transparent', border: `1px solid ${advancedOpen ? 'var(--mm-color-agent-default, #d08a52)' : 'var(--border)'}`, borderRadius: 8, padding: '5px 11px', cursor: 'pointer' }}>
             <SlidersHorizontal size={13} /> Advanced
@@ -913,6 +986,7 @@ export default function AgentPage({ setPage }) {
         </div>
         )}
 
+        {classicConsole && (
         <div style={isMobile ? { flex: '1 1 100%', minWidth: 0 } : { width: 300, flexShrink: 0 }}>
           <div className="glass-card-solid" style={{ padding: 16 }}>
             <button onClick={() => setTraceOpen(o => !o)} style={{ background: 'none', border: 'none', cursor: 'pointer', width: '100%', padding: 0, marginBottom: traceOpen ? 12 : 0 }}>
@@ -1103,37 +1177,9 @@ export default function AgentPage({ setPage }) {
               )) : <MammothEmpty context="tasks" compact />}
             </div>
 
-            <div style={{ marginTop: 16 }}>
-              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Pending Approvals</p>
-              {approvals.filter(a => a.status === 'pending').length ? approvals.filter(a => a.status === 'pending').map(approval => (
-                <div key={approval.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{approval.operation}</span>
-                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                     <button onClick={() => approveApproval(approval.id)} style={{ background: 'var(--mm-color-action-primary)', color: '#050608', border: 'none', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Approve</button>
-                     <button onClick={() => deleteApproval(approval.id)} style={{ background: 'rgba(248,113,113,0.10)', color: '#fecaca', border: '1px solid rgba(248,113,113,0.25)', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Delete</button>
-                   </div>
-                 </div>
-                 <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
-               </div>
-              )) : <MammothEmpty context="approvals" compact />}
-            </div>
+            {approvalsSection}
 
-            <div style={{ marginTop: 16 }}>
-              <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Rollback Snapshots</p>
-              {snapshots.length ? snapshots.slice().reverse().slice(0, 8).map(snapshot => (
-                <div key={snapshot.id} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-                    <span style={{ color: 'var(--txt-pri)', fontSize: '0.74rem' }}>{snapshot.operation}</span>
-                    <button onClick={() => restoreSnapshot(snapshot.id)} style={{ background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', border: '1px solid var(--border)', borderRadius: 6, padding: '4px 8px', fontSize: '0.68rem', cursor: 'pointer' }}>Restore</button>
-                  </div>
-                  <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{snapshot.file_path}</div>
-                  <div style={{ color: 'var(--txt-mut)', fontSize: '0.66rem', marginTop: 4 }}>
-                    {snapshot.existed_before ? 'Previous file captured' : 'New file snapshot'} • {new Date(snapshot.created_at).toLocaleTimeString()}
-                  </div>
-                </div>
-              )) : <MammothEmpty context="snapshots" compact />}
-            </div>
+            {snapshotsSection}
 
             <div style={{ marginTop: 16 }}>
               <p style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }}>Live Activity</p>
@@ -1146,7 +1192,39 @@ export default function AgentPage({ setPage }) {
             </div>
           </div>
         </div>
+        )}
       </div>
+        {!classicConsole && sidePanel && (
+          <>
+            <div aria-hidden="true" onClick={() => setSidePanel(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 60 }} />
+            <aside role="dialog" aria-modal="true" aria-label={sidePanel === 'changes' ? 'Changes' : 'History and memory'}
+              style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: isMobile ? '100vw' : 'min(400px, 92vw)', zIndex: 61, overflowY: 'auto', padding: 16, background: 'var(--mm-color-surface-raised, #0d1117)', borderLeft: '1px solid var(--border)', boxShadow: '-24px 0 60px rgba(0,0,0,0.38)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <h2 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {sidePanel === 'changes' ? <><ShieldCheck size={15} /> Changes</> : <><History size={15} /> History &amp; memory</>}
+                </h2>
+                <button onClick={() => setSidePanel(null)} aria-label="Close panel" style={{ background: 'none', border: 'none', color: 'var(--txt-sec)', cursor: 'pointer', padding: 4 }}><X size={16} /></button>
+              </div>
+              {sidePanel === 'changes' ? (
+                <>
+                  <p style={{ margin: '8px 0 0', fontSize: '0.74rem', color: 'var(--txt-sec)', lineHeight: 1.5 }}>
+                    File changes prepared with "Preview file changes before applying" wait here. Restore a snapshot to undo an applied change. Run approvals stay on the run card in the chat.
+                  </p>
+                  {approvalsSection}
+                  {snapshotsSection}
+                </>
+              ) : (
+                <>
+                  <RunHistoryPanel entries={runHistory} onReplay={(entry) => { setSidePanel(null); replayHistoryEntry(entry) }} onClear={clearRunHistory} />
+                  <AutonomousRunPanel summary={autonomousRuns.summary} runs={autonomousRuns.runs} onReplayRun={(run) => { setSidePanel(null); replayAutonomousRun(run) }} />
+                  <div style={{ marginTop: 16 }}>
+                    <WorkspaceMemoryPanel />
+                  </div>
+                </>
+              )}
+            </aside>
+          </>
+        )}
         {showCommandLibrary && <AgentCommandLibrary onClose={() => setShowCommandLibrary(false)} />}
       </div>
   )

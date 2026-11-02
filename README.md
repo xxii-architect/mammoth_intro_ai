@@ -586,6 +586,10 @@ No repository selected means no repository context.
   The approval card loads the full recorded patch and test evidence; unavailable
   evidence disables approval. Evidence that does not load within 20 seconds
   shows a **Retry loading evidence** action; nothing is approved meanwhile.
+  Loaded evidence shows when the approval window closes. When it closes (or
+  the evidence arrives after it closed), the card says the approval expired,
+  disables Approve, offers no retry and asks you to reject it and start a new
+  run; nothing is approved or applied.
   After you click Approve/Reject, the card shows "Approval sent" and the run
   shows a live activity line derived from recorded events (for example
   "Validating in isolation…" during `owner_execution_run`, or "Considering the
@@ -1061,7 +1065,7 @@ The Agent page opens on a calm workspace instead of a console:
 - **Team run**: describe an objective, preview the plan (`POST /api/plan-execute` with `dry_run: true`), untick steps you don't want, then run the selected `step_ids`. Each step sees earlier results, and a final synthesis step returns one answer (`summary`). Every step expands to show its full output.
 - **Advanced**: creativity (temperature), "Preview file changes before applying", and **Classic console** (the original intent/payload console, unchanged).
 - **Coding with a repository**: the Coding agent's header has a repository picker. It shares Mammoth Mind's selection, and the platform repo is listed only for the owner. With a repository picked, coding requests run through the Mammoth Mind agent loop (`POST /api/mammoth/runs`, `surface: "agent_workspace"`, `task: <intent>`). The agent lists, reads, and searches the real files, shows its run timeline, and returns proposed diffs (user repos also get a local branch + patch). Nothing is applied or pushed. With "Preview file changes" on, every non-read tool waits for Approve/Reject. **Stop** cancels a running request. Patch / Refactor / Review with no repository and no pasted code asks you to pick one instead of guessing.
-- The right-hand panel (runs, approvals, autonomous runs) stays as it was.
+- **Changes** and **History & memory** (Agents page header) replace the old right-hand rail, so the workspace uses the full width. **Changes** shows a count badge when file-change previews are waiting and opens a slide-over with **Pending Approvals** (Approve / Delete) and **Rollback Snapshots** (Restore). **History & memory** holds Run History and Autonomous runs (both with Replay) plus Workspace Memory. Reasoning traces, plan progress and live activity now appear inline on each run, in Run Review and in Task Inbox. Panel data refreshes every 2.2 s only while a panel is open; otherwise agent status and the Changes badge refresh every 10 s. The **Classic console** keeps its original right rail.
 - **Layout**: the workspace card grows with the conversation (the page scrolls, nothing is clipped). On desktop the roster stays pinned on the left and the composer stays docked at the bottom. On phones (under 768px) the roster becomes a swipeable chip bar, the side panels stack below, Enter inserts a new line (tap Send to send), and the app sidebar closes after you pick a page.
 
 Conversation history and earlier step results reach the model through a scoped **background channel** (`mammoth_os.llm_client.conversation_context`), never by rewriting the agent's prompt. Template-based agents (reflection, tutor flows) treat the prompt as a topic, so stuffing transcripts into it would leak them into the output.
@@ -1128,9 +1132,9 @@ Back up `.mammoth/documents/` along with legacy upload folders before deployment
 - In the Agent page (Advanced → Preview file changes before applying, or Preview first in the classic console), keep previews enabled for coding edits.
 - The Agent Console prompt box accepts short one-line prompts, but best results come from: objective + scope + constraints.
 - The Command Center now includes an in-app **Manual** page with terminal examples and prompt patterns for new users.
-- Review changes in **Pending Approvals**.
+- Review changes in **Changes → Pending Approvals** (Agents page header; the Classic console keeps them in its right rail).
 - Approve only what you want applied.
-- If needed, undo with **Rollback Snapshots** (Restore button).
+- If needed, undo with **Changes → Rollback Snapshots** (Restore button).
 - Non-coding state mutations now support preview/approval too:
   - `POST /api/atlas/onboard` with `approval_mode: true`
   - `POST /api/atlas/learner/reset` with `approval_mode: true`
