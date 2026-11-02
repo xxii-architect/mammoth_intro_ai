@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
-import { MessageSquare, Plus, Trash2, Pencil, Check, X } from 'lucide-react'
+import { MessageSquare, Trash2, Pencil, Check, X } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 
 function formatRelativeTime(iso) {
@@ -74,18 +74,6 @@ const ChatThreadSidebar = forwardRef(function ChatThreadSidebar({ activeThreadId
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'rgba(0,0,0,0.18)', borderRight: '1px solid var(--border)' }}>
-      {/* Header */}
-      <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)', fontWeight: 700 }}>Chats</span>
-        <button
-          onClick={onNewThread}
-          title="New chat"
-          style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(var(--mm-color-agent-rgb),0.35)', background: 'rgba(var(--mm-color-agent-rgb),0.12)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 600 }}
-        >
-          <Plus size={12} /> New
-        </button>
-      </div>
-
       {/* Thread list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px 6px' }}>
         {loading && (

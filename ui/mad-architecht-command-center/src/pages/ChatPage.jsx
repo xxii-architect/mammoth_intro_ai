@@ -1358,10 +1358,6 @@ export default function ChatPage({ setPage }) {
                 <h1 style={{ fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
                   <Bot size={18} color="var(--photon)" /> MammothOS Chat
                 </h1>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
-                  <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Current lane</span>
-                  <span style={{ fontSize: '0.85rem', color: selectedAgent.accent, fontWeight: 700 }}>{selectedAgent.label}</span>
-                </div>
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -1423,7 +1419,7 @@ export default function ChatPage({ setPage }) {
                 <Workflow size={13} /> {agentMode ? 'Agent' : 'Classic'}
               </button>
               <button
-                onClick={clearLocalView}
+                onClick={() => createThread()}
                 title="New Chat — clear history and start fresh"
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-system-rgb),0.35)', background: 'var(--mm-color-system-soft)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
               >
