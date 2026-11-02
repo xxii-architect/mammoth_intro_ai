@@ -15,6 +15,21 @@ const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
+test('recursive options, stages, usage and snapshot recovery retain the existing contract', async () => {
+  const recursive = { contract: 'mammoth.recursive.v1', stage: 'critic', iteration: 0,
+    limits: { max_iterations: 2 }, usage: { tokens: 300 } }
+  const { impl, calls } = fakeFetch({ 'POST /api/mammoth/runs': { sse: [
+    ev(1, 'recursive.updated', recursive), ev(2, 'run.completed', { reply: 'Reviewed.', recursive }),
+  ] } })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  const result = await client.run('Compare options', { recursive: { max_iterations: 1 } })
+  assert.deepEqual(calls[0].body.recursive, { max_iterations: 1 })
+  assert.deepEqual(result.state.recursive, recursive)
+  const snapshot = { id: RUN_ID, status: 'completed', events: result.state.events, recursive }
+  assert.deepEqual(hydrateRun(snapshot).recursive, recursive)
+  await assert.rejects(client.run('Compare', { recursive: 'unlimited' }), TypeError)
+})
+
 test('approval terminal releases a held-open transport so the next approval can be submitted', async () => {
   let cancelled = false
   const approval = ev(1, 'approval.requested', { id: 'apr-held', tool: 'owner_execution_prepare' })

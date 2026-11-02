@@ -581,6 +581,7 @@ export default function ChatPage({ setPage }) {
   const [attachedFiles, setAttachedFiles] = useState([])
   const [successToast, setSuccessToast] = useState(null)
   const [agentMode, setAgentMode] = useState(() => safeStorageGet('mammoth_mind_agent_mode', '1') !== '0')
+  const [recursiveMode, setRecursiveMode] = useState(false)
   const activeRunIdRef = useRef(null)
   const threadSidebarRef = useRef(null)
   const templatesRef = useRef(null)
@@ -1185,6 +1186,7 @@ export default function ChatPage({ setPage }) {
       const body = {
         message,
         agent_id: effectiveAgentId,
+        ...((recursiveMode && ['assistant', 'reasoning_agent', 'research_agent', 'coding_agent'].includes(effectiveAgentId)) ? { recursive: true } : {}),
         thread_id: activeThreadId || undefined,
         attached_file_ids: attachedFiles.map(file => file.file_id),
         repo_context: activeRepoValue ? { root: activeRepoValue } : undefined,
@@ -1454,7 +1456,7 @@ export default function ChatPage({ setPage }) {
                   aria-label="More chat options"
                   aria-haspopup="menu"
                   aria-expanded={moreMenuOpen}
-                  title="Repo & run details, delete chat"
+                  title="Recursive review, repo & run details, delete chat"
                   style={{ ...TOOLBAR_ICON_BUTTON, ...(moreMenuOpen || showRightRail ? TOOLBAR_ICON_ACTIVE : {}) }}
                 >
                   <MoreHorizontal size={16} />
@@ -1465,6 +1467,21 @@ export default function ChatPage({ setPage }) {
                     aria-label="Chat options"
                     style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 45, minWidth: 230, padding: 6, borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(10,14,22,0.98)', boxShadow: '0 18px 40px rgba(0,0,0,0.45)', display: 'grid', gap: 2 }}
                   >
+                    {agentMode && ['assistant', 'reasoning_agent', 'research_agent', 'coding_agent'].includes(agentId) && (
+                      <button
+                        type="button"
+                        role="menuitemcheckbox"
+                        aria-checked={recursiveMode}
+                        onClick={() => setRecursiveMode(value => !value)}
+                        style={MENU_ITEM}
+                      >
+                        <Workflow size={14} />
+                        <span style={{ display: 'grid' }}>
+                          <span>Recursive review: {recursiveMode ? 'On' : 'Off'}</span>
+                          <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontWeight: 400 }}>Plan, execute, critique; up to 2 passes. Uses extra credits.</span>
+                        </span>
+                      </button>
+                    )}
                     <button
                       type="button"
                       role="menuitem"

@@ -105,6 +105,8 @@ export function reduceRunEvent(run, event) {
   const next = { ...base, id: base.id || event.run_id, events: [...base.events, event] }
   const { type, data = {} } = event
   if (data.progress) next.progress = data.progress
+  if (data.recursive) next.recursive = data.recursive
+  if (type === 'recursive.updated') next.recursive = data
   if (type === 'run.started') { next.repo = data.repo || null; next.tools = data.tools || [] }
   if (type === 'run.continued') { next.status = 'running'; next.reply = ''; next.error = ''; next.can_continue = false; next.failure_code = '' }
   if (type === 'run.recovering') next.recovery = data
@@ -162,6 +164,7 @@ export function hydrateRun(snapshot) {
     approval: snapshot.status === 'awaiting_approval' ? snapshot.pending_approval || null : null,
     progress: snapshot.progress || null,
     diagnostics: snapshot.diagnostics || [],
+    recursive: snapshot.recursive || null,
     failure_code: snapshot.failure_code || '',
     can_continue: ['partial', 'failed'].includes(snapshot.status) && snapshot.can_continue === true,
     error: ['partial', 'failed'].includes(snapshot.status) ? snapshot.reply || '' : '',

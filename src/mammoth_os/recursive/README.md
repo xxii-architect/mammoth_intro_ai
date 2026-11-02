@@ -1,6 +1,8 @@
 # RecursiveMAS
 
-RecursiveMAS is an additive, dependency-injected orchestration primitive. It does not register itself as a runtime agent or expose an API route; applications opt in by constructing `RecursiveMASRunner` with role callbacks.
+RecursiveMAS has an additive, dependency-injected orchestration core and an
+opt-in Mammoth Mind production integration. Embedders can construct
+`RecursiveMASRunner` with callbacks, or use the authenticated Paths run API.
 
 ## Execution Contract
 
@@ -35,20 +37,55 @@ result = await runner.run(
 
 Role agents must implement the contracts in `mammoth_os.agents.adapters` and return the corresponding `Plan`, `Execution`, `Critique`, or `Synthesis` value object. The scaffold intentionally does not adapt current MammothOS agents whose input/output contracts differ; that integration belongs in explicit, tested adapters.
 
-## Remaining product integration
+## Production integration
 
-The bounded runner and its pause/resume tests exist; it is **not** automatically
-enabled by selecting Reasoning Agent in Mammoth Mind. Reasoning and reflection
-quality improvements do not complete recursive orchestration.
+`runtime.py` connects real provider-backed planner, critic and synthesizer roles
+to the existing `AgentRunner` executor, including its tool catalog, MCP access,
+source observations and completion-evidence checks. It calls the same bounded
+core, not a separate recursive algorithm. Failed critiques inform the next plan.
+Normal runs and tutor SDK behavior are unchanged.
 
-The remaining integration sequence is:
+Enable **Recursive review** under Mammoth Mind's **More chat options** in Agent
+mode. Supported lanes: Assistant, Reasoning, Research and Coding. It is off by
+default and not implicitly enabled by selecting Reasoning. Python Paths accepts
+`recursive=True`; JavaScript Paths accepts `recursive: true`. Both accept a budget
+object with the wire keys below. `GET /api/mammoth/tools` advertises the capability;
+agent manifests and module/agent endpoints advertise it as `opt_in`.
 
-1. Implement explicit role adapters for real planner, executor, critic and
-   synthesizer outputs. Charge actual provider/tool usage; critique confidence is
-   a routing signal, not a probability that an answer is true.
-2. Add tenant-scoped persisted runs/checkpoints, cancellation, audited single-use
-   approval/resume endpoints, and registry/module visibility. Keep repository
-   access, proposal-only writes and isolated execution approval boundaries intact.
-3. Opt in through the SDK and UI, preserving `mammoth.run.v1` events. Validate
-   restart/resume, tenant isolation, duplicate decisions, budgets, provider
-   outages and factual-evidence labeling end to end before enabling by default.
+| Limit | Default | Server maximum |
+| --- | ---: | ---: |
+| `max_iterations` | 2 | 3 |
+| `max_tokens` | 64000 | 128000 |
+| `max_seconds` | 180 | 300 |
+| `max_tool_calls` | 12 | 20 |
+
+These are ceilings, not reservations or a dollar-price guarantee. Tokens are
+provider-reported completion usage (input plus output), not estimates presented
+as actual spend. Missing usage stops the run explicitly. Unknown interrupted
+provider charges and unsuccessful fallback-attempt charges cannot be inferred;
+consult provider billing. A conservative input/output allowance can stop a call
+before the token ceiling. Active runtime time excludes time waiting for human
+review. Tool counts record attempted invocations, including denied/failed ones.
+Normal one-pass success uses at least four model completions; tools and retries
+add calls. Recursive mode can therefore cost materially more than a normal run.
+
+Runs, cached typed role outputs and human checkpoints use the existing user-scoped
+RunStore. A nonblocking OS lease prevents competing consumers across workers and
+is released on process exit. Approval decisions are audited and consumed before
+streaming. Refresh/restart can recover an awaiting approval without replaying
+completed roles. Interrupted stages can resume from saved outputs only when no
+provider request or tool has an unknown outcome; unknown work fails closed rather
+than replaying a potentially side-effecting operation.
+
+All tools still pass through `ToolRegistry` with freshly resolved repository access.
+No selected repository means no repository context. Tenant repositories remain
+proposal-only. Owner isolated validation and local-branch application retain
+their separate approval gates; RecursiveMAS never grants push/deploy access.
+The uncertain-critique review is an additional gate permitting **synthesis only**,
+not tool execution. Critic confidence is a routing signal, not truth probability.
+
+The existing `mammoth.run.v1` envelope is preserved. Additive `recursive.updated`
+events carry stage, pass, limits and reported usage; public snapshots omit private
+role caches and checkpoints. Only the reviewed synthesis emits final completion.
+The UI shows concise stage summaries, not private chain-of-thought. A successful
+critique does not independently verify factual claims or application quality.

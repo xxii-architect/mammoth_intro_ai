@@ -114,6 +114,7 @@ async def get_agents():
                     "capabilities": m.capabilities,
                     "level":        m.level,
                     "endpoint":     m.endpoint,
+                    **({"recursive": m.metadata["recursive"]} if m.metadata.get("recursive") else {}),
                     **({"owner_execution": await asyncio.to_thread(_OWNER_EXECUTION.capabilities)}
                        if m.agent_id == "coding_agent" and _request_is_admin() else {}),
                 }

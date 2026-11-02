@@ -5,6 +5,7 @@ import pytest
 
 import api_server
 from mammoth_os.agent_loop import AgentRun, AgentRunner, RunStore
+from mammoth_os.llm_completion import Completion
 
 
 class ScriptedLLM:
@@ -14,6 +15,108 @@ class ScriptedLLM:
 
     async def generate(self, prompt, **kwargs):
         return json.dumps(self.responses.pop(0) if self.responses else {"final": "done"})
+
+
+def _recursive_model(llm):
+    async def generate_completion(prompt, **kwargs):
+        return Completion(await llm.generate(prompt, **kwargs), finish_reason="stop",
+                          usage={"total_tokens": 100})
+    llm.generate_completion = generate_completion
+    return llm
+
+
+def test_recursive_api_pause_reload_resume_and_duplicate_decision(isolated, as_user, monkeypatch):
+    _, use_llm = isolated
+    as_user("tenant-a")
+    _recursive_model(use_llm([
+        {"steps": ["Compare the evidence."]}, {"final": "One hypothesis."},
+        {"label": "uncertain", "reasons": ["Needs confirmation."], "suggestions": [], "confidence": 0.1},
+        {"answer": "One hypothesis, pending confirmation."},
+    ]))
+    audit = []
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **entry: audit.append(entry))
+    events = asyncio.run(_drain(asyncio.run(api_server.mammoth_agent_run_start({
+        "message": "Compare options", "agent_id": "reasoning_agent", "recursive": True,
+    }))))
+    assert events[-1]["type"] == "run.awaiting_approval"
+    run_id = events[0]["run_id"]
+    approval = next(e["data"] for e in events if e["type"] == "approval.requested")
+    store = RunStore(api_server._AGENT_RUNS.base_dir)
+    monkeypatch.setattr(api_server, "_AGENT_RUNS", store)
+    api_server._AGENT_RUNNER.store = store
+    assert store.get(run_id, "tenant-b") is None
+    as_user("tenant-b")
+    assert asyncio.run(api_server.mammoth_agent_run_approval(run_id, {
+        "approval_id": approval["id"], "decision": "approve",
+    })).status_code == 404
+    as_user("tenant-a")
+    body = {"approval_id": approval["id"], "decision": "approve"}
+    response = asyncio.run(api_server.mammoth_agent_run_approval(run_id, body))
+    assert asyncio.run(api_server.mammoth_agent_run_approval(run_id, body)).status_code == 409
+    resumed = asyncio.run(_drain(response))
+    assert resumed[-1]["type"] == "run.completed"
+    saved = asyncio.run(api_server.mammoth_agent_run_get(run_id))["run"]
+    assert saved["recursive"]["usage"]["tokens"] == 400
+    assert "cache" not in saved["recursive"]
+    assert saved["reply"] == "One hypothesis, pending confirmation."
+    assert audit[-1]["actor"] == "tenant-a"
+    assert asyncio.run(api_server.mammoth_agent_run_approval(run_id, body)).status_code == 409
+
+
+@pytest.mark.parametrize("recursive", [None, "yes", {"max_iterations": 0}, {"max_tokens": True}])
+def test_recursive_api_rejects_invalid_budget(isolated, as_user, recursive):
+    as_user("tenant-a")
+    response = asyncio.run(api_server.mammoth_agent_run_start({"message": "hi", "recursive": recursive}))
+    assert response.status_code == 400
+
+
+def test_recursive_registry_and_tool_contract(isolated, as_user):
+    as_user("tenant-a", True)
+    tools = asyncio.run(api_server.mammoth_agent_tools())
+    assert tools["recursive"]["status"] == "opt_in"
+    agents = asyncio.run(api_server.get_agents())
+    reasoning = next(a for a in agents if a["id"] == "reasoning_agent")
+    assert "recursive_mas" in reasoning["capabilities"]
+    assert reasoning["recursive"]["contract"] == "mammoth.recursive.v1"
+    modules = asyncio.run(api_server.get_modules())
+    assert next(m for m in modules if m["id"] == "reasoning_agent")["recursive"]["status"] == "opt_in"
+
+
+def test_recursive_restart_reconciles_without_replaying_provider(isolated, as_user):
+    _, use_llm = isolated
+    as_user("tenant-a")
+    llm = _recursive_model(use_llm([]))
+    run = AgentRun(AgentRun.new_id(), "tenant-a", "Interrupted", recursive={
+        "contract": "mammoth.recursive.v1", "cache": {}, "reservation": 300,
+        "usage": {"tokens": 0}, "limits": {},
+    })
+    api_server._AGENT_RUNS.save(run)
+    saved = asyncio.run(api_server.mammoth_agent_run_get(run.id))["run"]
+    assert saved["status"] == "failed"
+    assert saved["failure_code"] == "recursive_outcome_unknown"
+    assert not saved["can_continue"]
+    assert not llm.responses
+
+
+def test_recursive_cancellation_after_reload_blocks_approval(isolated, as_user, monkeypatch):
+    _, use_llm = isolated
+    as_user("tenant-a")
+    _recursive_model(use_llm([
+        {"steps": ["Compare evidence."]}, {"final": "A hypothesis."},
+        {"label": "uncertain", "reasons": ["Needs confirmation."], "suggestions": [], "confidence": 0.1},
+    ]))
+    events = asyncio.run(_drain(asyncio.run(api_server.mammoth_agent_run_start({
+        "message": "Compare options", "recursive": True,
+    }))))
+    run_id = events[0]["run_id"]
+    approval = next(e["data"] for e in events if e["type"] == "approval.requested")
+    asyncio.run(api_server.mammoth_agent_run_cancel(run_id))
+    monkeypatch.setattr(api_server, "_AGENT_RUNS", RunStore(api_server._AGENT_RUNS.base_dir))
+    response = asyncio.run(api_server.mammoth_agent_run_approval(run_id, {
+        "approval_id": approval["id"], "decision": "approve",
+    }))
+    assert response.status_code == 409
+    assert asyncio.run(api_server.mammoth_agent_run_get(run_id))["run"]["status"] == "cancelled"
 
 
 async def _drain(response):

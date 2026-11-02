@@ -254,15 +254,22 @@ unlisted credible sites remain eligible. The directory check found an Ohio
 endpoint returning 404 and a Mississippi TLS validation failure: catalog
 membership does not imply a live or successfully retrieved page.
 
-Recursive multi-agent orchestration remains an opt-in SDK primitive, not an
-automatically enabled reasoning feature. The remaining adapter, persistence/API
-and UI rollout steps are documented in
+Recursive multi-agent orchestration is available as an **opt-in** Agent-mode
+feature: **More chat options → Recursive review**. It connects a real planner,
+the existing tool executor, a critic and a synthesizer, with up to two passes by
+default. Existing validation/application approvals and repository isolation remain
+mandatory. Python Paths accepts `recursive=True`; JavaScript accepts
+`recursive: true`, or a bounded budget object. Saved runs support approval/resume
+without replaying completed roles; unknown interrupted provider/tool outcomes
+fail closed. Stage events and provider-reported token/tool usage are visible in
+the run trace. This uses additional model credits and does not make critique a
+factual-verification guarantee. Limits and accounting caveats are documented in
 [`src/mammoth_os/recursive/README.md`](src/mammoth_os/recursive/README.md).
 
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/mammoth/tools?repo=` | Tool catalog visible to *you* for that repo selection |
-| `POST /api/mammoth/runs` | Start a run (SSE). Body: `message`, `agent_id`, `repo_context.root`, `approval_mode` (`tools`\|`always`), `thread_id` |
+| `POST /api/mammoth/runs` | Start a run (SSE). Body: `message`, `agent_id`, `repo_context.root`, `approval_mode` (`tools`\|`always`), `thread_id`, optional `recursive` (`true` or budget object) |
 | `GET /api/mammoth/runs` / `GET /api/mammoth/runs/{id}?after=` | Your recent runs / replay events after a sequence number |
 | `POST /api/mammoth/runs/{id}/approval` | `{approval_id, decision: approve\|reject, note}` → resumes the stream (audited) |
 | `POST /api/mammoth/runs/{id}/cancel` | Stop a run |

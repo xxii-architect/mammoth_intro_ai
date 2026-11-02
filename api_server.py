@@ -7228,6 +7228,8 @@ def _normalize_module_status(raw_status: Any) -> str:
 
 
 def _workflow_state_for_agent(agent_id: str) -> Dict[str, Any]:
+    from mammoth_os.agent_registry import recursive_workflow_capability
+
     normalized_id = str(agent_id or "").strip()
     if normalized_id in {"repo_context_engine", "page_context_bridge", "gitops_guard"}:
         return {
@@ -7242,6 +7244,8 @@ def _workflow_state_for_agent(agent_id: str) -> Dict[str, Any]:
         "workflow_ready": routed or atlas_routed,
         "workflow_stage": "autonomous" if atlas_routed else "routed" if routed else "registered",
         "workflow_path": "atlas_lesson" if atlas_routed else "plan_execute" if routed else "manual",
+        **({"recursive": recursive_workflow_capability(normalized_id)}
+           if recursive_workflow_capability(normalized_id) else {}),
     }
 
 

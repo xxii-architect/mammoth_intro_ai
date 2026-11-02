@@ -85,6 +85,49 @@ const ownerPanel = 'components/agent-workspace/OwnerExecutionPanel'
 const ownerCapabilities = { status: 'ok', enabled: true, isolation: { ready: true, reason: 'Pinned Linux image available.', profiles: { python_unittest: true, python_pytest: false, node_test: false } }, profiles: ['python_unittest', 'python_pytest', 'node_test'], base_sha: 'a'.repeat(40) }
 const ownerJob = { id: `exec-${'a'.repeat(24)}`, status: 'pending_approval', patch: '--- a/app.py\n+++ b/app.py\n-return 0\n+return 1\n', base_sha: 'a'.repeat(40), profile: 'python_unittest', approval_digest: 'b'.repeat(64), expires_at: 1999999999 }
 
+test('Mammoth Mind recursive review is opt-in and does not add a toolbar row', async ({ page }) => {
+  let submitted
+  const errors = await mount(page, 'pages/ChatPage', {
+    '/api/mammoth/runs': request => {
+      submitted = request.postDataJSON()
+      return { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
+        contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1,
+        type: 'run.completed', data: { reply: 'Reviewed options.' },
+      })}\n\n` }
+    },
+  })
+  await page.getByRole('button', { name: 'More chat options' }).click()
+  const toggle = page.getByRole('menuitemcheckbox', { name: /Recursive review/ })
+  await expect(toggle).toHaveAttribute('aria-checked', 'false')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await page.getByRole('button', { name: 'More chat options' }).click()
+  await page.getByRole('textbox').last().fill('Compare these approaches.')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect.poll(() => submitted?.recursive).toBe(true)
+  await expect(page.getByText('Reviewed options.', { exact: true })).toBeVisible()
+  expect(submitted.repo_context).toBeUndefined()
+  expect(errors).toEqual([])
+})
+
+test('recursive trace shows actual stage and budgets with a synthesis-only approval', async ({ page }) => {
+  const recursive = { stage: 'critic', iteration: 1, limits: { max_iterations: 2, max_tokens: 64000, max_tool_calls: 12 },
+    usage: { tokens: 420, tool_calls: 3 } }
+  const errors = await mount(page, 'components/RunTimeline', {}, { runOverride: {
+    id: 'run-0123456789abcdef', status: 'awaiting_approval', events: [
+      { seq: 1, type: 'recursive.updated', data: recursive },
+    ], plan: [], recursive, approval: { id: 'apr-recursive', tool: 'recursive_review', tier: 'review',
+      args: { critique: { label: 'uncertain' } }, reason: 'Approve synthesis with caveats. This does not authorize tools.' },
+  } })
+  await expect(page.getByLabel('Recursive usage')).toContainText('420/64000 reported tokens')
+  await expect(page.getByLabel('Recursive usage')).toContainText('pass 2/2')
+  await expect(page.getByText('Recursive review: critic · pass 2', { exact: true })).toBeVisible()
+  await expect(page.getByText(/This does not authorize tools/)).toBeVisible()
+  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  expect(await page.evaluate(() => globalThis.ownerApprovalClicks)).toBe(1)
+  expect(errors).toEqual([])
+})
+
 const reviewRunId = 'run-0123456789abcdef'
 function reviewSnapshot(status = 'cancelled') {
   const approval = { id: 'apr-review', tool: 'owner_execution_run', tier: 'exec', args: {}, reason: 'Validate' }
@@ -935,19 +978,23 @@ test(`chat at ${width}px keeps a full-width input above one compact composer act
   const input = page.getByRole('textbox', { name: 'Message MammothOS' })
   await expect(input).toBeVisible()
   await input.fill('My readable mobile message')
-  const bounds = await input.boundingBox()
-  expect(bounds.width).toBeGreaterThan(270)
-  expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
-  const rowTops = []
-  for (const control of [
+  const controls = [
     page.getByRole('button', { name: 'Attach', exact: true }),
     page.getByRole('button', { name: 'Manage saved files' }),
     page.getByRole('button', { name: 'Prompt templates' }),
     page.getByRole('button', { name: 'Send', exact: true }),
-  ]) {
-    const controlBounds = await control.boundingBox()
-    expect(controlBounds.y).toBeGreaterThanOrEqual(bounds.y + bounds.height - 1)
-    rowTops.push(Math.round(controlBounds.y + controlBounds.height / 2))
+  ]
+  const handles = await Promise.all([input, ...controls].map(control => control.elementHandle()))
+  // Sample one layout frame rather than mixing positions during composer growth.
+  const [bounds, ...controlBounds] = await page.evaluate(
+    nodes => nodes.map(node => node.getBoundingClientRect().toJSON()), handles,
+  )
+  expect(bounds.width).toBeGreaterThan(270)
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+  const rowTops = []
+  for (const control of controlBounds) {
+    expect(control.y).toBeGreaterThanOrEqual(bounds.y + bounds.height - 1)
+    rowTops.push(Math.round(control.y + control.height / 2))
   }
   expect(Math.max(...rowTops) - Math.min(...rowTops)).toBeLessThanOrEqual(2)
   await expect(page.getByText('Upload limits & extraction', { exact: true })).toHaveCount(0)

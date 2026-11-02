@@ -232,10 +232,12 @@ async def mammoth_agent_tools(repo: str = ""):
     ctx, notice = _agent_tool_context({"root": repo} if repo else None)
     from mammoth_os.weather import weather_status
     from mammoth_os.web_search import web_search_status
+    from mammoth_os.agent_registry import recursive_workflow_capability
 
     return {
         "status": "ok",
         "contract": EVENT_CONTRACT_VERSION,
+        "recursive": recursive_workflow_capability("assistant"),
         "tools": _AGENT_TOOLS.catalog(ctx),
         "mcp_servers": _AGENT_MCP.describe(ctx),
         "web_search": {k: v for k, v in web_search_status().items() if k in {"configured", "provider"}},
@@ -246,6 +248,16 @@ async def mammoth_agent_tools(repo: str = ""):
 
 @app.post("/api/mammoth/runs")
 async def mammoth_agent_run_start(body: Dict[str, Any]):
+    from mammoth_os.recursive.runtime import RecursiveRuntime, recursive_limits
+
+    recursive = body.get("recursive", False)
+    if recursive is not False:
+        try:
+            recursive = recursive_limits(recursive)
+        except ValueError as exc:
+            return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+        if str(body.get("agent_id") or "assistant") not in {"assistant", "reasoning_agent", "research_agent", "coding_agent"}:
+            return JSONResponse({"status": "error", "error": "Recursive mode supports Assistant, Reasoning, Research and Coding lanes"}, status_code=400)
     message = str(body.get("message") or "").strip()
     if not message:
         return JSONResponse({"status": "error", "error": "message is required"}, status_code=400)
@@ -284,8 +296,13 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
             "thread_id": str(body.get("thread_id") or "")[:80] if surface == "mind" else "",
             "surface": surface,
             "extra_context": extra_context,
+            **({"recursive": recursive} if recursive is not False else {}),
         },
     )
+    if recursive is not False:
+        runtime = RecursiveRuntime(_AGENT_RUNNER, run, ctx)
+        lease = runtime.reserve()
+        return _agent_run_stream(run, runtime.stream(lease, initial=True), thread_id=run.request["thread_id"])
     return _agent_run_stream(run, _AGENT_RUNNER.start(run, ctx), thread_id=run.request["thread_id"])
 
 @app.get("/api/mammoth/runs")
@@ -297,6 +314,28 @@ async def mammoth_agent_run_get(run_id: str, after: int = 0):
     run = _AGENT_RUNS.get(run_id, _current_request_user_id())
     if run is None:
         return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)
+    if run.recursive and run.status == "running":
+        from mammoth_os.recursive.runtime import RecursiveRuntime
+
+        ctx, _ = _agent_tool_context(run.request.get("repo_context"))
+        runtime = RecursiveRuntime(_AGENT_RUNNER, run, ctx)
+        try:
+            lease = runtime.reserve()
+        except ValueError:
+            pass  # An active stream owns this run.
+        else:
+            try:
+                run.status, run.failure_code = "partial", "recursive_interrupted"
+                consumed = ((run.recursive.get("decision") or {}).get("approval_id")
+                            and (run.recursive.get("decision") or {}).get("approval_id")
+                            == (run.pending_approval or {}).get("id"))
+                if run.recursive.get("reservation") or run.recursive.get("inflight_tool") or consumed:
+                    run.status, run.failure_code = "failed", "recursive_outcome_unknown"
+                run.reply = ("Recursive work was interrupted. Saved stages are retained. "
+                             "Unknown provider/tool outcomes are never automatically replayed.")
+                _AGENT_RUNS.save(run)
+            finally:
+                lease.close()
     data = run.public()
     data["events"] = [e for e in run.events if int(e.get("seq") or 0) > max(0, int(after or 0))]
     return {"status": "ok", "run": data}
@@ -312,6 +351,30 @@ async def mammoth_agent_run_approval(run_id: str, body: Dict[str, Any]):
     ctx, notice = _agent_tool_context(run.request.get("repo_context"))
     if notice:
         return JSONResponse({"status": "error", **notice}, status_code=403)
+    if run.recursive:
+        from mammoth_os.recursive.runtime import RecursiveRuntime
+
+        runtime = RecursiveRuntime(_AGENT_RUNNER, run, ctx)
+        lease = None
+        try:
+            lease = runtime.reserve()
+            action = runtime.resolve(str(body.get("approval_id") or ""), decision == "approve",
+                                     str(body.get("note") or ""))
+        except ValueError as exc:
+            if lease:
+                lease.close()
+            return JSONResponse({"status": "error", "error": str(exc)}, status_code=409)
+        try:
+            _append_audit_event(
+                kind="recursive_run_approval", message=f"Recursive run decision: {decision}",
+                details={"run_id": run.id, **run.recursive["decision"]},
+                source="mammoth_mind", actor=ctx.user_id,
+            )
+        except Exception:
+            lease.close()
+            raise
+        return _agent_run_stream(run, runtime.stream(lease, action=action),
+                                 thread_id=str(run.request.get("thread_id") or ""))
     _append_audit_event(
         kind="agent_run_approval",
         message=f"Agent run tool {decision}d",
@@ -332,6 +395,24 @@ async def mammoth_agent_run_cancel(run_id: str):
     run = _AGENT_RUNS.get(run_id, _current_request_user_id())
     if run is None:
         return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)
+    if run.recursive:
+        from mammoth_os.recursive.runtime import RecursiveRuntime
+
+        (_AGENT_RUNS._user_dir(run.user_id) / f"{run.id}.cancel").touch()
+        runtime = RecursiveRuntime(_AGENT_RUNNER, run, None)
+        try:
+            lease = runtime.reserve()
+        except ValueError:
+            _AGENT_RUNNER.cancel(run)
+        else:
+            try:
+                if run.status not in {"completed", "failed", "cancelled"}:
+                    run.status, run.pending_approval = "cancelled", None
+                    run.cancel_requested = True
+                    _AGENT_RUNS.save(run)
+            finally:
+                lease.close()
+        return {"status": "ok", "run_id": run.id, "run_status": run.status, "cancel_requested": True}
     if run.status == "awaiting_approval":
         run.pending_approval = None
         run.status = "cancelled"
@@ -350,6 +431,23 @@ async def mammoth_agent_run_continue(run_id: str):
     ctx, notice = _agent_tool_context(run.request.get("repo_context"))
     if notice:
         return JSONResponse({"status": "error", **notice}, status_code=403)
+    if run.recursive:
+        from mammoth_os.recursive.runtime import RecursiveRuntime
+
+        runtime = RecursiveRuntime(_AGENT_RUNNER, run, ctx)
+        lease = None
+        try:
+            lease = runtime.reserve()
+            if not run.public()["can_continue"] or run.recursive.get("reservation") or run.recursive.get("inflight_tool"):
+                raise ValueError("This recursive run cannot be safely resumed")
+            run.status, run.failure_code = "running", ""
+            _AGENT_RUNS.save(run)
+            runtime.event("run.continued", {"recursive": runtime.public_state()})
+        except ValueError as exc:
+            if lease:
+                lease.close()
+            return JSONResponse({"status": "error", "error": str(exc)}, status_code=409)
+        return _agent_run_stream(run, runtime.stream(lease), thread_id=str(run.request.get("thread_id") or ""))
     events_iter = _AGENT_RUNNER.continue_run(run, ctx)
     _append_audit_event(
         kind="agent_run_continuation", message="Continuing saved agent work",

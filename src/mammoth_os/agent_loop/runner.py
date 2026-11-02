@@ -70,6 +70,7 @@ class AgentRun:
     continuations: int = 0
     step_limit: int = 0
     completion_goal: str = "answer"
+    recursive: Dict[str, Any] = field(default_factory=dict)
 
     def progress(self) -> Dict[str, Any]:
         inspected = []
@@ -135,12 +136,22 @@ class AgentRun:
         data = self.to_dict()
         data.pop("request", None)
         data.pop("cancel_requested", None)
+        if self.recursive:
+            data["recursive"] = {key: self.recursive.get(key) for key in
+                                 ("contract", "stage", "iteration", "limits", "usage", "stop_reason")}
+            if self.status == "running":
+                data["reply"] = ""
         data["progress"] = self.progress()
         data["can_continue"] = (
             self.status in {"partial", "failed"}
             and self.failure_code in {"invalid_response", "output_limit", "empty_response", "step_limit", "repeated_tool", "missing_evidence"}
             and self.continuations < MAX_CONTINUATIONS
         )
+        if self.recursive:
+            data["can_continue"] = (
+                self.status == "partial" and self.failure_code == "recursive_interrupted"
+                and not self.recursive.get("reservation") and not self.recursive.get("inflight_tool")
+            )
         return data
 
 
@@ -176,7 +187,7 @@ class RunStore:
         if not RUN_ID_RE.match(str(run_id or "")):
             return None
         live = self._live.get(run_id)
-        if live is not None:
+        if live is not None and not live.recursive:
             return live if live.user_id == user_id else None
         path = self._user_dir(user_id) / f"{run_id}.json"
         try:
@@ -612,6 +623,7 @@ class AgentRunner:
             for step in run.transcript
         ):
             output_limit = max(output_limit, OWNER_EDIT_OUTPUT_TOKENS)
+        output_limit = self._output_budget(run, prompt, output_limit)
         result = await complete(
             client, prompt, temperature=0.2,
             max_tokens=output_limit,
@@ -631,6 +643,9 @@ class AgentRunner:
         run.provider, run.model = meta["provider"], meta["model"]
         run.diagnostics.append(meta)
         return result.text.strip(), meta
+
+    def _output_budget(self, run: AgentRun, prompt: str, requested: int) -> int:
+        return requested
 
     async def _decide(self, run: AgentRun, ctx: ToolContext) -> Dict[str, Any]:
         tools = self._decision_tools(run, ctx)
@@ -714,6 +729,9 @@ class AgentRunner:
     def cancel(self, run: AgentRun) -> None:
         run.cancel_requested = True
 
+    def _cancel_requested(self, run: AgentRun) -> bool:
+        return run.cancel_requested
+
     def continue_run(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
         if run.user_id != ctx.user_id or not run.public()["can_continue"]:
             raise ValueError("This run cannot be continued.")
@@ -780,7 +798,7 @@ class AgentRunner:
         call_id = call_id or f"call-{secrets.token_hex(4)}"
         trace_kind = spec.trace_kind if spec else "tool"
         yield self._emit(run, ev.TOOL_CALL, {"call_id": call_id, "tool": name, "args": args, "trace_kind": trace_kind, "tier": spec.tier if spec else None})
-        tool_ctx = replace(ctx, extras={**ctx.extras, "cancel_requested": lambda: run.cancel_requested, "run_id": run.id,
+        tool_ctx = replace(ctx, extras={**ctx.extras, "cancel_requested": lambda: self._cancel_requested(run), "run_id": run.id,
                                       "observations": run.transcript})
         result = await self.registry.invoke(name, args, tool_ctx)
         run.transcript.append({"tool": name, "args": args, "result": result})

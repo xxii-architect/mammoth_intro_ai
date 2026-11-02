@@ -70,6 +70,19 @@ def test_public_names_and_aliases():
     assert "MammothMind" in mammoth_os.__all__
 
 
+@pytest.mark.parametrize("recursive", [True, {"max_iterations": 1, "max_tokens": 8000}])
+def test_recursive_run_options_and_usage_survive_transport(backend, recursive):
+    usage = {"contract": "mammoth.recursive.v1", "usage": {"tokens": 400}}
+    backend.route("POST", "/api/mammoth/runs", sse=[
+        _event(1, "recursive.updated", usage),
+        _event(2, "run.completed", {"reply": "Reviewed.", "recursive": usage}),
+    ])
+    result = MammothPaths(backend.url).run("Compare options.", recursive=recursive)
+    assert result.status == "completed"
+    assert backend.requests[0]["body"]["recursive"] == recursive
+    assert result.events[0].data["usage"]["tokens"] == 400
+
+
 def test_approval_terminal_closes_transport_without_waiting_for_eof():
     class Response:
         status = 200

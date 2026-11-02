@@ -31,6 +31,8 @@ function buildSteps(events) {
     const { type, data = {} } = event
     if (type === 'reasoning.summary') {
       steps.push({ key: `r-${event.seq}`, kind: 'reasoned', text: data.text })
+    } else if (type === 'recursive.updated') {
+      steps.push({ key: `recursive-${event.seq}`, kind: 'reasoned', text: `Recursive review: ${data.stage} · pass ${(data.iteration || 0) + 1}` })
     } else if (type === 'tool.call') {
       const step = { key: `t-${data.call_id}`, kind: data.trace_kind || 'tool', tool: data.tool, args: data.args, status: 'running' }
       calls.set(data.call_id, step)
@@ -182,12 +184,20 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
       {!readOnly && finished && run.can_continue && onContinue && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
           <button type="button" disabled={busy} onClick={onContinue}>Continue task</button>
-          <span style={{ color: 'var(--txt-mut)', fontSize: '0.72rem' }}>Keeps saved progress. Uses additional model credits; up to two continuations.</span>
+          <span style={{ color: 'var(--txt-mut)', fontSize: '0.72rem' }}>{run.recursive ? 'Resumes saved recursive stages within the original budget. Uses additional model credits.' : 'Keeps saved progress. Uses additional model credits; up to two continuations.'}</span>
         </div>
       )}
       {isOpen && (
         <div style={{ borderLeft: '1px solid var(--mm-color-border-subtle, var(--border))', paddingLeft: 10, display: 'grid', gap: 2 }}>
           <PlanList plan={run.plan} />
+          {run.recursive && (
+            <div aria-label="Recursive usage" style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', padding: '4px 0' }}>
+              Recursive review · pass {(run.recursive.iteration || 0) + 1}/{run.recursive.limits?.max_iterations}
+              {' · '}{run.recursive.usage?.tokens || 0}/{run.recursive.limits?.max_tokens} reported tokens
+              {' · '}{run.recursive.usage?.tool_calls || 0}/{run.recursive.limits?.max_tool_calls} tool calls
+              {' · '}Critique is not factual verification.
+            </div>
+          )}
           {run.diagnostics?.length > 0 && (
             <details style={{ color: 'var(--txt-mut)', fontSize: '0.72rem' }}>
               <summary>Model call diagnostics</summary>

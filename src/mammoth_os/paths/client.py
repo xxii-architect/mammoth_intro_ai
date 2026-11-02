@@ -295,11 +295,16 @@ class MammothPaths:
         approval_mode: str = "tools",
         thread_id: Optional[str] = None,
         completion_goal: Optional[str] = None,
+        recursive: Union[bool, Mapping[str, int]] = False,
     ) -> Iterator[RunEvent]:
         """Start a run and yield events until it completes, fails, is cancelled, or awaits approval."""
         if approval_mode not in {"tools", "always"}:
             raise ValueError("approval_mode must be 'tools' or 'always'")
         body: Dict[str, Any] = {"message": message, "agent_id": agent_id, "approval_mode": approval_mode}
+        if recursive is not False:
+            if recursive is not True and not isinstance(recursive, Mapping):
+                raise ValueError("recursive must be a boolean or budget mapping")
+            body["recursive"] = True if recursive is True else dict(recursive)
         if completion_goal is not None:
             if completion_goal not in {"answer", "proposal", "validated", "applied"}:
                 raise ValueError("Invalid completion_goal")

@@ -125,6 +125,16 @@ class AgentRegistry:
 agent_registry = AgentRegistry()
 
 
+def recursive_workflow_capability(agent_id: str) -> dict[str, Any]:
+    if agent_id not in {"assistant", "reasoning_agent", "research_agent", "coding_agent"}:
+        return {}
+    from mammoth_os.recursive.runtime import CONTRACT, DEFAULT_LIMITS, MAX_LIMITS
+
+    return {"contract": CONTRACT, "status": "opt_in", "endpoint": "/api/mammoth/runs",
+            "defaults": dict(DEFAULT_LIMITS), "maximums": dict(MAX_LIMITS),
+            "approval_policy": "existing_tools_plus_critique_review"}
+
+
 # ─────────────────────────────────────────────
 # INSTANCE LOADER  (your existing code, unchanged)
 # ─────────────────────────────────────────────
@@ -468,6 +478,9 @@ def _auto_register_agents() -> None:
         caps = [stem.replace("_agent", "")]
         if stem == "coding_agent":
             caps.append("owner_isolated_validation")
+        recursive = recursive_workflow_capability(stem)
+        if recursive:
+            caps.append("recursive_mas")
 
         manifest = AgentManifest(
             agent_id=agent_id,
@@ -480,6 +493,7 @@ def _auto_register_agents() -> None:
             endpoint=f"internal://{agent_id}",
             registered_at=datetime.datetime.now(datetime.timezone.utc),
             last_heartbeat=datetime.datetime.now(datetime.timezone.utc),
+            metadata={"recursive": recursive} if recursive else {},
         )
         # Use a synchronous direct insert to avoid asyncio.run() at import time
         agent_registry._agents[agent_id] = manifest

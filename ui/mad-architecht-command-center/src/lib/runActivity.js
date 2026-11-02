@@ -24,5 +24,8 @@ export function describeRunActivity(run, { decisionInFlight = true } = {}) {
   }
   const tool = [...open.values()].pop()
   if (tool) return TOOL_ACTIVITY[tool] || `Running ${tool}…`
+  if (run.recursive?.stage && run.recursive.stage !== 'completed') {
+    return `Recursive review: ${run.recursive.stage} · pass ${(run.recursive.iteration || 0) + 1}…`
+  }
   return 'Considering the next step…'
 }

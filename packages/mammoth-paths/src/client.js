@@ -112,9 +112,15 @@ export function createPathsClient(options = {}) {
     tools: ({ repo } = {}) => json('mind', 'GET', '/mammoth/tools', { query: { repo } }),
 
     /** Start a run; resolves with all events once the stream ends. */
-    streamRun(message, { agentId = 'assistant', repo, approvalMode = 'tools', completionGoal, threadId, onEvent, signal } = {}) {
+    streamRun(message, { agentId = 'assistant', repo, approvalMode = 'tools', completionGoal, threadId, recursive = false, onEvent, signal } = {}) {
       if (!['tools', 'always'].includes(approvalMode)) throw new TypeError("approvalMode must be 'tools' or 'always'")
       const body = { message, agent_id: agentId, approval_mode: approvalMode }
+      if (recursive !== false) {
+        if (recursive !== true && (!recursive || typeof recursive !== 'object' || Array.isArray(recursive))) {
+          throw new TypeError('recursive must be a boolean or budget object')
+        }
+        body.recursive = recursive
+      }
       if (completionGoal !== undefined) {
         if (!['answer', 'proposal', 'validated', 'applied'].includes(completionGoal)) throw new TypeError('Invalid completionGoal')
         body.completion_goal = completionGoal

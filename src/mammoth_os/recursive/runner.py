@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -22,6 +23,12 @@ from .contracts import (
 from .leash_policy import DefaultLeashPolicy, LeashDecision, LeashPolicy
 from .node import NodeCost, RecursiveNode
 from .router import DefaultRouter, Router, RouterDecision
+
+logger = logging.getLogger(__name__)
+
+
+class RunnerSuspended(Exception):
+    """An integration persisted its work and is waiting for external input."""
 
 
 @dataclass
@@ -209,6 +216,10 @@ class RecursiveMASRunner:
                 if not isinstance(critique, Critique):
                     raise TypeError("run_critic must return Critique")
                 current.critique = critique
+                current.artifacts["critique"] = {
+                    "label": critique.label, "reasons": critique.reasons,
+                    "suggestions": critique.suggestions, "confidence": critique.confidence,
+                }
                 current.attempts += 1
                 critique_cost = self._cost(critique, elapsed)
                 tracker.apply(critique_cost)
@@ -292,6 +303,8 @@ class RecursiveMASRunner:
                     break
                 iteration = next_iteration
 
+        except RunnerSuspended:
+            raise
         except asyncio.CancelledError:
             current.status = "stopped"
             stop_reason = "cancelled"
@@ -302,6 +315,7 @@ class RecursiveMASRunner:
             stop_reason = "max_seconds"
             self._record(trace, "runner", "stopped", reason=stop_reason)
         except Exception as exc:
+            logger.exception("Recursive stage failed for trace %s", current.trace_id)
             current.status = "failed"
             stop_reason = "stage_error"
             self._record(

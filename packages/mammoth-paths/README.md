@@ -32,6 +32,32 @@ console.log(result.status, result.reply)
 
 Without `approve`, a run that needs approval stops with `status: 'awaiting_approval'` and `pendingApproval` set. Call `paths.decide(runId, approval.id, 'approve' | 'reject')` later.
 
+### Opt-in RecursiveMAS
+
+```js
+const reviewed = await paths.run('Compare these approaches and test your recommendation.', {
+  agentId: 'reasoning_agent',
+  recursive: { max_iterations: 2, max_tokens: 64000, max_seconds: 180, max_tool_calls: 12 },
+  onEvent: (event, state) => render(state),
+})
+```
+
+Python: `paths.run("Compare these approaches.", agent_id="reasoning_agent", recursive=True)`.
+Both clients accept `true`/`True` for server defaults or the same snake-case budget
+keys shown above. Supported lanes are Assistant, Reasoning, Research and Coding.
+Normal runs remain unchanged. `recursive.updated` events and `state.recursive`
+expose stages, pass, budgets and provider-reported usage without changing
+`mammoth.run.v1`. Python can inspect event data or the recovered snapshot.
+
+Recursive mode uses extra model credits. Critique is not factual verification.
+All existing tool, validation and application approval boundaries remain intact.
+`recursive_review` is a human critique gate authorizing synthesis only; it is not
+permission to execute tools. Decisions use the existing `decide` method and are
+single-use. Saved stages survive approval/restart without re-execution; unknown
+interrupted provider/tool outcomes stop rather than being replayed.
+Missing provider usage stops recursive mode explicitly. Token counts are not
+dollar prices and cannot include unknown unsuccessful-provider request charges.
+
 Both clients finish the current stream at a terminal run event, including
 `run.awaiting_approval`, without waiting for the HTTP connection to close.
 The app disables approval controls while a request is still in flight; saved
