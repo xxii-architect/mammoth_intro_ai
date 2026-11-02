@@ -1328,34 +1328,6 @@ export default function ChatPage({ setPage }) {
           <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', lineHeight: 1.4 }}>Next: {successToast.nextAction}</div>
         </div>
       )}
-      {/* Page header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, marginBottom: 18, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <button
-            title="Toggle chat history sidebar"
-            onClick={() => setThreadSidebarOpen(p => !p)}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', borderRadius: 8, border: `1px solid ${threadSidebarOpen ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`, background: threadSidebarOpen ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.04)', color: threadSidebarOpen ? 'var(--photon)' : 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
-          >
-            <PanelLeft size={14} />
-          </button>
-          <div>
-            <h1 style={{ fontSize: '1.15rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 10, margin: 0 }}>
-              <Bot size={20} color="var(--photon)" /> MammothOS Chat
-            </h1>
-            <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--txt-sec)', maxWidth: 700 }}>
-              Native chat for MammothOS planning, debugging, and agent-assisted work.
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={() => setRightRailOpen((prev) => !prev)}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
-        >
-          {showRightRail ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-          {showRightRail ? 'Hide right rail' : 'Show right rail'}
-        </button>
-      </div>
-
       {/* Main layout: [thread sidebar] [chat] [right rail] */}
       <div style={{ display: 'flex', flex: 1, minHeight: 0, gap: 14 }}>
         {/* Thread history sidebar */}
@@ -1374,9 +1346,23 @@ export default function ChatPage({ setPage }) {
       <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gap: 18 }}>
         <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: isShortViewport ? '84vh' : '90vh', overflow: 'hidden' }}>
           <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)' }}>Current lane</div>
-              <div style={{ fontSize: '0.92rem', color: selectedAgent.accent, fontWeight: 700 }}>{selectedAgent.label}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <button
+                title="Toggle chat history sidebar"
+                onClick={() => setThreadSidebarOpen(p => !p)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', borderRadius: 8, border: `1px solid ${threadSidebarOpen ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`, background: threadSidebarOpen ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.04)', color: threadSidebarOpen ? 'var(--photon)' : 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
+              >
+                <PanelLeft size={14} />
+              </button>
+              <div>
+                <h1 style={{ fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                  <Bot size={18} color="var(--photon)" /> MammothOS Chat
+                </h1>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 2 }}>
+                  <span style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)' }}>Current lane</span>
+                  <span style={{ fontSize: '0.85rem', color: selectedAgent.accent, fontWeight: 700 }}>{selectedAgent.label}</span>
+                </div>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               <div ref={templatesRef} style={{ position: 'relative' }}>
@@ -1478,6 +1464,13 @@ export default function ChatPage({ setPage }) {
                   <option value="analyze_codebase">Analyze Codebase</option>
                 </select>
               )}
+              <button
+                onClick={() => setRightRailOpen((prev) => !prev)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
+              >
+                {showRightRail ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                {showRightRail ? 'Hide right rail' : 'Show right rail'}
+              </button>
             </div>
           </div>
 
