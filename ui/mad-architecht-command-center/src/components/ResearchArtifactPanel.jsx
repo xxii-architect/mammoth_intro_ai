@@ -74,7 +74,7 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)', marginBottom: 6 }}>
-              Research Brief
+              {artifact.artifact_type === 'market_intel' ? 'Market & Product Research' : 'Research Brief'}
             </div>
             <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--txt-pri)', lineHeight: 1.35 }}>
               {title}
@@ -179,6 +179,23 @@ export default function ResearchArtifactPanel({ artifact, rawJson }) {
       )}
 
       {/* ── Recommended Next Steps ────────────────────────────────────────── */}
+      {artifact.artifact_type === 'market_intel' && (
+        <>
+          {[
+            ['Interpretation & tradeoffs — not verified facts', artifact.analysis, row => `${row.heading}: ${row.detail}`],
+            ['Risks & limitations', artifact.risks, row => row],
+            ['Market trends — analyst interpretation', artifact.key_trends, row => `${row.trend}: ${row.signal} ${row.opportunity}`],
+            ['Alternatives — analyst interpretation', artifact.competitive_landscape, row => `${row.competitor}: ${row.strengths} ${row.gaps}`],
+          ].map(([label, rows, text]) => Array.isArray(rows) && rows.length > 0 && (
+            <section key={label} aria-label={label} className="glass-card-solid" style={{ padding: 16 }}>
+              <h3 style={{ fontSize: '0.8rem', marginTop: 0 }}>{label}</h3>
+              <ul style={{ paddingLeft: 18, fontSize: '0.8rem', lineHeight: 1.65, color: 'var(--txt-sec)' }}>
+                {rows.map((row, index) => <li key={index}>{text(row)}</li>)}
+              </ul>
+            </section>
+          ))}
+        </>
+      )}
       {nextSteps.length > 0 && (
         <div className="glass-card-solid" style={{ padding: 16 }}>
           <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.14em', color: 'var(--txt-mut)', marginBottom: 10 }}>

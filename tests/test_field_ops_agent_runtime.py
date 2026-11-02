@@ -1,4 +1,24 @@
 from mammoth_os.agents.field_ops_agent import FieldOpsAgent
+import json
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def generated_plan(monkeypatch):
+    class Model:
+        async def generate(self, prompt, **kwargs):
+            return json.dumps({
+                "situation_summary": "Plan a short supervised exercise with an explicit turn-back point.",
+                "priorities": [{"rank": 1, "priority": "Choose a safe practice area.",
+                    "rationale": "Avoid exceeding the team's current skill and visibility limits.",
+                    "action": "Mark a short practice route and review it with a partner.",
+                    "timeline": "Before departure.", "success_metric": "Both partners can identify the turn-back point.",
+                    "effort": "Low."}],
+                "immediate_win": "Agree on a turn-back point before beginning.",
+                "blockers": [], "risks": ["Conditions may exceed the team's experience."],
+                "operator_note": "This is a practice outline, not independent safety verification.",
+            })
+    monkeypatch.setattr("mammoth_os.llm_client.get_llm_client", lambda: Model())
 
 
 def test_field_ops_agent_builds_structured_mission():

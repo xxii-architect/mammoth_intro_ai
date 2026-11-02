@@ -25,7 +25,14 @@ def test_coding_docs_reject_placeholder_target_without_source():
     assert "source" in result["message"].lower()
 
 
-def test_brand_voice_summary_has_explicit_structure():
+def test_brand_voice_summary_has_explicit_structure(monkeypatch):
+    import json
+    class Model:
+        async def generate(self, *args, **kwargs):
+            return json.dumps({"output": "We shipped preview-first onboarding and source-aware tasks.",
+                               "summary": "Explains the delivered workflow for stakeholders.",
+                               "tone_notes": "Direct language, without unverified claims."})
+    monkeypatch.setattr("mammoth_os.llm_client.get_llm_client", lambda: Model())
     result = BrandVoiceAgent().run({
         "content": "We shipped an approval-safe operator workflow with clearer onboarding and source-aware agent tasks.",
         "mode": "stakeholder_summary",

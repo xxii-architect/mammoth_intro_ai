@@ -4096,10 +4096,12 @@ def _verify_execution_contract(envelope: Dict[str, Any], policy: Dict[str, Any])
     summary = str(envelope.get("summary") or "").strip().lower()
     checks: List[Dict[str, Any]] = []
     retry_statuses = set(policy.get("retry_on_status") or [])
-    if envelope.get("runtime_agent") in {"reasoning", "reflection"}:
+    quality = output.get("quality") if isinstance(output.get("quality"), dict) else {}
+    if envelope.get("runtime_agent") in {"reasoning", "reflection", "market_intel", "field_ops", "brand_voice", "community_engine"}:
         checks.append({
             "name": "analysis_available",
-            "passed": status not in {"failed", "error", "needs_context"},
+            "passed": status not in {"failed", "error", "needs_context", "insufficient_evidence"}
+                      and quality.get("ready") is not False and quality.get("status") != "failed",
             "detail": f"Analysis status={status}; unavailable analysis is not a completed insight.",
         })
 
@@ -5787,6 +5789,8 @@ def _render_chat_result(value: Any) -> str:
     if isinstance(value, (int, float, bool)):
         return str(value)
     if isinstance(value, dict):
+        if value.get("agent") == "brand_voice" and isinstance(value.get("output"), str) and value["output"].strip():
+            return value["output"].strip()
         for key in ("reply", "message", "summary", "analysis", "content"):
             candidate = value.get(key)
             if isinstance(candidate, str) and candidate.strip():

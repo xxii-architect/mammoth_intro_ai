@@ -11,9 +11,13 @@ leaderboard-driven engagement tasks for Mammoth OS and True XXII Supply.
 from typing import Any, Dict, List
 
 from .base_agent import BaseAgent
+from mammoth_os.analysis_contract import generate_analysis, run_analysis_sync
 
 
-COMMUNITY_SYSTEM = """You write True XXII Supply community challenges. Boise, Idaho. Rugged, tactical, real skills.
+COMMUNITY_SYSTEM = """You write community challenges for the requesting audience.
+Use the actual task, constraints and team/learner context. Never assume a brand,
+location or tactical persona. Include a concrete activity, completion check and
+accessible participation options. Do not invent promised rewards or outcomes.
 
 Output ONLY this JSON structure — zero prose, zero explanation before or after:
 
@@ -125,19 +129,23 @@ class CommunityEngineAgent(BaseAgent):
                 "publish_preview": {"title": "Context required", "summary": missing_context_reason, "prompt": "", "reward": {}, "social_callout": ""},
             }
 
-        challenge = self._generate_challenge(theme, difficulty, team_context, learner_context, engagement_goal)
-        _llm_out = {}
         try:
-            _llm_out = self._run_async(self._llm_generate(theme, difficulty, mode, audience, team_context, learner_context, engagement_goal))
-        except Exception as exc:
-            logger.warning("CommunityEngineAgent LLM generate failed: %s", exc)
-        if _llm_out.get("challenge"):
-            challenge = _llm_out["challenge"]
+            _llm_out = run_analysis_sync(self._llm_generate(
+                theme, difficulty, mode, audience, team_context, learner_context, engagement_goal,
+                prompt, constraints,
+            ))
+        except Exception:
+            logger.exception("CommunityEngineAgent generation failed")
+            return {"agent": "community_engine", "status": "failed", "challenge": "", "prompt": "",
+                    "summary": "The community draft could not be generated and validated. No canned challenge was substituted.",
+                    "quality": {"status": "failed", "ready": False, "evidence_status": "unverified",
+                                "fact_verification": "not_performed"}}
+        challenge = _llm_out["challenge"]
         if engagement_goal and engagement_goal.lower() not in challenge.lower():
             challenge = f"{challenge} Engagement goal: {engagement_goal}."
-        prompt = _llm_out.get("prompt") or self._generate_prompt(theme, team_context, learner_context)
+        prompt = _llm_out["prompt"]
         reward = self._generate_reward(difficulty, group_size, learner_signals)
-        social = _llm_out.get("social_callout") or self._generate_social_callout(group_size, team_context)
+        social = _llm_out["social_callout"]
         if group_size == "open" and "open challenge" not in social.lower():
             social = f"Open challenge: {social}"
         if team_context and team_context.lower() not in social.lower():
@@ -168,6 +176,9 @@ class CommunityEngineAgent(BaseAgent):
             "approval_gate": approval_gate,
             "challenge": challenge,
             "summary": challenge,
+            "reasoning_trace": _llm_out["trace"],
+            "quality": {"status": "ok", "ready": True, "evidence_status": "interpretation",
+                        "fact_verification": "not_performed"},
             "prompt": prompt,
             "reward": reward,
             "social_callout": social,
@@ -208,22 +219,12 @@ class CommunityEngineAgent(BaseAgent):
         }
 
 
-    @staticmethod
-    def _run_async(coro):
-        import asyncio
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-        else:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, coro).result()
-
-    async def _llm_generate(self, theme, difficulty, mode, audience, team_context, learner_context, engagement_goal) -> dict:
+    async def _llm_generate(self, theme, difficulty, mode, audience, team_context, learner_context, engagement_goal,
+                            request="", constraints=None) -> dict:
         import json as _j
         from mammoth_os.llm_client import get_llm_client
         parts = [f"Generate a {difficulty} {theme} challenge for {audience}."]
+        parts.append(f"Actual request: {request}. Mode: {mode}. Constraints: {_j.dumps(constraints or [])}.")
         if team_context:
             parts.append(f"Team: {team_context}.")
         if engagement_goal:
@@ -231,34 +232,12 @@ class CommunityEngineAgent(BaseAgent):
         if learner_context:
             parts.append(f"Context: {learner_context}.")
         ctx = " ".join(parts)
-        raw = await get_llm_client().generate(
-            ctx,
-            system_prompt=COMMUNITY_SYSTEM,
+        return await generate_analysis(
+            get_llm_client(), COMMUNITY_SYSTEM, ctx,
+            text_fields=("challenge", "prompt", "social_callout"),
             max_tokens=1500,
             temperature=0.6,
         )
-        import re as _re
-        try:
-            parsed = _j.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(parsed, dict) and parsed:
-                return parsed
-        except Exception as exc:
-            logger.warning("CommunityEngineAgent JSON outer parse failed: %s", exc)
-        if isinstance(raw, str):
-            m = _re.search(r'\{[^{}]*"challenge"[^{}]*\}', raw, _re.DOTALL)
-            if m:
-                try:
-                    return _j.loads(m.group())
-                except Exception as exc:
-                    logger.warning("CommunityEngineAgent JSON regex parse failed: %s", exc)
-            out = {}
-            for k in ["challenge", "prompt", "social_callout"]:
-                km = _re.search('"' + k + r'"\s*:\s*"(.*?)(?:"|$)', raw, _re.DOTALL)
-                if km:
-                    out[k] = km.group(1).strip()
-            if out:
-                return out
-        return {}
 
     def _normalize_theme(self, value: Any) -> str:
         theme = str(value or "mindset").strip().lower()

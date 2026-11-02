@@ -3,10 +3,10 @@ Mammoth OS — BrandVoiceAgent (P16: LLM-powered)
 Rewrites / generates content in the True XXII Supply brand voice via LLM synthesis.
 """
 from __future__ import annotations
-import json
 import logging
 from typing import Any, Dict, List, Optional
 from .base_agent import BaseAgent
+from mammoth_os.analysis_contract import generate_analysis, run_analysis_sync
 
 logger = logging.getLogger("mammoth.agents.brand_voice")
 
@@ -56,12 +56,14 @@ class BrandVoiceAgent(BaseAgent):
         constraints = payload.get("constraints") or []
         if not isinstance(constraints, list):
             constraints = [str(constraints)] if str(constraints).strip() else []
+        if not content or content.casefold() in {"unknown", "placeholder", "tbd"}:
+            return self._failure("needs_context", "Provide real copy or a specific writing brief before generating content.")
 
         try:
-            result = self._run_async(self._llm_pipeline(content, mode, tone, audience, constraints))
-        except Exception as exc:
-            logger.warning("BrandVoiceAgent LLM failed, using template fallback: %s", exc)
-            result = {"output": self._template_fallback(content, mode, tone), "summary": "", "tone_notes": ""}
+            result = run_analysis_sync(self._llm_pipeline(content, mode, tone, audience, constraints))
+        except Exception:
+            logger.exception("BrandVoiceAgent generation failed")
+            return self._failure("failed", "The copy could not be generated and validated. No template was substituted; retry with your original brief.")
 
         output_text  = result.get("output", "")     if isinstance(result, dict) else str(result)
         summary_text = result.get("summary", "")    if isinstance(result, dict) else str(output_text)[:220]
@@ -85,6 +87,9 @@ class BrandVoiceAgent(BaseAgent):
             "output":     output_text,
             "summary":    summary_text or str(output_text)[:220],
             "tone_notes": tone_notes,
+            "reasoning_trace": result.get("trace", ""),
+            "quality": {"status": "ok", "ready": True, "evidence_status": "interpretation",
+                        "fact_verification": "not_performed"},
         }
 
     async def _llm_pipeline(
@@ -109,37 +114,15 @@ class BrandVoiceAgent(BaseAgent):
             f"Content to process:\n{content or '(none provided — generate a representative sample for the given mode)'}"
             f"{constraint_block}"
         )
-        raw = await client.generate(
-            user_message,
-            system_prompt=BRAND_VOICE_SYSTEM,
+        return await generate_analysis(
+            client, BRAND_VOICE_SYSTEM, user_message,
+            text_fields=("output", "summary", "tone_notes"),
             max_tokens=1200,
             temperature=0.7,
-            response_format={"type": "json_object"},
         )
-        try:
-            parsed = json.loads(raw) if isinstance(raw, str) else raw
-            return parsed if isinstance(parsed, dict) else {"output": str(parsed), "summary": "", "tone_notes": ""}
-        except Exception:
-            return {"output": str(raw), "summary": str(raw)[:220], "tone_notes": ""}
 
     @staticmethod
-    def _run_async(coro):
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                raise RuntimeError("closed")
-            return loop.run_until_complete(coro)
-        except RuntimeError:
-            return asyncio.run(coro)
-
-    def _template_fallback(self, content: str, mode: str, tone: str) -> str:
-        if mode == "tagline":
-            return f"{content.strip().title()}. Be equipped. Be skilled. Be ready."
-        if mode == "caption":
-            return f"{content.strip()} — Plant the seed today. Even the smallest habit grows into strength."
-        if tone == "motivational":
-            return f"{content.strip()} Every step plants a seed for tomorrow. Be equipped. Be skilled. Be ready."
-        if tone == "calm":
-            return f"{content.strip()} Slow down, breathe, and trust your training. Even small steps plant the seed."
-        return f"{content.strip()} Don't get caught running with scissors. Stand your ground. Build your skills. Feel more alive than ever."
+    def _failure(status: str, message: str) -> Dict[str, Any]:
+        return {"agent": "brand_voice", "status": status, "summary": message, "output": "",
+                "quality": {"status": status, "ready": False, "evidence_status": "unverified",
+                            "fact_verification": "not_performed"}}

@@ -201,7 +201,7 @@ function Roster({ agents, selectedId, mode, busyAgentId, onSelect, onTeam, compa
 function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecision, runBusy, onStartCurriculum, onCurriculumSaved }) {
   const [showRaw, setShowRaw] = useState(false)
   const entry = agentDisplay(message.agent_id)
-  const research = message.agent_id === 'research_agent' && message.raw ? normalizeResearchArtifact(message.raw) : null
+  const research = ['research_agent', 'market_intel_agent'].includes(message.agent_id) && message.raw ? normalizeResearchArtifact(message.raw) : null
   const coding = message.agent_id === 'coding_agent' && message.raw ? normalizeCodingArtifact(message.raw) : null
   if (coding && message.patchApplied) coding.applied = true
   const run = message.run

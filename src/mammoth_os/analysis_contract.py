@@ -9,6 +9,7 @@ from contextvars import copy_context
 from typing import Any, Coroutine
 
 from mammoth_os.research_quality import dedupe_items, strip_reasoning, trim_to_last_sentence
+from mammoth_os.llm_completion import complete
 
 
 _PROVIDER_ERROR = re.compile(
@@ -79,7 +80,9 @@ def validate_analysis(
             "[local_adapter]", "<2 sentence diagnosis>", "<action>",
             "consistency beats intensity", "struggle is a signal, not a setback",
             "small victories compound", "the learner likely needs one prerequisite",
-        )) or text.strip().casefold() in {"check 1", "check 2", "check 3"}:
+            "unable to parse llm response", "one practical production workflow and measure the result",
+            "test one practical production use of",
+        )) or text.strip().casefold() in {"check 1", "check 2", "check 3", "...", "placeholder", "tbd"}:
             raise ValueError("Analysis contains placeholder content")
         return text.strip()
 
@@ -91,3 +94,20 @@ def validate_analysis(
         result[key] = dedupe_items([clean(value) for value in values])[:8]
     result["trace"] = "\n\n".join(traces)
     return result
+
+
+async def generate_analysis(client: Any, system: str, prompt: str, *, text_fields: tuple[str, ...],
+                            max_tokens: int = 2400, temperature: float = 0.3) -> dict[str, Any]:
+    """Validate a complete specialist response before callers can publish it."""
+    result = await complete(
+        client, system + "\n\nRequest:\n" + prompt, max_tokens=max_tokens,
+        temperature=temperature, response_format={"type": "json_object"},
+    )
+    if result.finish_reason in {"length", "content_filter", "refusal"}:
+        raise ValueError("Specialist response did not complete")
+    text, trace = strip_reasoning(result.text)
+    if text.startswith("```json\n") and text.endswith("```"):
+        text = text[8:-3].strip()
+    parsed = json.loads(text)
+    checked = validate_analysis(parsed, text_fields=text_fields)
+    return {**parsed, **checked, "trace": "\n\n".join(t for t in (trace, checked["trace"]) if t)}

@@ -1,4 +1,18 @@
 from mammoth_os.agents.community_engine_agent import CommunityEngineAgent
+import json
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def generated_challenge(monkeypatch):
+    class Model:
+        async def generate(self, prompt, **kwargs):
+            return json.dumps({
+                "challenge": "Build one small example, explain the result and share progress with the team.",
+                "prompt": "Post your example and one question for a partner to review.",
+                "social_callout": "Join at your own pace and compare one concrete result.",
+            })
+    monkeypatch.setattr("mammoth_os.llm_client.get_llm_client", lambda: Model())
 
 
 def test_community_engine_agent_uses_team_context_and_signals():

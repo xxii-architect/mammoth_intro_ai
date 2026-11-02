@@ -266,6 +266,30 @@ the run trace. This uses additional model credits and does not make critique a
 factual-verification guarantee. Limits and accounting caveats are documented in
 [`src/mammoth_os/recursive/README.md`](src/mammoth_os/recursive/README.md).
 
+A clean recursive pass normally requires four model-role calls (planner, executor,
+critic, synthesizer); one revision normally brings that to seven, before extra
+tool-loop/repair calls. This is not a fixed credit multiplier: billing depends on
+the provider and actual input/output tokens. The default 64,000-token ceiling is
+a limit, not a reservation or an upfront charge.
+
+### Specialist output quality
+
+Market Intel handles product-buying questions as well as market analysis. It uses
+the shared bounded research retrieval pipeline by default, prefers relevant primary
+source material, and requires matching excerpt-linked findings for its factual
+answer. Supplied `sources` avoid network retrieval; `allow_web_lookup: false`
+disables automatic lookup. Exact variants, package sizes and current availability
+must be supported rather than inferred. Tradeoffs and analyst interpretation are
+separate from findings; citation linkage is not independent factual verification.
+Missing evidence produces `insufficient_evidence`, not an invented market report.
+
+Brand Voice, Field Ops and Community also require complete structured generation:
+invalid, truncated or unavailable model output returns an explicit failure, never
+canned copy disguised as completed work. Field Ops retains weather/hazard handling
+and navigation contracts; Community retains deterministic reward and review policy.
+The Agent panel and team-run drilldowns show Market Intel sources and evidence.
+These checks improve output contracts; they are not a guarantee of model accuracy.
+
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/mammoth/tools?repo=` | Tool catalog visible to *you* for that repo selection |

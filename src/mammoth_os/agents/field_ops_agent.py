@@ -1,16 +1,11 @@
 # mammoth_os/agents/field_ops_agent.py
 """
-FieldOpsAgent — Elite Business Operations Intelligence
-
-Analyzes operational context and delivers prioritized, actionable field
-intelligence for True XXII Supply and small business operators.
-No templates. No guessing. Real LLM reasoning on every run.
+FieldOpsAgent generates validated, task-specific operations plans.
 """
 
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import json
 import logging
 import re
@@ -18,12 +13,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Union
 
 from .base_agent import BaseAgent
+from mammoth_os.analysis_contract import generate_analysis, run_analysis_sync, validate_analysis
 
 logger = logging.getLogger("mammoth.agents.field_ops")
 
 
-SYSTEM_PROMPT = """You are an elite field operations intelligence officer embedded with True XXII Supply —
-a small business operator in Boise, Idaho specializing in native plants, outdoor gear, and homesteading supplies.
+SYSTEM_PROMPT = """You plan practical operations for the requesting user.
+Do not assume a business, location or outdoor scenario unless supplied.
 
 Your role: read operational situations fast, cut through noise, and deliver sharp, prioritized action intelligence.
 
@@ -32,6 +28,8 @@ Rules:
 - Priorities must be ranked by impact-to-effort ratio.
 - Actions must be executable — specific enough that someone can start in the next hour.
 - Think like a seasoned operator, not a consultant.
+- Explain dependencies, tradeoffs, missing context and stop conditions. Never invent
+  weather, local rules or executed work. Use only relevant sections, not filler.
 
 Respond in this exact JSON structure:
 {
@@ -85,10 +83,10 @@ class FieldOpsAgent(BaseAgent):
         if not prompt_text:
             return self._error_response("No operational query provided — give me something to work with.")
         try:
-            return self._run_async(self._generate_intel(prompt_text, context))
-        except Exception as exc:
-            logger.error(f"FieldOpsAgent run failed: {exc}")
-            return self._error_response(str(exc))
+            return run_analysis_sync(self._generate_intel(prompt_text, context))
+        except Exception:
+            logger.exception("FieldOpsAgent generation failed")
+            return self._error_response("The operations plan could not be generated and validated. Retry with the task, constraints and relevant conditions.")
 
     def execute_action(
         self, action_type: str, target: str, details: Dict[str, Any]
@@ -134,14 +132,28 @@ class FieldOpsAgent(BaseAgent):
         if weather_ok:
             context_block += f"\n\nLive forecast (use it; do not invent other weather):\n{summarize_forecast(weather)}"
         user_message = f"Field ops query: {prompt_text}{context_block}"
-        raw = await client.generate(
-            user_message,
-            system_prompt=SYSTEM_PROMPT,
-            max_tokens=2048,
-            temperature=0.3,
+        parsed = await generate_analysis(
+            client, SYSTEM_PROMPT, user_message, max_tokens=2800,
+            text_fields=("situation_summary", "immediate_win", "operator_note"),
         )
-        parsed = self._extract_json(raw)
         priorities = parsed.get("priorities", [])
+        if not isinstance(priorities, list) or not priorities:
+            raise ValueError("No actionable priorities")
+        clean_priorities = []
+        for row in priorities:
+            if not isinstance(row, dict):
+                raise ValueError("Malformed operations priority")
+            checked = validate_analysis(row, text_fields=(
+                "priority", "rationale", "action", "timeline", "success_metric", "effort"))
+            checked.pop("trace", None)
+            clean_priorities.append({"rank": len(clean_priorities) + 1, **checked})
+        priorities = clean_priorities
+        if len(priorities) != len(parsed["priorities"]):
+            raise ValueError("Malformed operations priority")
+        for key in ("blockers", "risks"):
+            if not isinstance(parsed.get(key), list):
+                raise ValueError("Malformed operations list")
+            parsed[key] = [validate_analysis({"text": item}, text_fields=("text",))["text"] for item in parsed[key]]
         topic = str(context.get("topic") or self._extract_topic(prompt_text))
         environment = str(context.get("environment") or "unspecified")
         difficulty = str(context.get("difficulty") or self._extract_difficulty(prompt_text) or "medium").lower()
@@ -157,11 +169,12 @@ class FieldOpsAgent(BaseAgent):
             abort_conditions.append("Abort or reschedule if forecast weather hazards arrive earlier or stronger than expected.")
         if risk_level == "high" and not abort_conditions:
             abort_conditions.append("Abort if conditions exceed training or visibility limits.")
-        mission = f"Complete a {difficulty} {topic} mission in {environment}. Confirm a bearing and report route status."
-        confidence = round(
-            min(0.95, 0.65 + len(priorities) * 0.06 + (0.05 if parsed.get("immediate_win") else 0)),
-            2,
+        navigation = "navigat" in topic.lower()
+        mission = (
+            f"Complete a {difficulty} {topic} mission in {environment}. Confirm a bearing and report route status."
+            if navigation else parsed["situation_summary"]
         )
+        confidence = None
         quality_flags = ["llm_synthesized", "business_context_aware", "prompt_responsive"]
         if weather_ok:
             quality_flags.append("live_weather")
@@ -178,13 +191,15 @@ class FieldOpsAgent(BaseAgent):
             "difficulty": difficulty,
             "risk_level": risk_level,
             "mission": mission,
-            "checklist": {"selected_landmark": False, "bearing_confirmed": False, "route_checked": False},
-            "completion_criteria": ["Bearing recorded", "Landmark identified", "Route status reported"],
+            "checklist": {"selected_landmark": False, "bearing_confirmed": False, "route_checked": False}
+                         if navigation else {row["priority"]: False for row in priorities},
+            "completion_criteria": ["Bearing recorded", "Landmark identified", "Route status reported"]
+                                   if navigation else [row["success_metric"] for row in priorities],
             "equipment": equipment,
             "safety_notes": safety_notes,
             "abort_conditions": abort_conditions,
             "approval_gate": {"requires_review": risk_level == "high", "reason": "high-risk field mission" if risk_level == "high" else "standard field mission"},
-            "next_actions": ["Review hazards", "Confirm equipment", "Set an abort point"],
+            "next_actions": [row["action"] for row in priorities],
             "situation_summary": parsed.get("situation_summary", ""),
             "priorities": priorities,
             "immediate_win": parsed.get("immediate_win", ""),
@@ -199,10 +214,10 @@ class FieldOpsAgent(BaseAgent):
             ] if weather_ok else [],
             "confidence": confidence,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "summary": (
-                f"Field ops intel: {len(priorities)} prioritized actions — "
-                f"{priorities[0]['priority'] if priorities else 'see analysis'}."
-            ),
+            "summary": parsed["situation_summary"],
+            "reasoning_trace": parsed["trace"],
+            "quality": {"status": "ok", "ready": True, "evidence_status": "interpretation",
+                        "fact_verification": "not_performed"},
             "quality_flags": quality_flags,
         }
 
@@ -244,45 +259,16 @@ class FieldOpsAgent(BaseAgent):
         return match.group(1).lower() if match else None
 
     @staticmethod
-    def _extract_json(raw: str) -> Dict[str, Any]:
-        text = str(raw or "").strip()
-        # Strip markdown code fences (deepseek wraps JSON in ```json...```)
-        import re as _re
-        text = _re.sub(r"```(?:json)?\s*", "", text).strip()
-        start = text.find("{")
-        end = text.rfind("}")
-        if start != -1 and end != -1 and end > start:
-            try:
-                return json.loads(text[start : end + 1])
-            except json.JSONDecodeError:
-                pass
-        return {
-            "situation_summary": text[:400] if text else "Unable to parse response.",
-            "priorities": [],
-            "risks": [],
-            "blockers": [],
-        }
-
-    @staticmethod
     def _error_response(message: str) -> Dict[str, Any]:
         return {
-            "status": "error",
+            "status": "failed",
             "agent": "FieldOpsAgent",
             "mode": "business_ops_intel",
             "artifact_type": "field_ops",
             "summary": f"FieldOpsAgent could not complete: {message}",
             "priorities": [],
-            "confidence": 0.0,
+            "confidence": None,
+            "quality": {"status": "failed", "ready": False, "evidence_status": "unverified",
+                        "fact_verification": "not_performed"},
             "quality_flags": ["error"],
         }
-
-    @staticmethod
-    def _run_async(coro):
-        """Safe sync->async bridge. Handles both running and fresh event loops."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-        else:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, coro).result()

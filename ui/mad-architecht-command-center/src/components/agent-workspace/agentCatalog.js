@@ -49,8 +49,8 @@ export const AGENT_CATALOG = [
     id: 'market_intel_agent',
     name: 'Market Intel',
     handle: 'market',
-    blurb: 'Audience, trends, and opportunities for a product or idea.',
-    tasks: [{ label: 'Size up a market', intent: 'market_intel', placeholder: 'Which product, audience, or niche?' }],
+    blurb: 'Evidence-led product questions, buying tradeoffs, markets and opportunities.',
+    tasks: [{ label: 'Size up a market', intent: 'market_intel', placeholder: 'Which market or exact product? What do you need to know?' }],
   },
   {
     id: 'field_ops_agent',

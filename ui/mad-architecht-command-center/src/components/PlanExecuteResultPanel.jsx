@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { CheckCircle, XCircle, Clock, AlertTriangle, ChevronDown, ChevronRight, Cpu, Code2, BookOpen, Search, Zap, FileText, Eye, EyeOff } from 'lucide-react'
 import MammothEmpty from './MammothEmpty'
+import ResearchArtifactPanel from './ResearchArtifactPanel'
+import { normalizeResearchArtifact } from './agent-workspace/artifacts'
 
 const AGENT_LABELS = {
   curriculum_agent:      { label: 'Curriculum',    icon: BookOpen,  color: 'var(--mm-color-agent-default)' },
@@ -60,6 +62,7 @@ const HIDDEN_KEYS = new Set([
   'sources_retrieved', 'retrieval_errors', 'web_retrieval_errors', 'web_sources_used', 'reasoning_trace',
   'workflow_hints', 'execution_loop', 'runtime_agent', 'confidence', 'signal_confidence', 'intent', 'focus',
   'tone', 'audience', 'lesson_title', 'title', 'progress_score', 'follow_up_tags', 'signals', 'environment', 'equipment', 'method', 'weather',
+  'quality', 'trace',
 ])
 
 function humanizeKey(key) {
@@ -70,7 +73,9 @@ function humanizeKey(key) {
 function itemText(item) {
   if (item == null) return ''
   if (typeof item !== 'object') return String(item)
-  const values = Object.values(item).filter(v => v != null && typeof v !== 'object' && String(v).trim())
+  const values = Object.entries(item)
+    .filter(([key, v]) => !['trace', 'reasoning_trace'].includes(key) && v != null && typeof v !== 'object' && String(v).trim())
+    .map(([, v]) => v)
   if (!values.length) return ''
   const [head, ...rest] = values.map(String)
   return rest.length ? `${head} — ${rest.join(' · ')}` : head
@@ -79,7 +84,8 @@ function itemText(item) {
 export function artifactSections(artifact) {
   if (artifact == null) return { summary: '', sections: [] }
   if (typeof artifact !== 'object') return { summary: String(artifact), sections: [] }
-  const summaryKey = SUMMARY_KEYS.find(k => typeof artifact[k] === 'string' && artifact[k].trim())
+  const summaryKeys = artifact.agent === 'brand_voice' ? ['output', ...SUMMARY_KEYS] : SUMMARY_KEYS
+  const summaryKey = summaryKeys.find(k => typeof artifact[k] === 'string' && artifact[k].trim())
   const sections = []
   for (const [key, value] of Object.entries(artifact)) {
     if (HIDDEN_KEYS.has(key) || value == null) continue
@@ -88,7 +94,7 @@ export function artifactSections(artifact) {
       if (items.length) sections.push({ key, title: humanizeKey(key), items })
     } else if (typeof value === 'object') {
       const items = Object.entries(value)
-        .filter(([, v]) => v != null && typeof v !== 'object' && String(v).trim())
+        .filter(([k, v]) => !['trace', 'reasoning_trace'].includes(k) && v != null && typeof v !== 'object' && String(v).trim())
         .map(([k, v]) => `${humanizeKey(k)}: ${v}`)
         .slice(0, 12)
       if (items.length) sections.push({ key, title: humanizeKey(key), items })
@@ -100,6 +106,10 @@ export function artifactSections(artifact) {
 }
 
 export function StepOutput({ artifact }) {
+  if (artifact?.artifact_type === 'market_intel') {
+    const research = normalizeResearchArtifact({ output: artifact })
+    if (research) return <ResearchArtifactPanel artifact={research} />
+  }
   const { summary, sections } = artifactSections(artifact)
   if (!summary && !sections.length) return <MammothEmpty context="step_output" compact />
   return (

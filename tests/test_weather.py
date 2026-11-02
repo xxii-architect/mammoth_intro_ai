@@ -1,4 +1,5 @@
 import io
+import json
 import urllib.error
 
 import pytest
@@ -148,7 +149,15 @@ class _StubLLM:
 
     async def generate(self, prompt, **kwargs):
         self.prompts.append(prompt)
-        return '{"situation_summary": "ok", "priorities": []}'
+        return json.dumps({
+            "situation_summary": "Use the supplied forecast to set the turn-back point.",
+            "immediate_win": "Check the forecast before departure.",
+            "operator_note": "Recheck conditions on arrival.",
+            "priorities": [{"priority": "Review conditions.", "rationale": "Conditions affect the route.",
+                "action": "Compare the forecast with the team's limits.", "timeline": "Before departure.",
+                "success_metric": "The team agrees on its turn-back limits.", "effort": "Low."}],
+            "risks": ["Conditions can change."], "blockers": [],
+        })
 
 
 def _patch_field_ops(monkeypatch, weather_client):

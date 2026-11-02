@@ -63,6 +63,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
       : (await import(`/src/${component}.jsx`)).default
     const props = component === 'trust' ? trustProps : component === 'components/agent-workspace/OwnerExecutionPanel' ? { repo }
       : component === 'components/ResearchArtifactPanel' || component === 'components/LongFormResearchPanel' ? { artifact: runOverride }
+      : component === 'components/PlanExecuteResultPanel' ? { planRun: runOverride }
       : component === 'components/agent-workspace/AgentWorkspace' ? { agents: [], temperature: 0.3, approvalMode: true }
       : component === 'components/AgentCommandLibrary' ? { onClose() {} }
       : component === 'components/RunTimeline' ? {
@@ -311,6 +312,69 @@ for (const component of ['ResearchArtifactPanel', 'LongFormResearchPanel']) {
     expect(errors).toEqual([])
   })
 }
+
+const marketReport = {
+  status: 'ok', agent: 'MarketIntelAgent', artifact_type: 'market_intel', title: 'Product research',
+  summary: 'The test listing documents a 12-ounce whole-bean bag. [S1]',
+  executive_summary: 'The test listing documents a 12-ounce whole-bean bag. [S1]',
+  findings: [{
+    heading: 'Documented bag', content: 'The test listing documents a 12-ounce whole-bean bag. [S1]',
+    source_support: ['S1'], evidence_status: 'source_linked',
+    evidence: [{ source_id: 'S1', quote: 'Just Black whole-bean coffee, 12-ounce bag.' }],
+  }],
+  analysis: [{ heading: 'Household tradeoff', detail: 'Compare cost per ounce and how quickly you finish an opened bag.' }],
+  risks: ['Ground coffee is a different format.'], key_trends: [], competitive_landscape: [],
+  knowledge_gaps: 'Larger bags and current stock were not established.',
+  confidence_assessment: 'Only the supplied test excerpt was checked.',
+  recommended_next_steps: ['Check the manufacturer size selector and whole-bean option.'],
+  sources: [{ label: 'S1', title: 'Manufacturer test listing', url: 'https://example.com/coffee',
+    snippet: 'Just Black whole-bean coffee, 12-ounce bag.' }],
+  citations: [], references: [], quality: { ready: true, evidence_status: 'source_linked' },
+}
+
+for (const surface of ['specialist', 'team']) {
+  test(`Market Intel ${surface} shows evidence and useful depth, not empty sections`, async ({ page }) => {
+    let errors
+    if (surface === 'specialist') {
+      errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
+        '/api/run': { status: 'ok', result: { status: 'ok', output: marketReport } },
+      })
+      await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Market Intel/ }).click()
+      await page.getByRole('textbox', { name: 'Message Market Intel' }).fill('Does Just Black come in large whole-bean bags?')
+      await page.getByRole('button', { name: 'Send', exact: true }).click()
+    } else {
+      errors = await mount(page, 'components/PlanExecuteResultPanel', {}, { runOverride: {
+        status: 'completed', plan_steps: [{ agent_id: 'market_intel_agent', status: 'completed',
+          description: 'Check the exact product', response: { result: { output: marketReport } } }],
+      } })
+      await page.getByRole('button', { name: /Market Intel/ }).click()
+    }
+    await expect(page.getByText('Market & Product Research', { exact: true })).toBeVisible()
+    await expect(page.getByRole('region', { name: /Interpretation & tradeoffs/ })).toContainText('cost per ounce')
+    await expect(page.getByText('Larger bags and current stock were not established.', { exact: true })).toBeVisible()
+    await expect(page.getByText('Check the manufacturer size selector and whole-bean option.', { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'https://example.com/coffee' })).toBeVisible()
+    await expect(page.locator('blockquote')).toContainText('12-ounce bag')
+    await expect(page.getByRole('region', { name: /Market trends|Alternatives/ })).toHaveCount(0)
+    await expect(page.getByText(/100%|practical production workflow|Private model text/)).toHaveCount(0)
+    expect(errors).toEqual([])
+  })
+}
+
+test('Brand Voice displays the actual copy rather than only its change summary', async ({ page }) => {
+  const errors = await mount(page, 'components/PlanExecuteResultPanel', {}, { runOverride: {
+    status: 'completed', plan_steps: [{ agent_id: 'brand_voice_agent', status: 'completed',
+      response: { result: { output: {
+        agent: 'brand_voice', status: 'ok', output: 'Start with one planter. Watch what grows.',
+        summary: 'A practical caption.', tone_notes: 'Calm and direct.',
+        reasoning_trace: 'Private model text.', quality: { ready: true, evidence_status: 'interpretation' },
+      } } } }],
+  } })
+  await page.getByRole('button', { name: /Brand Voice/ }).click()
+  await expect(page.getByText('Start with one planter. Watch what grows.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Private model text.', { exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
 
 test('legacy chat confidence is not resurrected from old history or provider health', async ({ page }) => {
   await mount(page, 'pages/ChatPage', { '/api/mammoth/chat/history': { chat_history: [
