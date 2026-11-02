@@ -41,6 +41,10 @@ def test_recursive_api_pause_reload_resume_and_duplicate_decision(isolated, as_u
     assert events[-1]["type"] == "run.awaiting_approval"
     run_id = events[0]["run_id"]
     approval = next(e["data"] for e in events if e["type"] == "approval.requested")
+    history = isolated[0]["mammoth_chat_history"]
+    assert history[-1]["run"]["recursive"]["stage"] == "critic"
+    assert history[-1]["run"]["approval"]["id"] == approval["id"]
+    assert "cache" not in history[-1]["run"]["recursive"]
     store = RunStore(api_server._AGENT_RUNS.base_dir)
     monkeypatch.setattr(api_server, "_AGENT_RUNS", store)
     api_server._AGENT_RUNNER.store = store

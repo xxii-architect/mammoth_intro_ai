@@ -128,6 +128,51 @@ test('recursive trace shows actual stage and budgets with a synthesis-only appro
   expect(errors).toEqual([])
 })
 
+for (const status of ['awaiting_approval', 'cancelled']) {
+test(`Mammoth Mind restores recursive checkpoints from authoritative saved state (${status})`, async ({ page }) => {
+  const runId = 'run-0123456789abcdef'
+  const approval = { id: 'apr-restored', tool: 'recursive_review', tier: 'review', args: {},
+    reason: 'Approve synthesis with caveats; no tool authorization.' }
+  const recursive = { stage: 'critic', iteration: 0, limits: { max_iterations: 2, max_tokens: 64000, max_tool_calls: 12 },
+    usage: { tokens: 300, tool_calls: 0 } }
+  let decisions = 0
+  let reads = 0
+  const event = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: runId, seq, type, data })
+  const errors = await mount(page, 'pages/ChatPage', {
+    '/api/mammoth/chat/history': { chat_history: [
+      { role: 'user', message: 'Explore a hypothesis.' },
+      { role: 'assistant', local_id: runId, agent_id: 'reasoning_agent', message: '',
+        run: { id: runId, status: 'awaiting_approval', events: [], plan: [], approval, recursive } },
+    ] },
+    [`/api/mammoth/runs/${runId}`]: () => {
+      reads++
+      return { run: { id: runId, status, reply: '', recursive, plan: [],
+        pending_approval: status === 'awaiting_approval' ? approval : null,
+        events: [event(1, 'recursive.updated', recursive), event(2, 'approval.requested', approval),
+          event(3, 'run.awaiting_approval')] } }
+    },
+    [`/api/mammoth/runs/${runId}/approval`]: () => {
+      decisions++
+      return { contentType: 'text/event-stream', body: [
+        event(4, 'approval.resolved', { approval_id: approval.id, approved: true, tool: 'recursive_review' }),
+        event(5, 'run.completed', { reply: 'Restored and reviewed.', recursive }),
+      ].map(value => `data: ${JSON.stringify(value)}\n\n`).join('') }
+    },
+  })
+  await expect.poll(() => reads).toBe(1)
+  expect(decisions).toBe(0)
+  if (status === 'awaiting_approval') {
+    await page.getByRole('button', { name: 'Approve', exact: true }).click()
+    await expect(page.getByText('Restored and reviewed.', { exact: true })).toBeVisible()
+    expect(decisions).toBe(1)
+  } else {
+    await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0)
+    await expect(page.getByText(/Stopped · 0 tool calls/)).toBeVisible()
+  }
+  expect(errors).toEqual([])
+})
+}
+
 const reviewRunId = 'run-0123456789abcdef'
 function reviewSnapshot(status = 'cancelled') {
   const approval = { id: 'apr-review', tool: 'owner_execution_run', tier: 'exec', args: {}, reason: 'Validate' }

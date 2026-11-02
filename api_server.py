@@ -6907,7 +6907,9 @@ def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
          "local_id": run.id,
          "run": {"id": run.id, "status": run.status, "reply": run.reply, "plan": run.plan, "events": [],
                  "failure_code": run.failure_code, "can_continue": run.public()["can_continue"],
-                 "diagnostics": run.diagnostics[-6:]}},
+                 "diagnostics": run.diagnostics[-6:],
+                 **({"recursive": run.public()["recursive"], "approval": run.pending_approval}
+                    if run.recursive else {})}},
     ]
     existing = next((i for i, item in enumerate(all_history) if item.get("role") == "assistant" and item.get("run_id") == run.id), None)
     if existing is not None:
@@ -6938,7 +6940,8 @@ def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "") -> Str
     async def event_stream():
         async for event in events_iter:
             # Agent-page runs live in that page's own threads, not Mammoth Mind's chat history.
-            if event.type in {"run.completed", "run.partial", "run.failed"} and run.reply and run.request.get("surface") != "agent_workspace":
+            save_recursive_pause = bool(run.recursive and event.type == "run.awaiting_approval")
+            if ((event.type in {"run.completed", "run.partial", "run.failed"} and run.reply) or save_recursive_pause) and run.request.get("surface") != "agent_workspace":
                 try:
                     _persist_agent_run_exchange(run, thread_id=thread_id)
                 except (OSError, ValueError, TypeError):

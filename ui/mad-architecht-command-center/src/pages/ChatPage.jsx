@@ -3,7 +3,7 @@ import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, Ch
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
 import { responseConfidence } from '../lib/confidence'
-import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent } from '../lib/agentRuns'
+import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent, restoreRecursiveEntries } from '../lib/agentRuns'
 import RunTimeline from '../components/RunTimeline'
 import ChatMessageBody from '../components/ChatMessageBody'
 import AgentResultPanel from '../components/AgentResultPanel'
@@ -582,6 +582,7 @@ export default function ChatPage({ setPage }) {
   const [successToast, setSuccessToast] = useState(null)
   const [agentMode, setAgentMode] = useState(() => safeStorageGet('mammoth_mind_agent_mode', '1') !== '0')
   const [recursiveMode, setRecursiveMode] = useState(false)
+  const historyLoadRef = useRef(0)
   const activeRunIdRef = useRef(null)
   const threadSidebarRef = useRef(null)
   const templatesRef = useRef(null)
@@ -683,6 +684,8 @@ export default function ChatPage({ setPage }) {
   }
 
   useEffect(() => {
+    let active = true
+    const loadId = ++historyLoadRef.current
     let stored = null
     try {
       stored = typeof window !== 'undefined' ? JSON.parse(safeStorageGet(`mammoth_chat_history:${scopeUserId}`, 'null') || 'null') : null
@@ -693,9 +696,11 @@ export default function ChatPage({ setPage }) {
       setHistory(stored)
     }
     api('/mammoth/chat/history')
-      .then((data) => {
+      .then(async (data) => {
+        if (!active || loadId !== historyLoadRef.current) return
         const chatHistory = Array.isArray(data?.chat_history) ? data.chat_history : []
-        const nextHistory = chatHistory.length > 0 ? chatHistory : stored || []
+        const nextHistory = await restoreRecursiveEntries(chatHistory.length > 0 ? chatHistory : stored || [])
+        if (!active || loadId !== historyLoadRef.current) return
         setHistory(nextHistory)
         const lastAssistant = [...nextHistory].reverse().find((entry) => entry.role === 'assistant')
         if (lastAssistant?.thought_steps) {
@@ -703,11 +708,13 @@ export default function ChatPage({ setPage }) {
         }
       })
       .catch(() => {
+        if (!active || loadId !== historyLoadRef.current) return
         if (Array.isArray(stored) && stored.length > 0) {
           setHistory(stored)
         }
       })
     refreshOps()
+    return () => { active = false; historyLoadRef.current += 1 }
   }, [scopeUserId])
 
   useEffect(() => {
@@ -1275,6 +1282,7 @@ export default function ChatPage({ setPage }) {
       })
       const json = await data.json()
       if (json?.thread_id) {
+        historyLoadRef.current += 1
         setActiveThreadId(json.thread_id)
         setHistory([])
         setThoughtSteps([])
@@ -1291,6 +1299,7 @@ export default function ChatPage({ setPage }) {
 
   const selectThread = async (threadId) => {
     if (!threadId) return
+    const loadId = ++historyLoadRef.current
     setActiveThreadId(threadId)
     setHistory([])
     setError('')
@@ -1300,7 +1309,9 @@ export default function ChatPage({ setPage }) {
     try {
       const data = await api(`/mammoth/chat/threads/${threadId}/history`)
       const msgs = Array.isArray(data?.chat_history) ? data.chat_history : []
-      setHistory(msgs)
+      const restored = await restoreRecursiveEntries(msgs)
+      if (loadId !== historyLoadRef.current) return
+      setHistory(restored)
       const lastAssistant = [...msgs].reverse().find(e => e.role === 'assistant')
       if (lastAssistant?.thought_steps) setThoughtSteps(lastAssistant.thought_steps)
     } catch { /* no-op */ }

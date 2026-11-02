@@ -76,6 +76,10 @@ streaming. Refresh/restart can recover an awaiting approval without replaying
 completed roles. Interrupted stages can resume from saved outputs only when no
 provider request or tool has an unknown outcome; unknown work fails closed rather
 than replaying a potentially side-effecting operation.
+Mammoth Mind saves paused recursive exchanges to chat/thread history. Opening
+that history reloads the authoritative run with GET only before restoring its
+controls, so stale approval buttons do not survive a saved cancellation. History
+recovery never approves a decision or spends model credits automatically.
 
 All tools still pass through `ToolRegistry` with freshly resolved repository access.
 No selected repository means no repository context. Tenant repositories remain
