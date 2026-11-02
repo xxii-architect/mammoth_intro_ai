@@ -6776,13 +6776,16 @@ _AGENT_TOOLS, _AGENT_MCP = _build_agent_tool_registry()
 _AGENT_RUNS = RunStore(MAMMOTH_DIR / "agent_runs")
 
 
-def _agent_llm_factory():
+def _agent_llm_factory(run: Optional[AgentRun] = None):
     from mammoth_os.llm_client import get_llm_client
 
-    return get_llm_client()
+    coding = run is not None and (
+        run.agent_id == "coding_agent" or run.completion_goal in {"proposal", "validated", "applied"}
+    )
+    return get_llm_client({"workload": "coding"}) if coding else get_llm_client()
 
 
-_AGENT_RUNNER = AgentRunner(_AGENT_TOOLS, _agent_llm_factory, _AGENT_RUNS)
+_AGENT_RUNNER = AgentRunner(_AGENT_TOOLS, _agent_llm_factory, _AGENT_RUNS, llm_router=_agent_llm_factory)
 
 
 def _agent_tool_context(raw_repo_context: Any) -> "tuple[ToolContext, Dict[str, Any]]":

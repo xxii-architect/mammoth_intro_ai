@@ -472,7 +472,7 @@ class CodingAgent(BaseAgent):
     async def give_advice(self, prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
         try:
             result = await complete(
-                get_llm_client(), prompt,
+                get_llm_client({"workload": "coding"}), prompt,
                 system_prompt=(
                     "Answer the user's software/design advice question directly. "
                     "Provide a clear recommendation, tradeoffs, and practical verification steps. "
@@ -547,7 +547,7 @@ class CodingAgent(BaseAgent):
                 "quality_checks": ["require_real_target_or_source"],
             }
         try:
-            client = get_llm_client()
+            client = get_llm_client({"workload": "coding"})
         except Exception as exc:
             self.log("ERROR", f"LLM client initialization failed: {exc}")
             return {
@@ -716,7 +716,7 @@ class CodingAgent(BaseAgent):
                     return {"status": "needs_context", "summary": "Refactoring needs the complete original source or a readable owner file.", "original": "", "refactored": "", "diff": "", "confidence": None}
                 src = target
 
-            client = get_llm_client()
+            client = get_llm_client({"workload": "coding"})
             prompt = f"Refactor the following Python code to improve readability, reduce complexity, and add minimal comments. Preserve behavior.\n\n{src}"
             raw = await client.generate(prompt, max_tokens=8192, temperature=0.2)
             refactored = extract_code_from_text(raw)
@@ -1058,7 +1058,7 @@ sys.exit(failed)
     async def _call_reasoning_engine(self, prompt: str) -> str:
         """Use the LLM to reason about a prompt and return a decision string."""
         try:
-            client = get_llm_client()
+            client = get_llm_client({"workload": "coding"})
             response = await client.generate(
                 prompt,
                 max_tokens=64,

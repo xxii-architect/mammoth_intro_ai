@@ -365,6 +365,28 @@ def _build_deepseek_chain(cfg: Dict[str, Any]) -> LLMClient | None:
     )
 
 
+def _build_coding_chain(cfg: Dict[str, Any]) -> LLMClient | None:
+    preferred = _cfg_or_env(cfg, "MAMMOTH_CODING_LLM_ADAPTER", "openai").lower()
+    if preferred not in {"openai", "deepseek"}:
+        raise ValueError("MAMMOTH_CODING_LLM_ADAPTER must be openai or deepseek.")
+    if preferred == "deepseek":
+        return _build_deepseek_chain(cfg)
+    openai_client = _build_openai_adapter(cfg)
+    if openai_client is None:
+        return _build_deepseek_chain(cfg)
+    fallback_client = _build_ollama_or_local_client(cfg)
+    deepseek_client = _build_deepseek_adapter(cfg)
+    if deepseek_client is not None:
+        fallback_client = FallbackAdapter(
+            primary=deepseek_client, fallback=fallback_client,
+            primary_name="deepseek", fallback_name=_client_label(fallback_client),
+        )
+    return FallbackAdapter(
+        primary=openai_client, fallback=fallback_client,
+        primary_name="openai", fallback_name=_client_label(fallback_client),
+    )
+
+
 class ContextualClient(LLMClient):
     """Wraps a client so generate() carries the active conversation background."""
 
@@ -404,17 +426,25 @@ def _resolve_llm_client(config: Dict[str, Any] | None = None):
     if adapter_name == "local":
         return LocalAdapter(config=cfg)
 
+    # A process-wide cloud default is not a coding-specific routing decision.
+    # Explicit per-call choices and unambiguous offline settings take priority.
+    if (cfg.get("workload") == "coding" and not cfg.get("MAMMOTH_LLM_ADAPTER")
+            and adapter_name not in (_OLLAMA_ADAPTER_NAMES - _DEEPSEEK_ADAPTER_NAMES)):
+        coding_chain = _build_coding_chain(cfg)
+        if coding_chain is not None:
+            return coding_chain
+
+    if adapter_name in _DEEPSEEK_ADAPTER_NAMES:
+        deepseek_chain = _build_deepseek_chain(cfg)
+        if deepseek_chain is not None:
+            return deepseek_chain
+
     if adapter_name in _OLLAMA_ADAPTER_NAMES:
         local_cfg = dict(cfg)
         if adapter_name in MODEL_ALIASES or adapter_name not in {"ollama", "local-ollama"}:
             local_cfg["model"] = adapter_name
         primary = OllamaAdapter(config={**local_cfg, "base_url": _cfg_or_env(local_cfg, "OLLAMA_BASE_URL", "http://localhost:11434")})
         return FallbackAdapter(primary=primary, fallback=LocalAdapter(config=local_cfg), primary_name="ollama", fallback_name="local")
-
-    if adapter_name in _DEEPSEEK_ADAPTER_NAMES:
-        deepseek_chain = _build_deepseek_chain(cfg)
-        if deepseek_chain is not None:
-            return deepseek_chain
 
     requested_model = str(cfg.get("model", "")).strip()
     if not requested_model:

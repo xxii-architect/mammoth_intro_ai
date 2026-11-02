@@ -1,5 +1,6 @@
 import asyncio
 import json
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -347,6 +348,83 @@ def test_step_budget_forces_final(tmp_path, repo):
     assert events[-1].data["reply"] == "Summary."
     assert sum(1 for e in events if e.type == "tool.call") == 2
     assert "Do not output JSON" in llm.prompts[-1]
+
+
+def test_coding_discovery_checkpoint_exposes_reads_not_more_searches(tmp_path, repo):
+    class Model(ScriptedLLM):
+        async def generate(self, prompt, **kwargs):
+            names = set(kwargs["decision_schema"]["properties"]["tool"]["enum"])
+            if len(self.prompts) == 2:
+                assert "repo_search" not in names and "repo_list_files" not in names
+                assert "repo_read_file" in names
+                assert "Discovery checkpoint" in prompt
+            return await super().generate(prompt, **kwargs)
+
+    model = Model([
+        {"tool": "repo_search", "args": {"query": "hello", "path": "src"}},
+        {"tool": "repo_search", "args": {"query": "return", "path": "src/app.py"}},
+        {"tool": "repo_read_file", "args": {"path": "src/app.py", "start_line": 1, "end_line": 2}},
+        {"tool": "repo_propose_patch", "args": {"title": "Greeting", "files": [
+            {"path": "src/app.py", "edits": [{"old": "'hi'", "new": "'hey'"}]},
+        ]}},
+        {"final": "Saved an inspected proposal; not applied."},
+    ])
+    runner, _ = _runner(model, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", agent_id="coding_agent", message="Edit greeting",
+                   request={"completion_goal": "proposal"})
+    events = _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo, repo_scope="tenant")))
+    assert events[-1].type == "run.completed"
+    assert [step["tool"] for step in run.transcript] == [
+        "repo_search", "repo_search", "repo_read_file", "repo_propose_patch",
+    ]
+    assert (repo / "src" / "app.py").read_text() == "def hello():\n    return 'hi'\n"
+
+
+def test_discovery_checkpoint_does_not_invent_source_locations(tmp_path):
+    runner, _ = _runner(ScriptedLLM([]), tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", agent_id="coding_agent", message="Find target")
+    run.transcript = [
+        {"tool": "repo_search", "result": {"status": "ok", "matches": []}},
+        {"tool": "repo_list_files", "result": {"status": "ok", "files": ["README.md"]}},
+    ]
+    assert not runner._discovery_read_due(run)
+    run.transcript[0]["result"]["matches"] = [{"path": "src/app.py", "line": 1}]
+    assert runner._discovery_read_due(run)
+    run.transcript.append({"tool": "repo_read_file", "result": {"status": "ok", "content": "real source"}})
+    assert not runner._discovery_read_due(run)
+    run.agent_id = "research_agent"
+    run.transcript.pop()
+    assert not runner._discovery_read_due(run)
+
+
+@pytest.mark.parametrize("tracked", [False, True])
+def test_repo_search_scopes_literal_file_and_directory_and_preserves_policy(repo, tracked):
+    from mammoth_os.agent_loop.builtin_tools import _search
+    (repo / "README.md").write_text("hello docs", encoding="utf-8")
+    (repo / "src" / "[target].py").write_text("hello bracket", encoding="utf-8")
+    if tracked:
+        subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+    ctx = ToolContext(user_id="u1", repo_root=repo)
+    result = _search({"query": "hello", "path": "src/app.py"}, ctx)
+    assert result["path"] == "src/app.py"
+    assert [match["path"] for match in result["matches"]] == ["src/app.py"]
+    directory = _search({"query": "hello", "path": "src"}, ctx)
+    assert {match["path"] for match in directory["matches"]} == {"src/app.py", "src/[target].py"}
+    literal = _search({"query": "hello", "path": "src/[target].py"}, ctx)
+    assert len(literal["matches"]) == 1
+    for path in ["../outside", ".env", ".git/config", "C:\\outside", "missing.py"]:
+        assert _search({"query": "hello", "path": path}, ctx)["code"] == "invalid_path"
+    assert _search({"query": "-e", "path": "src"}, ctx)["status"] == "ok"
+
+
+def test_optional_run_router_selects_client_without_breaking_zero_argument_factory(tmp_path, repo):
+    routed = []
+    model = ScriptedLLM([{"final": "Observed answer only."}])
+    runner, _ = _runner(None, tmp_path, llm_router=lambda run: routed.append(run.agent_id) or model)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", agent_id="coding_agent", message="Explain")
+    events = _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo)))
+    assert routed == ["coding_agent"] and events[-1].type == "run.completed"
 
 
 def test_repeated_identical_call_is_not_re_executed(tmp_path, repo):

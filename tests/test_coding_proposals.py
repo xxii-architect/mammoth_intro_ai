@@ -20,7 +20,10 @@ def client(monkeypatch):
             self.calls.append(prompt)
             return self.output
     instance = Client()
-    monkeypatch.setattr("mammoth_os.agents.coding_agent.get_llm_client", lambda: instance)
+    def coding_client(config=None):
+        assert config == {"workload": "coding"}
+        return instance
+    monkeypatch.setattr("mammoth_os.agents.coding_agent.get_llm_client", coding_client)
     return instance
 
 

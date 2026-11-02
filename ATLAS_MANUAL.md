@@ -398,8 +398,8 @@ MammothOS now supports a safe dual-provider runtime: DeepSeek for reasoning-heav
 | 2 | `MAMMOTH_LLM_ADAPTER=ollama|hermes|codellama|...` | That Ollama model |
 | 3 | `MAMMOTH_LLM_ADAPTER=deepseek|deepseek-api|deepseek-cloud` | DeepSeek cloud reasoning path |
 | 4 | `MAMMOTH_LLM_ADAPTER=openai` | OpenAI |
-| 5 | `OPENAI_API_KEY` is set | OpenAI (`gpt-4o-mini` default) |
-| 6 | `DEEPSEEK_API_KEY` is set | DeepSeek cloud fallback |
+| 5 | `DEEPSEEK_API_KEY` is set | DeepSeek, then OpenAI, then Ollama/local fallback |
+| 6 | Only `OPENAI_API_KEY` is set | OpenAI (`gpt-4o-mini` default), then Ollama/local fallback |
 | 7 | Ollama is running on localhost:11434 | Ollama auto-detected |
 | 8 | Nothing available | Local echo fallback |
 
@@ -408,6 +408,22 @@ MammothOS now supports a safe dual-provider runtime: DeepSeek for reasoning-heav
 - Use DeepSeek for reasoning, long-context tutoring, and ATLAS coaching.
 - Use OpenAI `gpt-4o-mini` for coding generation, repair, and code review.
 - If the current provider is out of quota / billing blocked / key invalid, MammothOS retries through the next provider instead of dead-ending the workflow.
+
+Coding-agent generation/advice/refactoring and Mammoth Mind proposal/validation/
+application runs use an explicit coding workload. Its default order is OpenAI,
+DeepSeek, Ollama, then local echo. Operators may set
+`MAMMOTH_CODING_LLM_ADAPTER=deepseek` to prefer DeepSeek for coding without changing
+tutor/general routing; values other than `openai` / `deepseek` are rejected.
+Explicit per-call adapters and process-wide offline settings still take priority.
+The `deepseek` adapter alias uses cloud when a DeepSeek key is configured; without
+one, its old local-model alias is retained. Use `deepseek-cloud` or
+`deepseek-coder` when you need an unambiguous choice.
+
+Coding search can be scoped to an exact repository-relative file or directory.
+After two discovery calls with source matches, a checkpoint temporarily removes
+more search/list/readiness calls from the next decision, encouraging a real
+source read instead. No extra task steps or permissions are granted. A checkpoint,
+schema-valid decision or passing build is not proof of correct code or layout.
 
 ### Cloud keys in `.env`
 

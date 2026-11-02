@@ -35,6 +35,23 @@ Read-only tools run automatically. Anything that would run a command or change s
 
 Both clients accept a usage hook that reports each call (surface, status, duration) so you can meter usage in your own product.
 
+## Coding routing and planning
+
+Both clients reach the same backend route: the coding lane and
+proposal/validation/application goals request a coding-specific provider policy.
+The default preference is OpenAI (`gpt-4o-mini` unless configured), with DeepSeek
+and then Ollama/local fallback. Operators can prefer DeepSeek for coding with
+`MAMMOTH_CODING_LLM_ADAPTER=deepseek`; this is not a tenant privilege or a
+client-supplied setting. General/tutor routing is unchanged. Diagnostics report
+the provider/model actually used, including fallback, rather than a claimed
+quality score.
+
+Repository search accepts an optional exact relative `path`. After two discovery
+calls produce source matches, the next coding decision cannot keep searching,
+listing or refreshing readiness; it must use the reported evidence or explain
+a blocker. This does not auto-select a source file, guarantee a valid patch or
+change either execution approval gate.
+
 ## Recover and review saved runs
 
 Use Python `paths.recover_run(run_id)` or JavaScript

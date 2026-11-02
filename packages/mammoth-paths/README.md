@@ -81,6 +81,18 @@ Repair markers do not age recent source excerpts into the clipped history
 budget. These limits can increase actual model usage; they do not prove that a
 provider will produce a valid patch or that the change meets visual acceptance.
 
+The backend routes the Coding lane and proposal/validation/application goals
+through its coding workload policy. Default preference is OpenAI, then DeepSeek,
+then Ollama/local; operators can choose `MAMMOTH_CODING_LLM_ADAPTER=deepseek`
+without changing tutor/general routing. Explicit offline settings still win.
+Clients cannot grant themselves providers, tools or repository access. Search
+supports an exact relative `path`; after two discovery calls with source matches,
+the next coding decision is constrained to use evidence rather than keep
+searching/listing/refreshing readiness. Neither a route nor this checkpoint
+certifies task completion. Operator CLI smoke comparisons accept
+`--provider openai|deepseek|coding` with `--model` consent; inspect actual provider,
+source-read counts and independent acceptance, not only prose or build success.
+
 ## API
 
 | Method | Surface | Access |

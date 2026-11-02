@@ -129,6 +129,10 @@ async def run_workflow_benchmark(
                     "provider": run.provider, "model": run.model, "model_calls": len(run.diagnostics),
                     "reported_usage": tokens, "usage_complete": all(value is not None for value in tokens.values()),
                     "tool_calls": sum(event.type == "tool.call" for event in events), "approvals": approvals,
+                    "source_reads": sum(step.get("tool") == "repo_read_file"
+                                        and (step.get("result") or {}).get("status") == "ok" for step in run.transcript),
+                    "discovery_calls": sum(step.get("tool") in {"repo_search", "repo_list_files"} for step in run.transcript),
+                    "recovery_events": [event.data.get("code") for event in events if event.type == "run.recovering"],
                     "progress": progress, "independent_acceptance": acceptance_result, "checkout_preserved": preserved,
                     "diagnostics": run.diagnostics,
                     "tool_outcomes": [{"tool": step.get("tool"), "status": (step.get("result") or {}).get("status"),
@@ -150,12 +154,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model", action="store_true", required=True, help="Explicit consent to spend model credits.")
     parser.add_argument("--repetitions", type=int, default=1)
+    parser.add_argument("--provider", choices=("default", "coding", "openai", "deepseek"), default="default",
+                        help="Measure the default route, coding route, or an explicit provider preference (fallbacks remain enabled).")
     parser.add_argument("--output-dir", type=Path, default=Path(".mammoth") / "owner_benchmarks")
     args = parser.parse_args()
     from mammoth_os.llm_client import get_llm_client
+    config = ({"workload": "coding"} if args.provider == "coding" else
+              {"MAMMOTH_LLM_ADAPTER": args.provider} if args.provider != "default" else {})
     result = asyncio.run(run_workflow_benchmark(
         args.output_dir, ContainerExecutor(os.environ.get("MAMMOTH_OWNER_EXEC_IMAGE", "")),
-        get_llm_client, repetitions=args.repetitions,
+        lambda: get_llm_client(config), repetitions=args.repetitions,
     ))
     print(json.dumps({"id": result["id"], **result["summary"]}, indent=2))
 

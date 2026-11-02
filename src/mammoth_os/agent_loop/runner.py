@@ -396,12 +396,14 @@ class AgentRunner:
         *,
         max_steps: int = DEFAULT_MAX_STEPS,
         approval_mode: str = "tools",
+        llm_router: Optional[Callable[[AgentRun], Any]] = None,
     ):
         self.registry = registry
         self.llm_factory = llm_factory
         self.store = store
         self.max_steps = max_steps
         self.approval_mode = approval_mode
+        self.llm_router = llm_router
 
     # ── event plumbing ──────────────────────────────────────────────────────
     def _emit(self, run: AgentRun, kind: str, data: Dict[str, Any]) -> ev.RunEvent:
@@ -422,10 +424,29 @@ class AgentRunner:
     def _decision_tools(self, run: AgentRun, ctx: ToolContext) -> List[ToolSpec]:
         tools = self.registry.available(ctx)
         if run.completion_goal in {"validated", "applied"} and self.registry.resolve("owner_execution_prepare", ctx):
-            return [tool for tool in tools if tool.name not in {
+            tools = [tool for tool in tools if tool.name not in {
                 "repo_propose_patch", "owner_execution_run", "owner_execution_apply",
             }]
+        if self._discovery_read_due(run):
+            tools = [tool for tool in tools if tool.name not in {
+                "repo_search", "repo_list_files", "owner_execution_status",
+            }]
         return tools
+
+    @staticmethod
+    def _discovery_read_due(run: AgentRun) -> bool:
+        if run.agent_id != "coding_agent" and run.completion_goal not in {"proposal", "validated", "applied"}:
+            return False
+        recent = [step for step in run.transcript if not str(step.get("tool") or "").startswith("(")][-2:]
+        if len(recent) != 2 or any(step.get("tool") not in {"repo_search", "repo_list_files"} for step in recent):
+            return False
+        source_suffixes = {".py", ".js", ".jsx", ".ts", ".tsx", ".go", ".rs", ".java", ".c", ".cpp", ".cs", ".html", ".css"}
+        return any(
+            Path(str(match.get("path") or "")).suffix.lower() in source_suffixes
+            and int(match.get("line") or 0) > 0
+            for step in recent if (step.get("result") or {}).get("status") == "ok"
+            for match in (step.get("result") or {}).get("matches", [])
+        )
 
     def _build_prompt(self, run: AgentRun, ctx: ToolContext) -> str:
         catalog = [
@@ -483,6 +504,19 @@ class AgentRunner:
             "a data array. Prepare one bounded, coherent change at a time; split a large implementation into separately "
             "reviewed proposals instead of reproducing whole regions. If a valid existing read is enough, edit next."
         )
+        parts.append(
+            "Coding discovery: search literal UI labels, not guessed class names. Once a source path is known, "
+            "scope repo_search with path to that file or directory; broad searches can fill with documentation. "
+            "After locating relevant source matches, read a bounded range around the reported line before "
+            "searching for more names. A listing/search is not a source read."
+        )
+        if self._discovery_read_due(run):
+            parts.append(
+                "Discovery checkpoint: two discovery calls already returned source locations. "
+                "Search, listing and readiness tools are temporarily unavailable for this decision. "
+                "Read the most relevant reported source path and line range, use existing inspected evidence "
+                "to prepare the edit, or explain a concrete blocker. Do not invent file contents or approvals."
+            )
         if run.request.get("extra_context"):
             parts.append("Additional context:\n" + str(run.request["extra_context"])[:24000])
         if history:
@@ -562,7 +596,7 @@ class AgentRunner:
         self, run: AgentRun, prompt: str, *, final: bool = False,
         schema: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, Dict[str, Any]]:
-        client = self.llm_factory()
+        client = self.llm_router(run) if self.llm_router is not None else self.llm_factory()
         repairing_limit = bool(run.transcript and (run.transcript[-1].get("result") or {}).get("code") == "output_limit")
         output_limit = FINAL_OUTPUT_TOKENS if final else REPAIR_OUTPUT_TOKENS if repairing_limit else DECISION_OUTPUT_TOKENS
         if not final and run.completion_goal in {"validated", "applied"} and any(

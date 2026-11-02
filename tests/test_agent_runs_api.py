@@ -77,6 +77,24 @@ def test_run_streams_typed_events_and_persists_history(isolated, as_user):
     assert "request" not in fetched["run"]
 
 
+@pytest.mark.parametrize("agent_id,goal,coding", [
+    ("coding_agent", "answer", True),
+    ("assistant", "applied", True),
+    ("assistant", "validated", True),
+    ("assistant", "proposal", True),
+    ("assistant", "answer", False),
+    ("research_agent", "answer", False),
+])
+def test_live_runner_routes_coding_without_changing_tutor_or_research(monkeypatch, agent_id, goal, coding):
+    calls = []
+    monkeypatch.setattr("mammoth_os.llm_client.get_llm_client", lambda config=None: calls.append(config))
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", agent_id=agent_id,
+                   message="fixture only", completion_goal=goal)
+    api_server._agent_llm_factory(run)
+    assert calls == ([{"workload": "coding"}] if coding else [None])
+    assert api_server._AGENT_RUNNER.llm_router is api_server._agent_llm_factory
+
+
 def test_chat_exchange_is_persisted_before_terminal_is_delivered(isolated, as_user):
     state, use_llm = isolated
     as_user("tenant-a")

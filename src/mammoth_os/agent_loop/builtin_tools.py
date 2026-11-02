@@ -158,13 +158,20 @@ def _search(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
     root = ctx.repo_root.resolve()
     query = str(args.get("query") or "").strip()
     max_results = int(args.get("max_results") or 30)
+    scope_rel = str(args.get("path") or "").strip()
+    scoped = safe_repo_path(root, scope_rel) if scope_rel else root
+    if scoped is None or not scoped.exists():
+        return {"status": "error", "code": "invalid_path", "error": f"Search path not readable: {scope_rel}"}
     matches: List[Dict[str, Any]] = []
     if (root / ".git").exists():
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_PAGER": "cat"}
         proc = subprocess.run(
-            ["git", "-c", "core.quotepath=off", "grep", "-n", "-I", "-F", "-i", "--no-color", "-e", query, "--"],
+            ["git", "-c", "core.quotepath=off", "grep", "-n", "-I", "-F", "-i", "--no-color", "-e", query, "--",
+             *([":(literal)" + _rel(root, scoped)] if scope_rel else [])],
             cwd=str(root), capture_output=True, text=True, timeout=20, env=env,
         )
+        if proc.returncode not in {0, 1}:
+            return {"status": "error", "code": "search_failed", "error": "git grep failed for the selected repository path."}
         for line in proc.stdout.splitlines():
             path, _, rest = line.partition(":")
             line_no, _, text = rest.partition(":")
@@ -175,7 +182,8 @@ def _search(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
                 break
     else:
         needle = query.lower()
-        for rel in _list_files({"limit": 2000}, ctx).get("files", []):
+        candidates = [_rel(root, scoped)] if scoped.is_file() else _list_files({"path": scope_rel, "limit": 2000}, ctx).get("files", [])
+        for rel in candidates:
             target = root / rel
             try:
                 for idx, text in enumerate(target.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1):
@@ -186,7 +194,7 @@ def _search(args: Dict[str, Any], ctx: ToolContext) -> Dict[str, Any]:
                 continue
             if len(matches) >= max_results:
                 break
-    return {"status": "ok", "query": query, "matches": matches}
+    return {"status": "ok", "query": query, "path": scope_rel or ".", "matches": matches}
 
 
 def _unified_diff(root: Path, changes: List[Dict[str, Any]]) -> str:
@@ -320,6 +328,7 @@ REPO_SEARCH_SCHEMA = {
     "properties": {
         "query": {"type": "string", "minLength": 2, "maxLength": 200, "description": "Literal, case-insensitive text to find."},
         "max_results": {"type": "integer", "minimum": 1, "maximum": 100},
+        "path": {"type": "string", "maxLength": 260, "description": "Optional exact repository-relative file or directory; no globs."},
     },
     "required": ["query"],
     "additionalProperties": False,

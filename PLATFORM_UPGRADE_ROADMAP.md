@@ -350,6 +350,31 @@ separate application approval, with the original checkout unchanged. Actual
 model repair competence remains unproven; the prior 2/3 measurement is not a
 measurement of this candidate. No production deployment is implied by this log.
 
+### Coding routing and discovery correction (2026-11-02 UTC)
+
+- Coding-agent generation/advice/refactoring and run goals proposal/validated/
+  applied now explicitly request the coding workload. The default coding order
+  is OpenAI → DeepSeek → Ollama → local; the operator can independently prefer
+  DeepSeek with `MAMMOTH_CODING_LLM_ADAPTER=deepseek`. General/tutor defaults,
+  explicit per-call adapters and process-wide offline settings are preserved.
+- `repo_search` accepts an exact relative file/directory `path`, enforced by the
+  same repository policy. A discovery checkpoint temporarily removes additional
+  search/list/readiness calls after two discovery calls with source matches.
+  The existing task-step budget and both execution approvals are unchanged.
+- Proposed-code smoke, same three fixed Python fixtures, one attempt per
+  provider: DeepSeek 3/3 (11 calls, 37,253 reported tokens, p95 23.937s);
+  OpenAI gpt-4o-mini 2/3 (15 calls, 69,507 tokens, p95 24.163s).
+  OpenAI's unique-values candidate mishandled unhashable list elements and did
+  not repair it. Both reports are retained:
+  `workflow-da9c0d9f6744460ca630cc39` and
+  `workflow-4d6dacc930014abe98a1b28c`.
+- Six fixture runs are below the 20-sample threshold, not a causal A/B study or
+  evidence for real UI edits. No prices are inferred from token counts. The
+  conservative production preference remains DeepSeek while coding routes
+  become explicit; OpenAI is not promoted as a measured improvement.
+  Representative JSX/layout acceptance and model-driven failed-check repair
+  remain open. No tenant execution, wider autonomy or bypassed approvals.
+
 Local validation for these slices: 235 related Python tests passed (three
 real-container tests not opted in), 18 zero-dependency JS SDK tests passed,
 51 workspace browser tests passed, then 17 focused browser checks passed on

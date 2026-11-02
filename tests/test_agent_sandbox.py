@@ -9,7 +9,11 @@ import requests
 
 import api_server
 from mammoth_os.agents import browser_agent as browser_mod
-from mammoth_os.agents.browser_agent import BlockedURLError, BrowserAgent, _assert_public_url
+from mammoth_os.agents.browser_agent import (
+    BlockedURLError,
+    BrowserAgent,
+    _assert_public_url,
+)
 from mammoth_os.agents.coding_agent import _HOST_ACCESS, CodingAgent
 
 
@@ -35,7 +39,7 @@ def secret_file(tmp_path):
 @pytest.fixture()
 def llm(monkeypatch):
     client = _RecordingLLM()
-    monkeypatch.setattr("mammoth_os.agents.coding_agent.get_llm_client", lambda: client)
+    monkeypatch.setattr("mammoth_os.agents.coding_agent.get_llm_client", lambda config=None: client)
     return client
 
 

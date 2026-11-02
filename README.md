@@ -233,7 +233,7 @@ Rules the loop enforces:
 - **Large files:** `repo_read_file` can reach any line of files up to 5 MB (400 lines / 20 KB per call, with `total_lines` and `next_start_line`). The newest three tool results are shown to the model in full (24K chars) as raw text, and older ones are condensed. Clipped excerpts always state the last line shown, so the model never edits text it hasn't seen. DeepSeek's native tool-call markup is parsed as a real tool call.
 - **MCP access:** each `mcp/*.json` declares `access: admin|tenant`. Admin repo servers (filesystem, git) are only offered to the owner with the platform repo selected; tenant servers run with the user's sandbox clone as cwd.
 - **Honest output:** reasoning lines are short model-written summaries (no hidden chain-of-thought). Malformed decisions, empty responses, confirmed output limits, refusals, and offline responses are distinguished; none is marked completed. Exhausted step budgets or repeated tools produce a partial summary, not a success claim. This is runtime validation, not certification of a model's factual or task-completion claims.
-- **Bounded recovery:** invalid decisions retry once without spending a task step or rerunning saved tools. Cloud decisions request JSON mode on recognized supported endpoints; compatible/custom endpoints retain the validated text protocol. Decisions have a 4,096-token output allowance; separate prose finalization has 8,192. Provider finish reason, model and reported usage are saved and available in collapsed diagnostics; private reasoning is never substituted for a missing answer.
+- **Bounded recovery:** invalid decisions retry once without spending a task step or rerunning saved tools. Cloud decisions request JSON mode on recognized supported endpoints; compatible/custom endpoints retain the validated text protocol. Ordinary decisions allow 4,096 output tokens; source-backed owner validation/application decisions and separate prose finalization allow 8,192. Provider finish reason, model and reported usage are saved and available in collapsed diagnostics; private reasoning is never substituted for a missing answer.
 - **Schema-constrained decisions:** recognized GPT-4o/4.1 models on the official OpenAI endpoint now use strict `json_schema` output. The schema lists only tools authorized for the current context and distinguishes tool / answer / separate-finalization actions. Open-ended tool arguments remain JSON-encoded inside the envelope and are checked against the canonical registry schema before approval or execution. DeepSeek retains JSON mode, Ollama retains its JSON format, and custom/text adapters retain the validated compatibility path. Protocol selection is reported in diagnostics; it does not claim all providers have strict schemas or certify tool results. SDK `generate()` remains text-only. Adapter config `structured_decisions=False` explicitly selects the legacy JSON-mode path; schema API errors are surfaced, not silently downgraded or billed through additional retries.
 - **Continue task:** partial/recoverable runs retain their transcript and original request. The owner can continue up to twice, with eight additional task steps per continuation by default. The backend rebuilds repository access, preserves approvals, and rejects concurrent/already-finished continuations. Both SDKs expose explicit continuation (`continue_run` / `continueRun`); neither automatically spends more credits.
 - Runs are stored per user under `.mammoth/agent_runs/` (last 50); other users get 404.
@@ -670,8 +670,11 @@ model's prose recollection of an older run.
 
 Run recovery now permits the exact reread required after `edit_mismatch`, without
 allowing a successful application to repeat. A truncated 4096-token decision can
-retry once with an 8192-token ceiling and small-edit guidance; normal decisions
-stay capped at 4096. Model diagnostics record the actual output limit. Supported
+retry once with an 8192-token ceiling and small-edit guidance; source-backed owner
+validation/application decisions also allow 8192, while ordinary decisions stay
+capped at 4096. Repair markers do not age recent source excerpts into the clipped
+history budget. A duplicate tool decision is blocked and gets one corrective
+decision per stream, never duplicate execution. Model diagnostics record the actual output limit. Supported
 strict-schema providers receive typed argument objects for closed tool catalogs,
 not JSON embedded in a string. Open-ended MCP catalogs retain encoded arguments
 without losing freeform keys. Legacy envelopes remain accepted and all arguments still undergo registry
@@ -742,6 +745,13 @@ acceptance on disposable fixture repositories:
 ```powershell
 python -m mammoth_os.workflow_benchmark --model --output-dir .mammoth\owner_benchmarks
 ```
+
+Use `--provider openai` or `--provider deepseek` for explicit-provider smoke
+comparisons, or `--provider coding` to measure the configured coding route.
+Reports retain actual provider/model, usage, source-read/discovery counts,
+recovery events, both approvals and independent acceptance. Provider preference
+does not disable outage fallback; inspect the reported provider before comparing.
+Three Python fixtures are not a representative UI benchmark or a reliability certification.
 
 `--model` explicitly opts into provider credits; one repetition runs three tasks.
 Only fixture `app.py` changes and the two scoped owner approvals can be approved
@@ -1226,11 +1236,11 @@ MammothOS supports a safe multi-provider workflow without failing hard when an a
 
 Current selection order in `src/mammoth_os/llm_client.py`:
 1. `MAMMOTH_LLM_ADAPTER=local` → deterministic local adapter
-2. `MAMMOTH_LLM_ADAPTER=ollama|hermes|deepseek|codellama|...` → local Ollama model path
+2. `MAMMOTH_LLM_ADAPTER=ollama|hermes|codellama|...` → local Ollama model path
 3. `MAMMOTH_LLM_ADAPTER=deepseek|deepseek-api|deepseek-cloud` → DeepSeek cloud reasoning path
 4. `MAMMOTH_LLM_ADAPTER=openai` → OpenAI coding path
-5. `OPENAI_API_KEY` present → OpenAI (`gpt-4o-mini` by default)
-6. `DEEPSEEK_API_KEY` present → DeepSeek cloud fallback
+5. `DEEPSEEK_API_KEY` present → DeepSeek, then OpenAI, then Ollama/local fallback
+6. Only `OPENAI_API_KEY` present → OpenAI (`gpt-4o-mini` by default), then Ollama/local fallback
 7. Ollama running locally → Ollama auto-detect
 8. fallback → local deterministic adapter
 
@@ -1243,6 +1253,24 @@ Recommended split:
 - DeepSeek reasoning / ATLAS tutor / long-context coaching
 - OpenAI `gpt-4o-mini` for coding generation and code-review work
 - Ollama or local echo only when cloud providers are unavailable
+
+The Coding agent and run goals `proposal` / `validated` / `applied` now explicitly
+request the coding workload, including when started through either Paths client.
+Coding defaults to OpenAI → DeepSeek → Ollama → local, using `OPENAI_MODEL`
+(`gpt-4o-mini` by default). Operators can set
+`MAMMOTH_CODING_LLM_ADAPTER=deepseek` to retain DeepSeek → OpenAI → Ollama → local
+for coding independently of tutor/general routing. Only `openai` and `deepseek`
+are accepted; invalid settings fail explicitly. Explicit per-call adapter choices
+and process-wide local/Ollama modes remain authoritative. The ambiguous legacy
+`deepseek` alias uses cloud when a DeepSeek key exists, otherwise retains its
+local-model meaning; `deepseek-cloud` and `deepseek-coder` are unambiguous.
+
+Coding discovery supports `repo_search` with an exact relative `path`. After two
+discovery calls containing source locations, search/list/readiness are temporarily
+removed from the next model decision so it reads inspected evidence, prepares
+an already-inspected edit, or reports a blocker instead of spending the whole
+budget searching. This checkpoint does not choose a file, fabricate a plan result,
+raise tool privileges or increase the eight-step budget.
 
 If you want to prefer local models even when cloud keys exist, set:
 ```powershell
