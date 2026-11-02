@@ -38,9 +38,14 @@ if (process.argv[2] === 'build') {
         provider: 'openai', confidence, showEvidence: false,
       }))
       assert.ok(html.includes('OpenAI'), 'The provider should render.')
-      assert.ok(html.includes(`Output confidence: ${expected}`), `Supplied score ${confidence} must render ${expected}.`)
+      assert.ok(html.includes(`Reported score (uncalibrated): ${expected}`), `Supplied score ${confidence} must render ${expected}.`)
     }
-    console.log('MAMMOTH_UI_COMPONENT_PASSED: TrustBadgeRow explicit zero, low and high scores; provider retained.')
+    for (const confidence of [undefined, null, '', ' ', false, true, 'bad', -1, 101]) {
+      const html = renderToStaticMarkup(React.createElement(TrustBadgeRow, { provider: 'openai', confidence, sourceCount: 2 }))
+      assert.ok(html.includes('Not assessed') && html.includes('OpenAI') && html.includes('2 sources'))
+      assert.ok(!html.includes('74%') && !html.includes('80%'))
+    }
+    console.log('MAMMOTH_UI_COMPONENT_PASSED: explicit scores, invalid/missing values unassessed, provider and source counts retained.')
   } finally {
     await server.close()
   }

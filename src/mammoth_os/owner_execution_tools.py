@@ -29,6 +29,10 @@ def register_owner_execution_tools(
                 "patch_preview": job.get("patch", "")[:4000], "patch_truncated": len(job.get("patch", "")) > 4000,
                 "checks": {phase: {key: value for key, value in job[phase].items() if key not in {"log", "test_results"}}
                            for phase in ("baseline", "candidate") if phase in job},
+                "failure_excerpts": {phase: {"text": job[phase]["log"][-2000:],
+                                            "truncated": len(job[phase]["log"]) > 2000}
+                                     for phase in ("baseline", "candidate")
+                                     if phase in job and not job[phase].get("passed") and job[phase].get("log")},
                 "evidence_endpoint": f"/api/owner-executions/{job['id']}"}
 
     async def status(args: dict, ctx: ToolContext) -> dict:

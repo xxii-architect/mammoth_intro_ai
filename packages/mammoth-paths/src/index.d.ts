@@ -61,6 +61,7 @@ export interface RunState {
     goal_met: boolean
     state: string
     blocker: string
+    readiness?: { observation: number; base_sha: string; ready: boolean; reason: string; profiles: Record<string, boolean> } | null
     inspected: Array<Record<string, unknown>>
     proposals: Array<Record<string, unknown>>
     executions: Array<{ id: string; status: string; profile: string; application?: { status: string; branch?: string; commit_sha?: string } }>

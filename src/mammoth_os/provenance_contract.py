@@ -67,6 +67,8 @@ class ProvenanceContract:
             issues.append(msg)
             if strict_mode:
                 return False, issues
+        elif response.get("confidence") is None and response.get("confidence_status") == "not_assessed":
+            issues.append("Answer correctness is not assessed; provider availability and citations are not confidence.")
         else:
             confidence = response.get("confidence")
             try:
@@ -172,6 +174,7 @@ class ProvenanceContract:
             "validation_passed": is_valid,
             "provider": response.get("provider", "unknown"),
             "confidence": response.get("confidence", 0.0),
+            "confidence_status": response.get("confidence_status", "unverified"),
             "citation_count": len(response.get("citations", [])),
             "has_contradictions": bool(response.get("contradictions")),
         }

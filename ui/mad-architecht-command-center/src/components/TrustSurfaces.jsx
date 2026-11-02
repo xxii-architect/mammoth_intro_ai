@@ -1,3 +1,5 @@
+import { normalizeConfidence } from '../lib/confidence'
+
 /**
  * Trust Surfaces — Per-response confidence, provider, contradiction, and evidence badges
  * Displayed alongside assistant responses in Chat and Tutor surfaces
@@ -6,7 +8,7 @@
 /**
  * ProvenianceBadge — Shows which provider generated the response
  */
-export function ProvenianceBadge({ provider = 'unknown', confidence = 0.8 }) {
+export function ProvenianceBadge({ provider = 'unknown' }) {
   const providerInfo = {
     deepseek: { label: 'DeepSeek', color: 'var(--mm-color-agent-default)', icon: '🧠' },
     openai: { label: 'OpenAI', color: 'var(--mm-color-system-default)', icon: '⚡' },
@@ -14,7 +16,7 @@ export function ProvenianceBadge({ provider = 'unknown', confidence = 0.8 }) {
     unknown: { label: 'Mixed', color: 'var(--txt-sec)', icon: '?' },
   }
 
-  const info = providerInfo[provider.toLowerCase()] || providerInfo.unknown
+  const info = providerInfo[String(provider || 'unknown').toLowerCase()] || providerInfo.unknown
 
   return (
     <div
@@ -31,15 +33,10 @@ export function ProvenianceBadge({ provider = 'unknown', confidence = 0.8 }) {
         color: info.color,
         marginRight: 6,
       }}
-      title={`Provider: ${info.label}\nConfidence: ${(confidence * 100).toFixed(0)}%`}
+      title={`Provider: ${info.label}. Provider identity is not answer verification.`}
     >
       <span>{info.icon}</span>
       <span>{info.label}</span>
-      {confidence < 0.7 && (
-        <span style={{ marginLeft: 2, opacity: 0.7 }}>
-          ⚠️ {(confidence * 100).toFixed(0)}%
-        </span>
-      )}
     </div>
   )
 }
@@ -47,15 +44,16 @@ export function ProvenianceBadge({ provider = 'unknown', confidence = 0.8 }) {
 /**
  * ConfidenceIndicator — Visual confidence score (0–1)
  */
-export function ConfidenceIndicator({ score = 0.8, label = 'Confidence' }) {
+export function ConfidenceIndicator({ score, label = 'Reported score (uncalibrated)' }) {
+  const normalized = normalizeConfidence(score)
   const getColor = (s) => {
     if (s >= 0.85) return 'var(--mm-color-system-default)'
     if (s >= 0.7) return 'var(--gold)'
     return '#ff6b6b'
   }
 
-  const color = getColor(score)
-  const percentage = Math.round(score * 100)
+  const color = normalized === null ? 'var(--txt-sec)' : getColor(normalized)
+  const percentage = normalized === null ? null : Math.round(normalized * 100)
 
   return (
     <div
@@ -71,10 +69,10 @@ export function ConfidenceIndicator({ score = 0.8, label = 'Confidence' }) {
         fontWeight: 500,
         color,
       }}
-      title={`${label}: ${percentage}%`}
+      title={percentage === null ? 'Answer correctness has not been assessed. Provider availability and citations do not establish correctness.' : `${label}: ${percentage}%. Not a measured probability of correctness.`}
     >
       <div style={{ width: 12, height: 12, borderRadius: '50%', background: color, opacity: 0.6 }} />
-      <span>{percentage}%</span>
+      <span>{percentage === null ? 'Not assessed' : `${percentage}%`}</span>
     </div>
   )
 }
@@ -121,11 +119,15 @@ export function ContradictionFlag({ contradictions = [], severity = 'low' }) {
  */
 export function EvidenceQualityBadge({
   sourceCount = 0,
-  avgRelevance = 0.8,
-  avgCredibility = 0.75,
-  citationCoverage = 0.6,
+  avgRelevance,
+  avgCredibility,
+  citationCoverage,
 }) {
-  const overallScore = (avgRelevance + avgCredibility + citationCoverage) / 3
+  const metrics = [avgRelevance, avgCredibility, citationCoverage].map(normalizeConfidence)
+  if (metrics.some(value => value === null)) {
+    return <span title="Source count only; source quality and answer correctness are not assessed.">{sourceCount} source{sourceCount === 1 ? '' : 's'}</span>
+  }
+  const overallScore = metrics.reduce((sum, value) => sum + value, 0) / 3
 
   const getGrade = (score) => {
     if (score >= 0.85) return { label: 'A', color: 'var(--mm-color-system-default)' }
@@ -152,9 +154,9 @@ export function EvidenceQualityBadge({
       }}
       title={`Evidence grade: ${grade.label}
 Sources: ${sourceCount}
-Relevance: ${(avgRelevance * 100).toFixed(0)}%
-Credibility: ${(avgCredibility * 100).toFixed(0)}%
-Citation coverage: ${(citationCoverage * 100).toFixed(0)}%`}
+Relevance: ${(metrics[0] * 100).toFixed(0)}%
+Credibility: ${(metrics[1] * 100).toFixed(0)}%
+Citation coverage: ${(metrics[2] * 100).toFixed(0)}%`}
     >
       <span>📚</span>
       <span>{grade.label}</span>
@@ -167,12 +169,12 @@ Citation coverage: ${(citationCoverage * 100).toFixed(0)}%`}
  */
 export function TrustBadgeRow({
   provider = 'unknown',
-  confidence = 0.8,
+  confidence,
   contradictions = [],
   sourceCount = 0,
-  avgRelevance = 0.8,
-  avgCredibility = 0.75,
-  citationCoverage = 0.6,
+  avgRelevance,
+  avgCredibility,
+  citationCoverage,
   showEvidence = true,
   style = {},
 }) {
@@ -190,7 +192,7 @@ export function TrustBadgeRow({
       }}
     >
       <ProvenianceBadge provider={provider} confidence={confidence} />
-      <ConfidenceIndicator score={confidence} label="Output confidence" />
+      <ConfidenceIndicator score={confidence} />
       {contradictions.length > 0 && (
         <ContradictionFlag
           contradictions={contradictions}
@@ -214,7 +216,7 @@ export function TrustBadgeRow({
  */
 export function DetailedTrustPanel({
   provider = 'unknown',
-  confidence = 0.8,
+  confidence,
   contradictions = [],
   sources = [],
   model = 'unknown',
@@ -266,8 +268,8 @@ export function DetailedTrustPanel({
             </div>
 
             <div>
-              <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)', marginBottom: 2 }}>Confidence</div>
-              <div style={{ color: 'var(--txt-sec)' }}>{(confidence * 100).toFixed(1)}%</div>
+              <div style={{ fontWeight: 600, color: 'var(--mm-color-system-default)', marginBottom: 2 }}>Reported score (uncalibrated)</div>
+              <div style={{ color: 'var(--txt-sec)' }}>{normalizeConfidence(confidence) === null ? 'Not assessed' : `${(normalizeConfidence(confidence) * 100).toFixed(1)}%`}</div>
             </div>
 
             {contradictions.length > 0 && (

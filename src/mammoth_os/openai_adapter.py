@@ -16,7 +16,10 @@ class OpenAIAdapter:
         self._config = config or {}
         # Default: gpt-4o-mini (cheap, fast, sufficient for MammothOS workloads)
         # Override with OPENAI_MODEL env var or config["model"]
-        self.model = self._config.get("model") or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        model = self._config.get("model") or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+        if not isinstance(model, str):
+            raise ValueError("OpenAI model must be a string.")
+        self.model = model
         self.api_key = self._config.get("api_key") or os.getenv("OPENAI_API_KEY")
         self.base_url = self._config.get("base_url") or os.getenv("OPENAI_BASE_URL")
         self._client = None
@@ -86,10 +89,13 @@ class OpenAIAdapter:
                 "role": "system",
                 "content": (
                     "For this decision use the supplied mammoth_decision schema instead of the text JSON shape. "
-                    "action is tool, answer, or finalize. args_json is a JSON object encoded as a string, using "
-                    "the tool catalog's argument schema. tool action requires an available tool and final=null; "
-                    "answer requires tool=null, args_json='{}', and a complete final answer; finalize requires "
-                    "tool=null, args_json='{}', final=null and requests separate prose finalization. "
+                    "action is tool, answer, or finalize. Use the supplied schema's argument field: args is a typed "
+                    "object, or for legacy schemas args_json is a JSON object encoded as a string. "
+                    "Use the selected tool's exact argument schema. Set unused optional arguments to null when "
+                    "the strict schema requires them. tool action requires an available tool and final=null. "
+                    "For no arguments, answers and finalization use args={} (legacy args_json='{}'). "
+                    "answer requires tool=null and a complete final answer; finalize requires "
+                    "tool=null, final=null and requests separate prose finalization. "
                     "reasoning is a short public rationale, never private chain-of-thought. "
                     "Use [] when the plan is unchanged. Keep plans to at most 12 short steps."
                 ),

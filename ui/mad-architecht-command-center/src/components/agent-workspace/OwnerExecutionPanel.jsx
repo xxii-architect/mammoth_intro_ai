@@ -48,6 +48,7 @@ function ExecutionPanel({ repo = '' }) {
     <p>{capabilities?.isolation?.reason || 'Checking isolation availability...'}</p>
     {capabilities?.frontend_isolation && <p>Frontend image: {capabilities.frontend_isolation.reason}</p>}
     <button disabled={busy} onClick={() => { setCapabilities(null); setRefresh(value => value + 1) }}>Refresh isolation and HEAD</button>
+    <p>Refresh rereads this backend checkout's committed HEAD and installed profiles. It does not fetch GitHub, switch branches, include uncommitted edits, or update your laptop. Connected repository clones must be synced separately.</p>
     {error && <p role="alert">{error}</p>}
     {ready && <>
       <p>Observed HEAD: <code>{capabilities.base_sha}</code></p>

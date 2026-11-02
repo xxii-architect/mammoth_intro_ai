@@ -148,6 +148,10 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
     <div style={{ marginBottom: run.reply ? 10 : 0, display: 'grid', gap: 6 }} aria-live="polite">
       {run.progress && <section aria-label="Recorded work progress" style={{ fontSize: '.74rem', color: 'var(--txt-sec)' }}>
         <p>Goal: {run.progress.goal}. Recorded stage: {run.progress.stage}.</p>
+        {run.progress.readiness && <p>Observed base: <code>{run.progress.readiness.base_sha}</code>.
+          Available profiles: {Object.entries(run.progress.readiness.profiles || {}).filter(([, available]) => available).map(([name]) => name).join(', ') || 'none'}.
+          This is the saved observation, not an automatic repository sync.
+        </p>}
         {run.progress.executions?.map(job => <p key={job.id}>
           Execution <code>{job.id}</code>: {job.status} ({job.profile})
           {job.application?.status === 'applied' && <> · branch <code>{job.application.branch}</code> · commit <code>{job.application.commit_sha}</code></>}

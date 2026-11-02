@@ -12,7 +12,7 @@ from mammoth_os.agent_loop import (
     ToolRegistry,
     ToolSpec,
 )
-from mammoth_os.agent_loop.decisions import decision_schema, parse_structured_decision
+from mammoth_os.agent_loop.decisions import decision_schema, omit_optional_nulls, parse_structured_decision
 from mammoth_os.llm_client import FallbackAdapter
 from mammoth_os.openai_adapter import OpenAIAdapter
 
@@ -69,6 +69,47 @@ def test_schema_only_contains_authorized_tool_names():
     assert set(schema["required"]) == set(schema["properties"])
     assert parse_structured_decision(envelope(), [])["final"] == "Answer"
     assert parse_structured_decision(envelope("finalize", final=None), [])["final"] is None
+
+
+def test_empty_encoded_args_only_normalizes_to_an_object_without_bypassing_tool_validation(tmp_path):
+    assert parse_structured_decision(envelope("tool", "read", "", None), ["read"])["args"] == {}
+    adapter, _ = cloud(responses=[
+        envelope("tool", "execute", "", None), envelope(final="Cannot execute without required arguments."),
+    ])
+    agent, invoked = runner(tmp_path, adapter)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Execute")
+    events = collect(agent.start(run, ToolContext(user_id="u1")))
+    assert not invoked
+    assert not any(event.type == "approval.requested" for event in events)
+
+
+def test_typed_arguments_are_not_double_encoded_and_only_optional_nulls_are_removed():
+    schema = {"type": "object", "required": ["path"], "properties": {
+        "path": {"type": "string"}, "content": {"type": "string"},
+        "edits": {"type": "array", "items": {"type": "object", "additionalProperties": False, "required": ["old", "new"], "properties": {
+            "old": {"type": "string"}, "new": {"type": "string"},
+        }}},
+    }, "additionalProperties": False}
+    output = decision_schema(["prepare"], {"prepare": schema})
+    assert "args" in output["properties"] and "args_json" not in output["properties"]
+    raw = json.loads(envelope("tool", "prepare", final=None))
+    raw.pop("args_json")
+    raw["args"] = {"path": "app.py", "content": None, "edits": [{"old": "a", "new": "b"}]}
+    decision = parse_structured_decision(json.dumps(raw), ["prepare"])
+    args = omit_optional_nulls(decision["args"], schema)
+    assert args == {"path": "app.py", "edits": [{"old": "a", "new": "b"}]}
+    assert omit_optional_nulls({"path": None, "unexpected": None}, schema) == {"path": None, "unexpected": None}
+
+
+def test_open_mcp_arguments_keep_original_encoded_protocol_without_losing_keys():
+    schema = decision_schema(["mcp"], {"mcp": {"type": "object"}})
+    assert "args_json" in schema["properties"] and "args" not in schema["properties"]
+    decision = parse_structured_decision(envelope("tool", "mcp", '{"freeform":{"key":"value"}}', None), ["mcp"])
+    assert decision["args"] == {"freeform": {"key": "value"}}
+    nested = {"type": "object", "additionalProperties": False, "properties": {
+        "payload": {"type": "object"},
+    }}
+    assert "args_json" in decision_schema(["mcp"], {"mcp": nested})["properties"]
 
 
 @pytest.mark.parametrize("text", [

@@ -84,6 +84,14 @@ branch/commit evidence. `RunResult.progress` (Python) and result/state `progress
 (JS) expose the latest inventory. Missing evidence ends partial/incomplete,
 not a completed coding task; plans and model prose are not verification.
 
+`progress.readiness`, when present, records the observed base SHA and available
+profiles from this run. It is not a remote sync; a new observation does not
+update old approvals. Refreshing HEAD only reads the selected backend checkout.
+After a verified owner commit, completion is emitted directly from the saved
+application receipt, including branch and commit, without another model action.
+Chat/tutor reply confidence is nullable and explicitly `not_assessed` when
+uncalibrated; availability and citation count are not correctness probabilities.
+
 The standalone coding benchmark uses fixed independent acceptance tests.
 Reference mode only calibrates the harness; `--model` explicitly consumes credits.
 Small synthetic measurements never authorize autonomous execution. See the root

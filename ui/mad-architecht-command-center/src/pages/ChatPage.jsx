@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, PanelLeft, Paperclip, Square } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
+import { responseConfidence } from '../lib/confidence'
 import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent } from '../lib/agentRuns'
 import RunTimeline from '../components/RunTimeline'
 import ChatMessageBody from '../components/ChatMessageBody'
@@ -242,13 +243,6 @@ function parseStructuredAgentMessage(message) {
   }
 }
 
-function normalizeConfidence(value, fallback = 0.74) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return fallback
-  if (numeric > 1) return Math.max(0, Math.min(1, numeric / 100))
-  return Math.max(0, Math.min(1, numeric))
-}
-
 function findLastAssistantIndex(list) {
   for (let i = list.length - 1; i >= 0; i -= 1) {
     if (list[i]?.role === 'assistant') return i
@@ -359,13 +353,7 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
       || structuredResult?.runtime_state?.provider
       || 'unknown'
   )
-  const confidenceScore = normalizeConfidence(
-    entry.trust_metadata?.confidence
-    ?? entry.runtime_status?.confidence
-    ?? structuredResult?.confidence
-    ?? structuredResult?.confidence_score
-    ?? entry.confidence
-  )
+  const confidenceScore = responseConfidence(entry)
 
   const agentLabel = isUser
     ? 'You'

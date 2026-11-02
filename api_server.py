@@ -5514,33 +5514,16 @@ def _derive_chat_confidence(
     runtime_status: Dict[str, Any],
     evidence_items: List[Dict[str, Any]],
     reply: str,
-    base: float = 0.74,
-) -> float:
-    confidence = float(base)
-    state = str((runtime_status or {}).get("state") or "").lower()
-    if state == "ready":
-        confidence += 0.08
-    elif state in {"degraded", "fallback"}:
-        confidence -= 0.14
-    elif state in {"error", "down"}:
-        confidence -= 0.24
-    if (runtime_status or {}).get("error_type"):
-        confidence -= 0.08
-
-    count = len([item for item in (evidence_items or []) if isinstance(item, dict)])
-    if count >= 1:
-        confidence += 0.04
-    if count >= 3:
-        confidence += 0.03
-    if len(str(reply or "").strip()) < 40:
-        confidence -= 0.06
-    return round(max(0.2, min(0.96, confidence)), 2)
+    base: Optional[float] = None,
+) -> None:
+    """Availability, citation count and reply length do not measure correctness."""
+    return None
 
 
 def _build_chat_trust_metadata(
     *,
     provider: str,
-    confidence: float,
+    confidence: Optional[float],
     evidence_items: List[Dict[str, Any]],
     content: str,
     response_type: str = "general",
@@ -5556,7 +5539,8 @@ def _build_chat_trust_metadata(
     _, _, trust_metadata = enforce_on_release(
         {
             "provider": str(provider or "unknown"),
-            "confidence": float(confidence),
+            "confidence": confidence,
+            "confidence_status": "not_assessed" if confidence is None else "unverified",
             "citations": citations[:8],
             "contradictions": [],
             "content": str(content or ""),

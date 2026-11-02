@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Editor } from '@monaco-editor/react'
 import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
+import { responseConfidence } from '../lib/confidence'
 import MammothDiffViewer from '../components/MammothDiffViewer'
 import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
 import GuideStepPanel from '../components/GuideStepPanel'
@@ -64,13 +65,6 @@ function getBillingWarningState(billingUsage = null) {
       : '#f59e0b'
   const text = String(billingUsage?.warning_message || '').trim() || 'Usage is trending high for your current plan.'
   return { warningLevel, show, color, text, percentUsed }
-}
-
-function normalizeConfidence(value, fallback = 0.74) {
-  const numeric = Number(value)
-  if (!Number.isFinite(numeric)) return fallback
-  if (numeric > 1) return Math.max(0, Math.min(1, numeric / 100))
-  return Math.max(0, Math.min(1, numeric))
 }
 
 function MonacoReadOnlyBlock({ value, language = 'plaintext', height = 220 }) {
@@ -1303,7 +1297,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
                     {msg.role !== 'user' && (
                       <TrustBadgeRow
                         provider={String(msg.adapter || msg.provider || 'unknown')}
-                        confidence={normalizeConfidence(msg.confidence ?? msg.confidence_score)}
+                        confidence={responseConfidence(msg)}
                         contradictions={
                           Array.isArray(msg.contradictions)
                             ? msg.contradictions

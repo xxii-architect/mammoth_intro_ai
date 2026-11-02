@@ -3,7 +3,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
-async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '', repo = '', runOverride = null } = {}) {
+async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '', repo = '', runOverride = null, trustProps = {} } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
@@ -27,7 +27,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) })
   })
   await page.goto(baseURL)
-  await page.evaluate(async ({ component, authFailure, stalledAuth, savedTheme, repo, runOverride }) => {
+  await page.evaluate(async ({ component, authFailure, stalledAuth, savedTheme, repo, runOverride, trustProps }) => {
     const { supabase } = await import('/src/lib/supabase.js')
     let attempts = 0
     supabase.auth.getSession = async () => {
@@ -58,8 +58,9 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     function AuthProbe() { return React.createElement('p', null, useAuth().loading ? 'Checking session...' : 'Session ready') }
     function BrokenView() { throw new Error('Simulated render error') }
     const View = component === 'auth' ? AuthProbe : component === 'broken' ? BrokenView
+      : component === 'trust' ? (await import('/src/components/TrustSurfaces.jsx')).TrustBadgeRow
       : (await import(`/src/${component}.jsx`)).default
-    const props = component === 'components/agent-workspace/OwnerExecutionPanel' ? { repo }
+    const props = component === 'trust' ? trustProps : component === 'components/agent-workspace/OwnerExecutionPanel' ? { repo }
       : component === 'components/agent-workspace/AgentWorkspace' ? { agents: [], temperature: 0.3, approvalMode: true }
       : component === 'components/AgentCommandLibrary' ? { onClose() {} }
       : component === 'components/RunTimeline' ? {
@@ -74,13 +75,41 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
     ReactDOM.createRoot(document.getElementById('root')).render(
       React.createElement(Boundary, null, React.createElement(AuthProvider, null, React.createElement(View, props))),
     )
-  }, { component, authFailure, stalledAuth, savedTheme, repo, runOverride })
+  }, { component, authFailure, stalledAuth, savedTheme, repo, runOverride, trustProps })
   return errors
 }
 
 const ownerPanel = 'components/agent-workspace/OwnerExecutionPanel'
 const ownerCapabilities = { status: 'ok', enabled: true, isolation: { ready: true, reason: 'Pinned Linux image available.', profiles: { python_unittest: true, python_pytest: false, node_test: false } }, profiles: ['python_unittest', 'python_pytest', 'node_test'], base_sha: 'a'.repeat(40) }
 const ownerJob = { id: `exec-${'a'.repeat(24)}`, status: 'pending_approval', patch: '--- a/app.py\n+++ b/app.py\n-return 0\n+return 1\n', base_sha: 'a'.repeat(40), profile: 'python_unittest', approval_digest: 'b'.repeat(64), expires_at: 1999999999 }
+
+test('trust row keeps provider and source counts without inventing confidence or an evidence grade', async ({ page }) => {
+  const errors = await mount(page, 'trust', {}, { trustProps: { provider: 'openai', sourceCount: 2 } })
+  await expect(page.getByText('OpenAI', { exact: true })).toBeVisible()
+  await expect(page.getByText('Not assessed', { exact: true })).toBeVisible()
+  await expect(page.getByText('2 sources', { exact: true })).toBeVisible()
+  await expect(page.getByText(/74%|80%/)).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('explicit zero score is retained but labelled uncalibrated rather than correctness', async ({ page }) => {
+  await mount(page, 'trust', {}, { trustProps: { provider: 'openai', confidence: 0 } })
+  await expect(page.getByTitle(/Reported score \(uncalibrated\): 0%/)).toBeVisible()
+  await expect(page.getByText('OpenAI', { exact: true })).toBeVisible()
+  await expect(page.getByText('Not assessed')).toHaveCount(0)
+})
+
+test('legacy chat confidence is not resurrected from old history or provider health', async ({ page }) => {
+  await mount(page, 'pages/ChatPage', { '/api/mammoth/chat/history': { chat_history: [
+    { role: 'user', message: 'Test old history' },
+    { role: 'assistant', message: 'Historical response', confidence: .74, adapter: 'deepseek',
+      trust_metadata: { confidence: .8 }, runtime_status: { confidence: .99, state: 'ready' } },
+  ] } })
+  await expect(page.getByText('Historical response', { exact: true })).toBeVisible()
+  await expect(page.getByText('Not assessed', { exact: true })).toBeVisible()
+  await expect(page.getByText('DeepSeek', { exact: true })).toBeVisible()
+  await expect(page.getByText(/74%|80%|99%/)).toHaveCount(0)
+})
 
 test('owner panel hides tenant-denied execution and honestly shows a disabled pilot', async ({ page }) => {
   let errors = await mount(page, ownerPanel, { '/api/owner-executions/capabilities': { status: 403, body: '{"error":"Owner only"}' } })

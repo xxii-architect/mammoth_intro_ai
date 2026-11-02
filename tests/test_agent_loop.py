@@ -82,6 +82,19 @@ def test_parse_decision_handles_fences_and_prose():
     assert parse_decision('{"other": 1}') is None
 
 
+@pytest.mark.parametrize("tool,repeated", [
+    ("owner_execution_run", True), ("owner_execution_apply", True), ("owner_execution_prepare", False),
+])
+def test_read_does_not_make_consumed_execution_approval_reusable(tool, repeated):
+    run = AgentRun(id=AgentRun.new_id(), user_id="owner", message="Edit")
+    args = {"execution_id": "job", "approval_digest": "digest"}
+    run.transcript = [
+        {"tool": tool, "args": args, "result": {"status": "error"}},
+        {"tool": "repo_read_file", "args": {"path": "app.py"}, "result": {"status": "ok"}},
+    ]
+    assert AgentRunner._is_repeat(run, tool, args) is repeated
+
+
 def test_run_reads_file_then_answers(tmp_path, repo):
     llm = ScriptedLLM([
         {"reasoning": "Need the source.", "plan": ["Read app.py", "Answer"], "tool": "repo_read_file", "args": {"path": "src/app.py"}},
@@ -99,7 +112,7 @@ def test_run_reads_file_then_answers(tmp_path, repo):
     assert call.data["trace_kind"] == "read"
     assert "return 'hi'" in result.data["result"]["content"]
     assert "Decision budget remaining:" in llm.prompts[0]
-    assert "use the proposal tool" in llm.prompts[0]
+    assert "owner_execution_prepare for owner" in llm.prompts[0]
     assert types[-1] == "run.completed"
     assert events[-1].data["reply"] == "hello() returns 'hi'."
     assert [e.seq for e in events] == list(range(1, len(events) + 1))
@@ -492,6 +505,57 @@ def test_repeated_truncation_ends_with_clean_message(tmp_path, repo):
     assert events[-1].data["code"] == "invalid_response"
     assert "Continue task" in reply and "{" not in reply
     assert run.steps == 0
+
+
+def test_output_limit_retry_is_bounded_and_owner_guidance_is_not_proposal_only(tmp_path, repo):
+    from mammoth_os.llm_completion import Completion
+    from mammoth_os.agent_loop.runner import DECISION_OUTPUT_TOKENS, REPAIR_OUTPUT_TOKENS
+    class Model:
+        def __init__(self):
+            self.limits = []
+            self.prompts = []
+        async def generate_completion(self, prompt, **kwargs):
+            self.limits.append(kwargs["max_tokens"])
+            self.prompts.append(prompt)
+            if len(self.limits) == 1:
+                return Completion(text=TRUNCATED, finish_reason="length")
+            return Completion(text='{"final":"Could not prepare this change."}', finish_reason="stop")
+    model = Model()
+    runner, _ = _runner(model, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Change code",
+                   request={"completion_goal": "applied"})
+    events = _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo)))
+    assert model.limits == [DECISION_OUTPUT_TOKENS, REPAIR_OUTPUT_TOKENS]
+    assert REPAIR_OUTPUT_TOKENS == 8192
+    assert "owner_execution_prepare" in model.prompts[1]
+    assert "Do not reread unchanged excerpts" in model.prompts[1]
+    assert events[-1].type == "run.partial"
+    assert run.diagnostics[1]["output_token_limit"] == REPAIR_OUTPUT_TOKENS
+
+
+def test_inventory_retains_current_head_and_observation_indices_do_not_shift(tmp_path):
+    runner, _ = _runner(ScriptedLLM([]), tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Change code")
+    run.transcript = [{"tool": "owner_execution_status", "result": {
+        "status": "ok", "base_sha": "a" * 40, "isolation": {"ready": True, "profiles": {"ui_build": True}},
+    }}] + [{"tool": "repo_read_file", "result": {"status": "ok", "path": f"file-{i}"}} for i in range(12)]
+    assert run.progress()["readiness"]["base_sha"] == "a" * 40
+    observations = runner._observations_text(run)
+    assert "[3] repo_read_file" in observations and "[12] repo_read_file" in observations
+
+
+def test_repeat_guard_allows_required_reread_and_retry_after_edit_mismatch():
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Edit")
+    read = {"tool": "repo_read_file", "args": {"path": "app.py"}, "result": {"status": "ok"}}
+    edit = {"tool": "owner_execution_prepare", "args": {"changes": []},
+            "result": {"status": "error", "code": "edit_mismatch"}}
+    run.transcript = [read, edit]
+    assert AgentRunner._is_repeat(run, "repo_read_file", read["args"]) is False
+    run.transcript.append(read)
+    assert AgentRunner._is_repeat(run, "repo_read_file", read["args"]) is True
+    assert AgentRunner._is_repeat(run, "owner_execution_prepare", edit["args"]) is False
+    run.transcript.append({**edit, "result": {"status": "ok"}})
+    assert AgentRunner._is_repeat(run, "owner_execution_prepare", edit["args"]) is True
 
 
 def test_final_answer_hides_truncated_json(tmp_path):

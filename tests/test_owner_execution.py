@@ -86,6 +86,46 @@ def test_unsafe_changes_are_rejected(repository, path):
         validate_changes([{"path": path, "content": "x"}], repository)
 
 
+@pytest.mark.parametrize("goal,admin,proposal_visible", [
+    ("answer", True, True), ("proposal", True, True), ("validated", True, False),
+    ("applied", True, False), ("applied", False, True),
+])
+def test_owner_decision_catalog_uses_correct_preparation_without_changing_tenant_proposals(
+    repository, tmp_path, goal, admin, proposal_visible,
+):
+    from mammoth_os.agent_loop.builtin_tools import register_repo_tools
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    register_owner_execution_tools(registry, OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True))
+    runner = AgentRunner(registry, lambda: None, RunStore(tmp_path / "runs"))
+    run = AgentRun(id=AgentRun.new_id(), user_id="owner", message="Edit", completion_goal=goal)
+    ctx = ToolContext(user_id="owner", is_admin=admin, repo_root=repository)
+    assert ("repo_propose_patch" in [tool.name for tool in runner._decision_tools(run, ctx)]) == proposal_visible
+    assert ('"name": "repo_propose_patch"' in runner._build_prompt(run, ctx)) == proposal_visible
+
+
+def test_tool_receipts_keep_bounded_failure_details_without_losing_approval_identity(repository, tmp_path):
+    class LoggingExecutor(FakeExecutor):
+        def run(self, *args, **kwargs):
+            return {**super().run(*args, **kwargs), "log": "x" * 3000 + "\nAssertionError: expected 5"}
+    service = OwnerExecution(tmp_path / "jobs", LoggingExecutor(), enabled=True)
+    job = prepared(service, repository)
+    registry = ToolRegistry()
+    register_owner_execution_tools(registry, service)
+    ctx = ToolContext(user_id="owner", is_admin=True, repo_root=repository)
+    result = asyncio.run(registry.invoke("owner_execution_run", {
+        "execution_id": job["id"], "approval_digest": job["approval_digest"],
+    }, ctx))
+    assert result["status"] == "ok" and not result.get("truncated")
+    receipt = result["execution"]
+    assert receipt["application"]["approval_digest"]
+    assert "log" not in receipt["checks"]["baseline"]
+    assert set(receipt["failure_excerpts"]) == {"baseline"}
+    assert len(receipt["failure_excerpts"]["baseline"]["text"]) == 2000
+    assert receipt["failure_excerpts"]["baseline"]["text"].endswith("AssertionError: expected 5")
+    assert receipt["failure_excerpts"]["baseline"]["truncated"] is True
+
+
 @pytest.mark.parametrize("mode", ["120000", "160000"])
 @pytest.mark.parametrize("excluded", [True, False])
 def test_snapshot_excludes_environment_entries_but_rejects_source_links(repository, mode, excluded):
@@ -391,6 +431,55 @@ def test_mind_application_pauses_for_user_decision_even_in_never_approval_mode(r
     else:
         assert run.progress()["blocker"] == "User rejected this action."
     assert "separate approval" in runner._final_prompt(run, ctx)
+
+
+@pytest.mark.parametrize("reject_stage", [None, "validation", "application"])
+def test_requested_workflow_queues_both_approvals_from_receipts_without_more_model_calls(repository, tmp_path, reject_stage):
+    import json
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    class Model:
+        calls = 0
+        async def generate(self, prompt, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return json.dumps({"tool": "owner_execution_prepare", "args": {
+                    "base_sha": head_sha(repository), "profile": "python_unittest",
+                    "changes": [{"path": "app.py", "edits": [{"old": "return a - b", "new": "return a + b"}]}],
+                }})
+            return json.dumps({"final": "Stopped after your rejection."})
+    model = Model()
+    registry = ToolRegistry()
+    register_owner_execution_tools(registry, service)
+    runner = AgentRunner(registry, lambda: model, RunStore(tmp_path / "runs"))
+    run = AgentRun(id=AgentRun.new_id(), user_id="owner", message="Implement, validate and apply",
+                   request={"completion_goal": "applied"})
+    ctx = ToolContext(user_id="owner", is_admin=True, repo_root=repository)
+    async def exercise():
+        events = [event async for event in runner.start(run, ctx)]
+        assert run.status == "awaiting_approval" and run.pending_approval["tool"] == "owner_execution_run"
+        assert model.calls == 1 and not service.executor.calls
+        events += [event async for event in runner.resume(
+            run, ctx, approval_id=run.pending_approval["id"], approved=reject_stage != "validation",
+        )]
+        if reject_stage == "validation":
+            assert run.status == "partial" and not service.executor.calls
+            return events
+        assert run.status == "awaiting_approval" and run.pending_approval["tool"] == "owner_execution_apply"
+        assert model.calls == 1
+        assert not git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
+        events += [event async for event in runner.resume(
+            run, ctx, approval_id=run.pending_approval["id"], approved=reject_stage != "application",
+        )]
+        return events
+    events = asyncio.run(exercise())
+    if reject_stage is None:
+        assert run.status == "completed" and model.calls == 1
+        assert events[-1].data["completion_source"] == "verified_application_receipt"
+        assert run.progress()["executions"][0]["application"]["commit_sha"] in run.reply
+        assert sum(event.type == "model.completed" for event in events) == 1
+    else:
+        assert run.status == "partial"
+        assert not git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
 
 
 def test_working_tree_changes_are_not_implicitly_included(repository, tmp_path):
@@ -737,6 +826,8 @@ def test_real_frontend_build_rendering_regressions_and_approved_branch(tmp_path)
     import uuid
     source = Path(__file__).parents[1]
     files = snapshot(source, head_sha(source))
+    for rel in ("ui/mad-architecht-command-center/src/lib/confidence.js",):
+        files[rel] = (source / rel).read_bytes()
     for rel in files:
         if rel.startswith(("ui/mad-architecht-command-center/", "packages/mammoth-paths/")):
             files[rel] = (source / rel).read_bytes()
@@ -751,9 +842,9 @@ def test_real_frontend_build_rendering_regressions_and_approved_branch(tmp_path)
     rel = "ui/mad-architecht-command-center/src/components/TrustSurfaces.jsx"
     broken = {**files, rel: files[rel] + b"\nconst = invalid syntax;\n"}
     assert check(broken, "ui_build")["passed"] is False
-    old = b"const percentage = Math.round(score * 100)"
+    old = b"Math.round(normalized * 100)"
     assert files[rel].count(old) == 1
-    wrong = {**files, rel: files[rel].replace(old, b"const percentage = 91")}
+    wrong = {**files, rel: files[rel].replace(old, b"91")}
     assert check(wrong, "ui_component")["passed"] is False
     manifest_path = "ui/mad-architecht-command-center/package.json"
     manifest = json.loads(files[manifest_path])
@@ -776,13 +867,13 @@ def test_real_frontend_build_rendering_regressions_and_approved_branch(tmp_path)
     index = git(root, "ls-files", "--stage")
     service = OwnerExecution(tmp_path / "frontend-jobs", FakeExecutor(), enabled=True, frontend_executor=executor)
     job = service.prepare(root, "owner/frontend", "owner", [{"path": rel, "edits": [{
-        "old": old.decode(), "new": "const percentage = Math.round(100 * score)",
+        "old": old.decode(), "new": "Math.round(100 * normalized)",
     }]}], base_sha=base, profile="ui_component")
     checked = service.execute(job["id"], "owner", root, job["approval_digest"])
     assert checked["status"] == "validated", checked
     assert checked["baseline"]["passed"] and checked["candidate"]["passed"]
     applied = service.apply(job["id"], "owner", root, checked["application"]["approval_digest"])
     assert applied["application"]["status"] == "applied"
-    assert b"Math.round(100 * score)" in git(root, "show", f"{applied['application']['branch']}:{rel}")
+    assert b"Math.round(100 * normalized)" in git(root, "show", f"{applied['application']['branch']}:{rel}")
     assert head_sha(root) == base and (root / rel).read_bytes() == dirty
     assert git(root, "ls-files", "--stage") == index

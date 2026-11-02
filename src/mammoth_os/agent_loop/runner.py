@@ -23,12 +23,13 @@ from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 from mammoth_os.llm_completion import complete
 
 from . import events as ev
-from .decisions import decision_schema, parse_structured_decision
-from .tools import ToolContext, ToolRegistry, validate_args
+from .decisions import decision_schema, omit_optional_nulls, parse_structured_decision
+from .tools import ToolContext, ToolRegistry, ToolSpec, validate_args
 
 DEFAULT_MAX_STEPS = 8
 DECISION_OUTPUT_TOKENS = 4096
 FINAL_OUTPUT_TOKENS = 8192
+REPAIR_OUTPUT_TOKENS = 8192
 MAX_CONTINUATIONS = 2
 WORK_GOALS = ("answer", "proposal", "validated", "applied")
 MAX_OBSERVATION_CHARS = 24_000
@@ -73,6 +74,7 @@ class AgentRun:
         executions: Dict[str, Any] = {}
         proposals = []
         blocker = ""
+        readiness = None
         for index, step in enumerate(self.transcript):
             result = step.get("result") or {}
             name = step.get("tool")
@@ -86,6 +88,11 @@ class AgentRun:
                     blocker = str(result.get("error") or result.get("note") or
                                   (job.get("error") if isinstance(job, dict) else "") or "Tool action failed.")[:600]
                 continue
+            if name == "owner_execution_status":
+                readiness = {"observation": index, "base_sha": result.get("base_sha"),
+                             "profiles": (result.get("isolation") or {}).get("profiles", {}),
+                             "ready": (result.get("isolation") or {}).get("ready"),
+                             "reason": (result.get("isolation") or {}).get("reason")}
             if name == "repo_read_file":
                 inspected.append({"observation": index, **{key: result.get(key) for key in
                                   ("path", "start_line", "end_line", "content_sha256")}})
@@ -104,7 +111,7 @@ class AgentRun:
         achieved = WORK_GOALS.index(stage) >= WORK_GOALS.index(self.completion_goal)
         return {"goal": self.completion_goal, "stage": stage, "goal_met": achieved,
                 "inspected": inspected[-80:], "proposals": proposals[-20:],
-                "executions": list(executions.values())[-20:], "blocker": blocker,
+                "executions": list(executions.values())[-20:], "blocker": blocker, "readiness": readiness,
                 "state": "awaiting_approval" if self.pending_approval else
                          "completed" if achieved and self.status == "completed" else
                          "blocked" if blocker else "needs_continuation" if self.status == "partial" else "working"}
@@ -256,8 +263,10 @@ def looks_like_decision(text: str) -> bool:
 
 INVALID_RESPONSE_ERROR = (
     "Your previous response did not pass the completion/decision checks, so it was discarded. "
-    "Reply with one complete JSON object. For changes to existing files, use repo_propose_patch with "
-    "small 'edits' (exact old → new snippets) instead of full file 'content'."
+    "Reply with one complete JSON object and a short public rationale. Use small exact edits, not full existing "
+    "files or a large rewritten JSX block. Owner validation/application requires owner_execution_prepare, "
+    "then owner_execution_run, then separately approved owner_execution_apply. repo_propose_patch only saves "
+    "a proposal; it cannot start owner validation. Do not reread unchanged excerpts after a truncated response."
 )
 INVALID_FINAL_MESSAGE = (
     "I couldn't produce a valid, complete response. Your run progress is saved."
@@ -406,10 +415,16 @@ class AgentRunner:
         mode = str(run.request.get("approval_mode") or self.approval_mode)
         return mode == "always" and spec.tier != "read"
 
+    def _decision_tools(self, run: AgentRun, ctx: ToolContext) -> List[ToolSpec]:
+        tools = self.registry.available(ctx)
+        if run.completion_goal in {"validated", "applied"} and self.registry.resolve("owner_execution_prepare", ctx):
+            return [tool for tool in tools if tool.name != "repo_propose_patch"]
+        return tools
+
     def _build_prompt(self, run: AgentRun, ctx: ToolContext) -> str:
         catalog = [
-            {"name": t["name"], "description": t["description"], "tier": t["tier"], "input_schema": t["input_schema"]}
-            for t in self.registry.catalog(ctx)
+            {"name": t.name, "description": t.description, "tier": t.tier, "input_schema": t.input_schema}
+            for t in self._decision_tools(run, ctx)
         ]
         repo_line = describe_repo(ctx, approved_application=self.registry.resolve("owner_execution_apply", ctx) is not None)
         history = str(run.request.get("history_text") or "").strip()
@@ -420,14 +435,16 @@ class AgentRunner:
             f"Decision budget remaining: {max(0, (run.step_limit or self.max_steps) - run.steps)}. "
             "Read the necessary exact ranges, then perform the requested tool action when ready. "
             "Do not repeatedly ask for permission to perform ordinary reads or proposal preparation. "
-            "A chat reply containing a patch is not a saved proposal; use the proposal tool. "
+            "A chat reply containing a patch is not a saved proposal. Use owner_execution_prepare for owner "
+            "validation/application, or repo_propose_patch for proposal-only work. "
             "Mandatory tool approvals remain required; do not bypass them.",
             "Tool catalog:\n" + json.dumps(catalog, default=str),
         ]
         if self.registry.resolve("owner_execution_apply", ctx) is not None:
             parts.append(
-                "Owner-only approved coding workflow: when asked to make actual changes, inspect the selected repo, "
-                "call owner_execution_status FIRST for readiness and base_sha, then owner_execution_prepare with small "
+                "Owner-only approved coding workflow: when asked to make actual changes, "
+                "call owner_execution_status FIRST for readiness and base_sha, then read the exact target file ranges. "
+                "Never prepare an existing-file edit before inspecting its real contents. Then use owner_execution_prepare with small "
                 "exact old/new edits copied from inspected ranges (full content only for new files) and a profile marked "
                 "true in isolation.profiles. Do not reread or output entire large files for a tiny change. Tool availability does not prove that "
                 "repository dependencies are installed or that checks cover the change. For this command-center UI, "
@@ -439,12 +456,21 @@ class AgentRunner:
                 "or submodules to force validation. A file-not-readable result can mean a proposed file does not exist "
                 "yet; preparing a new file does not require reading it first. "
                 "owner_execution_run pauses for user approval to validate. "
+                "A failed validation consumes that approval: inspect failure excerpts, fix the candidate and prepare "
+                "a NEW job. Never retry a consumed execution ID/digest after a read. "
                 "Only after successful checks and no observed regression, owner_execution_apply pauses for a SECOND "
                 "user approval using execution.application.approval_digest. Application creates a commit on a NEW "
                 "LOCAL branch only; the selected checkout, remote and production are unchanged. Report the exact "
                 "branch and commit from tool evidence. Never bypass approvals or execute repository code on the host. "
                 "If unavailable, explain the actual blocker; do not claim changes were applied."
             )
+        parts.append(
+            "Current tool receipts override old conversation summaries, including repository HEAD and profiles. "
+            "Refresh owner_execution_status in this run before preparing an owner job; do not infer availability "
+            "from a previous chat. Headings and JSX removals must be located in the rendering component, not only "
+            "a data array. Prepare one bounded, coherent change at a time; split a large implementation into separately "
+            "reviewed proposals instead of reproducing whole regions. If a valid existing read is enough, edit next."
+        )
         if run.request.get("extra_context"):
             parts.append("Additional context:\n" + str(run.request["extra_context"])[:24000])
         if history:
@@ -469,11 +495,12 @@ class AgentRunner:
             return ""
         window = run.transcript[-10:]
         lines = ["Observations so far (oldest first):"]
-        for idx, step in enumerate(window, start=1):
-            recent = len(window) - idx < RECENT_OBSERVATIONS
+        offset = len(run.transcript) - len(window)
+        for idx, step in enumerate(window):
+            recent = len(window) - idx <= RECENT_OBSERVATIONS
             budget = MAX_OBSERVATION_CHARS if recent else MAX_OLD_OBSERVATION_CHARS
             call = f"{step.get('tool')}({json.dumps(step.get('args') or {}, default=str)[:400]})"
-            lines.append(f"[{idx}] {call}\n    → {render_observation(step.get('result') or {}, budget)}")
+            lines.append(f"[{offset + idx}] {call}\n    → {render_observation(step.get('result') or {}, budget)}")
         return "\n".join(lines)
 
     def _final_prompt(self, run: AgentRun, ctx: Optional[ToolContext] = None) -> str:
@@ -520,9 +547,11 @@ class AgentRunner:
         schema: Optional[Dict[str, Any]] = None,
     ) -> tuple[str, Dict[str, Any]]:
         client = self.llm_factory()
+        repairing_limit = bool(run.transcript and (run.transcript[-1].get("result") or {}).get("code") == "output_limit")
+        output_limit = FINAL_OUTPUT_TOKENS if final else REPAIR_OUTPUT_TOKENS if repairing_limit else DECISION_OUTPUT_TOKENS
         result = await complete(
             client, prompt, temperature=0.2,
-            max_tokens=FINAL_OUTPUT_TOKENS if final else DECISION_OUTPUT_TOKENS,
+            max_tokens=output_limit,
             decision_json=not final,
             decision_schema=schema,
         )
@@ -532,6 +561,7 @@ class AgentRunner:
             "usage": result.usage,
             "phase": "final" if final else "decision",
             "decision_protocol": result.decision_protocol or "text",
+            "output_token_limit": output_limit,
         }
         if result.model:
             meta["model"] = result.model
@@ -540,9 +570,11 @@ class AgentRunner:
         return result.text.strip(), meta
 
     async def _decide(self, run: AgentRun, ctx: ToolContext) -> Dict[str, Any]:
-        tool_names = [tool.name for tool in self.registry.available(ctx)]
+        tools = self._decision_tools(run, ctx)
+        tool_names = [tool.name for tool in tools]
         text, meta = await self._generate(
-            run, self._build_prompt(run, ctx), schema=decision_schema(tool_names),
+            run, self._build_prompt(run, ctx), schema=decision_schema(
+                tool_names, {tool.name: tool.input_schema for tool in tools}),
         )
         if meta.get("finish_reason") == "length":
             return {"_invalid": "output_limit", "_meta": meta}
@@ -567,8 +599,13 @@ class AgentRunner:
         ):
             return {"_invalid": "invalid_response", "_meta": meta}
         if tool is not None:
-            spec = self.registry.resolve(tool, ctx)
+            spec = self.registry.resolve(tool, ctx) if tool in tool_names else None
+            if structured and spec and "args" in decision:
+                decision["args"] = omit_optional_nulls(decision["args"], spec.input_schema)
             errors = validate_args(spec.input_schema, decision["args"]) if spec else ["Tool not available in this context."]
+            if (tool == "repo_propose_patch" and decision.get("goal") in {"validated", "applied"}
+                    and self.registry.resolve("owner_execution_prepare", ctx)):
+                errors.append("Use owner_execution_prepare for the requested owner validation/application goal.")
             if errors:
                 return {
                     "_invalid": "invalid_response", "_meta": meta,
@@ -635,10 +672,45 @@ class AgentRunner:
     @staticmethod
     def _is_repeat(run: AgentRun, tool: str, args: Dict[str, Any]) -> bool:
         key = json.dumps(args, sort_keys=True, default=str)
-        return any(
-            step.get("tool") == tool and json.dumps(step.get("args") or {}, sort_keys=True, default=str) == key
-            for step in run.transcript
-        )
+        for index in range(len(run.transcript) - 1, -1, -1):
+            step = run.transcript[index]
+            if step.get("tool") != tool or json.dumps(step.get("args") or {}, sort_keys=True, default=str) != key:
+                continue
+            intervening = run.transcript[index + 1:]
+            if tool == "repo_read_file" and any(
+                (item.get("result") or {}).get("code") in {"edit_mismatch", "stale_observation"}
+                for item in intervening
+            ):
+                return False
+
+            if tool not in {"owner_execution_run", "owner_execution_apply"} and (step.get("result") or {}).get("status") == "error" and any(
+                item.get("tool") in {"repo_read_file", "repo_recall_observation", "owner_execution_status"}
+                and (item.get("result") or {}).get("status") == "ok" for item in intervening
+            ):
+                return False
+            return True
+        return False
+
+    def _next_owner_action(self, run: AgentRun, ctx: ToolContext) -> Optional[Dict[str, Any]]:
+        if not run.transcript:
+            return None
+        step = run.transcript[-1]
+        result = step.get("result") or {}
+        job = result.get("execution") or {}
+        if result.get("status") != "ok" or not job.get("id"):
+            return None
+        name, digest = "", ""
+        if (step.get("tool") == "owner_execution_prepare" and job.get("status") == "pending_approval"
+                and run.completion_goal in {"validated", "applied"}):
+            name, digest = "owner_execution_run", job.get("approval_digest") or ""
+        elif (step.get("tool") == "owner_execution_run" and job.get("status") == "validated"
+              and run.completion_goal == "applied"):
+            application = job.get("application") or {}
+            if application.get("status") == "ready":
+                name, digest = "owner_execution_apply", application.get("approval_digest") or ""
+        if not name or not digest or self.registry.resolve(name, ctx) is None:
+            return None
+        return {"tool": name, "args": {"execution_id": job["id"], "approval_digest": digest}}
 
     async def _execute_tool(self, run: AgentRun, ctx: ToolContext, name: str, args: Dict[str, Any], *, call_id: Optional[str] = None) -> AsyncIterator[ev.RunEvent]:
         spec = self.registry.resolve(name, ctx)
@@ -669,14 +741,40 @@ class AgentRunner:
                     run.status = "cancelled"
                     yield self._emit(run, ev.RUN_CANCELLED, {"steps": run.steps})
                     return
+                progress = run.progress()
+                if run.completion_goal == "applied" and progress["goal_met"]:
+                    job = next(item for item in progress["executions"]
+                               if (item.get("application") or {}).get("status") == "applied")
+                    application = job["application"]
+                    checks = job.get("checks") or {}
+                    run.reply = (
+                        f"Applied validated changes to a new local branch.\n\n"
+                        f"- Execution: `{job['id']}`\n- Profile: `{job['profile']}`\n"
+                        f"- Baseline passed: {checks.get('baseline', {}).get('passed') is True}\n"
+                        f"- Candidate passed: {checks.get('candidate', {}).get('passed') is True}\n"
+                        f"- Branch: `{application['branch']}`\n- Commit: `{application['commit_sha']}`\n\n"
+                        "The selected checkout is unchanged. Nothing was pushed, merged or deployed. "
+                        "Passing this profile is not independent acceptance verification."
+                    )
+                    run.status, run.failure_code = "completed", ""
+                    yield self._emit(run, ev.MESSAGE_COMPLETED, {"text": run.reply})
+                    yield self._emit(run, ev.RUN_COMPLETED, {
+                        "reply": run.reply, "steps": run.steps, "provider": run.provider,
+                        "model": run.model, "completion_source": "verified_application_receipt",
+                        "can_continue": False,
+                    })
+                    return
                 stop_code = ""
-                if run.steps >= (run.step_limit or self.max_steps):
-                    stop_code = "step_limit"
-                    decision = await self._final_answer(run, ctx)
-                else:
-                    decision = await self._decide(run, ctx)
-                meta = decision.pop("_meta", {})
-                yield self._emit(run, ev.MODEL_COMPLETED, meta)
+                decision = self._next_owner_action(run, ctx)
+                meta = {}
+                if decision is None:
+                    if run.steps >= (run.step_limit or self.max_steps):
+                        stop_code = "step_limit"
+                        decision = await self._final_answer(run, ctx)
+                    else:
+                        decision = await self._decide(run, ctx)
+                    meta = decision.pop("_meta", {})
+                    yield self._emit(run, ev.MODEL_COMPLETED, meta)
                 if run.cancel_requested:
                     run.status = "cancelled"
                     yield self._emit(run, ev.RUN_CANCELLED, {"steps": run.steps})

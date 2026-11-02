@@ -633,6 +633,47 @@ Offline networking, read-only dependencies/root, non-root execution, capability
 removal and no-new-privileges remain enforced. No browser sandbox is disabled;
 full isolated browser interaction remains deferred pending a reviewed runtime.
 
+**What HEAD refresh means:** the panel reads the selected backend checkout's
+current committed HEAD and probes installed image profiles. New runs can obtain
+fresh evidence through `owner_execution_status` without clicking the panel.
+Refresh does not fetch/pull GitHub, switch branches, include dirty files, or
+update your laptop. Connected clones use their separate Sync action. Existing
+frozen approvals never move to a newer HEAD: a changed base requires a new
+proposal and approval. A completed owner application creates a new local branch;
+the selected checkout remains on its original HEAD until you explicitly choose
+to integrate that branch. Prefer the run's recorded base/profile receipts to a
+model's prose recollection of an older run.
+
+Run recovery now permits the exact reread required after `edit_mismatch`, without
+allowing a successful application to repeat. A truncated 4096-token decision can
+retry once with an 8192-token ceiling and small-edit guidance; normal decisions
+stay capped at 4096. Model diagnostics record the actual output limit. Supported
+strict-schema providers receive typed argument objects for closed tool catalogs,
+not JSON embedded in a string. Open-ended MCP catalogs retain encoded arguments
+without losing freeform keys. Legacy envelopes remain accepted and all arguments still undergo registry
+validation before approvals or execution. After verified application, the runner
+emits a deterministic branch/commit/check receipt instead of asking the model to
+execute again. Neither approval gate is bypassed.
+When the requested goal includes validation/application, a successful frozen
+preparation directly queues the normal validation approval; successful validation
+directly queues the separate branch approval. These transitions use recorded
+digests, not model-generated guesses, and do not spend another model decision.
+Rejection, failure and cancellation never trigger the next phase. No action
+executes merely because an approval was queued.
+Owner runs requiring validation/application exclude the proposal-only tool from
+model decisions; ordinary proposal-only and tenant workflows retain it. Failed
+checks include bounded failure excerpts and a full-evidence endpoint, so repair
+decisions can inspect real errors without truncating approval identity.
+
+Chat/tutor reply `confidence` is now `null` with
+`trust_metadata.confidence_status: "not_assessed"` when correctness is unmeasured.
+Provider health, response length and citation counts never manufacture a
+correctness probability. Old unlabelled heuristic scores render as **Not
+assessed**; explicit scores in shared trust components are labelled **Reported
+score (uncalibrated)**. Missing or invalid inputs are not converted to zero;
+explicit zero remains zero. Sources without quality assessments show a source
+count, not an invented grade. Learner exercise/mastery scores remain separate.
+
 Coding runs can require `answer`, `proposal`, `validated` or `applied` via the
 **Required result** selector or SDK `completion_goal` / `completionGoal`.
 Models may raise but never lower that goal. The run's `progress` inventory records
@@ -661,6 +702,23 @@ Use a client timeout of at least 420 seconds for the synchronous approval reques
 after a transport timeout, query the saved execution rather than reapprove it.
 
 ### Coding benchmark evidence
+
+The real run-loop benchmark additionally measures inspection, proposal preparation,
+both approval gates, validation, branch application and independent fixed
+acceptance on disposable fixture repositories:
+
+```powershell
+python -m mammoth_os.workflow_benchmark --model --output-dir .mammoth\owner_benchmarks
+```
+
+`--model` explicitly opts into provider credits; one repetition runs three tasks.
+Only fixture `app.py` changes and the two scoped owner approvals can be approved
+by this harness, never edits to acceptance tests or real repositories. Reports
+persist statuses, blockers, branch/check evidence, model/tool call counts,
+reported tokens, elapsed time and checkout preservation. Missing billing data
+stays `null`, not an invented cost. This is measurement, not permission to enable
+unattended execution. Fewer than 20 samples cannot satisfy reliability thresholds;
+three small Python tasks do not establish UI or arbitrary-repository reliability.
 
 ```powershell
 # No model credits: calibrates the real Docker harness with known solutions.

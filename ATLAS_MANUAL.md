@@ -745,6 +745,26 @@ Goals can only increase. Unsupported completion claims end as incomplete,
 not successful work; normal replies say Answered. Same-run observation recall
 reuses saved reads only while accessible file hashes still match. Plans are
 model-written summaries, not independent evidence.
+
+Refresh isolation and HEAD only rereads the selected backend checkout and probes
+installed images. It does not fetch GitHub, change branches or include dirty
+files; connected clones have a separate Sync action. A new run can refresh
+owner status through its tool without a manual panel refresh. Frozen proposals
+keep their original base; changed HEAD requires fresh preparation and approval.
+Applied owner branches do not move the selected checkout.
+
+Reply confidence is unassessed unless explicitly supplied with assessment
+metadata: chat/tutor responses now return null, not a synthetic 74%/80%.
+Provider identity and source counts remain visible. Legacy heuristic scores
+render Not assessed, and explicit shared-component scores are uncalibrated
+reported values, never a measured correctness probability. Learner mastery
+and exercise results are unaffected.
+
+The opt-in `python -m mammoth_os.workflow_benchmark --model` measures the real
+agent loop and two scoped approvals on disposable Python fixtures with fixed
+independent acceptance tests. It records failures, tokens and latency, not
+invented billing estimates. It never approves real repository actions.
+Small samples are smoke measurements, not evidence of arbitrary-repo autonomy.
 Runs remain limited to eight model decisions per segment, with up to two
 continuations. Use **Continue task** to preserve saved progress rather than
 starting the same investigation over. This does not bypass either approval.

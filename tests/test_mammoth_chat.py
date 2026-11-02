@@ -502,7 +502,15 @@ def test_mammoth_chat_response_includes_dynamic_trust_metadata(monkeypatch):
     )
 
     assert response["status"] == "ok"
-    assert isinstance(response.get("confidence"), float)
-    assert response["confidence"] > 0
+    assert response["confidence"] is None
+    assert response["trust_metadata"]["confidence_status"] == "not_assessed"
     assert isinstance(response.get("trust_metadata"), dict)
     assert isinstance(response["chat_history"][-1].get("trust_metadata"), dict)
+
+
+@pytest.mark.parametrize("runtime", [{"state": "ready"}, {"state": "down"}, {"state": "fallback", "error_type": "quota"}])
+def test_provider_health_and_sources_never_invent_answer_correctness(runtime):
+    assert api_server._derive_chat_confidence(
+        runtime_status=runtime, evidence_items=[{"url": "https://example.test"}] * 4,
+        reply="A long reply. " * 20, base=.99,
+    ) is None
