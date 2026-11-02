@@ -43,6 +43,7 @@ const CommandLibraryPage = lazy(() => import('./pages/CommandLibraryPage'))
 const BetaFeedbackPage = lazy(() => import('./pages/BetaFeedbackPage'))
 const ArtifactLibraryPage = lazy(() => import('./pages/ArtifactLibraryPage'))
 const TaskInboxPage = lazy(() => import('./pages/TaskInboxPage'))
+const RunReviewPage = lazy(() => import('./pages/RunReviewPage'))
 
 const ACTIVE_TIME_STORAGE_KEY = 'mammoth.app.active_seconds'
 
@@ -81,6 +82,7 @@ const NAV = [
   { id: 'account',  label: 'Account',     Icon: User },
   { id: 'agent',    label: 'Agent',       Icon: Bot },
   { id: 'chat',     label: 'Mammoth Mind', Icon: MessageSquare, accent: 'var(--photon)' },
+  { id: 'runreview', label: 'Run Review', Icon: ClipboardList },
   { id: 'terminal', label: 'Terminal',    Icon: Terminal },
   { id: 'manual',   label: 'Manual',      Icon: BookOpen },
   { id: 'commandlib', label: 'Command Library', Icon: BookOpen, accent: 'var(--mm-color-system-default)' },
@@ -134,6 +136,7 @@ const PAGE_COMPONENTS = {
   betafeedback: BetaFeedbackPage,
   artifacts:   ArtifactLibraryPage,
   taskinbox:   TaskInboxPage,
+  runreview:   RunReviewPage,
   settings:    SettingsPage,
   landing:     LandingPage,
   pricing:     PricingPage,

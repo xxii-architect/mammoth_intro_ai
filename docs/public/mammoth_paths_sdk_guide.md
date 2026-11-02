@@ -35,6 +35,27 @@ Read-only tools run automatically. Anything that would run a command or change s
 
 Both clients accept a usage hook that reports each call (surface, status, duration) so you can meter usage in your own product.
 
+## Recover and review saved runs
+
+Use Python `paths.recover_run(run_id)` or JavaScript
+`paths.recoverRun(runId)` after an interrupted stream. They make one read-only
+request, never another model call, continuation or approval. Python returns a
+`RunResult` with the saved `snapshot`; JavaScript returns a `RunState`. Current
+saved status/approval wins over historical events. JavaScript also exports
+`hydrateRun(fullSnapshot)` for custom transports. Use the complete snapshot,
+not an event suffix fetched with `after`.
+
+The shared JavaScript reducer ignores duplicate sequence numbers and rejects
+cross-run or new out-of-order events. Refresh the full snapshot after an ordering
+error. This is explicit recovery, not automatic reconnect or background execution.
+All backend ownership, repository access and approval-expiry checks remain.
+
+In the app, **Workspace > Run Review** exposes saved traces, checks, blockers and
+branch receipts without action controls. Refresh never spends model credits.
+An explicit JSON download may include prompts, source excerpts, arguments and
+logs: review it before sharing. Saved runs follow server retention and are not a
+permanent archive or independent correctness assessment.
+
 ## Owner-only isolated validation
 
 The disabled-by-default owner pilot adds matching Python/JS methods:
@@ -83,6 +104,14 @@ not permission to bypass approvals. It can rise, never fall. Event and saved-run
 branch/commit evidence. `RunResult.progress` (Python) and result/state `progress`
 (JS) expose the latest inventory. Missing evidence ends partial/incomplete,
 not a completed coding task; plans and model prose are not verification.
+
+For managed owner goals (`validated` / `applied`), the runtime schedules approvals
+from fresh preparation/check receipts rather than model-guessed execution IDs.
+Failed checks consume the validation approval. Repair needs a newly prepared
+candidate against committed source and fresh approvals; old jobs/digests cannot
+be reused. `progress.executions[].failure_excerpts` retains bounded error
+excerpts (with truncation flags), even when recent observations are clipped.
+This supplies repair evidence; it does not guarantee model repair quality.
 
 `progress.readiness`, when present, records the observed base SHA and available
 profiles from this run. It is not a remote sync; a new observation does not

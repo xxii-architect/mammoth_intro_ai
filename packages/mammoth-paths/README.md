@@ -58,6 +58,14 @@ executions/checks, blockers and branch/commit evidence. Python exposes
 ends partial with `missing_evidence`, preserving explicit continuation and both
 approval gates. Saved plans remain model-written, not verified evidence.
 
+For managed owner `validated` / `applied` goals, the runtime queues actions from
+fresh receipts; the model cannot directly request run/apply tools with guessed
+or consumed execution identities. A failed check needs a newly prepared candidate
+against committed source, fresh validation approval and separate application
+approval. Bounded failure excerpts remain in
+`progress.executions[].failure_excerpts`, including truncation flags, for review
+and repair. This is control-flow support, not a model-quality guarantee.
+
 ## API
 
 | Method | Surface | Access |
@@ -67,6 +75,7 @@ approval gates. Saved plans remain model-written, not verified evidence.
 | `decide(runId, approvalId, 'approve'\|'reject')` | Resume a paused run | run owner |
 | `continueRun(runId, opts)` | Continue partial/recoverable work with bounded additional model usage | run owner |
 | `cancelRun`, `getRun(runId, { after })`, `listRuns()` | Run control and replay | run owner |
+| `recoverRun(runId)` | Read full saved state without execution or approvals | run owner |
 | `listRepos`, `connectRepo`, `syncRepo`, `removeRepo` | Bring-your-own public GitHub repos | signed in |
 | `proposeChange(sourceId, changes, { title })` | Branch plus git patch; never pushed | repo owner |
 | `listTasks()`, `saveTask(task)` | Backend task state; only manual cards are editable | signed in, own items |
@@ -127,6 +136,28 @@ action; restart reconciliation does not automatically retry branch creation.
 Tenant application and paid entitlements are not enabled.
 
 ## Run events
+
+### Recover without retrying work
+
+```js
+const saved = await paths.recoverRun(runId) // one GET; no model credits or tool execution
+store.reset(saved)
+```
+
+For custom transports, import `hydrateRun(fullSnapshot)` to rebuild a state from
+the complete saved run. Do not pass an `after`-filtered suffix. The saved status
+and pending approval override historical events, including cancellation saved
+without another event. Recovery never continues a run or invokes an approval
+policy. Python provides `recover_run(run_id)` returning `RunResult`, including
+the full `snapshot` and current `progress`. Backend ownership/expiry rules remain
+authoritative for subsequent actions.
+
+The shared reducer ignores duplicate sequence numbers, rejects cross-run events
+and rejects new out-of-order events. Recover the full snapshot after a replay
+ordering error. This is explicit snapshot recovery, not automatic transport
+reconnection or durable background execution. MammothOS exposes the same evidence
+under Workspace > Run Review, with explicit JSON download and no action controls.
+Exports can contain prompts/source/logs; review before sharing.
 
 `run.started`, `plan.updated`, `reasoning.summary`, `tool.call`, `tool.result`, `approval.requested`, `approval.resolved`, `diff.proposed`, `message.delta`, `message.completed`, `run.awaiting_approval`, `run.completed`, `run.failed`, `run.cancelled`, `run.partial`, `run.continued`, `run.recovering`, `model.completed`.
 

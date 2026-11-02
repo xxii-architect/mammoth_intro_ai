@@ -90,6 +90,11 @@ export async function readRunEventStream(response, onEvent) {
 
 /** Fold one run event into a compact view-model. Pure; never mutates `run`. */
 export function reduceRunEvent(run, event) {
+  if (run?.id && event.run_id !== run.id) throw new TypeError('Cannot combine events from different runs')
+  if (run && Number.isInteger(event.seq) && event.seq > 0
+    && run.events.some(saved => saved.seq === event.seq)) return run
+  if (run && Number.isInteger(event.seq) && event.seq > 0
+    && run.events.some(saved => saved.seq > event.seq)) throw new TypeError('Run events arrived out of order; recover the saved snapshot')
   const base = run || { id: event.run_id, status: 'running', events: [], plan: [], approval: null, reply: '' }
   const next = { ...base, id: base.id || event.run_id, events: [...base.events, event] }
   const { type, data = {} } = event
@@ -112,8 +117,50 @@ export function reduceRunEvent(run, event) {
     next.failure_code = data.code || ''
     next.summary = data
   }
+  if (['run.completed', 'run.failed', 'run.partial', 'run.cancelled'].includes(type)) {
+    next.approval = null
+    if (type === 'run.completed' || type === 'run.cancelled') next.can_continue = false
+  }
   if (type === 'run.cancelled') next.status = 'cancelled'
   return next
+}
+
+/** Rebuild a full GET snapshot without starting, continuing or approving a run. */
+export function hydrateRun(snapshot) {
+  if (!snapshot || typeof snapshot.id !== 'string' || !snapshot.id
+    || !['running', 'awaiting_approval', 'completed', 'failed', 'cancelled', 'partial'].includes(snapshot.status)
+    || !Array.isArray(snapshot.events)
+    || (snapshot.plan != null && !Array.isArray(snapshot.plan))
+    || (snapshot.diagnostics != null && !Array.isArray(snapshot.diagnostics))
+    || (snapshot.reply != null && typeof snapshot.reply !== 'string')
+    || (snapshot.progress != null && (typeof snapshot.progress !== 'object' || Array.isArray(snapshot.progress)))
+    || (snapshot.pending_approval != null && (typeof snapshot.pending_approval !== 'object' || Array.isArray(snapshot.pending_approval)))) {
+    throw new TypeError('Invalid saved run snapshot')
+  }
+  let state = null
+  let previous = 0
+  for (const event of snapshot.events) {
+    if (!event || event.run_id !== snapshot.id || !Number.isInteger(event.seq) || event.seq !== previous + 1
+      || typeof event.type !== 'string' || !event.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
+      throw new TypeError('Saved run events must belong to this run and form a complete sequence starting at one')
+    }
+    previous = event.seq
+    state = reduceRunEvent(state, event)
+  }
+  // Cancellation/restart reconciliation can update saved state without another event.
+  return {
+    ...(state || { id: snapshot.id, events: [], plan: [], reply: '', approval: null }),
+    status: snapshot.status,
+    reply: snapshot.reply || '',
+    plan: snapshot.plan || [],
+    approval: snapshot.status === 'awaiting_approval' ? snapshot.pending_approval || null : null,
+    progress: snapshot.progress || null,
+    diagnostics: snapshot.diagnostics || [],
+    failure_code: snapshot.failure_code || '',
+    can_continue: ['partial', 'failed'].includes(snapshot.status) && snapshot.can_continue === true,
+    error: ['partial', 'failed'].includes(snapshot.status) ? snapshot.reply || '' : '',
+    recovery: null,
+  }
 }
 
 /**

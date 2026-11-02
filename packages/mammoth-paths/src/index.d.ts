@@ -64,8 +64,16 @@ export interface RunState {
     readiness?: { observation: number; base_sha: string; ready: boolean; reason: string; profiles: Record<string, boolean> } | null
     inspected: Array<Record<string, unknown>>
     proposals: Array<Record<string, unknown>>
-    executions: Array<{ id: string; status: string; profile: string; application?: { status: string; branch?: string; commit_sha?: string } }>
-  }
+    executions: Array<{
+      id: string
+      status: string
+      profile: string
+      base_sha?: string
+      checks?: Record<string, Record<string, unknown>>
+      failure_excerpts?: Record<string, { text: string; truncated: boolean }>
+      application?: { status: string; branch?: string; commit_sha?: string }
+    }>
+  } | null
 }
 
 export interface RunResult {
@@ -76,6 +84,19 @@ export interface RunResult {
   pendingApproval: Approval | null
   progress?: RunState['progress'] | null
   state: RunState | null
+}
+
+export interface RunSnapshot {
+  id: string
+  status: RunState['status']
+  events: RunEvent[]
+  reply?: string
+  plan?: RunState['plan']
+  pending_approval?: Approval | null
+  progress?: RunState['progress'] | null
+  diagnostics?: Array<Record<string, unknown>>
+  failure_code?: string
+  can_continue?: boolean
 }
 
 export interface UsageRecord {
@@ -120,6 +141,7 @@ export interface PathsClient {
   run(message: string, options?: RunOptions & { approve?: (approval: Approval) => boolean | 'approve' | 'reject' | Promise<boolean | 'approve' | 'reject'>; maxApprovals?: number }): Promise<RunResult>
   cancelRun(runId: string): Promise<Record<string, unknown>>
   getRun(runId: string, options?: { after?: number }): Promise<Record<string, unknown> | null>
+  recoverRun(runId: string): Promise<RunState>
   listRuns(): Promise<Array<Record<string, unknown>>>
   listRepos(): Promise<Record<string, unknown>>
   connectRepo(repo: string): Promise<Record<string, unknown>>
@@ -149,6 +171,7 @@ export interface PathsClient {
 
 export declare function createPathsClient(options: PathsClientOptions): PathsClient
 export declare function reduceRunEvent(run: RunState | null, event: RunEvent): RunState
+export declare function hydrateRun(snapshot: RunSnapshot): RunState
 export declare function readRunEventStream(response: Response, onEvent: (event: RunEvent) => void): Promise<void>
 export declare function createSseParser(onData: (payload: Record<string, unknown>) => void): { push(chunk: string): void; end(): void }
 export declare function createRunStore(initial?: RunState | null): {

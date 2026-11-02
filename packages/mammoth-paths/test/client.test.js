@@ -5,6 +5,7 @@ import {
   createPathsClient,
   createRunStore,
   createSseParser,
+  hydrateRun,
   PathsError,
   reduceRunEvent,
 } from '../src/index.js'
@@ -12,6 +13,60 @@ import {
 const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
+
+test('saved snapshot recovery is GET-only and authoritative over historical approval events', async () => {
+  const approval = { id: 'apr-1', tool: 'owner_execution_run', args: {} }
+  const snapshot = {
+    id: RUN_ID, status: 'cancelled', reply: '', pending_approval: null, can_continue: false,
+    progress: { stage: 'proposal', goal_met: false },
+    events: [ev(1, 'approval.requested', approval), ev(2, 'run.awaiting_approval')],
+  }
+  const { impl, calls } = fakeFetch({ [`GET /api/mammoth/runs/${RUN_ID}`]: { body: { run: snapshot } } })
+  const state = await createPathsClient({ baseUrl: 'https://x.test', fetch: impl }).recoverRun(RUN_ID)
+  assert.equal(state.status, 'cancelled')
+  assert.equal(state.approval, null)
+  assert.equal(state.can_continue, false)
+  assert.deepEqual(state.progress, snapshot.progress)
+  assert.equal(state.events.length, 2)
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].init.method, 'GET')
+  assert.equal(new URL(calls[0].url).search, '')
+  assert.equal(snapshot.events[0].data.id, 'apr-1')
+  assert.equal(hydrateRun({ ...snapshot, status: 'awaiting_approval', pending_approval: approval }).approval.id, 'apr-1')
+})
+
+test('snapshot recovery rejects unavailable, mismatched and malformed histories without executing', async () => {
+  const snapshot = { id: RUN_ID, status: 'completed', events: [ev(1, 'run.completed')] }
+  for (const events of [[ev(2, 'run.started'), ev(1, 'run.completed')], [ev(1, 'run.started'), ev(1, 'run.completed')],
+    [{ ...ev(1, 'run.started'), run_id: 'other' }], [null], [{ ...ev(1, 'run.started'), data: [] }],
+    [ev(2, 'run.completed')], [ev(1, 'run.started'), ev(3, 'run.completed')]]) {
+    assert.throws(() => hydrateRun({ ...snapshot, events }), TypeError)
+  }
+  for (const fields of [{ plan: {} }, { diagnostics: 'none' }, { pending_approval: [] }, { progress: [] }, { reply: 5 }]) {
+    assert.throws(() => hydrateRun({ ...snapshot, ...fields }), TypeError)
+  }
+  for (const body of [{ run: { ...snapshot, id: 'other' } }, { run: { ...snapshot, status: 'invented' } }]) {
+    const fetch = fakeFetch({ [`GET /api/mammoth/runs/${RUN_ID}`]: { body } })
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: fetch.impl }).recoverRun(RUN_ID),
+      error => error instanceof PathsError && error.code === 'invalid_snapshot')
+    assert.equal(fetch.calls.length, 1)
+  }
+  const fetch = fakeFetch({})
+  await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: fetch.impl }).recoverRun(RUN_ID),
+    error => error instanceof PathsError && error.status === 404)
+})
+
+test('replay is idempotent and cross-run or out-of-order events cannot corrupt a view', () => {
+  const first = reduceRunEvent(null, ev(1, 'message.delta', { text: 'one' }))
+  assert.equal(reduceRunEvent(first, ev(1, 'message.delta', { text: 'one' })), first)
+  const third = reduceRunEvent(first, ev(3, 'message.delta', { text: 'three' }))
+  assert.throws(() => reduceRunEvent(third, ev(2, 'message.delta', { text: 'two' })), /out of order/)
+  assert.throws(() => reduceRunEvent(first, { ...ev(2, 'run.completed'), run_id: 'other' }), /different runs/)
+  const approval = reduceRunEvent(first, ev(2, 'approval.requested', { id: 'apr' }))
+  const cancelled = reduceRunEvent(approval, ev(3, 'run.cancelled'))
+  assert.equal(cancelled.approval, null)
+  assert.equal(cancelled.can_continue, false)
+})
 
 function fakeFetch(routes) {
   const calls = []

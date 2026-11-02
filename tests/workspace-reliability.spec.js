@@ -83,6 +83,100 @@ const ownerPanel = 'components/agent-workspace/OwnerExecutionPanel'
 const ownerCapabilities = { status: 'ok', enabled: true, isolation: { ready: true, reason: 'Pinned Linux image available.', profiles: { python_unittest: true, python_pytest: false, node_test: false } }, profiles: ['python_unittest', 'python_pytest', 'node_test'], base_sha: 'a'.repeat(40) }
 const ownerJob = { id: `exec-${'a'.repeat(24)}`, status: 'pending_approval', patch: '--- a/app.py\n+++ b/app.py\n-return 0\n+return 1\n', base_sha: 'a'.repeat(40), profile: 'python_unittest', approval_digest: 'b'.repeat(64), expires_at: 1999999999 }
 
+const reviewRunId = 'run-0123456789abcdef'
+function reviewSnapshot(status = 'cancelled') {
+  const approval = { id: 'apr-review', tool: 'owner_execution_run', tier: 'exec', args: {}, reason: 'Validate' }
+  return {
+    id: reviewRunId, status, message: 'Merge chat headers', reply: 'Saved review reply',
+    pending_approval: status === 'awaiting_approval' ? approval : null, can_continue: status === 'partial',
+    progress: { goal: 'applied', stage: 'proposal', goal_met: false, inspected: [], executions: [] },
+    events: [
+      { run_id: reviewRunId, seq: 1, type: 'approval.requested', data: approval },
+      { run_id: reviewRunId, seq: 2, type: 'run.awaiting_approval', data: {} },
+    ],
+  }
+}
+
+test('Run Review uses saved cancellation, exports exact receipts and performs no mutations on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const requests = []
+  page.on('request', request => { if (new URL(request.url()).pathname.startsWith('/api/')) requests.push(request) })
+  const saved = reviewSnapshot()
+  const errors = await mount(page, 'pages/RunReviewPage', {
+    '/api/mammoth/runs': { runs: [{ id: reviewRunId, status: 'cancelled', message: saved.message }] },
+    [`/api/mammoth/runs/${reviewRunId}`]: { run: saved },
+  })
+  await expect(page.getByText('Saved review reply')).toBeVisible()
+  await expect(page.getByText('Saved status:', { exact: false })).toContainText('cancelled')
+  await expect(page.getByRole('group', { name: 'Approval required' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Continue task' })).toHaveCount(0)
+  const downloadEvent = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Download review JSON' }).click()
+  const download = await downloadEvent
+  expect(JSON.parse(fs.readFileSync(await download.path(), 'utf8'))).toEqual(saved)
+  await page.getByRole('button', { name: 'Refresh saved runs' }).click()
+  await expect(page.getByText('Saved review reply')).toBeVisible()
+  expect(requests.every(request => request.method() === 'GET')).toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('Run Review is reachable from workspace navigation without changing chat', async ({ page }) => {
+  const errors = await mount(page, 'App', {
+    '/api/entitlements': { admin_controls_enabled: true, tier: 'pro' },
+    '/api/mammoth/runs': { runs: [] },
+  })
+  await page.getByRole('button', { name: 'Run Review', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Run Review', exact: true })).toBeVisible()
+  await expect(page.getByText('No saved runs yet.')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('Run Review shows pending evidence without approval or continuation controls', async ({ page }) => {
+  const saved = reviewSnapshot('awaiting_approval')
+  await mount(page, 'pages/RunReviewPage', {
+    '/api/mammoth/runs': { runs: [{ id: reviewRunId, status: saved.status }] },
+    [`/api/mammoth/runs/${reviewRunId}`]: { run: saved },
+  })
+  await expect(page.getByText('Saved approval request only.', { exact: false })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Approve|^Reject|Continue task/ })).toHaveCount(0)
+})
+
+test('Run Review surfaces denied and malformed snapshots rather than showing successful work', async ({ page }) => {
+  let validIdentity = false
+  await mount(page, 'pages/RunReviewPage', {
+    '/api/mammoth/runs': { runs: [{ id: reviewRunId, status: 'completed' }] },
+    [`/api/mammoth/runs/${reviewRunId}`]: () => validIdentity
+      ? { status: 403, body: JSON.stringify({ error: 'Access denied' }) }
+      : { run: { ...reviewSnapshot(), id: 'other' } },
+  })
+  await expect(page.getByRole('alert')).toContainText('identity')
+  await expect(page.getByRole('button', { name: 'Download review JSON' })).toHaveCount(0)
+  validIdentity = true
+  await page.getByRole('button', { name: 'Refresh saved runs' }).click()
+  await expect(page.getByRole('alert')).toContainText('Access denied')
+  await expect(page.getByRole('region', { name: 'Saved run review' })).toHaveCount(0)
+})
+
+test('Run Review clears account-scoped evidence immediately when the user changes', async ({ page }) => {
+  await mount(page, 'pages/RunReviewPage', {
+    '/api/mammoth/runs': { runs: [{ id: reviewRunId, status: 'cancelled' }] },
+    [`/api/mammoth/runs/${reviewRunId}`]: { run: reviewSnapshot() },
+  })
+  await expect(page.getByText('Saved review reply')).toBeVisible()
+  let releaseList
+  await page.route('**/api/mammoth/runs', route => {
+    releaseList = () => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ runs: [] }) })
+  })
+  await page.evaluate(() => globalThis.switchWorkspaceAccount('other-user'))
+  await expect(page.getByRole('status')).toContainText('Loading saved runs')
+  await expect(page.getByText('Saved review reply')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Download review JSON' })).toHaveCount(0)
+  await expect.poll(() => typeof releaseList).toBe('function')
+  await releaseList()
+  await expect(page.getByText('No saved runs yet.')).toBeVisible()
+})
+
 test('trust row keeps provider and source counts without inventing confidence or an evidence grade', async ({ page }) => {
   const errors = await mount(page, 'trust', {}, { trustProps: { provider: 'openai', sourceCount: 2 } })
   await expect(page.getByText('OpenAI', { exact: true })).toBeVisible()

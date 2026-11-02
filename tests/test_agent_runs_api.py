@@ -4,7 +4,7 @@ import json
 import pytest
 
 import api_server
-from mammoth_os.agent_loop import AgentRunner, RunStore
+from mammoth_os.agent_loop import AgentRun, AgentRunner, RunStore
 
 
 class ScriptedLLM:
@@ -106,6 +106,29 @@ def test_run_is_private_to_its_owner(isolated, as_user):
     assert asyncio.run(api_server.mammoth_agent_run_cancel(run_id)).status_code == 404
     assert asyncio.run(api_server.mammoth_agent_run_approval(run_id, {"decision": "approve"})).status_code == 404
     assert asyncio.run(api_server.mammoth_agent_run_continue(run_id)).status_code == 404
+
+
+def test_saved_review_after_cancel_and_disk_reload_never_reexecutes(isolated, as_user, monkeypatch):
+    as_user("tenant-a")
+    run = AgentRun(id=AgentRun.new_id(), user_id="tenant-a", message="Review only", status="awaiting_approval")
+    run.pending_approval = {"id": "apr-1", "tool": "requires_approval", "args": {}}
+    run.events = [
+        {"run_id": run.id, "seq": 1, "type": "approval.requested", "data": run.pending_approval},
+        {"run_id": run.id, "seq": 2, "type": "run.awaiting_approval", "data": {}},
+    ]
+    api_server._AGENT_RUNS.save(run)
+    asyncio.run(api_server.mammoth_agent_run_cancel(run.id))
+    monkeypatch.setattr(api_server, "_AGENT_RUNS", RunStore(api_server._AGENT_RUNS.base_dir))
+    monkeypatch.setattr(api_server, "_AGENT_RUNNER", None)
+    saved = asyncio.run(api_server.mammoth_agent_run_get(run.id))["run"]
+    assert saved["status"] == "cancelled" and saved["pending_approval"] is None
+    assert saved["can_continue"] is False
+    assert saved["events"] == run.events
+    assert [item["seq"] for item in asyncio.run(api_server.mammoth_agent_run_get(run.id, after=1))["run"]["events"]] == [2]
+    assert asyncio.run(api_server.mammoth_agent_run_list())["runs"][0]["id"] == run.id
+    as_user("tenant-b")
+    assert asyncio.run(api_server.mammoth_agent_run_list())["runs"] == []
+    assert asyncio.run(api_server.mammoth_agent_run_get(run.id)).status_code == 404
 
 
 @pytest.mark.parametrize("goal", ["proposal", "validated", "applied"])

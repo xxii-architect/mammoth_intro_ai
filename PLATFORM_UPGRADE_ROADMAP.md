@@ -315,6 +315,49 @@ directions. These are fixture-based contract checks, not paid-model benchmarks.
 - [ ] RUN-11: transport disconnect/reconnect and restart recovery; explicit
   continuation is not durable background execution or automatic SSE reconnect.
 
+### Current reliability baseline and next delivery slices (2026-11-01)
+
+- Shipped through `5f225a2`: small committed-source edits, goal/evidence-derived
+  completion, isolated owner validation and separately approved local-branch
+  application; receipt-driven approval transitions/completion, bounded failure
+  excerpts and output repair; nullable unassessed reply confidence.
+- RUN-08 has owner coding evidence coverage, not universal deliverable-specific
+  verification. It remains open for other outputs.
+- RUN-09 has an opt-in real-loop measurement harness. Latest pre-recovery
+  OpenAI smoke: 2/3 fixed Python tasks succeeded, below the minimum 20 samples
+  and 90% target. Failed validation recovery remains weak. Earlier failed
+  measurements are retained; this is not proof of hosted DeepSeek reliability.
+- RUN-11 first slice: full saved snapshot recovery in Python/JS, shared
+  idempotent event replay and read-only Run Review navigation/export. Saved
+  cancellation state overrides historical approval events. Account changes
+  clear visible evidence. GET recovery never retries execution or approvals.
+  Automatic reconnect, durable background jobs and restart reconciliation
+  beyond existing backend behavior remain open.
+
+Next order: failed-validation repair with fresh frozen jobs and both approvals;
+RUN-07 context/checkpoint budgets; RUN-10 explicit spend/time controls backed by
+reported usage (never invented prices); representative provider-specific RUN-09
+measurements; then reviewed isolated browser runtime. Tenant paid execution
+requires stronger isolation, authoritative metering and representative evidence;
+it is not enabled by these SDK/UI additions. No new setting can grant repository,
+host, tool or approval privileges.
+
+The failed-validation recovery slice now retains bounded failure excerpts in
+saved progress and reserves managed run/apply transitions for fresh receipts,
+not model-guessed or consumed execution identities. Scripted failed-then-fixed
+coverage verifies new job/digest creation, a second validation approval and
+separate application approval, with the original checkout unchanged. Actual
+model repair competence remains unproven; the prior 2/3 measurement is not a
+measurement of this candidate. No production deployment is implied by this log.
+
+Local validation for these slices: 235 related Python tests passed (three
+real-container tests not opted in), 18 zero-dependency JS SDK tests passed,
+51 workspace browser tests passed, then 17 focused browser checks passed on
+the final candidate. Python lint/type checks, JS declaration type checking and
+the production UI build passed. No paid model calls were made for this delivery.
+Publication is intentionally held while the operator's separate header-edit
+workflow may still have HEAD-bound approvals in flight.
+
 ### Model shortlist: official published rates checked 2026-10-06
 
 USD per million standard uncached input / output tokens, excluding tool fees,

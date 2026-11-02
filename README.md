@@ -466,6 +466,30 @@ The `AtlasFAB*` names are permanent aliases for `MammothMind*` (same classes), a
 
 ## Mammoth Paths workspace SDK
 
+### Saved-run recovery and review
+
+**Workspace > Run Review** lists the current account's saved runs and reopens
+their plans, tool traces, diagnostics, blockers, checks and branch receipts.
+It is deliberately read-only: refresh is GET-only and never starts a model,
+continues a task, approves a tool, or syncs a repository. The saved list is bounded
+by server retention, not a permanent archive. Downloads are explicit JSON
+snapshots; they may contain prompts, source excerpts, tool arguments and logs,
+so review them before sharing. They do not certify correctness.
+
+Python `paths.recover_run(run_id)` returns `RunResult` with the authoritative
+saved status, pending approval, events and `snapshot`. JavaScript
+`paths.recoverRun(runId)` returns a reducer-compatible `RunState`;
+`hydrateRun(fullSnapshot)` provides the same pure hydration for custom transports.
+These read the full snapshot, not an `after`-filtered event suffix. Saved
+cancellation/restart state takes precedence over historical approval events.
+Duplicate streamed sequence numbers are ignored; new out-of-order or cross-run
+events raise an error instead of corrupting the visible result.
+
+No automatic retry, reconnect loop, durable background execution, or new
+permissions/settings are introduced. After a disconnect, recover saved evidence
+before deciding whether to explicitly continue or resolve an approval. Expiry,
+repository access and both owner approval gates still apply on the backend.
+
 Mammoth Paths is a thin, versioned client (`mammoth.paths.v1`) over the backend. Every call is scoped server-side to the caller's token, so an embedder can never read another user's runs, repos, notes, or build log, or the platform repository.
 
 ```python
@@ -661,7 +685,15 @@ digests, not model-generated guesses, and do not spend another model decision.
 Rejection, failure and cancellation never trigger the next phase. No action
 executes merely because an approval was queued.
 Owner runs requiring validation/application exclude the proposal-only tool from
-model decisions; ordinary proposal-only and tenant workflows retain it. Failed
+model decisions; ordinary proposal-only and tenant workflows retain it. Managed
+validation/application also reserves run/apply actions for the receipt-driven
+runtime, not model-guessed execution identities. A failed validation requires a
+corrected candidate prepared against committed source as a new frozen job, with
+fresh validation approval and a separate application approval after passing.
+Bounded failure excerpts persist in `progress.executions[].failure_excerpts`
+even after recent observations are clipped. Scripted regression coverage proves
+this control flow, not that a model will reliably produce the correct repair.
+Failed
 checks include bounded failure excerpts and a full-evidence endpoint, so repair
 decisions can inspect real errors without truncating approval identity.
 

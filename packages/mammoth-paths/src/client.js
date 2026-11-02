@@ -3,7 +3,7 @@
  * Every call is scoped server-side to the caller's token.
  */
 
-import { readRunEventStream, reduceRunEvent } from './runState.js'
+import { hydrateRun, readRunEventStream, reduceRunEvent } from './runState.js'
 
 export const PATHS_CONTRACT_VERSION = 'mammoth.paths.v1'
 
@@ -163,6 +163,15 @@ export function createPathsClient(options = {}) {
 
     cancelRun: (runId) => json('mind', 'POST', `/mammoth/runs/${seg(runId)}/cancel`, { body: {} }),
     getRun: async (runId, { after = 0 } = {}) => (await json('mind', 'GET', `/mammoth/runs/${seg(runId)}`, { query: { after: after || undefined } })).run || null,
+    async recoverRun(runId) {
+      const snapshot = await client.getRun(runId)
+      if (snapshot?.id !== runId) throw new PathsError('Saved run identity does not match the request', { code: 'invalid_snapshot' })
+      try {
+        return hydrateRun(snapshot)
+      } catch (error) {
+        throw new PathsError(error.message, { code: 'invalid_snapshot' })
+      }
+    },
     listRuns: async () => (await json('mind', 'GET', '/mammoth/runs')).runs || [],
 
     // ── Repositories (bring your own) ────────────────────────────────────

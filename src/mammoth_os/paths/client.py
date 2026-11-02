@@ -86,6 +86,7 @@ class RunResult:
     error: str = ""
     events: List[RunEvent] = field(default_factory=list)
     pending_approval: Optional[Dict[str, Any]] = None
+    snapshot: Optional[Dict[str, Any]] = None
 
     @property
     def tool_calls(self) -> List[Dict[str, Any]]:
@@ -98,6 +99,8 @@ class RunResult:
     @property
     def progress(self) -> Optional[Dict[str, Any]]:
         """Latest evidence inventory supplied by the backend, if supported."""
+        if self.snapshot is not None:
+            return self.snapshot.get("progress")
         for event in reversed(self.events):
             progress = event.data.get("progress")
             if isinstance(progress, dict):
@@ -380,6 +383,34 @@ class MammothPaths:
 
     def list_runs(self) -> List[Dict[str, Any]]:
         return list(self._json("mind", "GET", "/mammoth/runs").get("runs") or [])
+
+    def recover_run(self, run_id: str) -> RunResult:
+        """Read a full saved snapshot; never execute, continue or approve work."""
+        saved = self.get_run(run_id)
+        if (not isinstance(saved, dict) or saved.get("id") != run_id or saved.get("status") not in {
+            "running", "awaiting_approval", "completed", "failed", "cancelled", "partial",
+        } or not isinstance(saved.get("events"), list)
+                or any(saved.get(key) is not None and not isinstance(saved[key], kind)
+                       for key, kind in (("plan", list), ("diagnostics", list), ("reply", str),
+                                         ("progress", dict), ("pending_approval", dict)))):
+            raise PathsError("Invalid saved run snapshot", code="invalid_snapshot")
+        previous = 0
+        events = []
+        for raw in saved["events"]:
+            seq = raw.get("seq") if isinstance(raw, dict) else None
+            if (not isinstance(raw, dict) or raw.get("run_id") != run_id
+                    or type(seq) is not int or seq != previous + 1 or not isinstance(raw.get("type"), str)
+                    or not isinstance(raw.get("data"), dict)):
+                raise PathsError("Saved run events must belong to this run and form a complete sequence starting at one",
+                                 code="invalid_snapshot")
+            previous = seq
+            events.append(RunEvent.from_dict(raw))
+        return RunResult(
+            run_id=run_id, status=saved["status"], reply=str(saved.get("reply") or ""),
+            error=str(saved.get("reply") or "") if saved["status"] in {"failed", "partial"} else "",
+            events=events, pending_approval=saved.get("pending_approval") if saved["status"] == "awaiting_approval" else None,
+            snapshot=saved,
+        )
 
     # ── Repositories (bring your own) ─────────────────────────────────────
 

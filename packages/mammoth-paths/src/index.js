@@ -4,6 +4,7 @@ export {
   TERMINAL_RUN_EVENTS,
   createRunStore,
   createSseParser,
+  hydrateRun,
   readRunEventStream,
   reduceRunEvent,
 } from './runState.js'

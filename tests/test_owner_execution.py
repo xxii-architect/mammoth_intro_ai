@@ -102,6 +102,11 @@ def test_owner_decision_catalog_uses_correct_preparation_without_changing_tenant
     ctx = ToolContext(user_id="owner", is_admin=admin, repo_root=repository)
     assert ("repo_propose_patch" in [tool.name for tool in runner._decision_tools(run, ctx)]) == proposal_visible
     assert ('"name": "repo_propose_patch"' in runner._build_prompt(run, ctx)) == proposal_visible
+    names = {tool.name for tool in runner._decision_tools(run, ctx)}
+    if admin and goal in {"validated", "applied"}:
+        assert not {"owner_execution_run", "owner_execution_apply"} & names
+    elif admin:
+        assert {"owner_execution_run", "owner_execution_apply"} <= names
 
 
 def test_tool_receipts_keep_bounded_failure_details_without_losing_approval_identity(repository, tmp_path):
@@ -481,6 +486,71 @@ def test_requested_workflow_queues_both_approvals_from_receipts_without_more_mod
         assert run.status == "partial"
         assert not git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
 
+
+def test_failed_validation_repairs_original_base_with_fresh_job_and_both_new_approvals(repository, tmp_path):
+    import json
+    from mammoth_os.agent_loop.builtin_tools import register_repo_tools
+
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    class Model:
+        def __init__(self):
+            self.prompts = []
+            self.decisions = [
+                {"tool": "owner_execution_status", "args": {}},
+                {"tool": "repo_read_file", "args": {"path": "app.py"}},
+                {"tool": "owner_execution_prepare", "args": {
+                    "base_sha": head_sha(repository), "profile": "python_unittest",
+                    "changes": [{"path": "app.py", "edits": [{"old": "return a - b", "new": "return a * b"}]}],
+                }},
+                {"tool": "owner_execution_prepare", "args": {
+                    "base_sha": head_sha(repository), "profile": "python_unittest",
+                    "changes": [{"path": "app.py", "edits": [{"old": "return a - b", "new": "return a + b"}]}],
+                }},
+            ]
+        async def generate(self, prompt, **kwargs):
+            self.prompts.append(prompt)
+            return json.dumps(self.decisions.pop(0))
+    model = Model()
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    register_owner_execution_tools(registry, service)
+    store = RunStore(tmp_path / "runs")
+    runner = AgentRunner(registry, lambda: model, store)
+    run = AgentRun(id=AgentRun.new_id(), user_id="owner", message="Fix, test and apply",
+                   request={"completion_goal": "applied"})
+    ctx = ToolContext(user_id="owner", is_admin=True, repo_root=repository)
+    async def exercise():
+        events = [event async for event in runner.start(run, ctx)]
+        first = dict(run.pending_approval)
+        assert first["tool"] == "owner_execution_run"
+        events += [event async for event in runner.resume(run, ctx, approval_id=first["id"], approved=True)]
+        second = dict(run.pending_approval)
+        assert second["tool"] == "owner_execution_run"
+        assert second["args"]["execution_id"] != first["args"]["execution_id"]
+        assert second["args"]["approval_digest"] != first["args"]["approval_digest"]
+        assert "fixture evidence" in model.prompts[-1]
+        assert not git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
+        events += [event async for event in runner.resume(run, ctx, approval_id=second["id"], approved=True)]
+        application = dict(run.pending_approval)
+        assert application["tool"] == "owner_execution_apply"
+        assert application["args"]["execution_id"] == second["args"]["execution_id"]
+        assert not git(repository, "for-each-ref", "--format=%(refname)", "refs/heads/mammoth/owner")
+        events += [event async for event in runner.resume(run, ctx, approval_id=application["id"], approved=True)]
+        return events
+    events = asyncio.run(exercise())
+    assert run.status == "completed" and not model.decisions and len(model.prompts) == 4
+    jobs = run.progress()["executions"]
+    assert jobs[0]["status"] == "failed"
+    assert jobs[0]["failure_excerpts"]["candidate"]["text"] == "fixture evidence"
+    assert jobs[1]["application"]["status"] == "applied"
+    assert (repository / "app.py").read_text().endswith("return a - b\n")
+    restored = RunStore(store.base_dir).get(run.id, "owner")
+    restored.transcript += [{"tool": "read", "result": {"status": "ok"}} for _ in range(12)]
+    assert jobs[0]["id"] not in runner._observations_text(restored)
+    assert restored.progress()["executions"][0]["failure_excerpts"]["candidate"]["text"] == "fixture evidence"
+    assert [event.data["tool"] for event in events if event.type == "approval.requested"] == [
+        "owner_execution_run", "owner_execution_run", "owner_execution_apply",
+    ]
 
 def test_working_tree_changes_are_not_implicitly_included(repository, tmp_path):
     (repository / "app.py").write_text("UNCOMMITTED OWNER WORK", encoding="utf-8")

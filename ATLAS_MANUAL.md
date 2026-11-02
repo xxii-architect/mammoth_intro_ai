@@ -53,6 +53,7 @@ This repo has completed the reliability + eval + tutor-outcome + SDK hardening s
 - Run History replay now preserves backend-linked metadata (`task_id`, `trace_id`, runtime adapter/model).
 - FAB chat responses can be saved directly into Artifact Library records (`.md` or `.txt`).
 - Task Inbox provides a lightweight queue for follow-through on workflow cards; load/update failures are shown directly, and run-backed task statuses stay read-only while manual cards remain editable.
+- Workspace > Run Review reopens your saved plans, tool traces, diagnostics, checks and branch receipts. Refresh is read-only: no model calls, continuation or approvals. Download review JSON explicitly; it can contain prompts, source excerpts and logs, so inspect it before sharing. Saved status overrides old event state (including cancelled approvals). Runs follow server retention, not permanent archival. Both Paths clients expose `recover_run` / `recoverRun`; JavaScript also exports `hydrateRun` for full snapshots. Automatic reconnect/background execution remain deferred.
 - Artifact provenance exposes recorded task/trace IDs, repository/base SHA when available, quality and verification details, and up to ten previous revisions. View recorded run loads account-scoped task state or explicitly client-supplied saved history; it never executes or replays work. A recorded base SHA is the selected Git ref, not a clean-working-tree guarantee. Generated tests/diffs and output-contract checks are not acceptance-test evidence or approval to apply code. Missing run records produce an explicit error while the artifact remains available.
 - Internet commands are available in chat:
   - `/research <query>`
@@ -752,6 +753,12 @@ files; connected clones have a separate Sync action. A new run can refresh
 owner status through its tool without a manual panel refresh. Frozen proposals
 keep their original base; changed HEAD requires fresh preparation and approval.
 Applied owner branches do not move the selected checkout.
+For managed validated/applied goals, the runtime queues approvals from fresh
+receipts; model decisions cannot call run/apply with guessed execution identities.
+Failed checks require a corrected candidate against committed source, a new job
+and fresh validation approval, then separate application approval after passing.
+Bounded failure excerpts persist in saved progress for review and repair; they
+do not establish that the model can reliably fix every failing check.
 
 Reply confidence is unassessed unless explicitly supplied with assessment
 metadata: chat/tutor responses now return null, not a synthetic 74%/80%.

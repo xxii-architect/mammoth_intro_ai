@@ -162,6 +162,14 @@ const repoContextRules = [
     body: 'Refresh isolation and HEAD reads the selected backend checkout and probes installed profiles. It does not fetch GitHub, switch branches, include uncommitted changes or update your laptop. Connected clones use Sync separately. New agent runs can obtain fresh owner status without a manual panel refresh. Frozen proposals keep their original base; changed HEAD requires fresh preparation and approval. Applying a local owner branch does not move the selected checkout.',
   },
   {
+    title: 'Repair failed owner validation',
+    body: 'A failed check consumes that validation approval. For a required validated/applied result, Mammoth must prepare a corrected candidate against committed source as a new frozen job, then request fresh testing approval and separate application approval after passing. Managed run/apply transitions come from runtime receipts, not model-guessed execution IDs. Bounded failure excerpts remain in saved progress for review even after recent observations are clipped. These controls supply evidence and prevent reused approvals; they do not guarantee that the model will produce a correct repair.',
+  },
+  {
+    title: 'Recover and review a saved run',
+    body: 'Workspace > Run Review reads your saved run status, plans, traces, diagnostics, checks and branch receipts. Refresh never starts a model, continues work, approves a tool or syncs a repository. Saved status overrides old events, including cancelled approval requests. Download review JSON only when needed: prompts, source excerpts, arguments and logs may be included, so inspect before sharing. Retention is bounded; this is not permanent archival or independent correctness verification. Paths exposes recover_run (Python), recoverRun and hydrateRun (JavaScript full snapshots). Recovery does not automatically reconnect or execute work. Return to Mammoth Mind for explicit actions; backend access and approval-expiry checks still apply.',
+  },
+  {
     title: 'Read reply trust indicators honestly',
     body: 'Chat and tutor replies show Not assessed when answer correctness is unmeasured, including old heuristic confidence values. Provider health, citation counts and reply length do not establish correctness. Providers and source counts remain visible. Explicit scores in shared trust components are labelled reported and uncalibrated; missing, blank, boolean or invalid scores are not zero. Learner exercise results and mastery remain separate. A passed profile or recorded branch is execution evidence, not proof that the answer or change is correct.',
   },

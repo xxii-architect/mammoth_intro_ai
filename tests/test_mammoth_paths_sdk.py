@@ -70,6 +70,61 @@ def test_public_names_and_aliases():
     assert "MammothMind" in mammoth_os.__all__
 
 
+def test_recover_run_is_read_only_and_saved_cancellation_overrides_old_approval(backend):
+    run_id = "run-0123456789abcdef"
+    approval = {"id": "apr-1", "tool": "owner_execution_run"}
+    snapshot = {
+        "id": run_id, "status": "cancelled", "reply": "", "pending_approval": None,
+        "can_continue": False, "progress": {"goal_met": False, "stage": "proposal"},
+        "events": [_event(1, "approval.requested", approval), _event(2, "run.awaiting_approval")],
+    }
+    backend.route("GET", f"/api/mammoth/runs/{run_id}", body={"run": snapshot})
+    result = MammothPaths(backend.url).recover_run(run_id)
+    assert result.status == "cancelled" and result.pending_approval is None
+    assert result.progress == snapshot["progress"]
+    assert len(result.events) == 2 and result.snapshot["can_continue"] is False
+    assert [(item["method"], item["path"]) for item in backend.requests] == [("GET", f"/api/mammoth/runs/{run_id}")]
+    snapshot.update(status="awaiting_approval", pending_approval=approval)
+    assert MammothPaths(backend.url).recover_run(run_id).pending_approval == approval
+
+
+@pytest.mark.parametrize("change", ["wrong_id", "wrong_status", "reordered", "duplicate", "other_run", "invalid_data",
+                                    "suffix", "gap", "plan", "diagnostics", "pending_approval", "progress", "reply"])
+def test_recover_run_rejects_invalid_snapshots_without_execution(backend, change):
+    run_id = "run-0123456789abcdef"
+    saved = {"id": run_id, "status": "completed", "events": [_event(1, "run.started"), _event(2, "run.completed")]}
+    if change == "wrong_id":
+        saved["id"] = "other"
+    elif change == "wrong_status":
+        saved["status"] = "invented"
+    elif change == "reordered":
+        saved["events"].reverse()
+    elif change == "duplicate":
+        saved["events"][1]["seq"] = 1
+    elif change == "other_run":
+        saved["events"][0]["run_id"] = "other"
+    elif change == "invalid_data":
+        saved["events"][0]["data"] = []
+    elif change == "suffix":
+        saved["events"] = saved["events"][1:]
+    elif change == "gap":
+        saved["events"][1]["seq"] = 3
+    else:
+        saved[change] = 5
+    backend.route("GET", f"/api/mammoth/runs/{run_id}", body={"run": saved})
+    with pytest.raises(PathsError) as error:
+        MammothPaths(backend.url).recover_run(run_id)
+    assert error.value.code == "invalid_snapshot"
+    assert len(backend.requests) == 1 and backend.requests[0]["method"] == "GET"
+
+
+def test_recover_run_preserves_not_found_denial(backend):
+    with pytest.raises(PathsError) as error:
+        MammothPaths(backend.url).recover_run("not-yours")
+    assert error.value.status == 404
+    assert len(backend.requests) == 1
+
+
 def test_rejects_non_http_base_url():
     with pytest.raises(ValueError):
         MammothPaths("ftp://example.com")

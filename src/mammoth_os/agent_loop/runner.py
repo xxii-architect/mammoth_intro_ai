@@ -83,6 +83,7 @@ class AgentRun:
                 executions[job["id"]] = {key: job.get(key) for key in
                                         ("id", "status", "base_sha", "profile", "application")}
                 executions[job["id"]]["checks"] = job.get("checks") or {}
+                executions[job["id"]]["failure_excerpts"] = job.get("failure_excerpts") or {}
             if result.get("status") != "ok":
                 if result.get("status") in {"error", "rejected"}:
                     blocker = str(result.get("error") or result.get("note") or
@@ -418,7 +419,9 @@ class AgentRunner:
     def _decision_tools(self, run: AgentRun, ctx: ToolContext) -> List[ToolSpec]:
         tools = self.registry.available(ctx)
         if run.completion_goal in {"validated", "applied"} and self.registry.resolve("owner_execution_prepare", ctx):
-            return [tool for tool in tools if tool.name != "repo_propose_patch"]
+            return [tool for tool in tools if tool.name not in {
+                "repo_propose_patch", "owner_execution_run", "owner_execution_apply",
+            }]
         return tools
 
     def _build_prompt(self, run: AgentRun, ctx: ToolContext) -> str:
@@ -458,6 +461,10 @@ class AgentRunner:
                 "owner_execution_run pauses for user approval to validate. "
                 "A failed validation consumes that approval: inspect failure excerpts, fix the candidate and prepare "
                 "a NEW job. Never retry a consumed execution ID/digest after a read. "
+                "For a required validated/applied result, the runtime queues approvals from fresh preparation/check "
+                "receipts; you must not invent execution IDs or call run/apply yourself. Failed-check excerpts remain "
+                "in persistent work evidence even after observations leave the recent window. Build the corrected "
+                "candidate against the original committed source, not against an unapplied candidate. "
                 "Only after successful checks and no observed regression, owner_execution_apply pauses for a SECOND "
                 "user approval using execution.application.approval_digest. Application creates a commit on a NEW "
                 "LOCAL branch only; the selected checkout, remote and production are unchanged. Report the exact "
