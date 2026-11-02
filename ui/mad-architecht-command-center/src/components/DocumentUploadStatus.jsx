@@ -1,5 +1,5 @@
-export default function DocumentUploadStatus({ upload, tag, compact = false }) {
-  const policy = upload.policy && <div>{Math.round(upload.policy.max_file_bytes / 1048576)} MB per file · {Math.round((upload.policy.usage?.storage_bytes || 0) / 1048576)} / {Math.round(upload.policy.max_storage_bytes / 1048576)} MB stored · OCR and media transcription are not enabled.</div>
+export default function DocumentUploadStatus({ upload, tag, compact = false, showPolicy = true }) {
+  const policy = showPolicy && upload.policy && <div>{Math.round(upload.policy.max_file_bytes / 1048576)} MB per file · {Math.round((upload.policy.usage?.storage_bytes || 0) / 1048576)} / {Math.round(upload.policy.max_storage_bytes / 1048576)} MB stored · OCR and media transcription are not enabled.</div>
   return (
     <div aria-live="polite" style={{ width: '100%', fontSize: '0.74rem', color: 'var(--txt-sec)', lineHeight: 1.6, overflowWrap: 'anywhere' }}>
       {compact && policy ? <details><summary style={{ cursor: 'pointer' }}>Upload limits & extraction</summary>{policy}</details> : policy}

@@ -45,7 +45,7 @@ const surfaceMap = [
     label: 'Mammoth Mind',
     icon: MessageSquare,
     accent: 'var(--photon)',
-    purpose: 'Agent-mode runs with visible tool traces and approvals, plus repo-aware chat, /guide walkthroughs, threads, and attachments. Toggle Agent / Classic in the chat header.',
+    purpose: 'Agent-mode runs with visible tool traces and approvals, plus repo-aware chat, /guide walkthroughs, threads, and attachments. Toggle Agent / Classic in the chat toolbar; type / (or press the sparkle button in the composer) for slash commands and templates; repo context and run details live under the ⋯ menu.',
     useWhen: 'You want code-grounded explanations, planning help, or workflow support across the product.',
     avoid: 'Using vague messages with no target file, goal, or repo context.',
   },

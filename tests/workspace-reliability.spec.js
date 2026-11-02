@@ -877,7 +877,7 @@ test('command library uses real theme styles and fits a portrait viewport', asyn
 })
 
 for (const width of [375, 1280]) {
-test(`chat at ${width}px keeps full-width input below one attachment and send toolbar`, async ({ page }) => {
+test(`chat at ${width}px keeps a full-width input above one compact composer action row`, async ({ page }) => {
   await page.setViewportSize({ width, height: 812 })
   const errors = await mount(page, 'pages/ChatPage')
   const input = page.getByRole('textbox', { name: 'Message MammothOS' })
@@ -886,26 +886,93 @@ test(`chat at ${width}px keeps full-width input below one attachment and send to
   const bounds = await input.boundingBox()
   expect(bounds.width).toBeGreaterThan(270)
   expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+  const rowTops = []
   for (const control of [
     page.getByRole('button', { name: 'Attach', exact: true }),
     page.getByRole('button', { name: 'Manage saved files' }),
-    page.getByText('Upload limits & extraction', { exact: true }),
+    page.getByRole('button', { name: 'Prompt templates' }),
     page.getByRole('button', { name: 'Send', exact: true }),
   ]) {
-    const toolbarBounds = await control.boundingBox()
-    expect(toolbarBounds.y + toolbarBounds.height).toBeLessThanOrEqual(bounds.y)
+    const controlBounds = await control.boundingBox()
+    expect(controlBounds.y).toBeGreaterThanOrEqual(bounds.y + bounds.height - 1)
+    rowTops.push(Math.round(controlBounds.y + controlBounds.height / 2))
   }
-  await page.getByText('Upload limits & extraction', { exact: true }).click()
-  await expect(page.getByText('50 MB per file', { exact: false })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Manage saved files' })).toHaveCount(1)
+  expect(Math.max(...rowTops) - Math.min(...rowTops)).toBeLessThanOrEqual(2)
+  await expect(page.getByText('Upload limits & extraction', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Manage saved files' }).click()
+  await expect(page.getByText('50 MB per file', { exact: false })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Refresh library' })).toBeVisible()
   expect(await page.getByRole('button', { name: 'Refresh library' }).evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgb(22, 27, 34)')
+  await page.getByRole('button', { name: 'Close file library' }).click()
+  await expect(page.getByRole('button', { name: 'Refresh library' })).toHaveCount(0)
   await expect(input).toHaveValue('My readable mobile message')
   expect(await page.locator('body').evaluate(node => node.scrollWidth)).toBeLessThanOrEqual(width)
   expect(errors).toEqual([])
 })
 }
+
+for (const [width, height] of [[1280, 720], [390, 844]]) {
+test(`chat feed gets most of a ${width}x${height} screen with a one-row toolbar and growing input`, async ({ page }) => {
+  await page.setViewportSize({ width, height })
+  const errors = await mount(page, 'pages/ChatPage', { '/mammoth/chat/threads': { threads: [] } })
+  await page.addStyleTag({ content: 'html, body, #root { height: 100%; margin: 0; }' })
+  const input = page.getByRole('textbox', { name: 'Message MammothOS' })
+  await expect(input).toBeVisible()
+  const sidebarToggle = await page.getByRole('button', { name: 'Toggle chat history sidebar' }).boundingBox()
+  const more = await page.getByRole('button', { name: 'More chat options' }).boundingBox()
+  expect(Math.abs((sidebarToggle.y + sidebarToggle.height / 2) - (more.y + more.height / 2))).toBeLessThanOrEqual(6)
+  const composer = await page.getByLabel('Message composer').boundingBox()
+  const feedHeight = composer.y - (more.y + more.height)
+  expect(feedHeight).toBeGreaterThan(height * 0.6)
+  expect(composer.y + composer.height).toBeLessThanOrEqual(height)
+  const oneLine = (await input.boundingBox()).height
+  await input.fill('line one\nline two\nline three\nline four')
+  await expect.poll(async () => (await input.boundingBox()).height).toBeGreaterThan(oneLine + 30)
+  await input.fill(Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\n'))
+  await expect.poll(async () => (await input.boundingBox()).height).toBeLessThanOrEqual(221)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy()
+  await input.fill('')
+  await page.screenshot({ path: test.info().outputPath(`chat-layout-${width}x${height}.png`) })
+  expect(errors).toEqual([])
+})
+}
+
+test('chat templates open from the composer or by typing a slash, and the options menu holds details and delete', async ({ page }) => {
+  const errors = await mount(page, 'pages/ChatPage', { '/mammoth/chat/threads': { threads: [] } })
+  const input = page.getByRole('textbox', { name: 'Message MammothOS' })
+  await page.getByRole('button', { name: 'Prompt templates' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Prompt templates' })
+  await expect(dialog.getByRole('button', { name: /^\/plan/ })).toBeVisible()
+  await expect(dialog.getByText('Deep reasoning', { exact: true })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await input.fill('/pl')
+  await expect(dialog.getByRole('button', { name: /^\/plan/ })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: /^\/guide/ })).toHaveCount(0)
+  await expect(dialog.getByText('Deep reasoning', { exact: true })).toHaveCount(0)
+  await dialog.getByRole('button', { name: /^\/plan/ }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(input).toHaveValue('/plan Build the next MammothOS upgrade slice')
+  await expect(input).toBeFocused()
+  await input.fill('/x')
+  await expect(dialog).toBeVisible()
+  await input.fill('hello there')
+  await expect(dialog).toHaveCount(0)
+  await page.getByRole('button', { name: 'More chat options' }).click()
+  const menu = page.getByRole('menu', { name: 'Chat options' })
+  await expect(menu.getByRole('menuitem', { name: /Show repo & run details/ })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: /Delete Chat/ })).toHaveCount(0)
+  await menu.getByRole('menuitem', { name: /Show repo & run details/ }).click()
+  await expect(menu).toHaveCount(0)
+  await expect(page.getByText('Routing Snapshot', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Collapse rail' }).click()
+  await expect(page.getByText('Routing Snapshot', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'More chat options' }).click()
+  await expect(page.getByRole('menuitem', { name: /Show repo & run details/ })).toBeVisible()
+  await page.mouse.click(5, 5)
+  await expect(page.getByRole('menu', { name: 'Chat options' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
 
 test('flashcards show produced answers, preserve sources and reset across accounts', async ({ page }) => {
   await mount(page, 'pages/FlashcardsPage', { '/api/flashcards': { cards: [{ q: 'What does protein do?', a: 'Supports tissue growth and repair.', source: { title: 'Nutrition lesson' } }] } })

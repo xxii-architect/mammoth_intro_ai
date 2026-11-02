@@ -63,9 +63,15 @@ with keyboard focus styling and retain their existing choices.
 Design tokens live in the UI's `src/design/tokens.json`; run `npm run tokens`
 after changing them. Muted text and accent text are checked at 4.5:1 against
 all opaque dark token surfaces, and filled brass actions use dark text.
-On mobile, Mammoth Mind has a full-width message field with one
-attachment manager and Send/Stop toolbar above it. Upload limits are expandable; upload progress,
-warnings, cancellation and retry remain visible.
+Mammoth Mind's chat fills the screen height. The toolbar is one row: chat-history
+toggle, title (hidden on phones), Agent/Classic, Lane, New Chat, and a **⋯** menu
+with **Show repo & run details** (repo context, routing, thought trail, task cards)
+and **Delete Chat**. The composer is one box: a full-width message field that
+grows as you type (up to about 8 lines), with Attach, Manage saved files (which
+also shows upload limits), Prompt templates and Send/Stop in a single row below
+it. Typing `/` at the start of a message opens the slash-command and template
+picker, filtered as you type. Upload progress, warnings, cancellation and retry
+appear above the composer only while relevant.
 
 Lesson Notes uses `GET /api/atlas/lesson-notes`, which rebuilds lesson-matched
 resources and excludes operational plans and unrelated recent-note fallbacks.

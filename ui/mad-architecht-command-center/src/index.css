@@ -81,6 +81,9 @@ select.workspace-select {
 .workspace-select-field:focus-within { border-color: var(--photon); }
 select.workspace-select:disabled { color: var(--txt-mut); cursor: not-allowed; }
 .primary-action:disabled { background: var(--card-hover) !important; color: var(--txt-mut) !important; }
+.composer-box { transition: border-color 140ms ease, box-shadow 140ms ease; }
+.composer-box:focus-within { border-color: rgba(77,166,255,0.45) !important; box-shadow: 0 0 0 3px rgba(77,166,255,0.12); }
+.composer-icon-button:hover:not(:disabled) { background: rgba(255,255,255,0.06) !important; color: var(--txt-pri) !important; }
 
 .command-overlay {
   position: fixed; inset: 0; z-index: 1200; background: rgba(0,0,0,0.75);

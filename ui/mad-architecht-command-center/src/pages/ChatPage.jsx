@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, PanelLeft, Paperclip, Square } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, PanelLeft, PanelRight, MoreHorizontal, Paperclip, Square } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
 import { responseConfidence } from '../lib/confidence'
@@ -83,6 +83,30 @@ const QUICK_ACTIONS = [
     message: 'Draft a safe shell-oriented step plan for the next MammothOS maintenance task.',
   },
 ]
+
+const TOOLBAR_ICON_BUTTON = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', flexShrink: 0 }
+const TOOLBAR_ICON_ACTIVE = { border: '1px solid rgba(77,166,255,0.35)', background: 'rgba(77,166,255,0.08)', color: 'var(--photon)' }
+const MENU_ITEM = { display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 8, border: 'none', background: 'transparent', color: 'var(--txt-pri)', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }
+const VISUALLY_HIDDEN = { position: 'absolute', width: 1, height: 1, padding: 0, margin: -1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap', border: 0 }
+const COMPOSER_MAX_HEIGHT = 220
+
+function useDismissable(open, ref, setOpen) {
+  useEffect(() => {
+    if (!open) return undefined
+    const onPointerDown = (event) => {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false)
+    }
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onPointerDown)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', onPointerDown)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [open, ref, setOpen])
+}
 
 const SLASH_ACTIONS = [
   '/agent coding_agent Patch the current feature safely',
@@ -557,6 +581,9 @@ export default function ChatPage({ setPage }) {
   const activeRunIdRef = useRef(null)
   const threadSidebarRef = useRef(null)
   const templatesRef = useRef(null)
+  const moreMenuRef = useRef(null)
+  const composerInputRef = useRef(null)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   const bottomRef = useRef(null)
   const streamControllerRef = useRef(null)
   const toastTimerRef = useRef(null)
@@ -1299,24 +1326,33 @@ export default function ChatPage({ setPage }) {
     send(action.message, action.agentId)
   }
 
-  useEffect(() => {
-    if (!quickActionsOpen) return undefined
-    const onPointerDown = (event) => {
-      if (templatesRef.current && !templatesRef.current.contains(event.target)) setQuickActionsOpen(false)
-    }
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') setQuickActionsOpen(false)
-    }
-    document.addEventListener('mousedown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [quickActionsOpen])
+  useDismissable(Boolean(quickActionsOpen), templatesRef, setQuickActionsOpen)
+  useDismissable(moreMenuOpen, moreMenuRef, setMoreMenuOpen)
+
+  useLayoutEffect(() => {
+    const el = composerInputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, COMPOSER_MAX_HEIGHT)}px`
+  }, [input])
+
+  // quickActionsOpen: false | 'button' (opened from the templates button) | 'slash' (opened by typing "/")
+  const slashQuery = input.startsWith('/') && !/\s/.test(input) ? input.toLowerCase() : ''
+  const filteringSlash = quickActionsOpen === 'slash' && slashQuery.length > 1
+  const visibleSlashActions = filteringSlash ? SLASH_ACTIONS.filter((action) => action.toLowerCase().startsWith(slashQuery)) : SLASH_ACTIONS
+  const updateInput = (value) => {
+    setInput(value)
+    const isSlash = value.startsWith('/') && !/\s/.test(value)
+    setQuickActionsOpen((prev) => (isSlash ? (prev || 'slash') : (prev === 'slash' ? false : prev)))
+  }
+  const pickTemplate = (text) => {
+    setInput(text)
+    setQuickActionsOpen(false)
+    composerInputRef.current?.focus()
+  }
 
   return (
-    <div className="page-enter" style={{ padding: 24, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
+    <div className="page-enter" style={{ padding: isMobile ? 8 : 16, height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column' }}>
       {successToast && (
         <div style={{ position: 'fixed', top: 16, right: 16, zIndex: 70, maxWidth: 420, borderRadius: 12, border: '1px solid rgba(34,197,94,0.35)', background: 'rgba(6,25,15,0.95)', boxShadow: '0 10px 30px rgba(0,0,0,0.35)', padding: '10px 12px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#86efac', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>
@@ -1343,102 +1379,39 @@ export default function ChatPage({ setPage }) {
           </div>
         )}
 
-      <div style={{ flex: 1, minWidth: 0, display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gap: 18 }}>
-        <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: isShortViewport ? '84vh' : '90vh', overflow: 'hidden' }}>
-          <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-              <button
-                title="Toggle chat history sidebar"
-                onClick={() => setThreadSidebarOpen(p => !p)}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', borderRadius: 8, border: `1px solid ${threadSidebarOpen ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`, background: threadSidebarOpen ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.04)', color: threadSidebarOpen ? 'var(--photon)' : 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
-              >
-                <PanelLeft size={14} />
-              </button>
-              <div>
-                <h1 style={{ fontSize: '1.05rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
-                  <Bot size={18} color="var(--photon)" /> MammothOS Chat
-                </h1>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-              <div ref={templatesRef} style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  onClick={() => setQuickActionsOpen((prev) => !prev)}
-                  aria-expanded={quickActionsOpen}
-                  aria-haspopup="dialog"
-                  title="Prompt templates and slash commands"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 999, border: `1px solid ${quickActionsOpen ? 'rgba(77,166,255,0.35)' : 'var(--border)'}`, background: quickActionsOpen ? 'rgba(77,166,255,0.08)' : 'rgba(255,255,255,0.03)', color: quickActionsOpen ? 'var(--txt-pri)' : 'var(--txt-sec)', fontSize: '0.76rem', fontWeight: 600, cursor: 'pointer' }}
-                >
-                  <Sparkles size={13} /> Templates
-                  <ChevronDown size={13} style={{ transition: 'transform 160ms ease', transform: quickActionsOpen ? 'rotate(180deg)' : 'none' }} />
-                </button>
-                {quickActionsOpen && (
-                  <div
-                    role="dialog"
-                    aria-label="Prompt templates"
-                    style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, zIndex: 40, width: 'min(560px, 86vw)', maxHeight: '60vh', overflowY: 'auto', padding: 14, borderRadius: 14, border: '1px solid var(--border)', background: 'rgba(10,14,22,0.97)', boxShadow: '0 18px 40px rgba(0,0,0,0.45)', backdropFilter: 'blur(12px)', display: 'grid', gap: 10 }}
-                  >
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {SLASH_ACTIONS.map((action) => (
-                        <button
-                          key={action}
-                          onClick={() => { setInput(action); setQuickActionsOpen(false) }}
-                          style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}
-                        >
-                          {action}
-                        </button>
-                      ))}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10 }}>
-                      {QUICK_ACTIONS.map((card) => (
-                        <button
-                          key={card.title}
-                          onClick={() => { setQuickActionsOpen(false); dispatchQuickAction(card) }}
-                          disabled={busy}
-                          style={{ textAlign: 'left', padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: busy ? 'not-allowed' : 'pointer' }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{card.title}</div>
-                            <Workflow size={14} color="var(--txt-mut)" />
-                          </div>
-                          <div style={{ fontSize: '0.74rem', lineHeight: 1.5 }}>{card.message}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+      <div style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'grid', gridTemplateColumns: showInlineRightRail ? 'minmax(0, 2.3fr) minmax(340px, 1fr)' : 'minmax(0, 1fr)', gridTemplateRows: 'minmax(0, 1fr)', gap: 18 }}>
+        <div className="glass-card-solid" style={{ display: 'flex', flexDirection: 'column', minHeight: 360, height: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
+          <div style={{ padding: isMobile ? '6px 8px' : '8px 12px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              title="Toggle chat history sidebar"
+              aria-label="Toggle chat history sidebar"
+              aria-pressed={threadSidebarOpen}
+              onClick={() => setThreadSidebarOpen(p => !p)}
+              style={{ ...TOOLBAR_ICON_BUTTON, ...(threadSidebarOpen ? TOOLBAR_ICON_ACTIVE : {}) }}
+            >
+              <PanelLeft size={15} />
+            </button>
+            <h1 style={isMobile ? VISUALLY_HIDDEN : { fontSize: '0.95rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 8, margin: 0, whiteSpace: 'nowrap' }}>
+              <Bot size={16} color="var(--photon)" /> MammothOS Chat
+            </h1>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', marginLeft: 'auto', minWidth: 0, flex: isMobile ? 1 : undefined }}>
               <button
                 type="button"
                 onClick={toggleAgentMode}
                 aria-pressed={agentMode}
+                aria-label={agentMode ? 'Agent' : 'Classic'}
                 title={agentMode ? 'Agent mode: plans, uses tools, and shows a live trace' : 'Classic mode: single-shot chat response'}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: `1px solid ${agentMode ? 'var(--mm-color-agent-default, #c8794a)' : 'var(--border)'}`, background: agentMode ? 'var(--mm-color-agent-soft, rgba(200,121,74,0.12))' : 'rgba(255,255,255,0.04)', color: agentMode ? 'var(--mm-color-agent-default, #c8794a)' : 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: isMobile ? '0 10px' : '0 11px', borderRadius: 8, border: `1px solid ${agentMode ? 'var(--mm-color-agent-default, #c8794a)' : 'var(--border)'}`, background: agentMode ? 'var(--mm-color-agent-soft, rgba(200,121,74,0.12))' : 'rgba(255,255,255,0.04)', color: agentMode ? 'var(--mm-color-agent-default, #c8794a)' : 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
               >
-                <Workflow size={13} /> {agentMode ? 'Agent' : 'Classic'}
+                <Workflow size={13} />{!isMobile && (agentMode ? 'Agent' : 'Classic')}
               </button>
-              <button
-                onClick={() => createThread()}
-                title="New Chat — start a fresh thread (saved chats stay in history)"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-system-rgb),0.35)', background: 'var(--mm-color-system-soft)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
-              >
-                <Plus size={13} /> New Chat
-              </button>
-              {history.length > 0 && (
-                <button
-                  onClick={clearLocalView}
-                  title="Delete Chat — permanently clear all messages"
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)', color: '#f87171', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
-                >
-                  <Trash2 size={13} /> Delete Chat
-                </button>
-              )}
-              <label className="workspace-select-field">
-                <span className="workspace-select-label">Lane</span>
+              <label className="workspace-select-field" style={isMobile ? { flex: '1 1 140px' } : undefined}>
+                {!isMobile && <span className="workspace-select-label">Lane</span>}
                 <select
                   className="workspace-select"
                   aria-label="Mammoth Mind lane"
+                  style={isMobile ? { width: '100%' } : undefined}
                   value={agentId}
                   onChange={(e) => setAgentId(e.target.value)}
                 >
@@ -1461,16 +1434,62 @@ export default function ChatPage({ setPage }) {
                 </select>
               )}
               <button
-                onClick={() => setRightRailOpen((prev) => !prev)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)', color: 'var(--txt-sec)', cursor: 'pointer', fontSize: '0.8rem' }}
+                type="button"
+                onClick={() => createThread()}
+                aria-label="New Chat"
+                title="New Chat — start a fresh thread (saved chats stay in history)"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, height: 36, padding: isMobile ? '0 10px' : '0 11px', borderRadius: 8, border: '1px solid rgba(var(--mm-color-system-rgb),0.35)', background: 'var(--mm-color-system-soft)', color: 'var(--photon)', cursor: 'pointer', fontSize: '0.76rem', fontWeight: 600 }}
               >
-                {showRightRail ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                {showRightRail ? 'Hide right rail' : 'Show right rail'}
+                <Plus size={14} />{!isMobile && 'New Chat'}
               </button>
+              <div ref={moreMenuRef} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  onClick={() => setMoreMenuOpen((prev) => !prev)}
+                  aria-label="More chat options"
+                  aria-haspopup="menu"
+                  aria-expanded={moreMenuOpen}
+                  title="Repo & run details, delete chat"
+                  style={{ ...TOOLBAR_ICON_BUTTON, ...(moreMenuOpen || showRightRail ? TOOLBAR_ICON_ACTIVE : {}) }}
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+                {moreMenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label="Chat options"
+                    style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 45, minWidth: 230, padding: 6, borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(10,14,22,0.98)', boxShadow: '0 18px 40px rgba(0,0,0,0.45)', display: 'grid', gap: 2 }}
+                  >
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => { setMoreMenuOpen(false); setRightRailOpen((prev) => !prev) }}
+                      style={MENU_ITEM}
+                    >
+                      <PanelRight size={14} />
+                      <span style={{ display: 'grid' }}>
+                        <span>{showRightRail ? 'Hide repo & run details' : 'Show repo & run details'}</span>
+                        <span style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', fontWeight: 400 }}>Repo context, routing, thought trail, task cards</span>
+                      </span>
+                    </button>
+                    {history.length > 0 && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => { setMoreMenuOpen(false); clearLocalView() }}
+                        title="Delete Chat — permanently clear all messages"
+                        style={{ ...MENU_ITEM, color: '#f87171' }}
+                      >
+                        <Trash2 size={14} /> Delete Chat
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px 12px' : '18px 20px', display: 'flex', flexDirection: 'column', gap: 16, minHeight: 0 }}>
             {history.length === 0 && (
               <div style={{ margin: '24px auto', maxWidth: 680, textAlign: 'center' }}>
                 <Sparkles size={28} color="var(--photon)" style={{ marginBottom: 10 }} />
@@ -1504,48 +1523,108 @@ export default function ChatPage({ setPage }) {
             <div ref={bottomRef} />
           </div>
 
-          <div style={{ padding: 16 }}>
-            {error && <div style={{ marginBottom: 10, color: '#f87171', fontSize: '0.78rem' }}>{error}</div>}
-            <div aria-label="Message composer" style={{ display: 'grid', gap: 10, minWidth: 0 }}>
-              <div style={{ minWidth: 0 }}>
-                <FileAttachmentPanel
-                  compact
-                  attached={attachedFiles}
-                  onAttach={(f) => setAttachedFiles(prev => [...prev.filter(x => x.file_id !== f.file_id), f])}
-                  onRemove={(id) => setAttachedFiles(prev => prev.filter(f => f.file_id !== id))}
-                  trailingAction={busy ? (
+          <div style={{ padding: isMobile ? '8px 8px 10px' : '10px 14px 14px' }}>
+            {error && <div style={{ marginBottom: 8, color: '#f87171', fontSize: '0.78rem' }}>{error}</div>}
+            <div ref={templatesRef} aria-label="Message composer" style={{ position: 'relative', minWidth: 0 }}>
+              {quickActionsOpen && (
+                <div
+                  role="dialog"
+                  aria-label="Prompt templates"
+                  style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, right: 0, zIndex: 40, maxHeight: 'min(60vh, 420px)', overflowY: 'auto', padding: 12, borderRadius: 14, border: '1px solid var(--border)', background: 'rgba(10,14,22,0.98)', boxShadow: '0 18px 40px rgba(0,0,0,0.45)', backdropFilter: 'blur(12px)', display: 'grid', gap: 10 }}
+                >
+                  <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', fontWeight: 700 }}>Slash commands</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {visibleSlashActions.map((action) => (
+                      <button
+                        key={action}
+                        type="button"
+                        onClick={() => pickTemplate(action)}
+                        style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', fontSize: '0.72rem', cursor: 'pointer', fontFamily: 'JetBrains Mono,monospace' }}
+                      >
+                        {action}
+                      </button>
+                    ))}
+                    {visibleSlashActions.length === 0 && <span style={{ fontSize: '0.74rem', color: 'var(--txt-mut)' }}>No matching command. Keep typing to send it as a message.</span>}
+                  </div>
+                  {!filteringSlash && (
+                    <>
+                      <div style={{ fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', fontWeight: 700 }}>Templates</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10 }}>
+                        {QUICK_ACTIONS.map((card) => (
+                          <button
+                            key={card.title}
+                            type="button"
+                            onClick={() => { setQuickActionsOpen(false); dispatchQuickAction(card) }}
+                            disabled={busy}
+                            style={{ textAlign: 'left', padding: '10px 12px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', color: 'var(--txt-sec)', cursor: busy ? 'not-allowed' : 'pointer' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{card.title}</div>
+                              <Workflow size={14} color="var(--txt-mut)" />
+                            </div>
+                            <div style={{ fontSize: '0.72rem', lineHeight: 1.5 }}>{card.message}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              <FileAttachmentPanel
+                compact
+                attached={attachedFiles}
+                onAttach={(f) => setAttachedFiles(prev => [...prev.filter(x => x.file_id !== f.file_id), f])}
+                onRemove={(id) => setAttachedFiles(prev => prev.filter(f => f.file_id !== id))}
+                leadingActions={(
                   <button
+                    type="button"
+                    onClick={() => setQuickActionsOpen((prev) => (prev ? false : 'button'))}
+                    aria-label="Prompt templates"
+                    aria-expanded={Boolean(quickActionsOpen)}
+                    aria-haspopup="dialog"
+                    title="Prompt templates and slash commands (or type / in the message box)"
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 9, border: `1px solid ${quickActionsOpen ? 'rgba(77,166,255,0.3)' : 'transparent'}`, background: quickActionsOpen ? 'rgba(77,166,255,0.08)' : 'transparent', color: quickActionsOpen ? 'var(--photon)' : 'var(--txt-sec)', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    <Sparkles size={15} />
+                  </button>
+                )}
+                trailingAction={busy ? (
+                  <button
+                    type="button"
                     onClick={stopActive}
                     aria-label="Stop the current run"
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 34, padding: '0 12px', borderRadius: 10, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.06)', color: 'var(--txt-pri)', fontWeight: 700, fontSize: '0.82rem', cursor: 'pointer' }}
                   >
-                    <Square size={13} /> Stop
+                    <Square size={12} /> Stop
                   </button>
                 ) : (
                   <button
+                    type="button"
                     onClick={() => send()}
                     className="primary-action"
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 14px', borderRadius: 12, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 34, padding: '0 14px', borderRadius: 10, border: 'none', background: 'var(--mm-color-action-primary)', color: '#050608', fontWeight: 700, fontSize: '0.84rem', cursor: 'pointer' }}
                   >
-                    <Send size={15} /> Send
+                    <Send size={14} /> Send
                   </button>
                 )}
+              >
+                <textarea
+                  ref={composerInputRef}
+                  aria-label="Message MammothOS"
+                  value={input}
+                  onChange={(e) => updateInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      setQuickActionsOpen(false)
+                      send()
+                    }
+                  }}
+                  rows={1}
+                  placeholder={isMobile ? 'Ask MammothOS anything… (/ for commands)' : 'Ask MammothOS anything — debug, plan, patch, or think it through… (type / for commands)'}
+                  style={{ display: 'block', width: '100%', minWidth: 0, boxSizing: 'border-box', resize: 'none', minHeight: 40, maxHeight: COMPOSER_MAX_HEIGHT, overflowY: 'auto', background: 'transparent', border: 'none', outline: 'none', color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '8px 6px 4px', lineHeight: 1.55 }}
                 />
-              </div>
-              <textarea
-                aria-label="Message MammothOS"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    send()
-                  }
-                }}
-                rows={isMobile ? 2 : 4}
-                placeholder="Ask MammothOS anything — debug, plan, patch, or think it through..."
-                style={{ width: '100%', minWidth: 0, resize: 'vertical', minHeight: 100, maxHeight: 240, overflowY: 'auto', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 12, color: 'var(--txt-pri)', fontSize: '0.94rem', padding: '14px 16px', lineHeight: 1.6 }}
-              />
+              </FileAttachmentPanel>
             </div>
           </div>
         </div>
@@ -1559,7 +1638,7 @@ export default function ChatPage({ setPage }) {
           />
         )}
         {showRightRail && (
-        <div style={showDrawerRightRail ? { position: 'fixed', top: 86, right: 18, width: 'min(420px, calc(100vw - 36px))', maxHeight: 'calc(100vh - 110px)', zIndex: 40, display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', paddingRight: 4, background: 'rgba(7, 12, 18, 0.9)', border: '1px solid var(--border)', borderRadius: 18, boxShadow: '0 24px 60px rgba(0,0,0,0.38)', padding: 12 } : { display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', maxHeight: isShortViewport ? '80vh' : '84vh', paddingRight: 4 }}>
+        <div style={showDrawerRightRail ? { position: 'fixed', top: 86, right: 18, width: 'min(420px, calc(100vw - 36px))', maxHeight: 'calc(100vh - 110px)', zIndex: 40, display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', paddingRight: 4, background: 'rgba(7, 12, 18, 0.9)', border: '1px solid var(--border)', borderRadius: 18, boxShadow: '0 24px 60px rgba(0,0,0,0.38)', padding: 12 } : { display: 'grid', gap: isShortViewport ? 12 : 16, minHeight: 0, minWidth: 0, alignContent: 'start', overflowY: 'auto', maxHeight: '100%', paddingRight: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="button"
