@@ -10,6 +10,14 @@ Every call is bounded: short timeout, a small TTL cache so repeated queries cost
 a minimum interval between upstream calls, and a per-process daily cap
 (``MAMMOTH_WEB_SEARCH_DAILY_LIMIT``, default 1000). API keys never leave the server and are
 never included in results or errors.
+
+Relevant government namespaces and institutional .edu pages receive a shared
+retrieval preference before the result limit is applied. ``source_category``
+and ``authority_basis`` describe that policy, not independently verified
+ownership or truth; ``verification_status`` remains ``not_fact_verified``.
+Personal/student .edu pages do not receive institutional preference.
+Exact non-government state wildlife hosts are included only when attributed
+by the public official agency directories cited in ``research_quality``.
 """
 from __future__ import annotations
 

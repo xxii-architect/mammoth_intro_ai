@@ -62,6 +62,7 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
       : component === 'trust' ? (await import('/src/components/TrustSurfaces.jsx')).TrustBadgeRow
       : (await import(`/src/${component}.jsx`)).default
     const props = component === 'trust' ? trustProps : component === 'components/agent-workspace/OwnerExecutionPanel' ? { repo }
+      : component === 'components/ResearchArtifactPanel' || component === 'components/LongFormResearchPanel' ? { artifact: runOverride }
       : component === 'components/agent-workspace/AgentWorkspace' ? { agents: [], temperature: 0.3, approvalMode: true }
       : component === 'components/AgentCommandLibrary' ? { onClose() {} }
       : component === 'components/RunTimeline' ? {
@@ -194,6 +195,35 @@ test('explicit zero score is retained but labelled uncalibrated rather than corr
   await expect(page.getByText('Not assessed')).toHaveCount(0)
 })
 
+for (const [status, label] of [
+  ['interpretation', 'Interpretation'],
+  ['source_linked', 'Source-linked · not fact-verified'],
+  ['unverified', 'Unverified'],
+]) {
+  test(`trust row labels ${status} without a truth score`, async ({ page }) => {
+    const errors = await mount(page, 'trust', {}, { trustProps: { evidenceStatus: status, sourceCount: 1 } })
+    await expect(page.getByText(label, { exact: true })).toBeVisible()
+    await expect(page.getByText('Not assessed', { exact: true })).toBeVisible()
+    await expect(page.getByText(/100%|verified true/i)).toHaveCount(0)
+    expect(errors).toEqual([])
+  })
+}
+
+for (const component of ['ResearchArtifactPanel', 'LongFormResearchPanel']) {
+  test(`${component} shows source preference without certifying a claim`, async ({ page }) => {
+    const errors = await mount(page, `components/${component}`, {}, { runOverride: {
+      title: 'State fishing rules', status: 'ok', sources: [{
+        title: 'Idaho Fish and Game', url: 'https://idfg.idaho.gov/fish',
+        snippet: 'Review the current fishing rules and location-specific restrictions.',
+        source_category: 'government', authority_basis: 'government_hostname_policy',
+        verification_status: 'not_fact_verified',
+      }],
+    } })
+    await expect(page.getByText('Government source · not fact-verified', { exact: true })).toBeVisible()
+    expect(errors).toEqual([])
+  })
+}
+
 test('legacy chat confidence is not resurrected from old history or provider health', async ({ page }) => {
   await mount(page, 'pages/ChatPage', { '/api/mammoth/chat/history': { chat_history: [
     { role: 'user', message: 'Test old history' },
@@ -204,6 +234,28 @@ test('legacy chat confidence is not resurrected from old history or provider hea
   await expect(page.getByText('Not assessed', { exact: true })).toBeVisible()
   await expect(page.getByText('DeepSeek', { exact: true })).toBeVisible()
   await expect(page.getByText(/74%|80%|99%/)).toHaveCount(0)
+})
+
+test('Classic reasoning failures remain visible without a completion toast', async ({ page }) => {
+  const errors = await mount(page, 'pages/ChatPage')
+  await page.getByRole('button', { name: 'Agent', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Mammoth Mind lane' }).selectOption('reasoning_agent')
+  const reply = 'Reasoning could not be generated. Retry when a model provider is available.'
+  await page.route('**/api/mammoth/chat/stream', route => route.fulfill({
+    contentType: 'text/event-stream',
+    body: `event: done\ndata: ${JSON.stringify({
+      status: 'failed', agent_id: 'reasoning_agent', reply,
+      chat_history: [{ role: 'assistant', message: reply, agent_id: 'reasoning_agent',
+        trust_metadata: { evidence_status: 'unverified', confidence_status: 'not_assessed' } }],
+    })}\n\n`,
+  }))
+  await page.getByRole('textbox', { name: 'Message MammothOS' }).fill('Compare two approaches')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  await expect(page.getByText(reply, { exact: true })).toBeVisible()
+  await expect(page.getByText('Analysis did not complete. Review the response and retry.')).toBeVisible()
+  await expect(page.getByText('Unverified', { exact: true })).toBeVisible()
+  await expect(page.getByText('Run complete', { exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
 })
 
 test('owner panel hides tenant-denied execution and honestly shows a disabled pilot', async ({ page }) => {

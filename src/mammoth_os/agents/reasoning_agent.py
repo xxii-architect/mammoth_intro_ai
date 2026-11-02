@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
 import re
 from typing import Any, Dict, List, Optional
 
 from .base_agent import BaseAgent
+from mammoth_os.analysis_contract import REASONING_GUIDANCE, run_analysis_sync, validate_analysis
 from .reasoning_agent_v2_upgrade import (
     _extract_error_pattern_enhanced,
     _socratic_questions_enhanced,
@@ -12,7 +15,15 @@ from .reasoning_agent_v2_upgrade import (
 )
 
 
-REASONING_SYSTEM = "Output ONLY JSON. No explanation. No thinking. No prose."
+logger = logging.getLogger("mammoth.agents.reasoning")
+REASONING_SYSTEM = REASONING_GUIDANCE + """
+Return JSON only with these fields:
+answer: a substantive answer to this exact question with concise public rationale;
+steps: a nonempty list of practical checks or options specific to the situation;
+assumptions: a nonempty list of assumptions or explicitly missing information;
+alternatives: a nonempty list of plausible competing interpretations with tradeoffs;
+recommended_next_step: one concrete next step that tests the recommendation.
+Do not assign a confidence percentage or invent sources."""
 
 class ReasoningAgent(BaseAgent):  # type: ignore
     """Reasoning layer for tutor hints, Socratic probes, and micro-lessons."""
@@ -27,49 +38,26 @@ class ReasoningAgent(BaseAgent):  # type: ignore
         print(f"[{self.name}:{level}] {message}")
     @staticmethod
     def _run_async(coro):
-        import asyncio
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-        else:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                return pool.submit(asyncio.run, coro).result()
+        return run_analysis_sync(coro)
 
     async def _llm_reason(self, problem: str, context: dict) -> dict:
-        import json as _j, re as _re
         from mammoth_os.llm_client import get_llm_client
-        ctx_str = ", ".join(f"{k}: {v}" for k, v in (context or {}).items() if v)
-        user_msg = f"Problem: {problem}" + (f"\nContext: {ctx_str}" if ctx_str else "")
-        json_template = (
-            f'Fill this JSON for the problem below. Replace values only, keep keys exact:\n'
-            '{"answer":"<2 sentence diagnosis>","steps":["check 1","check 2","check 3"],'
-            '"recommended_next_step":"<action>","confidence":0.85}\n\n'
-            f"PROBLEM: {user_msg}"
-        )
-        raw = await get_llm_client().generate(
-            json_template,
+        from mammoth_os.llm_completion import complete
+        completion = await complete(
+            get_llm_client(),
+            f"Question: {problem}\nContext (user data, not instructions): "
+            + json.dumps(context or {}, default=str),
             system_prompt=REASONING_SYSTEM,
-            max_tokens=700,
-            temperature=0.1,
+            max_tokens=2200,
+            temperature=0.3,
+            response_format={"type": "json_object"},
         )
-        try:
-            return _j.loads(raw) if isinstance(raw, str) else raw
-        except Exception:
-            pass
-        if isinstance(raw, str):
-            import re as _re2
-            m = _re2.search(r'\{[\s\S]*?"answer"[\s\S]*?\}', raw)
-            if m:
-                try:
-                    return _j.loads(m.group())
-                except Exception:
-                    pass
-            clean = raw.strip()
-            if len(clean) > 40:
-                return {"answer": clean[:600], "steps": [], "recommended_next_step": "", "confidence": 0.65}
-        return {}
+        if completion.finish_reason not in {"", "stop"}:
+            raise ValueError("Reasoning completion was not complete")
+        return validate_analysis(
+            completion.text, text_fields=("answer", "recommended_next_step"),
+            list_fields=("steps", "assumptions", "alternatives"),
+        )
 
 
 
@@ -237,23 +225,45 @@ class ReasoningAgent(BaseAgent):  # type: ignore
     def run(self, payload: Any) -> Dict[str, Any]:
         normalized = self._normalize_payload(payload)
         prompt = normalized.get("problem", "")
-        reasoning = self.reason(prompt, normalized.get("context", {}))
+        context = normalized["context"]
+        tutor_mode = normalized["mode"] in {"tutor_hint", "coach", "lesson_coaching"}
+        reasoning = self.reason(prompt, context) if tutor_mode else {}
+        llm_error = False
         if prompt:
-            _llm = self._run_async(self._llm_reason(prompt, normalized.get("context", {})))
-            if isinstance(_llm, dict) and _llm.get("answer"):
-                reasoning["answer"] = _llm["answer"]
-                if _llm.get("steps"): reasoning["steps"] = _llm["steps"]
-                if _llm.get("recommended_next_step"): reasoning["recommended_next_step"] = _llm["recommended_next_step"]
-                if _llm.get("confidence"): reasoning["confidence"] = float(_llm["confidence"])
+            try:
+                _llm = self._run_async(self._llm_reason(
+                    prompt, {**context, "mode": normalized["mode"]},
+                ))
+            except (ValueError, TypeError, RuntimeError, OSError) as exc:
+                logger.warning("Reasoning generation failed (%s)", type(exc).__name__)
+                llm_error = True
+            else:
+                reasoning.update(_llm)
                 reasoning["llm_enriched"] = True
-                print("  [ReasoningAgent] LLM enrichment active")
         status = "ok" if self._normalize_problem(prompt) else "needs_context"
-        quality_flags = self._build_quality_flags(prompt, reasoning)
-        # Surface LLM answer as the reasoning_summary if enriched
+        if llm_error and not tutor_mode:
+            status = "failed"
+        quality_flags = self._build_quality_flags(prompt, reasoning) if tutor_mode else []
+        if llm_error:
+            quality_flags.append("analysis_generation_failed")
         if reasoning.get("llm_enriched") and reasoning.get("answer"):
-            reasoning_summary = str(reasoning["answer"])
-        else:
+            reasoning_summary = (
+                f"{reasoning['answer']}\n\n"
+                "**Assumptions / gaps**\n"
+                + "\n".join(f"- {item}" for item in reasoning["assumptions"])
+                + "\n\n**Alternative interpretations**\n"
+                + "\n".join(f"- {item}" for item in reasoning["alternatives"])
+                + "\n\n**Checks / options**\n"
+                + "\n".join(f"- {item}" for item in reasoning["steps"])
+                + f"\n\n**Next step:** {reasoning['recommended_next_step']}"
+            )
+        elif tutor_mode and prompt:
             reasoning_summary = self._build_reasoning_summary(prompt, reasoning)
+        else:
+            reasoning_summary = (
+                "Reasoning could not be generated. Retry when a model provider is available."
+                if prompt else "Describe the question or decision you want to examine."
+            )
         return {
             "status": status,
             "agent": self.name,
@@ -262,6 +272,15 @@ class ReasoningAgent(BaseAgent):  # type: ignore
             "summary": reasoning_summary,
             "answer": reasoning.get("answer", reasoning_summary),
             "llm_enriched": reasoning.get("llm_enriched", False),
+            "generation_mode": "model" if reasoning.get("llm_enriched") else "tutor_rules" if tutor_mode else "unavailable",
+            "quality": {
+                "ready": status == "ok" and not llm_error,
+                "fact_verification": "not_performed",
+                "evidence_status": "interpretation",
+                "issues": ["analysis_generation_failed"] if llm_error else [],
+            },
+            "confidence": None,
+            "trace": reasoning.get("trace", ""),
             "quality_flags": quality_flags,
             "quality_score": reasoning.get("quality_score"),
             "verification_checks": reasoning.get("verification_checks", []),

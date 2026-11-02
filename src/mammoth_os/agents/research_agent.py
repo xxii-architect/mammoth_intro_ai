@@ -404,7 +404,10 @@ class ResearchAgent(BaseAgent):
             result_fields["key_points"] = result_fields["key_facts"]
         used_labels = {label for item in findings for label in item["source_support"]}
         citations = [
-            {"source_id": source["id"], "label": source["label"], "url": source["url"], "title": source["title"], "excerpt": source["excerpt"]}
+            {
+                "source_id": source["id"], "label": source["label"], "url": source["url"],
+                "title": source["title"], "excerpt": source["excerpt"], **rq.source_authority(source),
+            }
             for source in normalized_sources if source["label"] in used_labels
         ]
         quality_flags = ["evidence_ranked", "source_aware"]
@@ -431,6 +434,7 @@ class ResearchAgent(BaseAgent):
             **result_fields,
             "unverified_findings": unverified,
             "quality": {
+                "evidence_status": "source_linked" if findings else "unverified",
                 "evidence_issues": evidence_issues, "fact_verification": "not_performed", "ready": False,
                 "retrieval_filtering": {**rq.search_quality(top_sources, dropped_sources), "scope": "post_retrieval"},
             },
@@ -505,6 +509,7 @@ class ResearchAgent(BaseAgent):
             "source_coverage": {"source_count": 0, "total_claims": 0, "linked_claims": 0, "citation_coverage": 0.0},
             "quality_flags": ["missing_external_sources"] + (["retrieval_errors_present"] if errors else []),
             "quality": {
+                "evidence_status": "unverified",
                 "fact_verification": "not_performed", "ready": False,
                 "retrieval_filtering": {**rq.search_quality([], dropped), "scope": "post_retrieval"},
             }, "confidence": None,
@@ -554,6 +559,7 @@ class ResearchAgent(BaseAgent):
                 "url": str(item.get("url") or ""),
                 "source_type": "web",
                 "relevance_score": 0.0,
+                **rq.source_authority(item),
             }
             for item in result.get("results") or []
             if isinstance(item, dict)
@@ -794,6 +800,7 @@ class ResearchAgent(BaseAgent):
             logger.warning("DOCX skipped: %s", exc)
         quality = {
             "ready": False,
+            "evidence_status": "unverified",
             "fact_verification": "not_performed",
             "claim_excerpt_checks": "not_performed",
             "review_required": True,
@@ -959,7 +966,7 @@ class ResearchAgent(BaseAgent):
         scored.sort(key=lambda x: x[0], reverse=True)
         for sc, src in scored:
             src["relevance_score"] = round(sc, 3)
-        return [src for _, src in scored]
+        return rq.rank_search_sources([src for _, src in scored], query)
 
     @staticmethod
     def _deduplicate(sources: List[Dict]) -> List[Dict]:
@@ -1003,6 +1010,7 @@ class ResearchAgent(BaseAgent):
                 "source_type": str(src.get("source_type") or ("prompt" if src.get("source") == "User prompt" else "web")),
                 "url": url if url.startswith(("https://", "http://")) else "",
                 "relevance_score": src.get("relevance_score", 0.0),
+                **rq.source_authority(src),
             })
         return normalized
 
@@ -1109,6 +1117,7 @@ class ResearchAgent(BaseAgent):
             "sources": [],
             "confidence": 0.0,
             "quality_flags": ["error"],
+            "quality": {"evidence_status": "unverified", "fact_verification": "not_performed"},
         }
 
     @staticmethod

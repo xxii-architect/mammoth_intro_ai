@@ -4096,6 +4096,12 @@ def _verify_execution_contract(envelope: Dict[str, Any], policy: Dict[str, Any])
     summary = str(envelope.get("summary") or "").strip().lower()
     checks: List[Dict[str, Any]] = []
     retry_statuses = set(policy.get("retry_on_status") or [])
+    if envelope.get("runtime_agent") in {"reasoning", "reflection"}:
+        checks.append({
+            "name": "analysis_available",
+            "passed": status not in {"failed", "error", "needs_context"},
+            "detail": f"Analysis status={status}; unavailable analysis is not a completed insight.",
+        })
 
     checks.append(
         {
@@ -5547,6 +5553,20 @@ def _build_chat_trust_metadata(
         },
         response_type=response_type,
     )
+    qualities = [
+        item["quality"] for item in evidence_items or []
+        if isinstance(item, dict) and isinstance(item.get("quality"), dict)
+    ]
+    statuses = {str(quality.get("evidence_status") or "") for quality in qualities}
+    if qualities and all(quality.get("ready") is False for quality in qualities):
+        trust_metadata["evidence_status"] = "unverified"
+    elif statuses == {"interpretation"}:
+        trust_metadata["evidence_status"] = "interpretation"
+    elif statuses == {"source_linked"}:
+        trust_metadata["evidence_status"] = "source_linked"
+    else:
+        trust_metadata["evidence_status"] = "unverified"
+    trust_metadata["fact_verification"] = "not_performed"
     return trust_metadata
 
 

@@ -60,6 +60,21 @@ def _runner(llm, tmp_path, registry=None, **kwargs):
     return AgentRunner(registry, lambda: llm, RunStore(tmp_path / "runs"), **kwargs), registry
 
 
+def test_reasoning_lane_guidance_reaches_decision_and_final_prompts(tmp_path):
+    runner, _ = _runner(ScriptedLLM([]), tmp_path)
+    run = AgentRun(id="run-0123456789abcdef", user_id="learner", message="Compare two options", agent_id="reasoning_agent")
+    ctx = ToolContext(user_id="learner")
+    for prompt in (runner._build_prompt(run, ctx), runner._final_prompt(run, ctx)):
+        assert "plausible alternative explanation" in prompt
+        assert "primary sources first" in prompt
+        assert "Brainstorming does not require" in prompt
+        assert "do not discard an idea merely" in prompt
+        assert "not externally verified fact" in prompt
+        assert "not private chain-of-thought" in prompt
+    run.agent_id = "coding_agent"
+    assert "divergent exploration" not in runner._build_prompt(run, ctx)
+
+
 def test_validate_args_subset():
     schema = {
         "type": "object",

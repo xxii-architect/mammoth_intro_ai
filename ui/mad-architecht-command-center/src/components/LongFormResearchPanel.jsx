@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { BookOpen, Clock, Download, Hash } from 'lucide-react'
 import { authorizedFetch } from '../api/client'
+import { SourceAuthorityLabel } from './TrustSurfaces'
 
 export default function LongFormResearchPanel({ artifact, rawJson }) {
   const [showRaw, setShowRaw] = useState(false)
@@ -144,6 +145,7 @@ export default function LongFormResearchPanel({ artifact, rawJson }) {
                     <span style={{ fontSize: '0.65rem', color: 'var(--mm-color-system-default)', fontFamily: 'JetBrains Mono,monospace', flexShrink: 0, minWidth: 30 }}>S{idx + 1}</span>
                     <div>
                       <div style={{ fontSize: '0.78rem', color: 'var(--txt-sec)', fontWeight: 600 }}>{src.title || src.label || 'Source'}</div>
+                      <SourceAuthorityLabel source={src} />
                       {(src.url || src.source) && <div style={{ fontSize: '0.65rem', color: 'var(--txt-mut)', fontFamily: 'JetBrains Mono,monospace', marginTop: 2, overflowWrap: 'anywhere' }}>{src.url || src.source}</div>}
                     </div>
                   </div>

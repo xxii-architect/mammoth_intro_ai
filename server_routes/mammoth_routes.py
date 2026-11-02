@@ -697,22 +697,28 @@ async def mammoth_chat(body: Dict[str, Any]):
         lane_result = lane_run.get("result")
         lane_output = lane_result.get("output") if isinstance(lane_result, dict) and isinstance(lane_result.get("output"), dict) else None
         lane_reply = _render_chat_result(lane_result)
+        lane_status = str(
+            (lane_output or {}).get("status")
+            or (lane_result.get("status") if isinstance(lane_result, dict) else "")
+            or lane_run.get("status") or "ok"
+        )
+        lane_failed = lane_status in {"failed", "error", "needs_context", "insufficient_evidence"}
         lane_thoughts = list(lane_run.get("thought_steps") or [])
-        lane_thoughts.append({"ts": _ts(), "label": "Lane complete", "detail": f"task_id={lane_run.get('task_id') or 'n/a'}", "status": "success"})
+        lane_thoughts.append({"ts": _ts(), "label": "Lane needs attention" if lane_failed else "Lane complete", "detail": f"task_id={lane_run.get('task_id') or 'n/a'} status={lane_status}", "status": "warning" if lane_failed else "success"})
         evidence = {
             "agent_id": lane_agent,
             "intent": lane_intent,
             "summary": _render_evidence_summary(lane_result),
             "task_id": lane_run.get("task_id") or "",
-            "status": lane_run.get("status") or "ok",
+            "status": lane_status,
             "source": "agent-runtime",
         }
         if isinstance(lane_result, dict):
-            for key in ("files", "source_files", "references", "evidence", "diff"):
+            for key in ("files", "source_files", "references", "evidence", "diff", "quality"):
                 if lane_result.get(key):
                     evidence[key] = lane_result.get(key)
         if isinstance(lane_output, dict):
-            for key in ("files", "source_files", "references", "evidence", "diff"):
+            for key in ("files", "source_files", "references", "evidence", "diff", "quality"):
                 if lane_output.get(key) and key not in evidence:
                     evidence[key] = lane_output.get(key)
         # Preserve structured guide steps if the guide agent returned them
@@ -730,6 +736,7 @@ async def mammoth_chat(body: Dict[str, Any]):
 
         lane_return: Dict[str, Any] = {
             "agent_id": lane_agent,
+            "status": lane_status,
             "adapter": (
                 lane_result.get("adapter") if isinstance(lane_result, dict) and lane_result.get("adapter")
                 else (lane_output.get("adapter") if isinstance(lane_output, dict) and lane_output.get("adapter") else "agent-runtime")
@@ -775,6 +782,7 @@ async def mammoth_chat(body: Dict[str, Any]):
                     "task_id": lane.get("task_id") or "",
                     "status": evidence.get("status") or "ok",
                     "source": evidence.get("source") or ("native-chat" if lane.get("agent_id") == "assistant" else "agent-runtime"),
+                    "quality": evidence.get("quality") or {},
                 })
                 if lane.get("agent_id") != "assistant" and lane.get("reply"):
                     reply_parts.append(f"\n\n**{lane.get('agent_id').replace('_', ' ').title()}**\n{lane.get('reply')}")
@@ -792,7 +800,7 @@ async def mammoth_chat(body: Dict[str, Any]):
             if lane_result.get("evidence"):
                 evidence_items.append(lane_result["evidence"])
             if lane_result.get("agent_id") != "assistant":
-                thought_steps.append({"ts": _ts(), "label": "Packaged response", "detail": f"task_id={task_id or 'n/a'}", "status": "success"})
+                thought_steps.append({"ts": _ts(), "label": "Packaged response", "detail": f"task_id={task_id or 'n/a'}", "status": "warning" if lane_result.get("status") in {"failed", "error", "needs_context", "insufficient_evidence"} else "success"})
             # Capture structured guide steps from guide agent
             if lane_result.get("guide_steps"):
                 guide_steps_result = lane_result["guide_steps"]
@@ -835,9 +843,16 @@ async def mammoth_chat(body: Dict[str, Any]):
         content=reply,
         response_type=reply_response_type,
     )
+    analysis_failed = any(
+        item.get("agent_id") in {"reasoning_agent", "reflection_agent"}
+        and item.get("status") in {"failed", "error", "needs_context"}
+        for item in evidence_items if isinstance(item, dict)
+    )
+    response_status = "partial" if analysis_failed and orchestrate else "failed" if analysis_failed else "ok"
 
     assistant_entry = {
         "role": "assistant",
+        "status": response_status,
         "message": reply,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "agent_id": agent_id,
@@ -879,7 +894,7 @@ async def mammoth_chat(body: Dict[str, Any]):
         user_id=user_id,
     )
     final_response: Dict[str, Any] = {
-        "status": "ok",
+        "status": response_status,
         "reply": reply,
         "chat_history": scoped_history,
         "thought_steps": thought_steps[-12:],

@@ -34,3 +34,21 @@ result = await runner.run(
 ```
 
 Role agents must implement the contracts in `mammoth_os.agents.adapters` and return the corresponding `Plan`, `Execution`, `Critique`, or `Synthesis` value object. The scaffold intentionally does not adapt current MammothOS agents whose input/output contracts differ; that integration belongs in explicit, tested adapters.
+
+## Remaining product integration
+
+The bounded runner and its pause/resume tests exist; it is **not** automatically
+enabled by selecting Reasoning Agent in Mammoth Mind. Reasoning and reflection
+quality improvements do not complete recursive orchestration.
+
+The remaining integration sequence is:
+
+1. Implement explicit role adapters for real planner, executor, critic and
+   synthesizer outputs. Charge actual provider/tool usage; critique confidence is
+   a routing signal, not a probability that an answer is true.
+2. Add tenant-scoped persisted runs/checkpoints, cancellation, audited single-use
+   approval/resume endpoints, and registry/module visibility. Keep repository
+   access, proposal-only writes and isolated execution approval boundaries intact.
+3. Opt in through the SDK and UI, preserving `mammoth.run.v1` events. Validate
+   restart/resume, tenant isolation, duplicate decisions, budgets, provider
+   outages and factual-evidence labeling end to end before enabling by default.

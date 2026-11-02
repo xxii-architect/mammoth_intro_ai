@@ -63,6 +63,9 @@ def test_brave_results_are_cleaned_and_key_stays_in_header():
         "url": "https://example.org/harvest",
         "snippet": "The full moon nearest the equinox & more.",
         "publisher": "Example",
+        "source_category": "general_web",
+        "authority_basis": "no_authority_inferred",
+        "verification_status": "not_fact_verified",
     }]
     request = transport.requests[0]
     assert request.get_header("X-subscription-token") == "secret-key"

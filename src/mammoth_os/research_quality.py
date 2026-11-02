@@ -10,6 +10,11 @@ import urllib.parse
 from collections import Counter
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from mammoth_os.research_source_catalog import (
+    OFFICIAL_STATE_WILDLIFE_HOSTS as _OFFICIAL_STATE_WILDLIFE_HOSTS,
+    STATE_WILDLIFE_HOSTS,
+)
+
 _REASONING_TAGS = ("think", "thinking", "reasoning", "reflection", "scratchpad")
 _CLOSED_BLOCK_RE = re.compile(
     r"<(%s)\b[^>]*>.*?</\1\s*>" % "|".join(_REASONING_TAGS), re.IGNORECASE | re.DOTALL
@@ -264,19 +269,143 @@ _SOURCE_INSTRUCTION_RE = re.compile(
     re.I,
 )
 
+# Jurisdiction names, not an agency allowlist.
+_US_STATES = dict(zip(
+    ("alabama|alaska|arizona|arkansas|california|colorado|connecticut|delaware|"
+     "florida|georgia|hawaii|idaho|illinois|indiana|iowa|kansas|kentucky|louisiana|"
+     "maine|maryland|massachusetts|michigan|minnesota|mississippi|missouri|montana|"
+     "nebraska|nevada|new hampshire|new jersey|new mexico|new york|north carolina|"
+     "north dakota|ohio|oklahoma|oregon|pennsylvania|rhode island|south carolina|"
+     "south dakota|tennessee|texas|utah|vermont|virginia|washington|west virginia|"
+     "wisconsin|wyoming").split("|"),
+    "al ak az ar ca co ct de fl ga hi id il in ia ks ky la me md ma mi mn ms mo mt "
+    "ne nv nh nj nm ny nc nd oh ok or pa ri sc sd tn tx ut vt va wa wv wi wy".split(),
+))
+_PERSONAL_EDU_RE = re.compile(
+    r"(?:^|[/.])(?:people|users?|students?|faculty|staff|profiles?|members?|personal|homepages?|blogs?)(?:[/.]|$)|~",
+    re.I,
+)
+
+def source_authority(source: Dict[str, Any]) -> Dict[str, str]:
+    """Hostname-based retrieval preference, never a truth/ownership certificate.
+
+    Government namespaces and institutional .edu pages are useful places to
+    look for primary evidence. Their individual claims still require review.
+    """
+    try:
+        parsed = urllib.parse.urlsplit(str(source.get("url") or ""))
+        host = (parsed.hostname or "").lower().rstrip(".")
+        valid = (
+            parsed.scheme.lower() in {"http", "https"} and not parsed.username
+            and bool(re.fullmatch(r"[a-z0-9]+(?:[.-][a-z0-9]+)*", host))
+        )
+    except ValueError:
+        valid, host = False, ""
+    category, basis = "general_web", "no_authority_inferred"
+    if source.get("source_type") == "provided" or source.get("source") == "provided":
+        category, basis = "supplied_source", "caller_supplied_not_verified"
+    elif valid:
+        state_host = re.search(r"(?:^|\.)state\.([a-z]{2})\.us$", host)
+        if host.endswith(".gov") or (
+            state_host and state_host.group(1) in _US_STATES.values()
+        ):
+            category, basis = "government", "government_hostname_policy"
+        elif host in _OFFICIAL_STATE_WILDLIFE_HOSTS:
+            category, basis = "government", "official_state_agency_directory"
+        elif host.endswith(".edu"):
+            personal = _PERSONAL_EDU_RE.search(
+                host + urllib.parse.unquote(parsed.path)
+            ) or re.search(
+                r"\b(?:personal (?:page|site|blog)|student (?:page|site|blog)|my homepage)\b",
+                str(source.get("title") or ""), re.I,
+            )
+            category, basis = (
+                ("education_personal", "personal_page_not_institutional_authority")
+                if personal else ("education_institution", "institutional_edu_hostname_policy")
+            )
+    return {
+        "source_category": category, "authority_basis": basis,
+        "verification_status": "not_fact_verified",
+    }
+
+
+def _named_states(text: str) -> set:
+    # Match longer names first so West Virginia is not classified as Virginia.
+    pattern = r"\b(?:" + "|".join(sorted(_US_STATES, key=len, reverse=True)) + r")\b"
+    return set(re.findall(pattern, text.lower()))
+
+
+def _source_jurisdictions(source: Dict[str, Any]) -> set:
+    try:
+        host = (urllib.parse.urlsplit(str(source.get("url") or "")).hostname or "").lower().rstrip(".")
+    except ValueError:
+        host = ""
+    if host in STATE_WILDLIFE_HOSTS:
+        return {STATE_WILDLIFE_HOSTS[host]}
+    for name, code in _US_STATES.items():
+        if re.search(rf"(?:^|\.)state\.{code}\.us$", host):
+            return {name}
+        if any(host == suffix or host.endswith("." + suffix) for suffix in (
+            f"{name.replace(' ', '')}.gov", f"{code}.gov",
+        )):
+            return {name}
+    return _named_states(f"{source.get('title', '')} {source.get('snippet', '')}")
+
+
+def rank_search_sources(sources: Sequence[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    """Stable relevance-gated authority preference shared by downstream agents.
+
+    Entity matches and requested jurisdictions outrank hostname preference.
+    Numeric overlap is retrieval relevance only, not a credibility score.
+    """
+    subject = " ".join(word for word in keywords(query) if word not in _SEARCH_INTENT_WORDS)
+    terms = stems(subject or query)
+    entities = [{stem(word) for word in entity} for entity in entity_terms(query)]
+    requested_states = _named_states(query)
+    rows = []
+    for source in sources:
+        row = {**source, **source_authority(source)}
+        try:
+            parsed = urllib.parse.urlsplit(str(row.get("url") or ""))
+            url_text = re.sub(r"[\W_]+", " ", f"{parsed.hostname or ''} {parsed.path}")
+        except ValueError:
+            url_text = ""
+        title, snippet = str(row.get("title") or ""), str(row.get("snippet") or "")
+        text_terms = stems(f"{title} {snippet} {url_text}")
+        states = _source_jurisdictions(row)
+        mismatch = bool(requested_states and states and not requested_states & states)
+        entity_match = any(entity <= text_terms for entity in entities)
+        topical_terms = terms - stems(" ".join(requested_states))
+        relevant = bool((topical_terms or terms) & text_terms)
+        authority = {
+            "government": 2, "education_institution": 1,
+        }.get(row["source_category"], 0) if relevant and not mismatch else 0
+        overlap = (
+            3 * len(terms & stems(title)) + 2 * len(terms & stems(url_text))
+            + len(terms & stems(snippet))
+        )
+        rows.append(((
+            row["source_category"] != "supplied_source", mismatch,
+            not relevant, not entity_match, -authority, -overlap,
+        ), row))
+    rows.sort(key=lambda pair: pair[0])
+    return [row for _, row in rows]
+
 
 def filter_search_sources(
     sources: Sequence[Dict[str, Any]], query: str,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """Strict retrieval hygiene, not authority or factual verification.
+    """Strict retrieval hygiene plus conservative authority preference.
 
+    Authority never bypasses topical/entity/intent checks or verifies facts.
     Rank by subject overlap, not generic search intent. Keep supplied sources
     exempt from topical pruning, but never pass obvious source instructions on
     as evidence. Instruction detection is deliberately bounded, not a guarantee.
     """
     subject = " ".join(word for word in keywords(query) if word not in _SEARCH_INTENT_WORDS)
     subject_terms = stems(subject or query)
-    entities = [{stem(word) for word in entity} for entity in entity_terms(query)]
+    requested_states = _named_states(query)
+    topical_terms = subject_terms - stems(" ".join(requested_states))
     documentation = bool(_DOCUMENTATION_QUERY_RE.search(query))
     candidates, dropped = [], []
     seen = set()
@@ -318,22 +447,13 @@ def filter_search_sources(
             ):
                 dropped.append({**source, "drop_reason": "intent_mismatch"})
                 continue
-            if subject_terms and not subject_terms & stems(source_text):
+            if subject_terms and not (topical_terms or subject_terms) & stems(source_text):
                 dropped.append({**source, "drop_reason": "off_topic"})
                 continue
         if identity:
             seen.add(identity)
-        score = (
-            5 * int(any(entity <= stems(source_text) for entity in entities))
-            + 3 * len(subject_terms & stems(title))
-            + 2 * len(subject_terms & stems(url_text))
-            + len(subject_terms & stems(snippet))
-        )
-        candidates.append((score, index, source))
-    candidates.sort(key=lambda row: (
-        row[2].get("source_type") != "provided", -row[0], row[1],
-    ))
-    return [row[2] for row in candidates], dropped
+        candidates.append(source)
+    return rank_search_sources(candidates, query), dropped
 
 
 def search_quality(kept: Sequence[Dict[str, Any]], dropped: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
@@ -343,6 +463,7 @@ def search_quality(kept: Sequence[Dict[str, Any]], dropped: Sequence[Dict[str, A
         "dropped_count": len(dropped),
         "drop_reasons": dict(Counter(str(source["drop_reason"]) for source in dropped)),
         "evidence_status": "search_results_not_fact_verified" if kept else "insufficient_evidence",
+        "fact_verification": "not_performed",
         "instruction_filter": "heuristic_not_complete",
     }
 

@@ -1,4 +1,5 @@
 import LongFormResearchPanel from './LongFormResearchPanel'
+import { SourceAuthorityLabel } from './TrustSurfaces'
 import { useState } from 'react'
 import { AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, Link2, Search, Sparkles } from 'lucide-react'
 
@@ -28,6 +29,7 @@ function SourceCard({ source, kind }) {
         <span style={{ fontSize: '0.76rem', fontWeight: 700, color: 'var(--txt-pri)' }}>{source?.label ? `[${source.label}] ` : ''}{title}</span>
       </div>
       <div style={{ fontSize: '0.73rem', color: 'var(--txt-sec)', lineHeight: 1.55 }}>{snippet}</div>
+      <SourceAuthorityLabel source={source} />
       {url && (
         <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', fontSize: '0.64rem', color: 'var(--photon)', fontFamily: 'JetBrains Mono,monospace', marginTop: 5, overflowWrap: 'anywhere' }}>
           {url}

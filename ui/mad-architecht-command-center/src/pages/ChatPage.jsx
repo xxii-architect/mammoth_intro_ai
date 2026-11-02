@@ -446,6 +446,9 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         <TrustBadgeRow
           provider={providerLabel}
           confidence={confidenceScore}
+          evidenceStatus={entry.trust_metadata?.evidence_status
+            || structuredResult?.quality?.evidence_status
+            || (entry.agent_id === 'reasoning_agent' ? 'interpretation' : undefined)}
           contradictions={contradictionFlags}
           sourceCount={sourceCount}
           showEvidence={sourceCount > 0}
@@ -916,6 +919,8 @@ export default function ChatPage({ setPage }) {
       }
 
       if (eventType === 'done' && payload) {
+        const failed = ['failed', 'error', 'partial', 'needs_context'].includes(payload.status)
+        if (failed) setError(payload.error || 'Analysis did not complete. Review the response and retry.')
         if (Array.isArray(payload.thought_steps) && payload.thought_steps.length) {
           setThoughtSteps(payload.thought_steps)
         }
@@ -923,7 +928,7 @@ export default function ChatPage({ setPage }) {
           const nextHistory = Array.isArray(payload.chat_history) ? payload.chat_history : []
           setHistory(nextHistory)
           const lastAssistant = [...nextHistory].reverse().find((entry) => entry.role === 'assistant')
-          if (lastAssistant) {
+          if (lastAssistant && !failed) {
             const derived = deriveSuccessDetailsFromMessage(lastAssistant.message, 'Agent run finished.')
             publishSuccessToast(
               buildSuccessToast({

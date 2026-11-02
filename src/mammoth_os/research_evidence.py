@@ -63,12 +63,19 @@ def link_findings(findings: Any, sources: list[dict]) -> tuple[list[dict], list[
             if not rq.stems(text) & rq.stems(quote):
                 invalid = True
                 continue
-            evidence.append({"source_id": label, "quote": quote, "url": source.get("url", ""), "title": source["title"]})
+            evidence.append({
+                "source_id": label, "quote": quote, "url": source.get("url", ""),
+                "title": source["title"], **rq.source_authority(source),
+            })
         cited = set(re.findall(r"\[(S\d+)\]", text))
         support = {label for label in value.get("source_support", []) if isinstance(label, str)} if isinstance(value.get("source_support"), list) else set()
         if (cited | support) - {item["source_id"] for item in evidence}:
             invalid = True
-        row = {**value, "content": text, "evidence": evidence, "source_support": sorted({item["source_id"] for item in evidence})}
+        row = {
+            **value, "content": text, "evidence": evidence,
+            "source_support": sorted({item["source_id"] for item in evidence}),
+            "verification_status": "not_fact_verified",
+        }
         if evidence and not invalid:
             row["evidence_status"] = "source_linked"
             linked.append(row)

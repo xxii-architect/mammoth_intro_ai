@@ -113,6 +113,54 @@ def test_mammoth_chat_dispatches_to_agent_runtime(monkeypatch):
     assert response['reply'] == 'Patched files successfully.'
     assert any(step['label'] == 'Routing decision' for step in response['thought_steps'])
 
+def test_mammoth_chat_reasoning_retains_specific_analysis_and_interpretation_label(monkeypatch):
+    state = {}
+    summary = "Evidence fetches compete with polling.\n\n**Alternative:** A stale proposal can also block approval."
+
+    async def fake_run_agent(body):
+        assert body["agent_id"] == "reasoning_agent"
+        assert body["payload"]["prompt"] == "Why is approval slow?"
+        return {
+            "status": "ok", "agent_id": "reasoning_agent",
+            "result": {"status": "ok", "output": {
+                "summary": summary,
+                "quality": {"ready": True, "evidence_status": "interpretation", "fact_verification": "not_performed"},
+            }},
+        }
+
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    monkeypatch.setattr(api_server, "run_agent", fake_run_agent)
+    response = asyncio.run(api_server.mammoth_chat({
+        "message": "Why is approval slow?", "agent_id": "reasoning_agent",
+    }))
+    assert response["reply"] == summary
+    assert response["trust_metadata"]["evidence_status"] == "interpretation"
+    assert response["trust_metadata"]["fact_verification"] == "not_performed"
+    assert response["chat_history"][-1]["trust_metadata"]["evidence_status"] == "interpretation"
+
+
+def test_mammoth_chat_failed_reasoning_is_not_a_completed_insight(monkeypatch):
+    state = {}
+    async def fake_run_agent(body):
+        return {
+            "status": "error", "agent_id": "reasoning_agent",
+            "result": {"status": "failed", "output": {
+                "status": "failed", "summary": "Reasoning could not be generated.",
+                "quality": {"ready": False, "evidence_status": "interpretation"},
+            }},
+        }
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    monkeypatch.setattr(api_server, "run_agent", fake_run_agent)
+    response = asyncio.run(api_server.mammoth_chat({
+        "message": "Compare alternatives", "agent_id": "reasoning_agent",
+    }))
+    assert response["status"] == "failed"
+    assert response["chat_history"][-1]["status"] == "failed"
+    assert response["trust_metadata"]["evidence_status"] == "unverified"
+    assert any(step["label"] == "Lane needs attention" for step in response["thought_steps"])
+
 
 def test_mammoth_chat_guide_preserves_steps_from_nested_agent_output(monkeypatch):
     state = {}

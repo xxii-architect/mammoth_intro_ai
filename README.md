@@ -220,6 +220,45 @@ Enforced server-side in `src/mammoth_os/repo_access.py` (not by UI hiding):
 
 Mammoth Mind's **Agent** mode (default; toggle to **Classic** in the chat header) runs a plan → tool → observe loop in `src/mammoth_os/agent_loop/` and streams every step as Server-Sent Events. The UI renders them as a collapsible timeline: plan checklist, one-line reasoning summaries, tool rows, proposed diffs, and inline approval cards. Slash commands and attachments still use the classic chat path.
 
+### Reasoning, reflection and evidence
+
+The **Reasoning Agent** lane analyzes the supplied situation: assumptions, a
+competing interpretation, tradeoffs, practical checks and a concrete next step.
+Its guidance applies in both the Agent loop and Classic runtime. Classic analysis
+is validated structured model output, not a canned tutor paragraph or an echoed
+prompt. Invalid/offline output is reported as failed, not a successful insight.
+Abstract models, analogies, counterfactuals and speculative ideas remain welcome:
+brainstorming is not restricted to published sources. Hypotheses must be labeled,
+with assumptions and a way to test them; factual claims still need evidence.
+Explicit tutor-hint/coaching modes retain Socratic questions, error-pattern hints
+and micro-lessons; rule-based help remains labeled when model enrichment fails.
+
+The separate Reflection agent preserves learner signals and follow-up tags, but
+its displayed summary now includes the generated insight, question and action.
+User input and derived hints are not external evidence or 100% citation coverage.
+Neither analysis agent assigns an uncalibrated correctness percentage.
+
+Research favors relevant government and institutional sources, without a closed
+website allowlist. Source authority is a retrieval preference, never a truth
+guarantee; the correct subject, jurisdiction, date and supporting passage still
+matter. **Interpretation** means analysis; **Source-linked** means excerpt links
+were checked, not fact-verified; **Unverified** means the required support is not
+established. Search snippets and domain names alone do not verify a claim.
+The source catalog covers fish/wildlife agencies for all 50 US states, with
+directory provenance and exact-host exceptions for official non-government
+domains. It prioritizes relevant, matching-jurisdiction sources rather than
+letting an unrelated official page outrank useful evidence. Institutional
+`.edu` content is distinguished from identifiable personal/student pages.
+These are hostname and relevance heuristics, not universal ownership checks;
+unlisted credible sites remain eligible. The directory check found an Ohio
+endpoint returning 404 and a Mississippi TLS validation failure: catalog
+membership does not imply a live or successfully retrieved page.
+
+Recursive multi-agent orchestration remains an opt-in SDK primitive, not an
+automatically enabled reasoning feature. The remaining adapter, persistence/API
+and UI rollout steps are documented in
+[`src/mammoth_os/recursive/README.md`](src/mammoth_os/recursive/README.md).
+
 | Endpoint | Purpose |
 | --- | --- |
 | `GET /api/mammoth/tools?repo=` | Tool catalog visible to *you* for that repo selection |

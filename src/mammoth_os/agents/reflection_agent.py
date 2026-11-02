@@ -5,27 +5,33 @@ Generates structured learning reflections, mindset prompts, and personal growth 
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List
-import json
 import logging
 
 from .base_agent import BaseAgent
+from mammoth_os.analysis_contract import run_analysis_sync, validate_analysis
 
 logger = logging.getLogger("mammoth.agents.reflection")
 
-REFLECTION_SYSTEM = """You are an elite strategic reflection analyst for True XXII Supply (Boise, Idaho).
-Your job: analyze the operator situation described and return a focused, actionable reflection.
+REFLECTION_SYSTEM = """Analyze the learner's or user's actual situation with care and specificity.
+Offer a considered interpretation, not a motivational speech or a diagnosis.
 
 Rules:
-- Read the actual situation described. Respond to IT specifically. No generic coaching platitudes.
-- insight: what the data or situation actually reveals — sharp, specific, non-obvious
-- action: one concrete next step the operator can take TODAY — specific and executable
-- prompt_question: one powerful reflection question tailored to this exact situation
+- Separate the supplied observations from your interpretation and acknowledge missing information.
+- Do not invent progress, struggle, emotions, lessons learned, or personal history.
+- insight: a specific observation, a plausible alternative explanation, and what would distinguish them.
+- action: one concrete, proportionate next step or small experiment based on this situation.
+- prompt_question: one question that tests an assumption in this exact situation.
+- No slogans, canned praise, brand persona, or 'consistency beats intensity' filler.
+- No external sources were retrieved. Do not invent citations or claim factual verification.
+- Explore analogies or speculative interpretations when useful, labeled as hypotheses,
+  not facts about the user. An unpublished idea is not automatically a bad idea.
+- Return concise public rationale, never private chain-of-thought.
 
 Respond in this exact JSON only — no text outside the JSON:
 {
-  "prompt_question": "A sharp reflection question specific to this situation",
-  "insight": "What this situation actually reveals — specific, non-obvious, operator-grade analysis",
-  "action": "One concrete executable action to take today based on this exact situation"
+  "prompt_question": "A question specific to the supplied situation",
+  "insight": "A grounded interpretation with its uncertainty and a competing explanation",
+  "action": "One concrete next step that can be checked"
 }"""
 
 class ReflectionAgent(BaseAgent):
@@ -58,15 +64,22 @@ class ReflectionAgent(BaseAgent):
         if free_text:
             topic = free_text
 
+        generated = False
+        trace = ""
+        has_input = bool(payload.get("prompt") or payload.get("topic") or lesson_title or signals)
         try:
+            if not has_input:
+                raise ValueError("Reflection requires a situation")
             llm_out = self._run_async(self._llm_analyze(topic, lesson_title, difficulty, progress_score, signals))
-            prompt  = llm_out.get("prompt_question") or self._generate_prompt(topic, lesson_title, signals)
-            insight = llm_out.get("insight")         or self._generate_insight(topic, difficulty, progress_score, signals)
-            action  = llm_out.get("action")          or self._generate_action(topic, difficulty, signals)
-        except Exception as exc:
-            logger.warning("ReflectionAgent LLM failed, using templates: %s", exc)
+            prompt = llm_out["prompt_question"]
+            insight = llm_out["insight"]
+            action = llm_out["action"]
+            trace = llm_out["trace"]
+            generated = True
+        except (ValueError, TypeError, RuntimeError, OSError) as exc:
+            logger.warning("Reflection generation failed (%s)", type(exc).__name__)
             prompt  = self._generate_prompt(topic, lesson_title, signals)
-            insight = self._generate_insight(topic, difficulty, progress_score, signals)
+            insight = ""
             action  = self._generate_action(topic, difficulty, signals)
         follow_up_tags = self._derive_follow_up_tags(difficulty, progress_score, signals)
         sources = [
@@ -84,7 +97,8 @@ class ReflectionAgent(BaseAgent):
                 "id": "src-reflection-signals",
                 "type": "learner_signals",
                 "label": "Signal summary",
-                "summary": self._signal_summary(difficulty, progress_score, signals),
+                "summary": "Routing hints (may include defaults, not measured performance): "
+                + self._signal_summary(difficulty, progress_score, signals),
                 "url": "",
                 "publisher": "mammoth_runtime",
                 "source_type": "derived",
@@ -94,10 +108,15 @@ class ReflectionAgent(BaseAgent):
         citations, references = self._build_citation_bundle(sources)
         source_coverage = self._build_source_coverage(sources)
 
-        reflection_summary = self._build_summary(topic, lesson_title, difficulty, progress_score, signals)
+        reflection_summary = (
+            f"{insight}\n\n**Question:** {prompt}\n\n**Next step:** {action}"
+            if generated else
+            "Reflection could not be generated. Any exercise below is a rule-based prompt, not an analyzed insight."
+            if has_input else "Describe a situation or lesson you want to reflect on."
+        )
         return {
             "agent": "reflection",
-            "status": "ok",
+            "status": "ok" if generated else "failed" if has_input else "needs_context",
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "topic": topic,
             "lesson_title": lesson_title,
@@ -108,13 +127,21 @@ class ReflectionAgent(BaseAgent):
             "action": action,
             "signals": signals,
             "follow_up_tags": follow_up_tags,
-            "recommendations": self._build_recommendations(topic, difficulty, progress_score, signals),
+            "recommendations": [action] if generated else self._build_recommendations(topic, difficulty, progress_score, signals),
             "sources": sources,
             "citations": citations,
             "references": references,
             "source_coverage": source_coverage,
-            "quality_flags": self._quality_flags(source_coverage),
-            "confidence": self._estimate_confidence(difficulty, progress_score, signals),
+            "quality_flags": ["interpretation_not_fact_verified"] + ([] if generated else ["analysis_generation_failed"]),
+            "quality": {
+                "ready": generated,
+                "evidence_status": "interpretation",
+                "fact_verification": "not_performed",
+                "issues": [] if generated else ["analysis_generation_failed"],
+            },
+            "generation_mode": "model" if generated else "unavailable",
+            "trace": trace,
+            "confidence": None,
             "summary": reflection_summary,           # standard contract key
             "reflection_summary": reflection_summary, # preserved for back-compat
         }
@@ -128,49 +155,31 @@ class ReflectionAgent(BaseAgent):
         signals: List[str],
     ) -> Dict[str, Any]:
         from mammoth_os.llm_client import get_llm_client
+        from mammoth_os.llm_completion import complete
         client = get_llm_client()
         signal_str = ", ".join(signals) if signals else "none"
         user_message = (
             f"Situation: {topic}\n"
             f"Lesson/module: {lesson_title or 'not specified'}\n"
-            f"Difficulty: {difficulty}  |  Progress score: {progress_score:.2f}\n"
+            "Difficulty/progress defaults are routing hints, not observed learner performance.\n"
             f"Struggle signals: {signal_str}\n"
             f"Analyze this situation and return the JSON reflection."
         )
-        raw = await client.generate(
+        completion = await complete(
+            client,
             user_message,
             system_prompt=REFLECTION_SYSTEM,
             max_tokens=1500,
             temperature=0.4,
             response_format={"type": "json_object"},
         )
-        import re as _r
-        try:
-            parsed = json.loads(raw) if isinstance(raw, str) else raw
-            if isinstance(parsed, dict) and parsed:
-                return parsed
-        except Exception:
-            pass
-        if isinstance(raw, str):
-            out = {}
-            for k in ["prompt_question", "insight", "action"]:
-                m = _r.search('"' + k + r'"\s*:\s*"(.*?)(?:"|$)', raw, _r.DOTALL)
-                if m:
-                    out[k] = m.group(1).strip()
-            if out:
-                return out
-        return {}
+        if completion.finish_reason not in {"", "stop"}:
+            raise ValueError("Reflection completion was not complete")
+        return validate_analysis(completion.text, text_fields=("prompt_question", "insight", "action"))
 
     @staticmethod
     def _run_async(coro):
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                raise RuntimeError("closed")
-            return loop.run_until_complete(coro)
-        except RuntimeError:
-            return asyncio.run(coro)
+        return run_analysis_sync(coro)
 
 
     def _build_citation_bundle(self, sources: List[Dict[str, str]]) -> tuple[List[Dict[str, str]], List[Dict[str, str]]]:
@@ -185,7 +194,7 @@ class ReflectionAgent(BaseAgent):
                     "source_id": source_id,
                     "label": label,
                     "quote": summary[:220],
-                    "why_it_matters": "Supports the reflection guidance and follow-up tags.",
+                    "why_it_matters": "User input or derived routing signals; not independent factual support.",
                 }
             )
             references.append(
@@ -202,23 +211,15 @@ class ReflectionAgent(BaseAgent):
 
     def _build_source_coverage(self, sources: List[Dict[str, str]]) -> Dict[str, Any]:
         claim_count = 3
-        linked_claims = claim_count if sources else 0
+        linked_claims = 0
         return {
             "source_count": len(sources),
+            "external_source_count": 0,
+            "evidence_status": "interpretation",
             "citation_coverage": round(linked_claims / claim_count, 2) if claim_count else 0.0,
             "fully_supported_claims": linked_claims,
             "total_claims": claim_count,
         }
-
-    def _quality_flags(self, source_coverage: Dict[str, Any]) -> List[str]:
-        flags: List[str] = []
-        if int(source_coverage.get("source_count") or 0) == 0:
-            flags.append("missing_sources")
-        if float(source_coverage.get("citation_coverage") or 0) < 1.0:
-            flags.append("incomplete_citation_coverage")
-        if not flags:
-            flags.append("source_grounding_acceptable")
-        return flags
 
     def _coerce_progress(self, value: Any) -> float:
         try:
@@ -237,7 +238,7 @@ class ReflectionAgent(BaseAgent):
             tag_text = str(tag or "").strip().lower()
             if not tag_text:
                 continue
-            if "example" in tag_text or "example" in tag_text:
+            if "example" in tag_text:
                 normalized.append("need_examples")
             elif "error" in tag_text or "bug" in tag_text:
                 normalized.append("error_handling")
@@ -253,46 +254,9 @@ class ReflectionAgent(BaseAgent):
         return list(dict.fromkeys(normalized))
 
     def _generate_prompt(self, topic: str, lesson_title: str | None, signals: List[str]) -> str:
-        if lesson_title:
-            if signals:
-                return (
-                    f"Think back on '{lesson_title}'. Which part felt clearest after you "
-                    f"worked through the struggle tags {', '.join(signals)}?"
-                )
-            return (
-                f"Think back on '{lesson_title}'. What part of the lesson felt most "
-                f"surprising or unexpectedly clear once you saw it?"
-            )
-
-        if signals:
-            return (
-                f"What is one thing about {topic} that feels less intimidating now, "
-                f"especially after noticing {', '.join(signals)}?"
-            )
-
-        return (
-            f"What is one thing about {topic} that feels less intimidating now "
-            f"than it did yesterday?"
-        )
-
-    def _generate_insight(self, topic: str, difficulty: str, progress_score: float, signals: List[str]) -> str:
-        if difficulty == "easy":
-            return (
-                f"Early wins in {topic} matter. They build confidence and momentum. "
-                f"Small victories compound faster than you expect."
-            )
-
-        if difficulty == "hard" or progress_score < 0.5:
-            extra = " " + self._signal_tail(signals) if signals else ""
-            return (
-                f"Struggle is a signal, not a setback. Hard lessons in {topic} are where "
-                f"your long-term growth actually begins.{extra}"
-            ).strip()
-
-        return (
-            f"Steady progress in {topic} is more important than perfect execution. "
-            f"Consistency beats intensity."
-        )
+        focus = lesson_title or topic
+        signal_question = f" What example would clarify {', '.join(signals)}?" if signals else ""
+        return f"What did you observe in {focus}, and what are you only assuming?{signal_question}"
 
     def _generate_action(self, topic: str, difficulty: str, signals: List[str]) -> str:
         if "need_examples" in signals:
@@ -334,35 +298,3 @@ class ReflectionAgent(BaseAgent):
         if signals:
             return f"difficulty={difficulty}; progress={progress_score:.2f}; signals={', '.join(signals)}"
         return f"difficulty={difficulty}; progress={progress_score:.2f}; signals=none"
-
-    def _build_summary(
-        self,
-        topic: str,
-        lesson_title: str | None,
-        difficulty: str,
-        progress_score: float,
-        signals: List[str],
-    ) -> str:
-        focus = lesson_title or topic
-        if progress_score < 0.5 or difficulty == "hard":
-            return f"{focus} needs slower pacing, clearer examples, and one smaller verification step."
-        if signals:
-            return f"{focus} is moving forward, but the signal pattern suggests one targeted review step."
-        return f"{focus} is progressing steadily; keep the reflection brief and keep building momentum."
-
-    def _estimate_confidence(self, difficulty: str, progress_score: float, signals: List[str]) -> float:
-        confidence = 0.68 + (progress_score - 0.5) * 0.25
-        if difficulty == "easy":
-            confidence += 0.05
-        elif difficulty == "hard":
-            confidence -= 0.08
-        if signals:
-            confidence -= min(0.1, len(signals) * 0.02)
-        return round(max(0.45, min(0.95, confidence)), 2)
-
-    def _signal_tail(self, signals: List[str]) -> str:
-        if not signals:
-            return ""
-        if len(signals) == 1:
-            return f"Pay attention to {signals[0].replace('_', ' ')}."
-        return f"Pay attention to {signals[0].replace('_', ' ')} and {signals[1].replace('_', ' ')}."

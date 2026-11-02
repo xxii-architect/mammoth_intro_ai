@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from .base_agent import BaseAgent
+from mammoth_os import research_quality as rq
 
 
 SEARCH_SYSTEM = """You are MammothOS's search synthesizer.
@@ -91,6 +92,7 @@ class SearchAgent(BaseAgent):# type: ignore
                 "url": str(item.get("url") or ""),
                 "publisher": str(item.get("publisher") or ""),
                 "score": 0.6,
+                **rq.source_authority(item),
             }
             for item in result.get("results") or []
             if isinstance(item, dict)
@@ -133,7 +135,7 @@ class SearchAgent(BaseAgent):# type: ignore
                 score += 0.1
             ranked.append({**item, "score": round(min(score, 0.99), 2)})
         ranked.sort(key=lambda item: float(item.get("score") or 0), reverse=True)
-        return ranked
+        return rq.rank_search_sources(ranked, query)
 
     async def summarize(self, results: list[dict], query: str) -> str:
         llm_sum = await self._llm_summarize(results or [], query)
@@ -172,6 +174,7 @@ class SearchAgent(BaseAgent):# type: ignore
             "sources": sorted({str(item.get("source") or "unknown") for item in results[:8]}),
             "quality_flags": flags,
             "web_search_quality": self._last_web_quality,
+            "quality": {"evidence_status": "unverified", "fact_verification": "not_performed"},
         }
 
     async def run(self, payload: Any) -> Dict[str, Any]:

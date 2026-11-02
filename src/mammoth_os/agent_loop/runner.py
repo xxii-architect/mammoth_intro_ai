@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
 
 from mammoth_os.llm_completion import complete
+from mammoth_os.analysis_contract import REASONING_GUIDANCE
 
 from . import events as ev
 from .decisions import decision_schema, omit_optional_nulls, parse_structured_decision
@@ -459,6 +460,7 @@ class AgentRunner:
             SYSTEM_PROMPT,
             repo_line,
             f"Agent lane: {run.agent_id}.",
+            REASONING_GUIDANCE if run.agent_id == "reasoning_agent" else "",
             f"Decision budget remaining: {max(0, (run.step_limit or self.max_steps) - run.steps)}. "
             "Read the necessary exact ranges, then perform the requested tool action when ready. "
             "Do not repeatedly ask for permission to perform ordinary reads or proposal preparation. "
@@ -565,6 +567,7 @@ class AgentRunner:
             describe_repo(ctx, approved_application=self.registry.resolve("owner_execution_apply", ctx) is not None)
             if ctx is not None else "",
             f"User request:\n{run.message}",
+            REASONING_GUIDANCE if run.agent_id == "reasoning_agent" else "",
             ("Additional context:\n" + str(run.request["extra_context"])[:24000])
             if run.request.get("extra_context") else "",
             ("Recent conversation:\n" + str(run.request.get("history_text") or "").strip()[:4000])

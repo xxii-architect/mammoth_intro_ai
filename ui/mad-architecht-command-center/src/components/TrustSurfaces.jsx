@@ -1,5 +1,23 @@
 import { normalizeConfidence } from '../lib/confidence'
 
+export function SourceAuthorityLabel({ source }) {
+  const labels = {
+    government: 'Government source',
+    education_institution: 'Institutional education source',
+    education_personal: 'Personal education-site page',
+    supplied_source: 'Supplied source',
+    general_web: 'Web source',
+  }
+  const label = labels[source?.source_category]
+  if (!label) return null
+  return (
+    <div title={`Authority basis: ${source.authority_basis || 'not assessed'}. Source preference is not verification of the page or its claims.`}
+      style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', marginTop: 5 }}>
+      {label} · not fact-verified
+    </div>
+  )
+}
+
 /**
  * Trust Surfaces — Per-response confidence, provider, contradiction, and evidence badges
  * Displayed alongside assistant responses in Chat and Tutor surfaces
@@ -176,6 +194,7 @@ export function TrustBadgeRow({
   avgCredibility,
   citationCoverage,
   showEvidence = true,
+  evidenceStatus,
   style = {},
 }) {
   return (
@@ -193,6 +212,13 @@ export function TrustBadgeRow({
     >
       <ProvenianceBadge provider={provider} confidence={confidence} />
       <ConfidenceIndicator score={confidence} />
+      {evidenceStatus && (
+        <span title="Source-linked means matching excerpts were checked, not that factual accuracy was independently verified. Interpretation is analysis, not an established fact.">
+          {evidenceStatus === 'interpretation' ? 'Interpretation'
+            : evidenceStatus === 'source_linked' ? 'Source-linked · not fact-verified'
+              : 'Unverified'}
+        </span>
+      )}
       {contradictions.length > 0 && (
         <ContradictionFlag
           contradictions={contradictions}
