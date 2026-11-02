@@ -28,6 +28,7 @@ from .tools import ToolContext, ToolRegistry, ToolSpec, validate_args
 
 DEFAULT_MAX_STEPS = 8
 DECISION_OUTPUT_TOKENS = 4096
+OWNER_EDIT_OUTPUT_TOKENS = 8192
 FINAL_OUTPUT_TOKENS = 8192
 REPAIR_OUTPUT_TOKENS = 8192
 MAX_CONTINUATIONS = 2
@@ -475,6 +476,8 @@ class AgentRunner:
             )
         parts.append(
             "Current tool receipts override old conversation summaries, including repository HEAD and profiles. "
+            "A successful owner_execution_status base_sha is the current observed committed HEAD; "
+            "another HEAD lookup is not required. Preparation and execution check that it has not changed. "
             "Refresh owner_execution_status in this run before preparing an owner job; do not infer availability "
             "from a previous chat. Headings and JSX removals must be located in the rendering component, not only "
             "a data array. Prepare one bounded, coherent change at a time; split a large implementation into separately "
@@ -503,10 +506,14 @@ class AgentRunner:
         if not run.transcript:
             return ""
         window = run.transcript[-10:]
+        recent_indices = [
+            index for index, step in enumerate(run.transcript)
+            if not str(step.get("tool") or "").startswith("(")
+        ][-RECENT_OBSERVATIONS:]
         lines = ["Observations so far (oldest first):"]
         offset = len(run.transcript) - len(window)
         for idx, step in enumerate(window):
-            recent = len(window) - idx <= RECENT_OBSERVATIONS
+            recent = offset + idx in recent_indices
             budget = MAX_OBSERVATION_CHARS if recent else MAX_OLD_OBSERVATION_CHARS
             call = f"{step.get('tool')}({json.dumps(step.get('args') or {}, default=str)[:400]})"
             lines.append(f"[{offset + idx}] {call}\n    → {render_observation(step.get('result') or {}, budget)}")
@@ -558,6 +565,16 @@ class AgentRunner:
         client = self.llm_factory()
         repairing_limit = bool(run.transcript and (run.transcript[-1].get("result") or {}).get("code") == "output_limit")
         output_limit = FINAL_OUTPUT_TOKENS if final else REPAIR_OUTPUT_TOKENS if repairing_limit else DECISION_OUTPUT_TOKENS
+        if not final and run.completion_goal in {"validated", "applied"} and any(
+            step.get("tool") == "owner_execution_status" and (step.get("result") or {}).get("status") == "ok"
+            for step in run.transcript
+        ) and any(
+            step.get("tool") in {"repo_read_file", "repo_recall_observation"}
+            and (step.get("result") or {}).get("status") == "ok"
+            and isinstance((step.get("result") or {}).get("content"), str)
+            for step in run.transcript
+        ):
+            output_limit = max(output_limit, OWNER_EDIT_OUTPUT_TOKENS)
         result = await complete(
             client, prompt, temperature=0.2,
             max_tokens=output_limit,
@@ -745,6 +762,7 @@ class AgentRunner:
     async def _loop(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
         try:
             invalid_streak = 0
+            repeat_recoveries = 0
             while True:
                 if run.cancel_requested:
                     run.status = "cancelled"
@@ -813,6 +831,31 @@ class AgentRunner:
                         "can_continue": run.public()["can_continue"], "offline": invalid == "offline",
                     })
                     return
+                if not stop_code and decision.get("tool") and repeat_recoveries == 0 and self._is_repeat(
+                    run, str(decision["tool"]), decision.get("args") or {},
+                ):
+                    repeat_recoveries += 1
+                    run.transcript.append({
+                        "tool": "(blocked repeat)",
+                        "args": {},
+                        "result": {
+                            "status": "error", "code": "repeated_tool",
+                            "error": (
+                                f"The duplicate {decision['tool']} call was not executed. Its saved receipt is "
+                                "already in the observations. Use that evidence to choose a different next action "
+                                "or report a concrete blocker. Do not reread unchanged source or claim an action ran. "
+                                "For owner validation/application, prepare small exact edits from the inspected "
+                                "source using the observed readiness base_sha; do not output whole existing files. "
+                                "Only one duplicate-call correction is allowed."
+                            ),
+                        },
+                    })
+                    self.store.save(run)
+                    yield self._emit(run, ev.RUN_RECOVERING, {
+                        "code": "repeated_tool", "attempt": 1,
+                        "text": "Duplicate tool call blocked; choosing the next action from saved evidence.",
+                    })
+                    continue
                 invalid_streak = 0
                 goal = decision.get("goal")
                 if goal in WORK_GOALS and WORK_GOALS.index(goal) > WORK_GOALS.index(run.completion_goal):

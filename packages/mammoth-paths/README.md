@@ -72,6 +72,15 @@ approval. Bounded failure excerpts remain in
 `progress.executions[].failure_excerpts`, including truncation flags, for review
 and repair. This is control-flow support, not a model-quality guarantee.
 
+Owner `validated` / `applied` decisions with successful readiness and source-read
+receipts allow up to 8,192 output tokens so exact edits have room to finish;
+ordinary decisions remain capped at 4,096. A truncated decision gets one bounded
+repair. A duplicate tool decision is blocked and gets at most one corrective
+decision per stream before stopping; the duplicate itself never executes.
+Repair markers do not age recent source excerpts into the clipped history
+budget. These limits can increase actual model usage; they do not prove that a
+provider will produce a valid patch or that the change meets visual acceptance.
+
 ## API
 
 | Method | Surface | Access |

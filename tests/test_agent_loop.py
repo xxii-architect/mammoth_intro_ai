@@ -508,8 +508,11 @@ def test_repeated_truncation_ends_with_clean_message(tmp_path, repo):
 
 
 def test_output_limit_retry_is_bounded_and_owner_guidance_is_not_proposal_only(tmp_path, repo):
+    from mammoth_os.agent_loop.runner import (
+        DECISION_OUTPUT_TOKENS,
+        REPAIR_OUTPUT_TOKENS,
+    )
     from mammoth_os.llm_completion import Completion
-    from mammoth_os.agent_loop.runner import DECISION_OUTPUT_TOKENS, REPAIR_OUTPUT_TOKENS
     class Model:
         def __init__(self):
             self.limits = []
@@ -542,6 +545,115 @@ def test_inventory_retains_current_head_and_observation_indices_do_not_shift(tmp
     assert run.progress()["readiness"]["base_sha"] == "a" * 40
     observations = runner._observations_text(run)
     assert "[3] repo_read_file" in observations and "[12] repo_read_file" in observations
+
+
+def test_response_repairs_do_not_evict_recent_source_excerpts(tmp_path):
+    runner, _ = _runner(ScriptedLLM([]), tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Edit")
+    content = "x" * 2500 + "\nEXACT_HEADER_END"
+    run.transcript = [
+        {"tool": "repo_read_file", "result": {"status": "ok", "content": content, "start_line": 1}},
+        {"tool": "repo_read_file", "result": {"status": "ok", "content": "toolbar", "start_line": 1}},
+        {"tool": "(invalid response)", "result": {"code": "output_limit"}},
+        {"tool": "(blocked repeat)", "result": {"code": "repeated_tool"}},
+    ]
+    assert "EXACT_HEADER_END" in runner._observations_text(run)
+
+
+@pytest.mark.parametrize("goal,ready,read,expected", [
+    ("answer", True, True, 4096),
+    ("proposal", True, True, 4096),
+    ("applied", False, True, 4096),
+    ("applied", True, False, 4096),
+    ("validated", True, True, 8192),
+    ("applied", True, True, 8192),
+])
+def test_larger_output_budget_requires_owner_goal_readiness_and_source(tmp_path, goal, ready, read, expected):
+    from mammoth_os.llm_completion import Completion
+
+    class Model:
+        async def generate_completion(self, prompt, **kwargs):
+            assert kwargs["max_tokens"] == expected
+            return Completion(text='{"final":"Observed only."}')
+
+    runner, _ = _runner(Model(), tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Edit", completion_goal=goal)
+    run.transcript = [
+        {"tool": "owner_execution_status", "result": {"status": "ok" if ready else "error"}},
+        {"tool": "repo_read_file", "result": {"status": "ok" if read else "error", "content": "source"}},
+    ]
+    asyncio.run(runner._generate(run, "Choose next action."))
+    assert run.diagnostics[-1]["output_token_limit"] == expected
+
+
+def test_owner_edit_budget_and_duplicate_repair_reach_preparation_approval(tmp_path, repo):
+    from mammoth_os.agent_loop.runner import (
+        DECISION_OUTPUT_TOKENS,
+        OWNER_EDIT_OUTPUT_TOKENS,
+    )
+    from mammoth_os.llm_completion import Completion
+
+    read = {"tool": "repo_read_file", "args": {"path": "src/app.py"}}
+    responses = [
+        {"tool": "owner_execution_status", "args": {}},
+        read,
+        Completion(text=TRUNCATED, finish_reason="length"),
+        read,
+        {"tool": "owner_execution_prepare", "args": {"base_sha": "a" * 40, "changes": [
+            {"path": "src/app.py", "edits": [{"old": "'hi'", "new": "'hey'"}]},
+        ]}},
+    ]
+
+    class Model:
+        def __init__(self):
+            self.limits, self.prompts = [], []
+
+        async def generate_completion(self, prompt, **kwargs):
+            self.limits.append(kwargs["max_tokens"])
+            self.prompts.append(prompt)
+            item = responses.pop(0)
+            return item if isinstance(item, Completion) else Completion(text=json.dumps(item))
+
+    model = Model()
+    registry = ToolRegistry()
+    register_repo_tools(registry)
+    registry.register(ToolSpec(
+        name="owner_execution_status", description="", input_schema={"type": "object"}, tier="read",
+        handler=lambda a, c: {"status": "ok", "base_sha": "a" * 40},
+    ))
+    prepared = []
+    registry.register(ToolSpec(
+        name="owner_execution_prepare", description="", input_schema={"type": "object"}, tier="write",
+        handler=lambda a, c: prepared.append(a) or {"status": "ok"}, requires_approval=True,
+    ))
+    runner, _ = _runner(model, tmp_path, registry)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Change greeting",
+                   request={"completion_goal": "applied"})
+    events = _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo, repo_scope="platform")))
+    assert model.limits == [DECISION_OUTPUT_TOKENS] * 2 + [OWNER_EDIT_OUTPUT_TOKENS] * 3
+    assert "duplicate repo_read_file call was not executed" in model.prompts[-1]
+    assert "return 'hi'" in model.prompts[-1]
+    assert events[-1].type == "run.awaiting_approval"
+    assert run.pending_approval["tool"] == "owner_execution_prepare"
+    assert prepared == []
+    assert sum(event.type == "tool.call" for event in events) == 2
+    assert run.steps == 3
+    assert [event.data["code"] for event in events if event.type == "run.recovering"] == [
+        "output_limit", "repeated_tool",
+    ]
+
+
+def test_duplicate_correction_is_bounded_and_never_reexecutes(tmp_path, repo):
+    read = {"tool": "repo_read_file", "args": {"path": "README.md"}}
+    llm = ScriptedLLM([read, read, read, {"final": "Stopped repeating; no change prepared."}])
+    runner, _ = _runner(llm, tmp_path)
+    run = AgentRun(id=AgentRun.new_id(), user_id="u1", message="Edit", request={"completion_goal": "applied"})
+    events = _collect(runner.start(run, ToolContext(user_id="u1", repo_root=repo)))
+    assert sum(event.type == "tool.call" for event in events) == 1
+    assert sum(event.type == "run.recovering" for event in events) == 1
+    assert events[-1].type == "run.partial"
+    assert events[-1].data["code"] == "repeated_tool"
+    assert len(llm.prompts) == 4
 
 
 def test_repeat_guard_allows_required_reread_and_retry_after_edit_mismatch():
