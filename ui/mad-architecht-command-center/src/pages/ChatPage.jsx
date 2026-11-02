@@ -397,7 +397,7 @@ function ChatBubble({ entry, busy, streaming, approvals, prevMessage, onSaveCard
         {!isUser && entry.run && (
           <RunTimeline
             run={entry.run}
-            busy={busy && entry.run.status !== 'awaiting_approval'}
+            busy={busy}
             onApprove={() => onRunDecision?.(entry, 'approve')}
             onReject={() => onRunDecision?.(entry, 'reject')}
             onContinue={() => onRunDecision?.(entry, 'continue')}

@@ -32,6 +32,12 @@ console.log(result.status, result.reply)
 
 Without `approve`, a run that needs approval stops with `status: 'awaiting_approval'` and `pendingApproval` set. Call `paths.decide(runId, approval.id, 'approve' | 'reject')` later.
 
+Both clients finish the current stream at a terminal run event, including
+`run.awaiting_approval`, without waiting for the HTTP connection to close.
+The app disables approval controls while a request is still in flight; saved
+Agent-page approvals survive refresh, but the backend still verifies their
+current identity and repository base before allowing any action.
+
 ## React
 
 ```jsx

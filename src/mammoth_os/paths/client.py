@@ -266,6 +266,8 @@ class MammothPaths:
                     event = RunEvent.from_dict(raw)
                     terminal = event.is_terminal
                     yield event
+                    if terminal:
+                        break
             if not terminal:
                 raise PathsError(
                     "The run stream ended before a terminal event. Check the saved run before starting again.",

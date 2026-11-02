@@ -408,6 +408,8 @@ class AgentRunner:
             data = {**data, "progress": run.progress()}
         event = ev.RunEvent(run_id=run.id, seq=len(run.events) + 1, type=kind, data=data)
         run.events.append(event.to_dict())
+        if kind in ev.TERMINAL_EVENT_TYPES:
+            self.store.save(run)
         return event
 
     def _needs_approval(self, spec: Any, run: AgentRun) -> bool:

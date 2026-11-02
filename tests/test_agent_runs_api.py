@@ -77,6 +77,25 @@ def test_run_streams_typed_events_and_persists_history(isolated, as_user):
     assert "request" not in fetched["run"]
 
 
+def test_chat_exchange_is_persisted_before_terminal_is_delivered(isolated, as_user):
+    state, use_llm = isolated
+    as_user("tenant-a")
+    use_llm([{"final": "Persist before client closes terminal stream."}])
+    async def exercise():
+        response = await api_server.mammoth_agent_run_start({"message": "hi"})
+        async for chunk in response.body_iterator:
+            text = chunk if isinstance(chunk, str) else chunk.decode()
+            if "event: run.completed" in text:
+                assert state["mammoth_chat_history"][-1]["message"] == "Persist before client closes terminal stream."
+                saved = json.loads(next(api_server._AGENT_RUNS.base_dir.rglob("run-*.json")).read_text())
+                assert saved["status"] == "completed"
+                assert saved["events"][-1]["type"] == "run.completed"
+                await response.body_iterator.aclose()
+                return
+        pytest.fail("No completed event")
+    asyncio.run(exercise())
+
+
 def test_run_retains_attached_document_context_in_agent_prompt(isolated, as_user, monkeypatch):
     _, use_llm = isolated
     as_user("tenant-a")

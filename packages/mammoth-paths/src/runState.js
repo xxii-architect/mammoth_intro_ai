@@ -71,6 +71,7 @@ export async function readRunEventStream(response, onEvent) {
   const decoder = new TextDecoder()
   let terminal = false
   const parser = createSseParser((event) => {
+    if (terminal) return
     terminal = TERMINAL_RUN_EVENTS.includes(event.type)
     onEvent(event)
   })
@@ -78,13 +79,18 @@ export async function readRunEventStream(response, onEvent) {
     for (;;) {
       const { value, done } = await reader.read()
       if (value) parser.push(decoder.decode(value, { stream: true }))
+      if (terminal) break
       if (done) break
     }
     parser.push(decoder.decode())
     parser.end()
     if (!terminal) throw new Error('The run stream ended before a terminal event. Saved work may still be available; check the run before starting again.')
   } finally {
-    reader.releaseLock()
+    try {
+      if (terminal) await reader.cancel()
+    } finally {
+      reader.releaseLock()
+    }
   }
 }
 

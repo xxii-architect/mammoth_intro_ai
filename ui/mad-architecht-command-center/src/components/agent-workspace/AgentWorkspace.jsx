@@ -41,7 +41,7 @@ function loadThreads(storageKey = THREADS_KEY) {
     for (const messages of Object.values(parsed)) {
       if (!Array.isArray(messages)) continue
       for (const message of messages) {
-        if (message?.run && !FINISHED_RUN.has(message.run.status)) {
+        if (message?.run && message.run.status !== 'awaiting_approval' && !FINISHED_RUN.has(message.run.status)) {
           message.run = { ...message.run, status: 'cancelled', approval: null }
         }
       }
@@ -210,7 +210,7 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
   if (run) {
     body = (
       <>
-        <RunTimeline run={run} busy={runBusy && run.status !== 'awaiting_approval'}
+        <RunTimeline run={run} busy={runBusy}
           onContinue={() => onRunDecision?.(message, 'continue')}
           onApprove={() => onRunDecision?.(message, 'approve')} onReject={() => onRunDecision?.(message, 'reject')} />
         {run.reply ? <ChatMessageBody text={run.reply} /> : null}

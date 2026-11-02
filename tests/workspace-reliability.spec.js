@@ -532,6 +532,85 @@ test('required coding result demands explicit repo then reaches the run API with
   expect(submitted.repo_context).toEqual({ root: 'owner/repo' })
 })
 
+test('Coding approval works after a terminal event even when the response transport stays open', async ({ page }) => {
+  const errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    '/api/mammoth/repo-sources': { options: [{ value: 'owner/repo', label: 'Owner repo' }] },
+  })
+  await page.evaluate(() => {
+    const original = globalThis.fetch
+    const runId = 'run-0123456789abcdef'
+    const encode = events => new TextEncoder().encode(events.map((event, index) =>
+      `data: ${JSON.stringify({ ...event, run_id: runId, seq: event.seq || index + 1, contract: 'mammoth.run.v1' })}\n\n`).join(''))
+    globalThis.approvalRequests = []
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(String(input), location.origin).pathname
+      if (path === '/api/mammoth/runs') return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encode([
+            { type: 'run.started', data: {} },
+            { type: 'approval.requested', data: { id: 'apr-held', tool: 'owner_execution_prepare', tier: 'write', args: {} } },
+            { type: 'run.awaiting_approval', data: {} },
+          ]))
+        },
+        cancel() { globalThis.approvalTransportReleased = true },
+      }), { headers: { 'Content-Type': 'text/event-stream' } })
+      if (path === `/api/mammoth/runs/${runId}/approval`) {
+        globalThis.approvalRequests.push(JSON.parse(init.body))
+        return new Response(encode([
+          { seq: 4, type: 'approval.resolved', data: { approved: true, tool: 'owner_execution_prepare' } },
+          { seq: 5, type: 'run.partial', data: { reply: 'Preparation received; testing still requires separate approval.', code: 'step_limit' } },
+        ]), { headers: { 'Content-Type': 'text/event-stream' } })
+      }
+      return original(input, init)
+    }
+  })
+  await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Coding/ }).click()
+  await page.getByRole('combobox', { name: 'Required coding result' }).selectOption('applied')
+  await page.getByRole('combobox', { name: 'Repository context' }).selectOption('owner/repo')
+  await page.getByRole('textbox', { name: 'Message Coding' }).fill('Prepare the inspected edit')
+  await page.getByRole('button', { name: 'Send', exact: true }).click()
+  const approve = page.getByRole('button', { name: 'Approve', exact: true })
+  await expect(approve).toBeEnabled()
+  expect(await page.evaluate(() => globalThis.approvalTransportReleased)).toBe(true)
+  await approve.click()
+  await expect(page.getByText('Preparation received; testing still requires separate approval.', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => globalThis.approvalRequests)).toEqual([
+    { approval_id: 'apr-held', decision: 'approve', note: '' },
+  ])
+  expect(errors).toEqual([])
+})
+
+for (const denied of [false, true]) {
+test(`Coding saved preparation approval survives reload and reports its backend outcome (${denied ? 'denied' : 'approved'})`, async ({ page }) => {
+  const runId = 'run-0123456789abcdef'
+  await page.addInitScript(({ runId }) => {
+    localStorage.setItem('mammoth_workspace_agent', 'coding_agent')
+    localStorage.setItem('mammoth_agent_threads_v1', JSON.stringify({ coding_agent: [{
+      id: 'saved-approval-message', role: 'agent', agent_id: 'coding_agent', status: 'pending',
+      run: { id: runId, status: 'awaiting_approval', events: [], plan: [],
+        approval: { id: 'apr-saved', tool: 'owner_execution_prepare', tier: 'write', args: {} } },
+    }] }))
+  }, { runId })
+  let submitted
+  const errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
+    [`/api/mammoth/runs/${runId}/approval`]: request => {
+      submitted = request.postDataJSON()
+      return denied
+        ? { status: 409, body: JSON.stringify({ error: 'Repository base changed; prepare a fresh candidate.' }) }
+        : { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
+          contract: 'mammoth.run.v1', run_id: runId, seq: 1, type: 'run.partial',
+          data: { reply: 'Saved approval received.', code: 'step_limit' },
+        })}\n\n` }
+    },
+  })
+  await expect(page.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled()
+  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await expect(page.getByText(denied ? /Repository base changed/ : 'Saved approval received.', { exact: !denied })).toBeVisible()
+  expect(submitted).toEqual({ approval_id: 'apr-saved', decision: 'approve', note: '' })
+  expect(errors).toEqual([])
+})
+}
+
 test('Mammoth Mind continues saved work in the same message without a success toast for partial output', async ({ page }) => {
   const runId = 'run-0123456789abcdef'
   const errors = await mount(page, 'pages/ChatPage', {

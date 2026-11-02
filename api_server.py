@@ -6914,13 +6914,13 @@ def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
 def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "") -> StreamingResponse:
     async def event_stream():
         async for event in events_iter:
-            yield event.to_sse()
             # Agent-page runs live in that page's own threads, not Mammoth Mind's chat history.
             if event.type in {"run.completed", "run.partial", "run.failed"} and run.reply and run.request.get("surface") != "agent_workspace":
                 try:
                     _persist_agent_run_exchange(run, thread_id=thread_id)
                 except (OSError, ValueError, TypeError):
                     logger.exception("Could not persist agent run %s to chat history", run.id)
+            yield event.to_sse()
 
     return StreamingResponse(
         event_stream(),

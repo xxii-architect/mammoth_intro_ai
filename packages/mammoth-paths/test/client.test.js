@@ -6,6 +6,7 @@ import {
   createRunStore,
   createSseParser,
   hydrateRun,
+  readRunEventStream,
   PathsError,
   reduceRunEvent,
 } from '../src/index.js'
@@ -13,6 +14,23 @@ import {
 const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
+
+test('approval terminal releases a held-open transport so the next approval can be submitted', async () => {
+  let cancelled = false
+  const approval = ev(1, 'approval.requested', { id: 'apr-held', tool: 'owner_execution_prepare' })
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(sse([approval, ev(2, 'run.awaiting_approval')])))
+      // Intentionally no close: proxies may keep the response open after the terminal event.
+    },
+    cancel() { cancelled = true },
+  })
+  const events = []
+  await readRunEventStream(new Response(body), event => events.push(event))
+  assert.equal(cancelled, true)
+  assert.equal(body.locked, false)
+  assert.deepEqual(events.map(event => event.type), ['approval.requested', 'run.awaiting_approval'])
+})
 
 test('saved snapshot recovery is GET-only and authoritative over historical approval events', async () => {
   const approval = { id: 'apr-1', tool: 'owner_execution_run', args: {} }

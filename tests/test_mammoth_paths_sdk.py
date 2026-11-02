@@ -70,6 +70,34 @@ def test_public_names_and_aliases():
     assert "MammothMind" in mammoth_os.__all__
 
 
+def test_approval_terminal_closes_transport_without_waiting_for_eof():
+    class Response:
+        status = 200
+        closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+
+        def __iter__(self):
+            yield from _sse([_event(1, "run.awaiting_approval")]).splitlines(keepends=True)
+            raise AssertionError("Terminal event must end the stream before another network read")
+
+    response = Response()
+
+    class Opener:
+        def open(self, request, timeout):
+            return response
+
+    client = MammothPaths("https://example.invalid")
+    client._opener = Opener()
+    events = list(client.stream_run("Prepare an edit"))
+    assert [event.type for event in events] == ["run.awaiting_approval"]
+    assert response.closed
+
+
 def test_recover_run_is_read_only_and_saved_cancellation_overrides_old_approval(backend):
     run_id = "run-0123456789abcdef"
     approval = {"id": "apr-1", "tool": "owner_execution_run"}
