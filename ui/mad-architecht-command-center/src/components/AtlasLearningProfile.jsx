@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import LearningPrivacy from './LearningPrivacy'
 
-export default function AtlasLearningProfile({ state, loadState, compact = false, setPage, onDeleted, open: openProp, onToggle }) {
+export default function AtlasLearningProfile({ state, loadState, compact = false, setPage, onDeleted, open: openProp, onOpenChange }) {
   const profile = state?.learner_model?.onboarding
   const [editing, setEditing] = useState(false)
   const [deferred, setDeferred] = useState(false)
@@ -23,7 +23,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
   const open = controlled ? openProp : editing || (!compact && !profile?.completed_at && !deferred)
   const update = event => { setEditing(true); setDraft(current => ({ ...current, [event.target.name]: event.target.value })) }
   const toggle = () => {
-    if (controlled) { onToggle?.(); return }
+    if (controlled) { onOpenChange?.(!open); return }
     if (open) { setEditing(false); setDeferred(true) } else setEditing(true)
   }
   const save = async event => {
@@ -40,6 +40,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
       await loadState(true)
       setEditing(false)
       setDeferred(true)
+      if (controlled) onOpenChange?.(false)
       setNotice('Learning profile saved. It applies to new lessons and exercises, not a rewrite of your current lesson.')
     } catch (cause) { setError(cause.message || 'Could not save your learning profile.') }
     finally { setBusy(false) }
@@ -65,7 +66,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
         </select></label>
         <label>Goals<input name="goals" value={draft.goals} onChange={update} placeholder="What would you like to be able to do?" /></label>
         <label>Focus areas<input name="focus_areas" value={draft.focus_areas} onChange={update} placeholder="Topics to emphasize, separated by commas" /></label>
-        <div><button disabled={busy} type="submit">{busy ? 'Saving profile...' : 'Save learning profile'}</button> <button type="button" disabled={busy} onClick={() => { setDeferred(true); setEditing(false) }}>Not now</button></div>
+        <div><button disabled={busy} type="submit">{busy ? 'Saving profile...' : 'Save learning profile'}</button> <button type="button" disabled={busy} onClick={toggle}>Not now</button></div>
       </form>}
       {open && <LearningPrivacy setPage={setPage} onDeleted={onDeleted} />}
       {notice && <p role="status">{notice}</p>}
