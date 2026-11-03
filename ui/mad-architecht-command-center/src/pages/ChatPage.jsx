@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Bot, MessageSquare, Sparkles, Wrench, Brain, Terminal, Send, Trash2, ChevronDown, ChevronRight, Workflow, Copy, Check, Plus, X, PanelLeft, PanelRight, MoreHorizontal, Paperclip, Square } from 'lucide-react'
 import { api, authorizedFetch } from '../api/client'
 import { useAuth } from '../lib/authContext'
+import { usePageMemory } from '../lib/PageMemory'
 import { responseConfidence } from '../lib/confidence'
 import { startAgentRun, resolveRunApproval, continueAgentRun, cancelAgentRun, reduceRunEvent, restoreRecursiveEntries } from '../lib/agentRuns'
 import RunTimeline from '../components/RunTimeline'
@@ -562,14 +563,15 @@ function persistSessionContext(agentId, history) {
   } catch { /* no-op */ }
 }
 export default function ChatPage({ setPage }) {
-  const [history, setHistory] = useState([])
-  const [input, setInput] = useState('')
+  const [history, setHistory] = usePageMemory('chat:history', [])
+  const [historyReady, setHistoryReady] = usePageMemory('chat:history-ready', false)
+  const [input, setInput] = usePageMemory('chat:input', '')
   const [busy, setBusy] = useState(false)
-  const [agentId, setAgentId] = useState('assistant')
-  const [codingIntent, setCodingIntent] = useState('patch_existing')
-  const [thoughtSteps, setThoughtSteps] = useState([])
-  const [meta, setMeta] = useState(null)
-  const [error, setError] = useState('')
+  const [agentId, setAgentId] = usePageMemory('chat:agent', 'assistant')
+  const [codingIntent, setCodingIntent] = usePageMemory('chat:coding-intent', 'patch_existing')
+  const [thoughtSteps, setThoughtSteps] = usePageMemory('chat:thought-steps', [])
+  const [meta, setMeta] = usePageMemory('chat:metadata', null)
+  const [error, setError] = usePageMemory('chat:last-error', '')
   const [streaming, setStreaming] = useState(false)
   const [streamStatus, setStreamStatus] = useState('idle')
   const [expandedThoughtIndex, setExpandedThoughtIndex] = useState(-1)
@@ -584,13 +586,13 @@ export default function ChatPage({ setPage }) {
   const [sessionResumed, setSessionResumed] = useState(false)
   // Repo picker state
   // '' means no repository context. Options are resolved server-side per user.
-  const [activeRepoValue, setActiveRepoValue] = useState('')
-  const [activeThreadId, setActiveThreadId] = useState(null)
+  const [activeRepoValue, setActiveRepoValue] = usePageMemory('chat:repo', '')
+  const [activeThreadId, setActiveThreadId] = usePageMemory('chat:thread', null)
   const [threadSidebarOpen, setThreadSidebarOpen] = useState(false)
-  const [attachedFiles, setAttachedFiles] = useState([])
+  const [attachedFiles, setAttachedFiles] = usePageMemory('chat:attachments', [])
   const [successToast, setSuccessToast] = useState(null)
   const [agentMode, setAgentMode] = useState(() => safeStorageGet('mammoth_mind_agent_mode', '1') !== '0')
-  const [recursiveMode, setRecursiveMode] = useState(false)
+  const [recursiveMode, setRecursiveMode] = usePageMemory('chat:recursive', false)
   const historyLoadRef = useRef(0)
   const activeRunIdRef = useRef(null)
   const threadSidebarRef = useRef(null)
@@ -693,6 +695,7 @@ export default function ChatPage({ setPage }) {
   }
 
   useEffect(() => {
+    if (historyReady) { refreshOps(); return }
     let active = true
     const loadId = ++historyLoadRef.current
     let stored = null
@@ -711,6 +714,7 @@ export default function ChatPage({ setPage }) {
         const nextHistory = await restoreRecursiveEntries(chatHistory.length > 0 ? chatHistory : stored || [])
         if (!active || loadId !== historyLoadRef.current) return
         setHistory(nextHistory)
+        setHistoryReady(true)
         const lastAssistant = [...nextHistory].reverse().find((entry) => entry.role === 'assistant')
         if (lastAssistant?.thought_steps) {
           setThoughtSteps(lastAssistant.thought_steps)

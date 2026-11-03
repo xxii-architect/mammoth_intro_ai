@@ -3,13 +3,26 @@ const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const agentIds = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
-async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null } = {}) {
+async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonFailure = false, saveFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null } = {}) {
   const requests = []
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   let lessonId = 'lesson-1'
   let starterResponse = ''
   let chatHistory = []
+  let savedWorkspace = null
+  let nextSaveGate = null
+  const recovery = () => {
+    const key = JSON.stringify([lessonId, starterResponse])
+    return {
+      contract: 'mammoth.learning-workspace.v1', exercise_key: key,
+      revision: savedWorkspace?.revision || 0, saved_at: savedWorkspace?.saved_at,
+      values: savedWorkspace?.exercise_key === key ? savedWorkspace.values : {
+        view: savedWorkspace?.values.view || 'lesson', lesson_response: starterResponse,
+        tutor_response: starterResponse, checklist: {}, tutor_message: '', tutor_mode: 'tutor',
+      },
+    }
+  }
   let onboarding = { experience_level: 'beginner', preferred_pacing: 'gentle', learning_style: 'guided', goals: [], focus_areas: [], completed_at: profileComplete ? '2026-10-05' : null }
   let savedCurricula = []
   const course = {
@@ -23,6 +36,7 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     current_exercise: { exercise_type: 'writing', prompt: 'Explain how you verify a claim.', starter_response: starterResponse },
     lesson_history: [], available_modules: [], learner: {}, comprehension_gate: {}, chat_history: chatHistory,
     learner_model: { onboarding }, learner_context: { starting_level: onboarding.experience_level, recommended_difficulty: onboarding.experience_level, adaptation_reason: 'Using your selected starting level until there is practice evidence.' },
+    workspace_recovery: recovery(),
   })
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
   await page.route(url => url.pathname.startsWith('/api/'), async route => {
@@ -31,6 +45,20 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     requests.push({ path, body, headers: route.request().headers() })
     let result = {}
     if (path === '/api/atlas/status') result = snapshot()
+    if (path === '/api/atlas/workspace') {
+      if (nextSaveGate) {
+        const gate = nextSaveGate
+        nextSaveGate = null
+        await gate
+      }
+      if (saveFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Workspace storage unavailable' }) })
+      const current = recovery()
+      if (body.revision !== current.revision || body.exercise_key !== current.exercise_key) {
+        return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Saved workspace changed in another tab' }) })
+      }
+      savedWorkspace = { ...body, revision: body.revision + 1, saved_at: '2026-11-02T18:00:00Z' }
+      result = { status: 'saved', ...recovery() }
+    }
     if (path === '/api/atlas/library') result = { modules: [], totals: { persisted_lessons: 0, lessons: 0 } }
     if (path === '/api/atlas/modules') result = { modules: [] }
     if (path === '/api/atlas/onboard') {
@@ -82,7 +110,8 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) })
   })
   await page.goto(baseURL)
-  await page.evaluate(async ({ regular, agents }) => {
+  const render = async () => {
+    await page.evaluate(async ({ regular, agents }) => {
     const { supabase } = await import('/src/lib/supabase.js')
     const session = { user: { id: 'learner-test' }, access_token: 'test-only-access-token' }
     supabase.auth.getSession = async () => ({ data: { session }, error: null })
@@ -92,16 +121,37 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     }
     const { default: React } = await import('/node_modules/.vite/deps/react.js')
     const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js')
-    const { AuthProvider } = await import('/src/lib/authContext.jsx')
+    const { AuthProvider, useAuth } = await import('/src/lib/authContext.jsx')
+    const { PageMemoryProvider } = await import('/src/lib/PageMemory.tsx')
     const { default: Workspace } = await import('/src/pages/AtlasWorkspacePage.jsx')
     const { default: AgentWorkspace } = await import('/src/components/agent-workspace/AgentWorkspace.jsx')
     await import('/src/index.css')
     document.body.innerHTML = '<div id="test-root" style="height:100vh"></div>'
     const workspace = regular ? React.createElement(AgentWorkspace, { agents: agents.map(id => ({ id, status: 'ready' })), temperature: 0.3, approvalMode: true }) : React.createElement(Workspace)
-    ReactDOM.createRoot(document.getElementById('test-root')).render(React.createElement(AuthProvider, null, workspace))
-  }, { regular, agents })
+    class NavigableWorkspace extends React.Component {
+      state = { visible: true }
+      render() {
+        globalThis.showTestWorkspace = visible => this.setState({ visible })
+        return this.state.visible ? workspace : React.createElement('p', null, 'ATLAS is unmounted')
+      }
+    }
+    function WorkspaceOwner() {
+      const { user } = useAuth()
+      return React.createElement(PageMemoryProvider, { key: user?.id || 'local', owner: user?.id || 'local' },
+        React.createElement(NavigableWorkspace))
+    }
+    ReactDOM.createRoot(document.getElementById('test-root')).render(React.createElement(AuthProvider, null, React.createElement(WorkspaceOwner)))
+    }, { regular, agents })
+  }
+  await render()
   if (!regular) await expect(page.getByRole('heading', { name: 'ATLAS', exact: true })).toBeVisible()
-  return { requests, errors }
+  return {
+    requests, errors,
+    setSaveFailure: value => { saveFailure = value },
+    holdNextSave: () => { let release; nextSaveGate = new Promise(resolve => { release = resolve }); return release },
+    reload: async () => { await page.reload(); await render() },
+    conflict: () => { savedWorkspace = { ...recovery(), revision: recovery().revision + 1 } },
+  }
 }
 
 test('a failed lesson start preserves the active exercise draft', async ({ page }) => {
@@ -112,6 +162,114 @@ test('a failed lesson start preserves the active exercise draft', async ({ page 
   await page.getByRole('button', { name: 'Start Lesson', exact: true }).click()
   await expect(page.getByText(/Lesson action failed:.*Lesson generation unavailable/)).toBeVisible()
   await expect(response).toHaveValue('Keep this unfinished exercise.')
+  expect(errors).toEqual([])
+})
+
+test('confirmed workspace recovery restores drafts, selected view and tutor history after reload', async ({ page }) => {
+  const { requests, errors, reload } = await mountWorkspace(page)
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('A complete response worth keeping, not a summary.')
+  await page.getByRole('button', { name: 'ATLAS Tutor', exact: true }).click()
+  const tutor = page.getByRole('region', { name: 'ATLAS tutor conversation' })
+  const composer = tutor.getByRole('textbox', { name: 'Ask ATLAS Tutor…', exact: true })
+  await composer.fill('Explain this lesson')
+  await composer.press('Enter')
+  await expect(tutor).toContainText('Compare the original evidence with an independent source.')
+  await composer.fill('Unsent follow-up question')
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  const modelCalls = requests.filter(request => request.path === '/api/atlas/chat').length
+  await reload()
+  await expect(page.getByRole('button', { name: 'ATLAS Tutor', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(composer).toHaveValue('Unsent follow-up question')
+  await expect(tutor).toContainText('Compare the original evidence with an independent source.')
+  await page.getByRole('button', { name: 'Lesson & practice', exact: true }).click()
+  await expect(response).toHaveValue('A complete response worth keeping, not a summary.')
+  expect(requests.filter(request => request.path === '/api/atlas/chat')).toHaveLength(modelCalls)
+  expect(requests.some(request => ['/api/atlas/submit', '/api/atlas/next'].includes(request.path))).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('save failure retains the full local draft and explicit retry restores durability', async ({ page }) => {
+  const { setSaveFailure, errors, reload } = await mountWorkspace(page, { saveFailure: true })
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('Never lose this on a rejected save.')
+  await expect(page.getByRole('button', { name: 'Retry save', exact: true })).toBeVisible()
+  await expect(response).toHaveValue('Never lose this on a rejected save.')
+  setSaveFailure(false)
+  await page.getByRole('button', { name: 'Retry save', exact: true }).click()
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  await reload()
+  await expect(response).toHaveValue('Never lose this on a rejected save.')
+  expect(errors).toEqual([])
+})
+
+test('editing during a delayed save persists the latest complete response', async ({ page }) => {
+  const { holdNextSave, requests, errors, reload } = await mountWorkspace(page)
+  const release = holdNextSave()
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('First version')
+  await expect(page.getByText('Saving workspace...', { exact: true })).toBeVisible()
+  await response.fill('Latest complete version typed while saving')
+  release()
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  expect(requests.filter(request => request.path === '/api/atlas/workspace').map(request => request.body.values.lesson_response))
+    .toEqual(['First version', 'Latest complete version typed while saving'])
+  await reload()
+  await expect(response).toHaveValue('Latest complete version typed while saving')
+  await response.fill('')
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  await reload()
+  await expect(response).toHaveValue('')
+  expect(errors).toEqual([])
+})
+
+test('a late save for the old exercise cannot overwrite a new variant draft', async ({ page }) => {
+  const { holdNextSave, errors, reload } = await mountWorkspace(page)
+  const release = holdNextSave()
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('Old exercise response')
+  await expect(page.getByText('Saving workspace...', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'ATLAS Tutor', exact: true }).click()
+  await page.getByRole('button', { name: 'Advanced tutor tools', exact: true }).click()
+  await page.getByRole('button', { name: 'Show advanced', exact: true }).click()
+  await page.getByRole('button', { name: 'New Variant', exact: true }).click()
+  await page.getByRole('button', { name: 'Lesson & practice', exact: true }).click()
+  await expect(response).toHaveValue('A new exercise variant')
+  await response.fill('My new variant response')
+  release()
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  await reload()
+  await expect(response).toHaveValue('My new variant response')
+  expect(errors).toEqual([])
+})
+
+test('navigation while a save is pending restores the full draft and honest save status', async ({ page }) => {
+  const { holdNextSave, requests, errors } = await mountWorkspace(page)
+  const release = holdNextSave()
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('Full ATLAS draft saved while navigating')
+  await expect(page.getByText('Saving workspace...', { exact: true })).toBeVisible()
+  await page.evaluate(() => globalThis.showTestWorkspace(false))
+  await expect(page.getByText('ATLAS is unmounted')).toBeVisible()
+  await page.evaluate(() => globalThis.showTestWorkspace(true))
+  await expect(response).toHaveValue('Full ATLAS draft saved while navigating')
+  release()
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  expect(requests.filter(request => request.path === '/api/atlas/workspace')).toHaveLength(1)
+  expect(requests.some(request => ['/api/run', '/api/atlas/submit', '/api/atlas/next'].includes(request.path))).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('another tab cannot silently overwrite a draft or make an obsolete exercise look saved', async ({ page }) => {
+  const { conflict, errors } = await mountWorkspace(page)
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('My first draft')
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  conflict()
+  await response.fill('My full local conflicting edit')
+  await expect(page.getByRole('alert').filter({ hasText: 'Saved workspace changed in another tab' })).toBeVisible()
+  await expect(response).toHaveValue('My full local conflicting edit')
+  await expect(page.getByText('Workspace saved', { exact: true })).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
@@ -299,6 +457,7 @@ test('review, save and start a generated course without losing its exact identit
   await expect(preview.getByText('Nutrition lesson preview content.', { exact: true })).toBeVisible()
   await preview.getByRole('button', { name: 'Save to my curricula' }).click()
   await expect(preview.getByText('Saved to your curricula.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
   await preview.getByRole('button', { name: 'Start this curriculum' }).click()
   await expect(page.getByRole('region', { name: 'Lesson and practice' })).toBeVisible()
   expect(requests.find(request => request.path === '/api/atlas/curricula/start').body.curriculum_id).toBe('saved-course')

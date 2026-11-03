@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import { NoteRecord } from './types/NoteRecord'
+import { usePageMemory } from '../lib/PageMemory'
 
 const listStyle: React.CSSProperties = {
   listStyle: 'none',
@@ -48,9 +49,9 @@ const NotesList: React.FC<{ notes: NoteRecord[]; onDelete: (id: string) => void;
   onUpdate,
   busy = false,
 }) => {
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
+  const [expandedId, setExpandedId] = usePageMemory<string | null>('notes:expanded', null)
+  const [editingId, setEditingId] = usePageMemory<string | null>('notes:editing', null)
+  const [draft, setDraft] = usePageMemory('notes:edit-draft', '')
   const [editError, setEditError] = useState('')
   const [confirmId, setConfirmId] = useState<string | null>(null)
 

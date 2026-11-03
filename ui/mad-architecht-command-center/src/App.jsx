@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, Suspense, lazy } from 'react'
+import { PageMemoryProvider } from './lib/PageMemory'
 import {
   LayoutDashboard, Bot, Terminal, FileText, Package, HeartPulse,
   DollarSign, BookOpen, ClipboardList, Settings, PanelLeft, GraduationCap, Brain,
@@ -1015,11 +1016,13 @@ export default function App() {
           </div>
         )}
         <div style={{ flex: 1, overflow: 'auto', background: 'var(--shell)' }}>
-          <RenderBoundary key={`${user?.id || 'local'}:${page}`}>
-          <Suspense fallback={<div style={{ padding: 28, color: 'var(--txt-sec)' }}>Loading page…</div>}>
-            {gate ? <AccessPreviewPage gate={gate} entitlements={entitlements} setPage={setPage} /> : <PageComponent setPage={setPage} />}
-          </Suspense>
-          </RenderBoundary>
+          <PageMemoryProvider key={user?.id || 'local'} owner={user?.id || 'local'}>
+            <RenderBoundary key={`${user?.id || 'local'}:${page}`}>
+              <Suspense fallback={<div style={{ padding: 28, color: 'var(--txt-sec)' }}>Loading page…</div>}>
+                {gate ? <AccessPreviewPage gate={gate} entitlements={entitlements} setPage={setPage} /> : <PageComponent setPage={setPage} />}
+              </Suspense>
+            </RenderBoundary>
+          </PageMemoryProvider>
         </div>
       </div>
 

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { usePageMemory } from '../../lib/PageMemory'
 import { Send, Loader, Users, MessageSquare, Eye, EyeOff, CornerUpRight, Trash2, Check, Square } from 'lucide-react'
 import { api } from '../../api/client'
 import { useAuth } from '../../lib/authContext'
@@ -285,14 +286,15 @@ function AgentMessage({ message, onHandoff, onApplyPatch, applying, onRunDecisio
 function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunComplete, applyPatch, draft, onBusy, compact, allowedAgentIds, lessonContext, storageKey = THREADS_KEY, onStartCurriculum, onCurriculumSaved }) {
   const entry = agentDisplay(agentId, agents.find(agent => agent.id === agentId))
   const { user } = useAuth()
-  const [threads, setThreads] = useState(() => loadThreads(storageKey))
-  const [taskIntent, setTaskIntent] = useState(entry.tasks[0]?.intent || '')
-  const [completionGoal, setCompletionGoal] = useState('answer')
-  const [text, setText] = useState('')
+  const memoryKey = `${storageKey}:${user?.id || 'local'}:${agentId}`
+  const [threads, setThreads] = usePageMemory(`${storageKey}:threads`, () => loadThreads(storageKey))
+  const [taskIntent, setTaskIntent] = usePageMemory(`${memoryKey}:intent`, entry.tasks[0]?.intent || '')
+  const [completionGoal, setCompletionGoal] = usePageMemory(`${memoryKey}:goal`, 'answer')
+  const [text, setText] = usePageMemory(`${memoryKey}:draft`, '')
   const [sending, setSending] = useState(false)
   const [applying, setApplying] = useState(false)
-  const [repo, setRepo] = useState('')
-  const [repoLabel, setRepoLabel] = useState('')
+  const [repo, setRepo] = usePageMemory(`${memoryKey}:repo`, '')
+  const [repoLabel, setRepoLabel] = usePageMemory(`${memoryKey}:repo-label`, '')
   const [runActive, setRunActive] = useState(false)
   const [activeMessageId, setActiveMessageId] = useState('')
   const runControllerRef = useRef(null)
@@ -302,7 +304,6 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   const messages = threads[agentId] || []
   const task = entry.tasks.find(item => item.intent === taskIntent) || entry.tasks[0]
 
-  useEffect(() => { setTaskIntent(entry.tasks[0]?.intent || '') }, [agentId])
   useEffect(() => {
     if (!draft) return
     if (draft.intent && entry.tasks.some(item => item.intent === draft.intent)) setTaskIntent(draft.intent)
@@ -617,16 +618,16 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
   )
 }
 
-function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunComplete, draft, onBusy, compact }) {
-  const [objective, setObjective] = useState('')
-  const [fit, setFit] = useState('balanced')
-  const [preview, setPreview] = useState(null)
-  const [selected, setSelected] = useState({})
-  const [phase, setPhase] = useState('compose')
-  const [result, setResult] = useState(null)
-  const [parentArtifactId, setParentArtifactId] = useState('')
-  const [followUp, setFollowUp] = useState('')
-  const [error, setError] = useState('')
+function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunComplete, draft, onBusy, compact, storageKey }) {
+  const [objective, setObjective] = usePageMemory(`${storageKey}:team:objective`, '')
+  const [fit, setFit] = usePageMemory(`${storageKey}:team:fit`, 'balanced')
+  const [preview, setPreview] = usePageMemory(`${storageKey}:team:preview`, null)
+  const [selected, setSelected] = usePageMemory(`${storageKey}:team:selected`, {})
+  const [phase, setPhase] = usePageMemory(`${storageKey}:team:phase`, 'compose')
+  const [result, setResult] = usePageMemory(`${storageKey}:team:result`, null)
+  const [parentArtifactId, setParentArtifactId] = usePageMemory(`${storageKey}:team:parent`, '')
+  const [followUp, setFollowUp] = usePageMemory(`${storageKey}:team:followup`, '')
+  const [error, setError] = usePageMemory(`${storageKey}:team:error`, '')
 
   useEffect(() => {
     if (!draft) return
@@ -789,11 +790,13 @@ function TeamRunView({ temperature, approvalMode, onTrace, onPlanRun, onRunCompl
   )
 }
 
-export default function AgentWorkspace({ agents, temperature, approvalMode, onTrace, onPlanRun, onRunComplete, applyPatch, replay, allowedAgentIds, lessonContext, storageKey = THREADS_KEY, onStartCurriculum, onCurriculumSaved }) {
-  const [mode, setMode] = useState('chat')
-  const [agentId, setAgentId] = useState(() => {
+export default function AgentWorkspace({ agents, temperature, approvalMode, onTrace, onPlanRun, onRunComplete, applyPatch, replay, allowedAgentIds, lessonContext, storageKey: suppliedStorageKey, onStartCurriculum, onCurriculumSaved }) {
+  const { user } = useAuth()
+  const storageKey = suppliedStorageKey || `${THREADS_KEY}:${user?.id || 'local'}`
+  const [mode, setMode] = usePageMemory(`${storageKey}:mode`, 'chat')
+  const [agentId, setAgentId] = usePageMemory(`${storageKey}:agent`, () => {
     try {
-      const stored = window.localStorage.getItem(allowedAgentIds ? `${storageKey}:selected` : 'mammoth_workspace_agent')
+      const stored = window.localStorage.getItem(`${storageKey}:selected`)
       return stored && (!allowedAgentIds || allowedAgentIds.includes(stored)) ? stored : 'research_agent'
     } catch { return 'research_agent' }
   })
@@ -810,7 +813,7 @@ export default function AgentWorkspace({ agents, temperature, approvalMode, onTr
   }, [agents, allowedAgentIds, agentId])
 
   useEffect(() => {
-    try { window.localStorage.setItem(allowedAgentIds ? `${storageKey}:selected` : 'mammoth_workspace_agent', agentId) } catch { /* ignore */ }
+    try { window.localStorage.setItem(`${storageKey}:selected`, agentId) } catch { /* ignore */ }
   }, [agentId])
 
   useEffect(() => {
@@ -837,7 +840,7 @@ export default function AgentWorkspace({ agents, temperature, approvalMode, onTr
         allowedAgentIds={allowedAgentIds}
         onSelect={(id) => { setAgentId(id); setMode('chat'); setChatDraft(null) }} onTeam={allowedAgentIds ? undefined : () => { setMode('team'); setTeamDraft(null) }} />
       {mode === 'team' ? (
-        <TeamRunView temperature={temperature} approvalMode={approvalMode} onTrace={onTrace} onPlanRun={onPlanRun}
+        <TeamRunView storageKey={storageKey} temperature={temperature} approvalMode={approvalMode} onTrace={onTrace} onPlanRun={onPlanRun}
           onRunComplete={onRunComplete} draft={teamDraft} onBusy={setBusyAgentId} compact={compact} />
       ) : (
         <ChatView key={agentId} agentId={agentId} agents={agents} temperature={temperature} approvalMode={approvalMode}

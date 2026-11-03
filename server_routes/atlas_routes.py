@@ -10,7 +10,32 @@ async def atlas_status():
     state = _load_atlas_state()
     _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     _sync_resume_packet(state)
-    return _decorate_atlas_state(state)
+    result = _decorate_atlas_state(state)
+    result["workspace_recovery"] = _learning_workspace_snapshot(state)
+    return result
+
+
+@app.post("/api/atlas/workspace")
+async def atlas_save_workspace(body: Dict[str, Any]):
+    from mammoth_os.learning_workspace import WorkspaceStorageError, save_workspace
+
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    state = _load_atlas_state()
+    try:
+        saved = save_workspace(
+            _learning_workspace_path(state), state, body,
+            datetime.now(timezone.utc).isoformat(),
+        )
+    except (WorkspaceStorageError, OSError) as exc:
+        logger.exception("Learning workspace save failed")
+        raise HTTPException(status_code=503, detail="Workspace storage is unavailable or invalid. No save was confirmed; retry or contact support.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if saved is None:
+        raise HTTPException(status_code=409, detail="Your lesson or saved workspace changed. Reload the saved workspace before replacing it.")
+    return {"status": "saved", **saved}
 
 @app.get("/api/atlas/modules")
 async def atlas_modules():

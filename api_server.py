@@ -4188,6 +4188,24 @@ def _save_atlas_state(state: Dict[str, Any]):
     atlas_file.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
 
 
+def _learning_workspace_path(state: Dict[str, Any]) -> Path:
+    import hashlib
+
+    atlas_path = _atlas_state_file_for_request()
+    account_key = hashlib.sha256(_active_account_id(state).encode("utf-8")).hexdigest()
+    return atlas_path.with_name(f"{atlas_path.stem}_workspace_{account_key}.json")
+
+
+def _learning_workspace_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
+    from mammoth_os.learning_workspace import WorkspaceStorageError, read_workspace, workspace_snapshot
+
+    try:
+        return workspace_snapshot(state, read_workspace(_learning_workspace_path(state)))
+    except (WorkspaceStorageError, OSError) as exc:
+        logger.exception("Learning workspace recovery failed")
+        raise HTTPException(status_code=503, detail="Saved workspace could not be read. Retry or contact support; it has not been overwritten.") from exc
+
+
 _ACCOUNT_SESSION_KEYS = (
     "status",
     "topic",
@@ -4216,6 +4234,7 @@ _ACCOUNT_SESSION_KEYS = (
     "active_plan",
     "eval_history",
     "regenerated_exercise",
+    "workspace_epoch",
     "updated_at",
 )
 
@@ -4533,10 +4552,14 @@ def _apply_atlas_onboarding_update(onboarding: Dict[str, Any]) -> Dict[str, Any]
 
 
 def _apply_atlas_learner_reset() -> Dict[str, Any]:
+    from mammoth_os.learning_workspace import clear_workspace
+
     state = _load_atlas_state()
     learner_user_id = _atlas_user_id(state)
     learner_state = _reset_learner_model_state(learner_user_id)
     state["learner_model"] = learner_state
+    state["workspace_epoch"] = uuid.uuid4().hex
+    clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
     state["learner_context"] = build_learner_context(learner_state)
     state["learner_profile"] = {
         "streak": 0,
@@ -4549,10 +4572,14 @@ def _apply_atlas_learner_reset() -> Dict[str, Any]:
 
 
 def _apply_atlas_session_reset() -> Dict[str, Any]:
+    from mammoth_os.learning_workspace import clear_workspace
+
     state = _load_atlas_state()
     learner_user_id = _atlas_user_id(state)
     learner_state = _reset_learner_model_state(learner_user_id)
     state["status"] = "reset"
+    state["workspace_epoch"] = uuid.uuid4().hex
+    clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
     state["user_id"] = learner_user_id
     state["learner_model"] = learner_state
     state["learner_context"] = build_learner_context(learner_state)

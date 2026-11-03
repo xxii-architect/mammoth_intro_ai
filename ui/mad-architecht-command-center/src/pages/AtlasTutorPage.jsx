@@ -90,16 +90,22 @@ function MonacoReadOnlyBlock({ value, language = 'plaintext', height = 220 }) {
   )
 }
 
-export default function AtlasTutorPage({ conversationOnly = false, sharedState, loadSharedState }) {
+export default function AtlasTutorPage({ conversationOnly = false, sharedState, loadSharedState, workspace }) {
   const [atlasState, setAtlasState] = useState(null)
   const [topic, setTopic]           = useState('')
-  const [code, setCode]             = useState('')
+  const [localCode, setLocalCode] = useState('')
+  const code = workspace ? workspace.values.tutor_response : localCode
+  const setCode = workspace ? value => workspace.update('tutor_response', value) : setLocalCode
   const [result, setResult]         = useState(null)
   const [lessonGate, setLessonGate] = useState(null)
   const [loading, setLoading]       = useState(false)
-  const [chatInput, setChatInput]   = useState('')
+  const [localChatInput, setLocalChatInput] = useState('')
+  const chatInput = workspace ? workspace.values.tutor_message : localChatInput
+  const setChatInput = workspace ? value => workspace.update('tutor_message', value) : setLocalChatInput
   const [chatBusy, setChatBusy]     = useState(false)
-  const [chatMode, setChatMode]     = useState(conversationOnly ? 'tutor' : 'assistant')
+  const [localChatMode, setLocalChatMode] = useState(conversationOnly ? 'tutor' : 'assistant')
+  const chatMode = workspace ? workspace.values.tutor_mode : localChatMode
+  const setChatMode = workspace ? value => workspace.update('tutor_mode', value) : setLocalChatMode
   const [models, setModels]         = useState(null)
   const [chatModel, setChatModel]   = useState('')
   const [studyAid, setStudyAid]     = useState(null)
@@ -142,7 +148,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
     const exerciseKey = JSON.stringify(exercise || null)
     if (lessonId !== draftLessonId.current || exerciseKey !== draftExerciseKey.current) {
       draftExerciseKey.current = exerciseKey
-      setCode(exercise?.starter_response || Object.values(exercise?.starter_files || {})[0] || '')
+      if (!workspace) setCode(exercise?.starter_response || Object.values(exercise?.starter_files || {})[0] || '')
     }
     if (lessonId !== draftLessonId.current) {
       draftLessonId.current = lessonId
@@ -183,7 +189,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
       const s = loadSharedState ? await loadSharedState(refresh === true) : await api('/atlas/status')
       setAtlasState(s)
       setStateError('')
-      if (s.current_exercise?.starter_files) {
+      if (!workspace && s.current_exercise?.starter_files) {
         const first = Object.values(s.current_exercise.starter_files)[0] || ''
         setCode(current => current.trim() ? current : first)
       }
@@ -192,7 +198,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
     }
   }
 
-  useEffect(() => { loadState() }, [])
+  useEffect(() => { if (!loadSharedState) loadState() }, [])
   useInterval(loadSharedState ? () => {} : loadState, 15000)
 
   useEffect(() => {
@@ -480,6 +486,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
       }
       if (loadSharedState) await loadState(true)
     } catch (e) {
+      setChatInput(current => current || msg)
       setAtlasState(prev => ({
         ...(prev || {}),
         ...(chatMode === 'assistant'
@@ -1250,6 +1257,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <select value={chatMode} onChange={e => setChatMode(e.target.value)}
+                  aria-label="Tutor conversation mode"
                   className="filter-select"
                   style={{ fontSize: '0.68rem', padding: '3px 6px' }}>
                   <option value="assistant">Assistant</option>

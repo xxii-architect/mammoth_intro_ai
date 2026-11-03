@@ -52,6 +52,8 @@
 .atlas-workspace-lesson { border: 1px solid var(--border); border-radius: 12px; background: var(--mm-color-surface-raised, #161b22); }
 .atlas-workspace-agents { overflow-y: auto; }
 .atlas-workspace-error { color: #fca5a5; font-size: 0.78rem; }
+.atlas-workspace-save { font-size: .7rem; color: var(--txt-mut); flex-shrink: 0; line-height: 1; }
+.atlas-workspace-save [role="alert"] { color: #fca5a5; }
 .atlas-learning-profile {
   flex-shrink: 0; border: 1px solid var(--border); border-radius: 10px;
   padding: 10px 12px; font-size: 0.76rem;
@@ -89,7 +91,7 @@
 .atlas-lessons-page[data-reading-size="large"] .lesson-reader-body { font-size: 1.25rem; }
 .atlas-lessons-page[data-reading-spacing="spacious"] .lesson-reader-body { line-height: 2.1; }
 @media (max-width: 767px), (max-width: 1024px) and (max-height: 500px) {
-  .atlas-workspace { padding: 6px; gap: 6px; box-sizing: border-box; }
+  .atlas-workspace { padding: 6px; gap: 3px; box-sizing: border-box; }
   .atlas-workspace-header { gap: 4px; }
   .atlas-workspace-header > div { width: 100%; }
   .atlas-workspace-header p { display: none; }

@@ -8,6 +8,7 @@ import useIsMobile, { COMPACT_WORKSPACE_QUERY } from '../lib/useIsMobile'
 import AtlasLearningProfile from '../components/AtlasLearningProfile'
 import CurriculumArtifactPanel from '../components/CurriculumArtifactPanel'
 import '../components/atlas-workspace.css'
+import useLearningWorkspace from '../hooks/useLearningWorkspace'
 
 const EDUCATION_AGENTS = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
@@ -19,11 +20,13 @@ export default function AtlasWorkspacePage() {
 function LearningWorkspace() {
   const { user } = useAuth()
   const mobile = useIsMobile(COMPACT_WORKSPACE_QUERY)
-  const [view, setView] = useState('lesson')
   const [tutorOpen, setTutorOpen] = useState(false)
   const [advanced, setAdvanced] = useState(false)
   const [readingFocus, setReadingFocus] = useState(false)
   const [state, setState] = useState(null)
+  const workspace = useLearningWorkspace(state?.workspace_recovery)
+  const view = workspace.values.view
+  const setView = mode => workspace.update('view', mode)
   const [agents, setAgents] = useState([])
   const [error, setError] = useState('')
   const [agentError, setAgentError] = useState('')
@@ -83,6 +86,7 @@ function LearningWorkspace() {
     mounted.current = true
     loadAgents()
     loadCurricula()
+    loadState().catch(() => {})
     const interval = setInterval(() => { loadState().catch(() => {}) }, 15000)
     return () => { mounted.current = false; clearInterval(interval) }
   }, [loadAgents, loadState, loadCurricula])
@@ -109,7 +113,7 @@ function LearningWorkspace() {
         </div>
         <nav aria-label="ATLAS workspace">
           {['lesson', 'tutor', 'agents', 'curricula'].map(mode => (
-            <button key={mode} type="button" aria-label={mode === 'lesson' ? 'Lesson & practice' : mode === 'tutor' ? 'ATLAS Tutor' : mode === 'agents' ? 'Learning agents' : 'My curricula'} aria-pressed={view === mode} onClick={() => setView(mode)}>
+            <button key={mode} type="button" disabled={!workspace.ready} aria-label={mode === 'lesson' ? 'Lesson & practice' : mode === 'tutor' ? 'ATLAS Tutor' : mode === 'agents' ? 'Learning agents' : 'My curricula'} aria-pressed={view === mode} onClick={() => setView(mode)}>
               <span className="atlas-nav-full">{mode === 'lesson' ? 'Lesson & practice' : mode === 'tutor' ? 'ATLAS Tutor' : mode === 'agents' ? 'Learning agents' : 'My curricula'}</span>
               <span className="atlas-nav-short" aria-hidden="true">{mode === 'lesson' ? 'Lesson' : mode === 'tutor' ? 'Tutor' : mode === 'agents' ? 'Agents' : 'Curricula'}</span>
             </button>
@@ -124,12 +128,18 @@ function LearningWorkspace() {
         <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} />
       </div>
       {error && <div role="alert" className="atlas-workspace-error">{error} <button onClick={() => loadState().catch(() => {})}>Retry</button></div>}
-      <div className={`atlas-workspace-content ${showLesson && showTutor ? 'with-tutor' : ''}`}>
+      <div className="atlas-workspace-save" role="status">
+        {workspace.status}
+        {workspace.error && <span role="alert"> {workspace.error} <button onClick={workspace.save}>Retry save</button> <button onClick={() => {
+          if (window.confirm('Reload the saved workspace? Unsaved edits in this tab will be discarded.')) window.location.reload()
+        }}>Reload saved workspace</button></span>}
+      </div>
+      {workspace.ready && <div className={`atlas-workspace-content ${showLesson && showTutor ? 'with-tutor' : ''}`}>
         <section aria-label="Lesson and practice" hidden={!showLesson} className="atlas-workspace-lesson">
-          <LessonsPage embedded sharedState={state} loadSharedState={loadState} onFocusChange={setReadingFocus} />
+          <LessonsPage embedded sharedState={state} loadSharedState={loadState} onFocusChange={setReadingFocus} workspace={workspace} />
         </section>
         <section aria-label="ATLAS tutor conversation" hidden={!showTutor} className="atlas-workspace-tutor">
-          <AtlasTutorPage conversationOnly={!(view === 'tutor' && advanced)} sharedState={state} loadSharedState={loadState} />
+          <AtlasTutorPage conversationOnly={!(view === 'tutor' && advanced)} sharedState={state} loadSharedState={loadState} workspace={workspace} />
         </section>
         <section aria-label="Education agents" hidden={view !== 'agents'} className="atlas-workspace-agents">
           <p className="atlas-workspace-context">Agents receive the active lesson and exercise as context. Research is supplemental; it does not replace the lesson or count as mastery.</p>
@@ -150,7 +160,7 @@ function LearningWorkspace() {
             <CurriculumArtifactPanel curriculum={record.curriculum} alreadySaved onStart={startCurriculum} onSaved={loadCurricula} />
           </details>)}
         </section>
-      </div>
+      </div>}
     </div>
   )
 }

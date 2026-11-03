@@ -7,13 +7,14 @@ import { NotesList } from './NotesList'
 import { NotesComposer } from './NotesComposer'
 import { api } from '../api/client'
 import { NoteRecord } from './types/NoteRecord'
+import { usePageMemory } from '../lib/PageMemory'
 
 const NotesPanel: React.FC = () => {
   const { notes, setNotes, loading, error, reload } = useAgentNotes()
   const { createNote, loading: creating, error: createError } = useCreateNote()
   const { deleteNote, loading: deleting, error: deleteError } = useDeleteNote()
 
-  const [query, setQuery] = React.useState('')
+  const [query, setQuery] = usePageMemory('notes:query', '')
   const [editing, setEditing] = React.useState(false)
   const [actionError, setActionError] = React.useState('')
   const busy = creating || deleting || editing

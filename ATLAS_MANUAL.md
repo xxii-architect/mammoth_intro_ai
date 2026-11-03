@@ -20,10 +20,48 @@ mobile. The lesson outline and learning-progress panel expand on demand.
 No measured retention or time-to-competency is inferred from lesson counts.
 Mastery gates, explicit overrides and backend assessment are unchanged.
 
-These layout changes preserve drafts across workspace tabs and rotation, not
-across a browser refresh. Durable recovery, contextual Explain this, connected
-notes/cards, remediation and narration remain in the
-[ATLAS roadmap](ATLAS_WORKSPACE_ROADMAP.md).
+The unified workspace privately autosaves the current lesson response, tutor
+exercise response, checklist, unsent tutor message, conversation mode and selected
+view after a short debounce. **Workspace saved** confirms server storage; those
+values survive refresh alongside the existing saved lesson and tutor history.
+**Couldn't save workspace** retains the local draft and offers Retry save.
+Competing tabs receive a conflict rather than silently replacing a newer draft;
+copy important edits before choosing Reload saved workspace. Changing the exercise
+starts a new draft; learner/session reset clears its recovery record. Recovery
+does not call a model, submit work, approve actions or alter mastery.
+
+Each of the three text fields supports up to 100,000 characters, with a combined
+600,000-byte JSON limit and at most 12 checklist entries. Only one current
+lesson/exercise draft is recovered, not a draft history. Unsaved last keystrokes
+are not guaranteed after an abrupt close. This UI recovery endpoint does not
+change standalone CLI or public tutor SDK behavior.
+
+For UI integrations, `GET /api/atlas/status` includes `workspace_recovery`
+(`mammoth.learning-workspace.v1`) with `exercise_key`, `revision`, `values` and
+`saved_at`. `POST /api/atlas/workspace` accepts `{exercise_key, revision, values}`
+and confirms `status: "saved"` with the new snapshot. Validation returns 400,
+stale revision/exercise returns 409, and unavailable/invalid storage returns 503.
+The backend selects user/account storage; request payloads cannot select a user.
+
+### Returning to a workspace page
+
+Within the same tab, navigating between Agent, Mammoth Mind, Notes, Build Log and
+ATLAS preserves their working drafts and available full results in account-scoped
+memory. Agent threads, team preview/results/follow-ups and Mammoth Mind conversation
+history are retained without replacing them with shortened browser-cache summaries.
+Signing out or switching signed-in accounts discards this page memory.
+Inactive pages unmount and stop polling; returning never automatically replays
+billable work or approvals.
+New browser thread caches are account-scoped. Older unowned Agent caches are
+left untouched but not automatically adopted; use private Artifacts for saved
+outputs rather than exposing another account's browser-only history.
+
+Page memory is not a permanent archive or background-execution guarantee.
+Leaving a live chat can still end its streaming connection. After a browser reload,
+use confirmed ATLAS saves and private Artifacts/run records; keep exports for an
+independent copy. Unsubmitted Notes/Build Log drafts are navigation memory only.
+Contextual Explain this, connected notes/cards, remediation and narration remain
+in the [ATLAS roadmap](ATLAS_WORKSPACE_ROADMAP.md).
 
 The website uses a dark semantic palette: brass/copper primary actions and agent
 identity, blue keyboard focus/links/secondary interaction, and grey/white text.

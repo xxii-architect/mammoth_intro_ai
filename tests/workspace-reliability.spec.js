@@ -219,9 +219,144 @@ test('Run Review is reachable from workspace navigation without changing chat', 
     '/api/buildlog': [],
     '/api/logsale': [],
   })
+
   await page.getByRole('button', { name: 'Run Review', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Run Review', exact: true })).toBeVisible()
   await expect(page.getByText('No saved runs yet.')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('real page navigation preserves full agent output and Notes drafts', async ({ page }) => {
+    const complete = { ...marketReport, summary: 'Full navigation test output', extra_detail: 'Detailed evidence. '.repeat(4000) }
+    const requests = []
+    const errors = await mount(page, 'App', {
+      '/api/entitlements': { admin_controls_enabled: true, tier: 'pro' },
+      '/api/buildlog': [], '/api/logsale': [], '/api/notes': [],
+      '/api/approvals': [], '/api/activity': [], '/api/tasks': [], '/api/snapshots': [],
+      '/api/agents': [{ id: 'market_intel_agent', name: 'Market Intel', status: 'ready' }],
+      '/api/run': request => {
+        requests.push(request.postDataJSON())
+        return { status: 'ok', result: { status: 'ok', output: complete } }
+      },
+    })
+
+    await page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Market Intel/ }).click()
+    await page.getByRole('textbox', { name: 'Message Market Intel' }).fill('Keep all my evidence.')
+    await page.getByRole('button', { name: 'Send', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Export complete JSON', exact: true })).toBeVisible()
+    await page.getByRole('textbox', { name: 'Message Market Intel' }).fill('Unsent next question')
+    await page.getByRole('button', { name: 'Notes', exact: true }).click()
+    await page.getByLabel('New note').fill('Private note draft while reviewing evidence')
+    await page.getByRole('button', { name: 'Agent', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: 'Message Market Intel' })).toHaveValue('Unsent next question')
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Export complete JSON', exact: true }).click()
+    const exported = JSON.parse(fs.readFileSync(await (await downloadPromise).path(), 'utf8'))
+    expect(exported).toEqual(complete)
+    expect(requests).toHaveLength(1)
+    await page.getByRole('button', { name: 'Notes', exact: true }).click()
+    await expect(page.getByLabel('New note')).toHaveValue('Private note draft while reviewing evidence')
+    await page.evaluate(() => globalThis.switchWorkspaceAccount('another-reader'))
+    await expect(page.getByLabel('New note')).toHaveValue('')
+    expect(errors).toEqual([])
+})
+
+test('Mammoth Mind retains the full conversation and draft without hidden-page polling', async ({ page }) => {
+      await page.clock.install()
+      let historyLoads = 0
+      let runCalls = 0
+      let approvalLoads = 0
+      const reply = 'Complete answer retained across pages, not an archived summary.'
+      const errors = await mount(page, 'App', {
+        '/api/entitlements': { admin_controls_enabled: true, tier: 'pro' },
+        '/api/buildlog': [], '/api/logsale': [], '/api/notes': [],
+        '/api/approvals': () => { approvalLoads++; return [] },
+        '/api/mammoth/chat/history': () => { historyLoads++; return { chat_history: [] } },
+        '/api/mammoth/runs': request => {
+          if (request.method() !== 'POST') return { runs: [] }
+          runCalls++
+          return { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
+            contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1,
+            type: 'run.completed', data: { reply },
+          })}\n\n` }
+        },
+      })
+      await page.locator('nav').first().getByRole('button', { name: 'Mammoth Mind', exact: true }).click()
+      await expect.poll(() => historyLoads).toBe(1)
+      await page.getByRole('textbox').last().fill('Keep the complete conversation.')
+      await page.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(page.getByText(reply, { exact: true })).toBeVisible()
+      await page.getByRole('textbox').last().fill('Unsent Mammoth Mind question')
+      await page.getByRole('button', { name: 'Notes', exact: true }).click()
+      await expect(page.getByLabel('New note')).toBeVisible()
+      const before = approvalLoads
+      await page.clock.fastForward(31000)
+      expect(approvalLoads).toBe(before)
+      await page.locator('nav').first().getByRole('button', { name: 'Mammoth Mind', exact: true }).click()
+      await expect(page.getByText(reply, { exact: true })).toBeVisible()
+      await expect(page.getByRole('textbox').last()).toHaveValue('Unsent Mammoth Mind question')
+      expect(historyLoads).toBe(1)
+      expect(runCalls).toBe(1)
+      expect(errors).toEqual([])
+    })
+
+test('team preview, complete result and follow-up survive real page navigation without replay', async ({ page }) => {
+      const requests = []
+      const errors = await mount(page, 'App', {
+        '/api/entitlements': { admin_controls_enabled: true, tier: 'pro' },
+        '/api/buildlog': [], '/api/logsale': [], '/api/notes': [],
+        '/api/agents': [], '/api/approvals': [], '/api/activity': [], '/api/tasks': [], '/api/snapshots': [],
+        '/api/plan-execute': request => {
+          const body = request.postDataJSON()
+          requests.push(body)
+          return { status: 'ok', plan_id: 'plan-memory', objective: body.objective,
+            plan_steps: [{ id: 'one', title: 'Inspect the evidence', agent_id: 'market_intel_agent', intent: 'market_intel',
+              status: body.dry_run ? 'planned' : 'completed', response: { result: { output: marketReport } } }],
+            plan_status: body.dry_run ? 'preview' : 'completed',
+            artifact_save: { status: 'saved', artifact_id: 'plan-memory' } }
+        },
+      })
+      await page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: 'Team run', exact: true }).click()
+      await page.getByRole('textbox', { name: 'Objective', exact: true }).fill('Compare this coffee evidence.')
+      await page.getByRole('button', { name: 'Preview the plan' }).click()
+      await expect(page.getByRole('button', { name: 'Run 2 steps', exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Notes', exact: true }).click()
+      await page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await page.getByRole('button', { name: 'Run 2 steps', exact: true }).click()
+      await expect(page.getByRole('textbox', { name: 'Team follow-up' })).toBeVisible()
+      await page.getByRole('textbox', { name: 'Team follow-up' }).fill('Keep this unsent team follow-up')
+      await page.getByRole('button', { name: 'Notes', exact: true }).click()
+      await page.getByRole('button', { name: 'Agent', exact: true }).click()
+      await expect(page.getByRole('textbox', { name: 'Team follow-up' })).toHaveValue('Keep this unsent team follow-up')
+      await expect(page.getByText('Saved to your Artifacts. Reopening does not run agents.', { exact: true })).toBeVisible()
+      expect(requests).toHaveLength(2)
+      expect(errors).toEqual([])
+})
+
+test('Notes edits, search and Build Log drafts survive navigation but clear on account change', async ({ page }) => {
+  const errors = await mount(page, 'App', {
+    '/api/entitlements': { admin_controls_enabled: true, tier: 'pro' },
+    '/api/buildlog': [], '/api/logsale': [],
+    '/api/notes': [{ id: 'notes-one', title: 'Coffee research', content: 'Coffee research\nSaved text', body: 'Coffee research\nSaved text', source: 'personal' }],
+  })
+  await page.getByRole('button', { name: 'Notes', exact: true }).click()
+  await page.getByLabel('Search notes').fill('coffee')
+  await page.getByRole('button', { name: 'Edit note', exact: true }).click()
+  await page.getByLabel('Edit note content').fill('My full unsaved edit')
+  await page.getByRole('button', { name: 'Build Log', exact: true }).click()
+  await page.getByRole('button', { name: 'New Session Entry' }).click()
+  await page.locator('form textarea').first().fill('Unsubmitted session goal')
+  await page.getByRole('button', { name: 'Notes', exact: true }).click()
+  await expect(page.getByLabel('Edit note content')).toHaveValue('My full unsaved edit')
+  await expect(page.getByLabel('Search notes')).toHaveValue('coffee')
+  await page.getByRole('button', { name: 'Build Log', exact: true }).click()
+  await expect(page.locator('form textarea').first()).toHaveValue('Unsubmitted session goal')
+  await page.evaluate(() => globalThis.switchWorkspaceAccount('other-account'))
+  await expect(page.getByRole('button', { name: 'New Session Entry' })).toBeVisible()
+  await page.getByRole('button', { name: 'New Session Entry' }).click()
+  await expect(page.locator('form textarea').first()).toHaveValue('')
   expect(errors).toEqual([])
 })
 
@@ -989,8 +1124,8 @@ for (const denied of [false, true]) {
 test(`Coding saved preparation approval survives reload and reports its backend outcome (${denied ? 'denied' : 'approved'})`, async ({ page }) => {
   const runId = 'run-0123456789abcdef'
   await page.addInitScript(({ runId }) => {
-    localStorage.setItem('mammoth_workspace_agent', 'coding_agent')
-    localStorage.setItem('mammoth_agent_threads_v1', JSON.stringify({ coding_agent: [{
+    localStorage.setItem('mammoth_agent_threads_v1:reader:selected', 'coding_agent')
+    localStorage.setItem('mammoth_agent_threads_v1:reader', JSON.stringify({ coding_agent: [{
       id: 'saved-approval-message', role: 'agent', agent_id: 'coding_agent', status: 'pending',
       run: { id: runId, status: 'awaiting_approval', events: [], plan: [],
         approval: { id: 'apr-saved', tool: 'owner_execution_prepare', tier: 'write', args: {} } },
@@ -1020,8 +1155,8 @@ test('Coding run approval hands off to apply evidence and shows working state', 
   const runId = 'run-0123456789abcdef'
   const application = { status: 'ready', branch: `mammoth/owner/${ownerJob.id}`, approval_digest: 'c'.repeat(64), expires_at: 1999999999 }
   await page.addInitScript(({ runId, ownerJob }) => {
-    localStorage.setItem('mammoth_workspace_agent', 'coding_agent')
-    localStorage.setItem('mammoth_agent_threads_v1', JSON.stringify({ coding_agent: [{
+    localStorage.setItem('mammoth_agent_threads_v1:reader:selected', 'coding_agent')
+    localStorage.setItem('mammoth_agent_threads_v1:reader', JSON.stringify({ coding_agent: [{
       id: 'saved-run-message', role: 'agent', agent_id: 'coding_agent', status: 'pending',
       run: { id: runId, status: 'awaiting_approval', events: [], plan: [],
         approval: { id: 'apr-run', tool: 'owner_execution_run', tier: 'exec', args: { execution_id: ownerJob.id, approval_digest: ownerJob.approval_digest } } },

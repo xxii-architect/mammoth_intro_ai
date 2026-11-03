@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { usePageMemory } from '../lib/PageMemory'
 import {
   ClipboardList,
   Plus,
@@ -81,12 +82,12 @@ export default function BuildLogPage() {
 function BuildLog() {
   const [entries, setEntries] = useState([])
   const [open, setOpen] = useState({})
-  const [showForm, setShowForm] = useState(false)
-  const [filter, setFilter] = useState('')
+  const [showForm, setShowForm] = usePageMemory('buildlog:show-form', false)
+  const [filter, setFilter] = usePageMemory('buildlog:filter', '')
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [form, setForm] = useState(() => ({
+  const [form, setForm] = usePageMemory('buildlog:draft', () => ({
     ...EMPTY_FORM,
     date: new Date().toISOString().slice(0, 10),
   }))

@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { usePageMemory } from '../lib/PageMemory'
 
 const composerCardStyle: React.CSSProperties = {
   padding: 16,
@@ -37,7 +38,7 @@ const NotesComposer: React.FC<{ onCreate: (content: string) => Promise<void>; bu
   onCreate,
   busy = false,
 }) => {
-  const [content, setContent] = useState<string>('')
+  const [content, setContent] = usePageMemory<string>('notes:new-draft', '')
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false)
   const [error, setError] = useState('')
 

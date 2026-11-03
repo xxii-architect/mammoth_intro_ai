@@ -14,6 +14,7 @@ import AgentCommandLibrary from '../components/AgentCommandLibrary'
 import { normalizeCodingArtifact, normalizeResearchArtifact } from '../components/agent-workspace/artifacts'
 import AgentWorkspace from '../components/agent-workspace/AgentWorkspace'
 import useIsMobile from '../lib/useIsMobile'
+import { usePageMemory } from '../lib/PageMemory'
 
 
 
@@ -153,11 +154,11 @@ const PROMPT_PLAYBOOK = [
 
 export default function AgentPage({ setPage }) {
   const [agents, setAgents] = useState([])
-  const [selectedAgent, setSelected] = useState('')
-  const [intent, setIntent] = useState('plant_seed')
-  const [prompt, setPrompt] = useState('')
-  const [temperature, setTemp] = useState(0.7)
-  const [output, setOutput] = useState(null)
+  const [selectedAgent, setSelected] = usePageMemory('agent:selected', '')
+  const [intent, setIntent] = usePageMemory('agent:intent', 'plant_seed')
+  const [prompt, setPrompt] = usePageMemory('agent:prompt', '')
+  const [temperature, setTemp] = usePageMemory('agent:temperature', 0.7)
+  const [output, setOutput] = usePageMemory('agent:output', null)
   const [running, setRunning] = useState(false)
   const [archOpen, setArchOpen] = useState(false)
   const [activity, setActivity] = useState([])
@@ -177,16 +178,16 @@ export default function AgentPage({ setPage }) {
   const [smokeRunning, setSmokeRunning] = useState(false)
   const [smokeResults, setSmokeResults] = useState([])
   const [showCommandLibrary, setShowCommandLibrary] = useState(false)
-  const [executionMode, setExecutionMode] = useState('single')
-  const [planProfile, setPlanProfile] = useState('atlas')
-  const [codingIntent, setCodingIntent] = useState('generate_code')
-  const [planRun, setPlanRun] = useState(null)
+  const [executionMode, setExecutionMode] = usePageMemory('agent:execution-mode', 'single')
+  const [planProfile, setPlanProfile] = usePageMemory('agent:plan-profile', 'atlas')
+  const [codingIntent, setCodingIntent] = usePageMemory('agent:coding-intent', 'generate_code')
+  const [planRun, setPlanRun] = usePageMemory('agent:plan', null)
   const [autonomousRuns, setAutonomousRuns] = useState({ summary: null, runs: [] })
-  const [codingArtifact, setCodingArtifact] = useState(null)
-  const [researchArtifact, setResearchArtifact] = useState(null)
+  const [codingArtifact, setCodingArtifact] = usePageMemory('agent:coding-artifact', null)
+  const [researchArtifact, setResearchArtifact] = usePageMemory('agent:research-artifact', null)
   const [applyingPatch, setApplyingPatch] = useState(false)
-  const [lastRunResult, setLastRunResult] = useState(null)
-  const [lastRunMode, setLastRunMode] = useState('single')
+  const [lastRunResult, setLastRunResult] = usePageMemory('agent:last-result', null)
+  const [lastRunMode, setLastRunMode] = usePageMemory('agent:last-mode', 'single')
   const [classicConsole, setClassicConsole] = useState(() => safeStorageGet('mammoth_agent_classic') === '1')
   const [advancedOpen, setAdvancedOpen] = useState(false)
   // Workspace layout replaces the old right rail with on-demand slide-overs: 'changes' | 'history' | null.

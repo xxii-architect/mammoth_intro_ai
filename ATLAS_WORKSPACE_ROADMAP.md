@@ -113,14 +113,24 @@ prevent course authoring; the UI reports drafts rather than pretending success.
 Durable exercise drafts, multi-course progress switching, and expert-reviewed
 subject assessments remain separate follow-ups.
 
-These recommendations are saved for review, not implemented or approved for
+Unchecked recommendations remain planned, not approved for
 execution merely by appearing here. Prefer learning continuity and trustworthy
 feedback over adding more agents or permanent panels.
 
-- [ ] LEARN-01: durable "resume where I left off." Save the active lesson,
-  exercise draft, tutor conversation, and selected view per learner. Recover
-  after refresh or a dropped connection. Show Saved / Saving / Couldn't save
-  explicitly. Current tab-switch draft preservation is not durable recovery.
+- [x] LEARN-01: durable "resume where I left off" in the unified ATLAS workspace.
+  Reuse the saved lesson and tutor history; privately save the current exercise
+  responses, checklist, unsent tutor message, mode and selected view. Confirmed
+  saves survive refresh. Display unsaved/saving/saved/failure and explicit retry.
+  Revision checks reject competing tabs; exercise identity and reset epochs
+  prevent stale draft restoration. Atomic sidecar storage avoids overwrites by
+  slow lesson requests. No model calls, submissions or mastery changes on restore.
+  Latest keystrokes before save confirmation are not guaranteed after tab close.
+  Local drafts also survive navigation away and back within the same tab.
+  Acceptance covers full reloads, writes during delayed saves, navigation during
+  saving, competing tabs, variants, reset, corrupt/unavailable storage, and
+  signed-in/local-account isolation. Full-result page memory is separately tested
+  with an exact greater-than-40,000-character Agent JSON export, team continuity,
+  Mammoth Mind conversation retention, note edits and Build Log drafts.
 - [ ] LEARN-02: contextual "Explain this" actions. Select lesson text, exercise
   instructions, or correction feedback and request a simpler explanation,
   worked example, or practice question. Send the exact selection and its lesson
@@ -143,7 +153,7 @@ feedback over adding more agents or permanent panels.
   lesson scroll surface with Read/Practice jumps; adjustable text size and line
   spacing; collapsed outline and progress. Phone landscape uses the same compact
   layout. Retention and time-to-competency figures are no longer fabricated from
-  counts/confidence. No audio/captions or durable draft recovery is claimed.
+  counts/confidence. No audio/captions are implemented; draft recovery is LEARN-01.
 - [ ] LEARN-06: cost and privacy controls. Show estimates before expensive
   research or narration only when they can be calculated reliably. Add per-user
   limits, cancellation, and clear retention/export/delete controls for learning

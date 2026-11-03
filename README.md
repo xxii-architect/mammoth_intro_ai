@@ -16,6 +16,26 @@ downloads; it remains supplemental to the active lesson.
 
 ### Workspace reliability and learning resources
 
+Workspace pages now retain full working state during in-app navigation, scoped
+to the signed-in account: Agent conversations/results and team previews/follow-ups,
+Mammoth Mind history/composer/repository/attachments, Notes drafts and Build Log
+form/filter. Inactive pages still unmount and stop polling; returning does not
+repeat model calls or approvals. Sign-out/account changes clear page memory.
+This tab-lifetime memory is not a replacement for saved private Artifacts or exports
+and does not guarantee a live streaming run continues after leaving its page.
+
+The unified ATLAS workspace also autosaves its current exercise responses,
+checklist, unsent tutor message, mode and selected view to private server storage.
+Wait for **Workspace saved** for refresh-safe recovery. Failures retain local edits
+and offer retry; revisions and exercise/reset identity reject stale writes.
+Atomic sidecar files prevent a slow lesson request from erasing a newer draft.
+Recovery reuses saved lesson/chat history without model calls or mastery changes.
+Each response/message is limited to 100,000 characters, the combined values to
+600,000 JSON bytes, and the checklist to 12 items. Only the current exercise is
+recovered; reset clears its saved draft. Unsaved keystrokes and other pages'
+unsubmitted drafts are not guaranteed after browser close or refresh. See the
+[ATLAS manual](ATLAS_MANUAL.md) for recovery controls and remaining roadmap work.
+
 Idea Shaper assesses the supplied idea and context without assuming the owner's
 brand, industry, or location. Structured output is checked before success:
 invalid or cut-off assessments receive at most one corrective model call, which

@@ -135,10 +135,12 @@ function formatSourceLabel(source = '') {
 const CATEGORIES = ['Outdoors', 'Emergency', 'Business', 'Health', 'Human Systems', 'Technology', 'Creative', 'Life Skills']
 const CATEGORY_ICONS = { Outdoors: '🏕️', Emergency: '🚑', Business: '💼', Health: '💪', 'Human Systems': '🧠', Technology: '💻', Creative: '🎨', 'Life Skills': '🔑' }
 
-export default function LessonsPage({ setPage, embedded = false, sharedState, loadSharedState, onFocusChange }) {
+export default function LessonsPage({ setPage, embedded = false, sharedState, loadSharedState, onFocusChange, workspace }) {
   const [atlasState, setAtlasState] = useState(null)
   const [topic, setTopic]           = useState('')
-  const [code, setCode]             = useState('')
+  const [localCode, setLocalCode] = useState('')
+  const code = workspace ? workspace.values.lesson_response : localCode
+  const setCode = workspace ? value => workspace.update('lesson_response', value) : setLocalCode
   const [result, setResult]         = useState(null)
   const [lessonGate, setLessonGate] = useState(null)
   const [loading, setLoading]       = useState(false)
@@ -151,7 +153,9 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
   const [adaptiveUI, setAdaptiveUI] = useState(embedded)
   const [activeTrack, setActiveTrack] = useState(null)
   const [lastSelectedModuleId, setLastSelectedModuleId] = useState('')
-  const [checklistState, setChecklistState] = useState({})
+  const [localChecklist, setLocalChecklist] = useState({})
+  const checklistState = workspace ? workspace.values.checklist : localChecklist
+  const setChecklistState = workspace ? value => workspace.update('checklist', value) : setLocalChecklist
   const [categoryFilter, setCategoryFilter] = useState(null)
   const [atlasLibrary, setAtlasLibrary] = useState(null)
   const [billingUsage, setBillingUsage] = useState(null)
@@ -183,8 +187,10 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
     const exerciseKey = JSON.stringify(exercise || null)
     if (lessonId !== draftLessonId.current || exerciseKey !== draftExerciseKey.current) {
       draftExerciseKey.current = exerciseKey
-      setCode(exercise?.starter_response || Object.values(exercise?.starter_files || {})[0] || '')
-      setChecklistState({})
+      if (!workspace) {
+        setCode(exercise?.starter_response || Object.values(exercise?.starter_files || {})[0] || '')
+        setChecklistState({})
+      }
     }
     if (lessonId !== draftLessonId.current) {
       draftLessonId.current = lessonId
@@ -268,9 +274,9 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
       if (Array.isArray(s?.available_modules) && s.available_modules.length) {
         setModuleCatalog(s.available_modules.map(normalizeModuleTrack))
       }
-      if (s.current_exercise?.starter_response) {
+      if (!workspace && s.current_exercise?.starter_response) {
         setCode(current => current.trim() ? current : s.current_exercise.starter_response)
-      } else if (s.current_exercise?.starter_files) {
+      } else if (!workspace && s.current_exercise?.starter_files) {
         const files = s.current_exercise.starter_files
         const first = Object.values(files)[0] || ''
         setCode(current => current.trim() ? current : first)
@@ -301,7 +307,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
   }
 
   useEffect(() => {
-    loadState()
+    if (!loadSharedState) loadState()
     loadLibrary()
     loadUsage()
   }, [])
@@ -330,12 +336,11 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
         body: { topic: requestedTopic, module_id: moduleTrack?.id },
       })
       if (moduleTrack) setActiveTrack(normalizeModuleTrack(moduleTrack))
-      setCode('')
-      setChecklistState({})
+      if (!workspace) { setCode(''); setChecklistState({}) }
       setAtlasState(prev => ({ ...prev, ...res }))
-      if (res.exercise?.starter_response) {
+      if (!workspace && res.exercise?.starter_response) {
         setCode(res.exercise.starter_response)
-      } else if (res.exercise?.starter_files) {
+      } else if (!workspace && res.exercise?.starter_files) {
         const first = Object.values(res.exercise.starter_files)[0] || ''
         setCode(first)
       }
@@ -373,7 +378,7 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
         return
       }
       setLessonGate(null)
-      setCode('')
+      if (!workspace) setCode('')
       await loadState(true)
       await loadLibrary()
       setResult(null)
