@@ -50,6 +50,8 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
   const inputRef = useRef(null)
   const [preview, setPreview] = useState(null)
   const [previewQuery, setPreviewQuery] = useState('')
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const previewRequest = useRef(0)
   const upload = useDocumentUpload(scope, data => {
     setFiles(previous => [data, ...previous])
     onLibraryChange?.()
@@ -73,6 +75,7 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
 
   useEffect(() => {
     loadFiles()
+    return () => { previewRequest.current += 1 }
   }, [])
 
   const handleUpload = async (e) => {
@@ -88,7 +91,9 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
       await api(`/${scope}/files/${fileId}`, { method: 'DELETE' })
       setFiles(prev => prev.filter(f => f.file_id !== fileId))
       onToggleAttach && onToggleAttach({ file_id: fileId }, false)
-      if (preview?.file_id === fileId) setPreview(null)
+      previewRequest.current += 1
+      setPreviewBusy(false)
+      if (preview?.file_id === fileId) closePreview()
       upload.loadPolicy()
       onLibraryChange?.()
     } catch (e) {
@@ -111,12 +116,27 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
     setTagMenuFor(null)
   }
 
-  const showPreview = async (fileId, query = '') => {
+  const closePreview = () => {
+    previewRequest.current += 1
+    setPreview(null)
+    setPreviewBusy(false)
+  }
+
+  const showPreview = async (fileId, query = '', start = null) => {
+    const request = ++previewRequest.current
+    setPreviewBusy(true)
     try {
-      const result = await api(`/${scope}/files/${fileId}/content?query=${encodeURIComponent(query)}`)
+      const params = start === null ? `query=${encodeURIComponent(query)}` : `start=${start}&count=6`
+      const result = await api(`/${scope}/files/${fileId}/content?${params}`)
+      if (!Array.isArray(result?.sections)) throw new Error('The document sections response was invalid.')
+      if (previewRequest.current !== request) return
       setPreview(result)
       setError('')
-    } catch (cause) { setError(cause.message || 'Could not load document sections.') }
+    } catch (cause) {
+      if (previewRequest.current === request) setError(cause.message || 'Could not load document sections.')
+    } finally {
+      if (previewRequest.current === request) setPreviewBusy(false)
+    }
   }
 
   return (
@@ -170,10 +190,18 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
       {preview && (
         <section aria-label="Document extraction preview" style={{ overflowWrap: 'anywhere' }}>
           <strong>{preview.name}</strong> · {preview.processing_status}
+          <p>Indexed text is not the original rendered file. Search returns selected excerpts; browsing can access every indexed section. Neither means the model reviewed the entire document.</p>
+          {preview.selection && <p aria-label="Document section coverage">
+            Showing {preview.selection.selected_chunks} of {preview.selection.total_chunks} indexed sections ({preview.selection.mode}).
+          </p>}
+          {preview.warnings?.length > 0 && <p>{preview.warnings.join(' ')}</p>}
           <form style={{ display: 'flex', flexWrap: 'wrap', gap: 8, margin: '12px 0' }} onSubmit={event => { event.preventDefault(); showPreview(preview.file_id, previewQuery) }}>
             <input aria-label="Search document sections" value={previewQuery} onChange={event => setPreviewQuery(event.target.value)} placeholder="Topic, page 42, or slide 12" />
-            <button type="submit">Find sections</button>
-            <button type="button" onClick={() => setPreview(null)}>Close preview</button>
+            <button type="submit" disabled={previewBusy}>Find sections</button>
+            <button type="button" disabled={previewBusy} onClick={() => showPreview(preview.file_id, '', 0)}>Browse indexed text</button>
+            {preview.selection?.mode === 'sequential' && preview.sections?.[0]?.chunk_index > 0 && <button type="button" disabled={previewBusy} onClick={() => showPreview(preview.file_id, '', Math.max(0, preview.sections[0].chunk_index - 6))}>Previous sections</button>}
+            {preview.next_start != null && <button type="button" disabled={previewBusy} onClick={() => showPreview(preview.file_id, '', preview.next_start)}>Next sections</button>}
+            <button type="button" onClick={closePreview}>Close preview</button>
           </form>
           {preview.sections?.map((section, index) => <div key={index}><strong>{section.location}</strong><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{section.text}</pre></div>)}
           {!preview.sections?.length && <div>No usable text. {preview.warnings?.join(' ')}</div>}

@@ -77,6 +77,32 @@ respect the configured budget without false early completion or duplicate
 execution; final output or a resumable partial checkpoint survives a cap stop.
 Build, behavior verification and untested production boundaries remain separate.
 
+#### First connected delivery and remaining boundaries
+
+Implemented bounded first batch (not closure of the items above):
+
+- Regression confirmed that chat selected four distributed sections then dropped
+  the fourth, losing the final section. Selection now requests three directly.
+  Context includes selected/indexed counts.
+- Both existing content endpoints, file-library previews and Paths clients offer
+  bounded sequential paging with selection metadata; installed-client fixtures
+  enumerate all locally indexed source chunks and deny cross-user/scope/anonymous
+  reads. Counts describe indexed sections, never original-source character
+  coverage or AI review completion. Extraction/OCR limits remain unchanged.
+- Recursive planner/critic outputs are capped at 2,048 tokens; existing executor/
+  synthesis allowances and overall ceilings stay intact, with bounded synthesis
+  headroom. Replanning avoids duplicating the prior draft; the executor retains
+  it for revision. Role contexts no longer blindly clip serialized source tails.
+  Public budgets distinguish byte-based conservative admission from actual
+  reported usage, and failures retain the latest completed executor draft under
+  an unverified label.
+- Deterministic fixtures cover long source tails, Unicode, replanning, cap-stop
+  draft durability, paging/failure/stale-response behavior and SDK parity.
+  The two hosted failure receipts/user files were not accessed. Exact provider
+  tokenization, automatic exhaustive-review orchestration, resumable coverage
+  tracking and explicit budget extension remain open. No paid benchmark or
+  quantified credit-saving claim is made.
+
 #### Order after the context/review batch
 
 1. Establish reviewed owner-container infrastructure evidence and compatible

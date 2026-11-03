@@ -72,6 +72,21 @@ def test_public_names_and_aliases():
     assert "MammothMind" in mammoth_os.__all__
 
 
+def test_document_paging_preserves_offsets_scope_and_backend_evidence(backend):
+    payload = {"status": "ok", "sections": [{"chunk_index": 12, "text": "last appendix"}],
+               "total_chunks": 13, "next_start": None,
+               "selection": {"mode": "sequential", "selected_chunks": 1, "total_chunks": 13, "review_complete": False}}
+    backend.route("GET", "/api/mammoth/files/file-one/content", body=payload)
+    backend.route("GET", "/api/atlas/files/file-one/content", body=payload)
+    client = MammothPaths(backend.url)
+    assert client.read_document("file-one", start=12, count=1) == payload
+    assert backend.requests[-1]["path"].endswith("?start=12&count=1")
+    assert client.read_document("file-one", scope="atlas") == payload
+    assert backend.requests[-1]["path"] == "/api/atlas/files/file-one/content?start=0&count=6"
+    with pytest.raises(ValueError, match="scope"):
+        client.read_document("file-one", scope="other")
+
+
 def test_json_object_endpoints_reject_invalid_success_payloads(backend):
     usage = []
     client = MammothPaths(backend.url, usage_hook=usage.append)

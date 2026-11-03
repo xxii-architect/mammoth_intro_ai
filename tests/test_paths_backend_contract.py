@@ -1,6 +1,8 @@
 """Installed clients against loaded routes with isolated auth, context and tools."""
 
 import json
+import asyncio
+import io
 import os
 from pathlib import Path
 import shutil
@@ -10,10 +12,12 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
+from fastapi import UploadFile
 from fastapi.testclient import TestClient
 
 import api_server
 from mammoth_os.agent_loop import AgentRunner, RunStore, ToolRegistry, ToolSpec
+from mammoth_os.documents import DocumentLibrary
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -65,6 +69,15 @@ def contract_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(api_server, "_resolve_supabase_user", lambda token: {
         "id": token, "is_admin": False,
     } if token in {"tenant-a", "tenant-b"} else None)
+    libraries = {
+        user: DocumentLibrary(tmp_path / user / "documents",
+                              {"chat": tmp_path / user / "chat", "atlas": tmp_path / user / "atlas"})
+        for user in ("tenant-a", "tenant-b")
+    }
+    uploaded = asyncio.run(libraries["tenant-a"].upload(
+        UploadFile(filename="source.txt", file=io.BytesIO(
+            ("BEGIN_SOURCE\n" + "middle source material " * 300 + "\nEND_SOURCE").encode())), "chat"))
+    monkeypatch.setattr(api_server, "_document_library", lambda user: libraries[user])
     monkeypatch.setattr(api_server, "_load_atlas_state", lambda: {
         "active_account_id": "default", "mammoth_chat_history": [{
             "role": "user", "message": "Mind-only private history",
@@ -125,6 +138,7 @@ def contract_backend(monkeypatch, tmp_path):
                 "url": f"http://127.0.0.1:{server.server_port}", "store": store,
                 "exchanges": exchanges, "documents": documents, "prompts": prompts,
                 "tool_calls": tool_calls, "requests": requests,
+                "file_id": uploaded["file_id"],
             }
         finally:
             server.shutdown()
@@ -138,11 +152,11 @@ def test_packaged_clients_follow_loaded_backend_contract(packaged_clients, contr
     backend = contract_backend
     driver = ROOT / "tests" / "support" / ("paths_contract_driver.py" if language == "python" else "paths_contract_driver.mjs")
     if language == "python":
-        command = [sys.executable, str(driver), backend["url"], str(python_install)]
+        command = [sys.executable, str(driver), backend["url"], str(python_install), backend["file_id"]]
     else:
         installed_driver = root / driver.name
         shutil.copy2(driver, installed_driver)
-        command = [node, str(installed_driver), backend["url"]]
+        command = [node, str(installed_driver), backend["url"], backend["file_id"]]
     result = subprocess.run(command, cwd=root, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
     data = json.loads(result.stdout)

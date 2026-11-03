@@ -158,6 +158,21 @@ An explicit JSON download may include prompts, source excerpts, arguments and
 logs: review it before sharing. Saved runs follow server retention and are not a
 permanent archive or independent correctness assessment.
 
+## Private document paging
+
+Python `paths.read_document(file_id, scope="chat", start=0, count=6)` and JS
+`client.readDocument(fileId, {scope: 'chat', start: 0, count: 6})` page through
+private indexed text. `scope` accepts `chat` or `atlas`; the server enforces
+ownership, collection scope and count 1-10. Follow `next_start` until null.
+`total_chunks`, `sections[*].chunk_index` and `selection` describe this page,
+not model comprehension or full original-file extraction. Retain warnings.
+No model runs or automatic retries occur; usage hooks identify `documents`.
+
+Recursive snapshots/events add `budget`, `completed_stages` and `partial_output`.
+Actual reported usage remains distinct from conservative UTF-8 byte input
+allowances. A failed review's saved draft is explicitly unverified; do not infer
+completion, auto-continue or raise a budget merely because a draft exists.
+
 ## Owner-only isolated validation
 
 The disabled-by-default owner pilot adds matching Python/JS methods:

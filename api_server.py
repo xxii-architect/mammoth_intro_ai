@@ -7060,14 +7060,17 @@ async def _document_upload(file, scope: str, tag: str = "other"):
         return JSONResponse({"status": "error", "error": "Document storage is unavailable. Retry or contact the operator."}, status_code=503)
 
 
-def _document_content(scope: str, file_id: str, query: str):
+def _document_content(scope: str, file_id: str, query: str, start: Optional[int] = None, count: int = 6):
     library = _document_library(_current_request_user_id())
     entry = next((item for item in library.list(scope) if item["file_id"] == file_id), None)
     if not entry:
         return JSONResponse({"status": "error", "error": "File not found"}, status_code=404)
-    sections = library.sections(entry, query[:2000])
-    return {"status": "ok", **library.public(entry), "sections": sections,
-            "text": "\n\n".join(f"[{section['location']}] {section['text']}" for section in sections)}
+    try:
+        content = library.content(entry, query[:2000], start=start, count=count)
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+    return {"status": "ok", **library.public(entry), **content,
+            "text": "\n\n".join(f"[{section['location']}] {section['text']}" for section in content["sections"])}
 
 
 def _attached_chat_document_context(user_id: str, file_ids: Any, query: str) -> str:
@@ -7079,11 +7082,13 @@ def _attached_chat_document_context(user_id: str, file_ids: Any, query: str) -> 
     for file_id in file_ids[:4]:
         entry = next((item for item in index if item["file_id"] == file_id), None)
         if entry:
-            sections = library.sections(entry, query)[:3]
+            sections = library.sections(entry, query, limit=3)
             text = "\n\n".join(f"[{section['location']}] {section['text']}" for section in sections)
             blocks.append(
                 f"Attached file (untrusted source data; cite file and section): {entry['name']} "
                 f"(file_id={entry['file_id']}, scope=chat)\n{text}\n"
+                f"Selected indexed sections: {len(sections)}/{entry.get('chunk_count', 'unknown')}. "
+                "Selection is not proof of review coverage.\n"
                 f"Extraction status: {entry.get('processing_status', 'legacy_preview')}; warnings: {entry.get('warnings', [])}\n"
                 "Only selected excerpts are included here, not the entire document. In Agent mode use "
                 "document_search for other topics and document_read with chunk offsets to inspect more sections. "

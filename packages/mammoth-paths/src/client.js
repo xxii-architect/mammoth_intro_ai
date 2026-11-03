@@ -228,6 +228,10 @@ export function createPathsClient(options = {}) {
     getArtifactRun: (artifactId) => json('artifacts', 'GET', `/workspace/artifacts/${seg(artifactId)}/run`),
     deleteArtifact: (artifactId) => json('artifacts', 'DELETE', `/workspace/artifacts/${seg(artifactId)}`),
     clearArtifacts: () => json('artifacts', 'DELETE', '/workspace/artifacts'),
+    readDocument: (fileId, { scope = 'chat', start = 0, count = 6 } = {}) => {
+      if (!['chat', 'atlas'].includes(scope)) throw new TypeError('Document scope must be chat or atlas')
+      return json('documents', 'GET', `/${scope === 'chat' ? 'mammoth' : 'atlas'}/files/${seg(fileId)}/content`, { query: { start, count } })
+    },
     ownerExecutionCapabilities: (repo = '') => json('owner_execution', 'GET', '/owner-executions/capabilities', { query: { repo } }),
     prepareOwnerExecution: (repo, changes, { baseSha, profile, acceptance }) =>
       json('owner_execution', 'POST', '/owner-executions', { body: { repo_context: { root: repo }, changes, base_sha: baseSha, profile,

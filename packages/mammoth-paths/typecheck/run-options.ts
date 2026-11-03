@@ -10,6 +10,9 @@ const options: RunOptions = {
 const client = createPathsClient({ baseUrl: 'https://example.invalid' })
 void client.run('Review', options)
 void client.streamRun('Review', options)
+void client.readDocument('file-id', { scope: 'chat', start: 6, count: 6 })
+// @ts-expect-error Document scopes cannot address arbitrary API surfaces.
+void client.readDocument('file-id', { scope: 'operator' })
 const tasks: Promise<Array<Record<string, unknown>>> = client.listTasks()
 const savedRun: Promise<Record<string, unknown>> = client.getRun('run-id')
 void [tasks, savedRun]

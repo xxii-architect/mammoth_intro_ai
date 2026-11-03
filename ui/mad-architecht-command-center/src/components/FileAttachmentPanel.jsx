@@ -68,6 +68,7 @@ function AttachmentPanel({ attached = [], onAttach, onRemove, compact = false, l
         onLibraryChange={upload.loadPolicy}
       /></div>}
       {attached.map(file => file.warnings?.length > 0 && <div key={file.file_id} style={{ width: '100%', fontSize: '0.72rem' }}>{file.name}: {file.processing_status} — {file.warnings.join(' ')}</div>)}
+      {attached.length > 0 && <div style={{ fontSize: '0.72rem', color: 'var(--txt-mut)' }}>Chat starts with selected excerpts, not a full-file review. Use the file library to search or browse indexed text; Agent mode can read additional sections.</div>}
       {attached.length > 4 && <div role="alert">Only the first four attached files are used in each chat request. Remove extras or send separate requests.</div>}
 
       <div className="composer-box" style={{ display: 'grid', gap: 4, minWidth: 0, padding: '6px 8px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)' }}>

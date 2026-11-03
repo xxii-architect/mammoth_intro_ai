@@ -103,7 +103,7 @@ export interface RunSnapshot {
 }
 
 export interface UsageRecord {
-  surface: 'mind' | 'repos' | 'notes' | 'buildlog' | 'terminal' | 'tasks' | 'artifacts' | 'owner_execution'
+  surface: 'mind' | 'repos' | 'notes' | 'buildlog' | 'terminal' | 'tasks' | 'artifacts' | 'documents' | 'owner_execution'
   method: string
   path: string
   status: number
@@ -170,6 +170,7 @@ export interface PathsClient {
   getArtifactRun(id: string): Promise<Record<string, unknown>>
   deleteArtifact(id: string): Promise<Record<string, unknown>>
   clearArtifacts(): Promise<Record<string, unknown>>
+  readDocument(fileId: string, options?: { scope?: 'chat' | 'atlas'; start?: number; count?: number }): Promise<Record<string, unknown>>
   ownerExecutionCapabilities(repo?: string): Promise<Record<string, unknown>>
   prepareOwnerExecution(repo: string, changes: OwnerExecutionChange[], options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' | 'ui_build' | 'ui_component' | 'ui_browser'; acceptance?: { expected_behavior: string[]; regression_tests: string[] } }): Promise<Record<string, unknown>>
   getOwnerExecution(id: string): Promise<Record<string, unknown>>

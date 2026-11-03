@@ -208,6 +208,22 @@ do not certify correctness, acceptance-test success, or approval to apply code.
 Run lookup returns 404 when unavailable; task edits return 409 for run-backed
 records. These additions do not change the `mammoth.paths.v1` contract.
 
+## Private indexed document reads
+
+`readDocument(fileId, {scope: 'chat', start: 0, count: 6})` and Python
+`read_document(file_id, scope="chat", start=0, count=6)` read a bounded page of
+caller-owned indexed text; `scope` may also be `atlas`. The server enforces access
+and count 1-10. Follow `next_start` until null to enumerate indexed sections.
+`total_chunks` and `selection` distinguish selected sections from the index;
+`selection.review_complete` is false because reading a page is not a model review.
+Extraction warnings/limits remain relevant even after every indexed section is
+retrieved. Requests are read-only and use the `documents` metering surface.
+
+Recursive snapshots also expose additive `budget`, `completed_stages` and
+`partial_output` metadata. Input reservations are labeled conservative UTF-8 byte
+upper bounds, not actual token usage. A saved draft after failure is unverified;
+it must never be treated as a completed recursive review or automatically retried.
+
 ## Owner isolated execution pilot
 
 `ownerExecutionCapabilities(repo)`, `prepareOwnerExecution(repo, changes,

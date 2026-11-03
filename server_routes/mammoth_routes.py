@@ -146,8 +146,8 @@ async def chat_file_capabilities():
     return {"status": "ok", **document_capabilities(), "usage": await asyncio.to_thread(_document_library(_current_request_user_id()).usage)}
 
 @app.get("/api/mammoth/files/{file_id}/content")
-async def get_chat_file_content(file_id: str, query: str = ""):
-    return await asyncio.to_thread(_document_content, "chat", file_id, query)
+async def get_chat_file_content(file_id: str, query: str = "", start: Optional[int] = None, count: int = 6):
+    return await asyncio.to_thread(_document_content, "chat", file_id, query, start, count)
 
 @app.get("/api/mammoth/files")
 async def list_chat_files():

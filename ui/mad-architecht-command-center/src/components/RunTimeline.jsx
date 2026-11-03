@@ -197,8 +197,21 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
               {' · '}{run.recursive.usage?.tokens || 0}/{run.recursive.limits?.max_tokens} reported tokens
               {' · '}{run.recursive.usage?.tool_calls || 0}/{run.recursive.limits?.max_tool_calls} tool calls
               {' · '}Critique is not factual verification.
+              {run.recursive.stop_reason && <div>Stopped: {run.recursive.stop_reason}</div>}
+              {run.recursive.budget && <div>
+                Last call budget: {run.recursive.budget.remaining_tokens} tokens remaining before the call
+                {' · '}{run.recursive.budget.input_token_upper_bound} conservative input allowance (UTF-8 byte upper bound, not measured tokens)
+                {' · '}{run.recursive.budget.output_token_limit} output limit
+                {' · '}{run.recursive.budget.synthesis_headroom} synthesis headroom.
+                {run.recursive.budget.stop_detail && <> Budget stop: {run.recursive.budget.stop_detail}.</>}
+              </div>}
+              {run.recursive.completed_stages?.length > 0 && <div>Saved completed stages: {run.recursive.completed_stages.join(', ')}</div>}
             </div>
           )}
+          {run.recursive?.partial_output && <details>
+            <summary>Saved draft — recursive review incomplete, not verified</summary>
+            <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'inherit' }}>{run.recursive.partial_output}</pre>
+          </details>}
           {run.diagnostics?.length > 0 && (
             <details style={{ color: 'var(--txt-mut)', fontSize: '0.72rem' }}>
               <summary>Model call diagnostics</summary>

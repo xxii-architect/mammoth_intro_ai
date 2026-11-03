@@ -97,12 +97,25 @@ class ProductionExecutor(AgentRunner):
         self.owner.check()
         state = run.recursive
         remaining = state["limits"]["max_tokens"] - state["usage"]["tokens"]
-        # A conservative input allowance avoids spending the entire leash on output.
-        output = min(requested, remaining - len(prompt.encode("utf-8")) - 1024)
+        role = state.get("stage")
+        requested = min(requested, 2048) if role in {"planner", "critic"} else requested
+        # Without a provider tokenizer, retain the conservative byte ceiling rather than invent token counts.
+        input_bound = len(prompt.encode("utf-8"))
+        headroom = min(4096, state["limits"]["max_tokens"] // 8) if role != "synthesizer" else 0
+        output = min(requested, remaining - input_bound - 1024 - headroom)
+        state["budget"] = {
+            "role": role, "input_estimation": "utf8_byte_upper_bound",
+            "input_token_upper_bound": input_bound, "overhead_allowance": 1024,
+            "remaining_tokens": remaining, "synthesis_headroom": headroom,
+            "output_token_limit": max(0, output), "reserved_tokens": 0,
+        }
         if output < 128:
             state["stop_reason"] = "max_tokens"
+            state["budget"]["stop_detail"] = "insufficient_call_allowance"
+            self.store.save(run)
             raise RecursiveBudgetError("max_tokens")
-        state["reservation"] = output + len(prompt.encode("utf-8")) + 1024
+        state["reservation"] = output + input_bound + 1024
+        state["budget"]["reserved_tokens"] = state["reservation"]
         self.store.save(run)
         return output
 
@@ -116,7 +129,8 @@ class ProductionExecutor(AgentRunner):
             raise
         usage = meta.get("usage") or {}
         total = usage.get("total_tokens")
-        if total is None and all(key in usage for key in ("prompt_tokens", "completion_tokens")):
+        if total is None and all(type(usage.get(key)) is int and usage[key] >= 0
+                                 for key in ("prompt_tokens", "completion_tokens")):
             total = usage["prompt_tokens"] + usage["completion_tokens"]
         if isinstance(total, bool) or not isinstance(total, int) or total < 1:
             run.recursive["usage"]["accounting_status"] = "unavailable"
@@ -125,6 +139,9 @@ class ProductionExecutor(AgentRunner):
             raise RecursiveBudgetError("provider_usage_unavailable")
         run.recursive["usage"]["tokens"] += total
         run.recursive["reservation"] = 0
+        run.recursive["budget"]["reported_call_tokens"] = total
+        run.recursive["budget"]["reserved_tokens"] = 0
+        meta["recursive_budget"] = dict(run.recursive["budget"])
         self.store.save(run)
         self.owner.check()
         return text, meta
@@ -176,6 +193,8 @@ class RecursiveRuntime:
         for used, limit in (("tokens", "max_tokens"), ("seconds", "max_seconds")):
             if state["usage"][used] >= state["limits"][limit]:
                 state["stop_reason"] = limit
+                if limit == "max_tokens" and state.get("budget"):
+                    state["budget"]["stop_detail"] = "reported_token_limit"
                 raise RecursiveBudgetError(limit)
 
     def is_cancelled(self):
@@ -194,7 +213,8 @@ class RecursiveRuntime:
 
     def public_state(self):
         return {key: self.run.recursive.get(key) for key in
-                ("contract", "stage", "iteration", "limits", "usage", "stop_reason")}
+                ("contract", "stage", "iteration", "limits", "usage", "stop_reason",
+                 "budget", "completed_stages", "partial_output")}
 
     async def model_role(self, role, context):
         self.check()
@@ -205,6 +225,11 @@ class RecursiveRuntime:
                       '"suggestions":["specific improvement"],"confidence":0.0}',
             "synthesizer": '{"answer":"complete user-facing answer"}',
         }
+        artifacts = dict(context.artifacts)
+        if role == "planner" and isinstance(artifacts.get("execution"), dict):
+            artifacts["execution"] = {key: value for key, value in artifacts["execution"].items() if key != "draft"}
+        if role == "critic":
+            artifacts.pop("critique", None)
         prompt = (
             f"You are the {role} role in a bounded RecursiveMAS run. Return exactly one JSON object.\n"
             + REASONING_GUIDANCE
@@ -217,7 +242,7 @@ class RecursiveRuntime:
             + f"Required shape: {shapes[role]}\n"
             + describe_repo(self.ctx)
             + "\nTask and saved artifacts:\n"
-            + render_observation({"task": context.task, "artifacts": context.artifacts}, 32_000)
+            + json.dumps({"task": context.task, "artifacts": artifacts}, ensure_ascii=False, separators=(",", ":"))
         )
         text, meta = await self.executor._generate(self.run, prompt, final=True)
         self.event(ev.MODEL_COMPLETED, {**meta, "recursive_role": role})
@@ -249,6 +274,7 @@ class RecursiveRuntime:
         value.tool_calls = usage["tool_calls"] - before["tool_calls"]
         value.seconds = max(0, usage["seconds"] - before["seconds"])
         cache[key] = asdict(value)
+        self.run.recursive["completed_stages"] = list(cache)
         self.base.store.save(self.run)
         return value
 
@@ -410,6 +436,11 @@ class RecursiveRuntime:
         self.run.failure_code = code
         self.run.pending_approval = None
         self.run.recursive["stop_reason"] = code
+        drafts = [value["output"]["draft"] for key, value in self.run.recursive["cache"].items()
+                  if key.endswith(":executor") and isinstance(value.get("output"), dict)
+                  and isinstance(value["output"].get("draft"), str)]
+        if drafts and self.run.status != "cancelled":
+            self.run.recursive["partial_output"] = drafts[-1]
         self.run.reply = f"Recursive run stopped: {code}. No final answer is verified. Saved evidence is available in Run Review."
         self.event(ev.RUN_CANCELLED if self.run.status == "cancelled" else ev.RUN_FAILED,
                    {"error": self.run.reply, "reply": self.run.reply, "code": code,

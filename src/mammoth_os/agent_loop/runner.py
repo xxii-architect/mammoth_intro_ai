@@ -140,7 +140,8 @@ class AgentRun:
         data.pop("cancel_requested", None)
         if self.recursive:
             data["recursive"] = {key: self.recursive.get(key) for key in
-                                 ("contract", "stage", "iteration", "limits", "usage", "stop_reason")}
+                                 ("contract", "stage", "iteration", "limits", "usage", "stop_reason",
+                                  "budget", "completed_stages", "partial_output")}
             if self.status == "running":
                 data["reply"] = ""
         data["progress"] = self.progress()
