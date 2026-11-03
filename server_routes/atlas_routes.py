@@ -115,6 +115,33 @@ async def atlas_delete_learning_history(body: Dict[str, Any]):
         return blocked
     return JSONResponse(_erase_saved_learning(body), headers={"Cache-Control": "no-store"})
 
+
+@app.get("/api/atlas/learner/deletion-preview")
+async def atlas_learner_deletion_preview():
+    from mammoth_os.learning_workspace import _workspace_lock
+
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    try:
+        with _workspace_lock(_atlas_state_file_for_request()):
+            state = _load_learning_export_state(normalize=False)
+            model_path = Path(_learner_storage_path(_atlas_user_id(state))) / "atlas_learner_model.json"
+            with _workspace_lock(model_path):
+                preview = _learner_erasure_preview(state)
+    except OSError as exc:
+        logger.exception("Private adaptation deletion preview failed")
+        raise HTTPException(status_code=503, detail="Private adaptation deletion could not be reviewed. No deletion was confirmed.") from exc
+    return JSONResponse(preview, headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/api/atlas/learner/adaptation")
+async def atlas_delete_private_adaptation(body: Dict[str, Any]):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    return JSONResponse(_erase_private_adaptation(body), headers={"Cache-Control": "no-store"})
+
 @app.get("/api/atlas/modules")
 async def atlas_modules():
     state = _load_atlas_state()
@@ -150,7 +177,7 @@ async def atlas_onboard(body: Dict[str, Any]):
             operation="atlas_onboard_update",
             target="atlas/onboarding",
             preview=preview,
-            payload={"onboarding": body},
+            payload={"onboarding": body, "learner_write_guard": _learner_approval_guard(_load_learning_export_state())},
             requested_by="user",
         )
         _upsert_task(
@@ -187,7 +214,7 @@ async def atlas_learner_reset(body: Optional[Dict[str, Any]] = None):
             operation="atlas_learner_reset",
             target="atlas/learner",
             preview=preview,
-            payload={},
+            payload={"learner_write_guard": _learner_approval_guard(_load_learning_export_state())},
             requested_by="user",
         )
         _upsert_task(
@@ -906,7 +933,7 @@ async def atlas_reset(body: Optional[Dict[str, Any]] = None):
             operation="atlas_session_reset",
             target="atlas/session",
             preview=preview,
-            payload={},
+            payload={"learner_write_guard": _learner_approval_guard(_load_learning_export_state())},
             requested_by="user",
         )
         _upsert_task(

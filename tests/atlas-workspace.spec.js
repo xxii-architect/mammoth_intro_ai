@@ -3,6 +3,15 @@ const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const agentIds = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
+const adaptationDeletionPreview = overrides => ({
+  contract: 'mammoth.learner-erasure.v1', account_id: 'default',
+  scope: 'active_account_private_model_and_adaptation_caches',
+  preview_token: 'a'.repeat(64), model_status: 'saved', deletion_available: true,
+  cached_fields: ['learner_model', 'learner_context'], pending_deletion: false,
+  excludes: ['lesson_session_and_recovery', 'other_accounts', 'unverified_legacy_models', 'backups'],
+  ...overrides,
+})
+
 async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonFailure = false, saveFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null, agentLimitReached = false } = {}) {
   const requests = []
   const errors = []
@@ -161,6 +170,7 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
   if (!regular) await expect(page.getByRole('heading', { name: 'ATLAS', exact: true })).toBeVisible()
   return {
     requests, errors,
+    eraseAdaptation: () => { onboarding = { experience_level: 'unknown', preferred_pacing: 'gentle', learning_style: 'guided', goals: [], focus_areas: [], completed_at: null } },
     setSaveFailure: value => { saveFailure = value },
     holdNextSave: () => { let release; nextSaveGate = new Promise(resolve => { release = resolve }); return release },
     reload: async () => { await page.reload(); await render() },
@@ -1024,6 +1034,124 @@ test('pending contextual help can close its view to reach cancellation without p
   await page.getByRole('button', { name: 'Not now', exact: true }).click()
   await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Study selected text', exact: true }).getByRole('alert')).toContainText('Cancellation reached a safe boundary')
+  expect(errors).toEqual([])
+})
+
+for (const width of [320, 390, 1280]) {
+  test(`private adaptation deletion preserves lesson drafts and clears profile edits at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const { errors, requests, eraseAdaptation } = await mountWorkspace(page)
+    const lesson = page.getByRole('region', { name: 'Lesson and practice', exact: true })
+    await lesson.locator('textarea').fill('Keep this private lesson draft.')
+    await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+    let deletes = 0
+    await page.route('**/api/atlas/learner/deletion-preview', route => route.fulfill({
+      contentType: 'application/json', body: JSON.stringify(adaptationDeletionPreview()),
+    }))
+    await page.route('**/api/atlas/learner/adaptation', route => {
+      deletes += 1
+      expect(route.request().method()).toBe('DELETE')
+      expect(route.request().postDataJSON()).toEqual({
+        confirmation: 'DELETE PRIVATE ADAPTATION', preview_token: 'a'.repeat(64),
+      })
+      eraseAdaptation()
+      return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+        contract: 'mammoth.learner-erasure.v1', scope: 'active_account_private_model_and_adaptation_caches',
+        account_id: 'default', status: 'deleted_from_active_storage', receipt_id: 'b'.repeat(32),
+      }) })
+    })
+    await page.getByRole('button', { name: width < 600 ? 'Edit learning profile' : 'Learning profile', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Goals', exact: true }).fill('Old unsaved profile goal')
+    await page.getByText('Learning privacy & costs', { exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Delete private adaptation', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'Preview private adaptation deletion', exact: true }).click()
+    const scope = page.getByRole('region', { name: 'Private adaptation deletion', exact: true })
+    await expect(scope).toContainText('unverified legacy models')
+    await expect(scope).toContainText('already-sent provider work may finish and bill')
+    const remove = scope.getByRole('button', { name: 'Delete private adaptation', exact: true })
+    await expect(remove).toBeDisabled()
+    const confirmation = scope.getByRole('textbox', { name: 'Type DELETE PRIVATE ADAPTATION to confirm', exact: true })
+    await confirmation.fill('delete private adaptation')
+    await expect(remove).toBeDisabled()
+    await confirmation.fill('DELETE PRIVATE ADAPTATION')
+    await remove.click()
+    await expect(page.getByRole('status').filter({ hasText: `Receipt: ${'b'.repeat(32)}` })).toBeVisible()
+    await expect(lesson.locator('textarea')).toHaveValue('Keep this private lesson draft.')
+    await expect(page.getByRole('textbox', { name: 'Goals', exact: true })).toHaveValue('')
+    await expect(page.getByText('Reliable research', { exact: true })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    expect(deletes).toBe(1)
+    expect(requests.some(item => ['/api/atlas/onboard', '/api/atlas/submit', '/api/atlas/lesson'].includes(item.path))).toBe(false)
+    expect(errors).toEqual([])
+  })
+}
+
+for (const failure of [409, 503, 'unconfirmed']) {
+  test(`private adaptation deletion clears obsolete confirmation without receipt after ${failure}`, async ({ page }) => {
+    const { errors } = await mountWorkspace(page)
+    let deletes = 0
+    await page.route('**/api/atlas/learner/deletion-preview', route => route.fulfill({
+      contentType: 'application/json', body: JSON.stringify(adaptationDeletionPreview()),
+    }))
+    await page.route('**/api/atlas/learner/adaptation', route => {
+      deletes += 1
+      return route.fulfill({ status: failure === 'unconfirmed' ? 200 : failure, contentType: 'application/json',
+        body: JSON.stringify(failure === 'unconfirmed' ? { status: 'deleted_from_active_storage', receipt_id: 'invalid' } : {
+          detail: 'Deletion was not confirmed. Review a new deletion preview.',
+        }) })
+    })
+    await page.getByRole('button', { name: 'Learning profile', exact: true }).click()
+    await page.getByText('Learning privacy & costs', { exact: true }).click()
+    await page.getByRole('button', { name: 'Preview private adaptation deletion', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Type DELETE PRIVATE ADAPTATION to confirm', exact: true }).fill('DELETE PRIVATE ADAPTATION')
+    await page.getByRole('button', { name: 'Delete private adaptation', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('No automatic retry')
+    await expect(page.getByText(/Receipt:/)).toHaveCount(0)
+    await expect(page.getByRole('region', { name: 'Private adaptation deletion', exact: true })).toHaveCount(0)
+    await expect(page.getByText('Reliable research', { exact: true })).toBeVisible()
+    expect(deletes).toBe(1)
+    expect(errors).toEqual([])
+  })
+}
+
+test('adaptation deletion blocks unknown extensions and displays recoverable pending state', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  await page.route('**/api/atlas/learner/deletion-preview', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify(adaptationDeletionPreview({
+      deletion_available: false, pending_deletion: true,
+    })),
+  }))
+  await page.getByRole('button', { name: 'Learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  await page.getByRole('button', { name: 'Preview private adaptation deletion', exact: true }).click()
+  const scope = page.getByRole('region', { name: 'Private adaptation deletion', exact: true })
+  await expect(scope.getByRole('alert')).toContainText('Unknown model extensions require review')
+  await expect(scope.getByRole('status')).toContainText('previous deletion is incomplete')
+  await expect(scope.getByRole('button')).toHaveCount(0)
+  await expect(scope.getByRole('textbox')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('adaptation deletion requires a valid preview and clears scope on account change', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  let previews = 0
+  await page.route('**/api/atlas/learner/deletion-preview', route => {
+    previews += 1
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(
+      adaptationDeletionPreview(previews === 1 ? { preview_token: 'invalid' } : {}),
+    ) })
+  })
+  await page.getByRole('button', { name: 'Learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  const preview = page.getByRole('button', { name: 'Preview private adaptation deletion', exact: true })
+  await preview.click()
+  await expect(page.getByRole('alert')).toContainText('did not confirm a private adaptation deletion preview')
+  await expect(page.getByRole('button', { name: 'Delete private adaptation', exact: true })).toHaveCount(0)
+  await preview.click()
+  await page.getByRole('textbox', { name: 'Type DELETE PRIVATE ADAPTATION to confirm', exact: true }).fill('DELETE PRIVATE ADAPTATION')
+  await page.evaluate(() => globalThis.changeTestAccount('another-learner'))
+  await expect(page.getByRole('region', { name: 'Private adaptation deletion', exact: true })).toHaveCount(0)
+  expect(previews).toBe(2)
   expect(errors).toEqual([])
 })
 

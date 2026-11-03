@@ -3,7 +3,8 @@ import { api } from '../api/client'
 import LearningPrivacy from './LearningPrivacy'
 
 export default function AtlasLearningProfile({ state, loadState, compact = false, setPage, onDeleted, open: openProp, onOpenChange }) {
-  const profile = state?.learner_model?.onboarding
+  const [adaptationCleared, setAdaptationCleared] = useState(false)
+  const profile = adaptationCleared ? null : state?.learner_model?.onboarding
   const [editing, setEditing] = useState(false)
   const [deferred, setDeferred] = useState(false)
   const [draft, setDraft] = useState(null)
@@ -38,12 +39,21 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
         return
       }
       await loadState(true)
+      setAdaptationCleared(false)
       setEditing(false)
       setDeferred(true)
       if (controlled) onOpenChange?.(false)
       setNotice('Learning profile saved. It applies to new lessons and exercises, not a rewrite of your current lesson.')
     } catch (cause) { setError(cause.message || 'Could not save your learning profile.') }
     finally { setBusy(false) }
+  }
+  const adaptationDeleted = async result => {
+    setAdaptationCleared(true)
+    setEditing(false)
+    setDraft({ experience_level: 'beginner', preferred_pacing: 'gentle', learning_style: 'guided', goals: '', focus_areas: '' })
+    setNotice(`Private adaptation deleted from active storage. Receipt: ${result.receipt_id}. Lessons, conversations and drafts were preserved. Other tabs, provider copies and backups were not erased. New activity may create fresh adaptation.`)
+    await loadState(true)
+    setAdaptationCleared(false)
   }
   return (
     <section aria-label="Learning profile" className="atlas-learning-profile">
@@ -52,8 +62,8 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
         {(!controlled || compact) && <button type="button" aria-label={open ? 'Close profile' : 'Edit learning profile'} aria-expanded={open} onClick={toggle}>{open ? 'Close profile' : compact && !profile?.completed_at ? 'Set up profile' : 'Edit learning profile'}</button>}
       </div>
       {(open || notice) && <>
-        <p>Starting level: {state.learner_context?.starting_level || 'beginner'} · Current recommendation: {state.learner_context?.recommended_difficulty || 'beginner'}</p>
-        <p>{state.learner_context?.adaptation_reason || 'Choose a starting level; ATLAS adapts from your practice outcomes.'}</p>
+        <p>Starting level: {(!adaptationCleared && state.learner_context?.starting_level) || 'beginner'} · Current recommendation: {(!adaptationCleared && state.learner_context?.recommended_difficulty) || 'beginner'}</p>
+        <p>{(!adaptationCleared && state.learner_context?.adaptation_reason) || 'Choose a starting level; ATLAS adapts from your practice outcomes.'}</p>
       </>}
       {open && <form onSubmit={save} className="atlas-profile-form">
         {state.learner_storage?.legacy_ownership === 'unverified_not_imported' && !profile?.completed_at && <p role="note">Adaptation is now private to this signed-in user and learning account. Legacy shared mastery and profile data were not imported because ownership is unverified. Existing lessons and conversations are preserved; choose your starting preferences here.</p>}
@@ -69,7 +79,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
         <label>Focus areas<input name="focus_areas" value={draft.focus_areas} onChange={update} placeholder="Topics to emphasize, separated by commas" /></label>
         <div><button disabled={busy} type="submit">{busy ? 'Saving profile...' : 'Save learning profile'}</button> <button type="button" disabled={busy} onClick={toggle}>Not now</button></div>
       </form>}
-      {open && <LearningPrivacy key={`${state.learner_storage?.scope_key || ''}:${state.active_account_id || 'default'}`} setPage={setPage} onDeleted={onDeleted} />}
+      {open && <LearningPrivacy key={`${state.learner_storage?.scope_key || ''}:${state.active_account_id || 'default'}`} setPage={setPage} onDeleted={onDeleted} onAdaptationDeleted={adaptationDeleted} />}
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert">{error}</p>}
     </section>

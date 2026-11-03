@@ -466,6 +466,425 @@ def _saved_adaptation(uid, account="default"):
     return path, model
 
 
+def _erasable_adaptation(uid="tenant-a", account="default"):
+    path, model = _saved_adaptation(uid, account)
+    model.pop("private_provider_config")
+    path.write_text(json.dumps(model), encoding="utf-8")
+    return path, model
+
+
+def _delete_adaptation(client, *, tenant="tenant-a", preview=None, confirmation="DELETE PRIVATE ADAPTATION"):
+    headers = {"Authorization": f"Bearer {tenant}"}
+    if preview is None:
+        response = client.get("/api/atlas/learner/deletion-preview", headers=headers)
+        assert response.status_code == 200
+        preview = response.json()
+    return client.request("DELETE", "/api/atlas/learner/adaptation", headers=headers, json={
+        "confirmation": confirmation, "preview_token": preview["preview_token"],
+    })
+
+
+def test_adaptation_erasure_is_authenticated_reviewed_scoped_and_verified(client, learning_export):
+    states, notes = learning_export
+    assert client.get("/api/atlas/learner/deletion-preview").status_code == 401
+    assert client.request("DELETE", "/api/atlas/learner/adaptation", json={}).status_code == 401
+    path, model = _erasable_adaptation()
+    other, _ = _erasable_adaptation("tenant-b")
+    second, _ = _erasable_adaptation("tenant-a", "second")
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    caches = {"learner_model": model, "learner_context": {"goals": ["private"]},
+              "learner_profile": {"attempts": 24}, "learner_storage": {"old": True}}
+    state.update(caches)
+    state["account_sessions"] = {"default": {**caches, "chat_history": state["chat_history"],
+                                            "unknown_session_field": "preserve"},
+                                  "second": {"learner_model": {"private": "second cache"}}}
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    preserved = {p: p.read_bytes() for p in (other, second, notes, states["tenant-b"])}
+    response = client.get("/api/atlas/learner/deletion-preview?user_id=tenant-b&account_id=second",
+                          headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    preview = response.json()
+    assert preview["account_id"] == "default"
+    assert preview["cached_fields"] == sorted(caches)
+    assert preview["deletion_available"] is True
+    assert "private" not in json.dumps(preview["cached_fields"])
+    assert "tenant-a-default goal" not in response.text
+    result = _delete_adaptation(client, preview=preview)
+    assert result.status_code == 200 and result.headers["cache-control"] == "no-store"
+    receipt = result.json()
+    assert receipt["status"] == "deleted_from_active_storage" and len(receipt["receipt_id"]) == 32
+    assert receipt["provider_erasure_confirmed"] is receipt["backup_erasure_confirmed"] is False
+    assert not path.exists()
+    saved = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    assert saved["learner_erasure"]["default"] == {"epoch": receipt["receipt_id"], "status": "complete"}
+    for key in caches:
+        assert key not in saved and key not in saved["account_sessions"]["default"]
+    for key, value in state.items():
+        if key not in caches and key != "account_sessions":
+            assert saved[key] == value
+    assert saved["account_sessions"]["default"]["unknown_session_field"] == "preserve"
+    assert saved["account_sessions"]["second"] == state["account_sessions"]["second"]
+    assert {p: p.read_bytes() for p in preserved} == preserved
+    export = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"})
+    assert export.json()["learner_adaptation"]["status"] == "not_saved"
+    assert not path.exists()
+
+
+@pytest.mark.parametrize("confirmation", ["delete private adaptation", "DELETE SAVED LEARNING", ""])
+def test_adaptation_erasure_requires_exact_confirmation(client, learning_export, confirmation):
+    path, _ = _erasable_adaptation()
+    before = path.read_bytes()
+    assert _delete_adaptation(client, confirmation=confirmation).status_code == 400
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("change", ["model", "cache", "account", "tenant"])
+def test_changed_adaptation_preview_cannot_delete(client, learning_export, change):
+    states, _ = learning_export
+    path, model = _erasable_adaptation()
+    preview = client.get("/api/atlas/learner/deletion-preview", headers={"Authorization": "Bearer tenant-a"}).json()
+    tenant = "tenant-a"
+    if change == "model":
+        model["attempts"] += 1
+        path.write_text(json.dumps(model), encoding="utf-8")
+    elif change == "tenant":
+        tenant = "tenant-b"
+    else:
+        state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+        if change == "account":
+            state["active_account_id"] = "second"
+        else:
+            state["learner_context"] = {"changed": True}
+        states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    assert _delete_adaptation(client, preview=preview, tenant=tenant).status_code == 409
+    assert path.exists()
+
+
+def test_unknown_extensions_block_erasure_and_corrupt_models_do_not_get_receipts(client, learning_export):
+    path, _ = _saved_adaptation("tenant-a")
+    before = path.read_bytes()
+    preview = client.get("/api/atlas/learner/deletion-preview", headers={"Authorization": "Bearer tenant-a"}).json()
+    assert preview["deletion_available"] is False
+    assert _delete_adaptation(client, preview=preview).status_code == 409
+    assert path.read_bytes() == before
+    path.write_text("{bad", encoding="utf-8")
+    assert client.get("/api/atlas/learner/deletion-preview", headers={"Authorization": "Bearer tenant-a"}).status_code == 503
+    assert _delete_adaptation(client, preview=preview).status_code == 503
+    assert path.read_text(encoding="utf-8") == "{bad"
+
+
+def test_stale_hosted_writers_and_old_approvals_cannot_resurrect_adaptation(client, learning_export, monkeypatch):
+    from fastapi import HTTPException
+    _erasable_adaptation()
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        stale = api_server._load_atlas_state()
+        guard = api_server._learner_approval_guard(stale)
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    assert _delete_adaptation(client).status_code == 200
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        with pytest.raises(HTTPException) as error:
+            api_server._hydrate_learner_state(stale, result={"passed": True})
+        assert error.value.status_code == 409
+        with pytest.raises(HTTPException) as error:
+            api_server._save_atlas_state(stale)
+        assert error.value.status_code == 409
+        with pytest.raises(HTTPException) as error:
+            api_server._reset_learner_model_state("workspace:default", state=stale)
+        assert error.value.status_code == 409
+        for operation, payload in [
+            ("atlas_onboard_update", {"onboarding": {"goals": ["old goal"]}}),
+            ("atlas_learner_reset", {}), ("atlas_session_reset", {}),
+        ]:
+            for binding in (guard, {}, None):
+                with pytest.raises(HTTPException) as error:
+                    api_server._execute_approval_record({"operation": operation, "payload": {
+                        **payload, "learner_write_guard": binding,
+                    }})
+                assert error.value.status_code == 409
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
+    fresh = client.post("/api/atlas/onboard", headers={"Authorization": "Bearer tenant-a"},
+                        json={"experience_level": "advanced", "goals": ["New explicit goal"]})
+    assert fresh.status_code == 200
+    assert fresh.json()["learner_model"]["attempts"] == 0
+    assert fresh.json()["learner_model"]["onboarding"]["goals"] == ["New explicit goal"]
+    assert "old goal" not in fresh.text
+
+
+def test_erasure_cancels_delayed_assessment_before_it_can_recreate_model(client, learning_export, monkeypatch):
+    import asyncio
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from mammoth_os import lesson_assessment
+    states, _ = learning_export
+    path, _ = _erasable_adaptation()
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state["current_exercise"]["submission_mode"] = "text"
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    started, release = threading.Event(), threading.Event()
+    async def delayed(*args):
+        started.set()
+        assert await asyncio.to_thread(release.wait, 20)
+        return {"passed": True, "feedback": "Do not retain this obsolete assessment."}
+    monkeypatch.setattr(lesson_assessment, "assess_text_response", delayed)
+    headers = {"Authorization": "Bearer tenant-a"}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(client.post, "/api/atlas/submit", headers=headers, json={"response": "Evidence"})
+        try:
+            assert started.wait(10)
+            assert _delete_adaptation(client).status_code == 200
+            assert not path.exists()
+        finally:
+            release.set()
+        response = future.result(timeout=20)
+    assert response.status_code == 409 and response.json()["status"] == "cancelled"
+    assert not path.exists()
+    saved = states["tenant-a"].read_text(encoding="utf-8")
+    assert "obsolete assessment" not in saved and '"last_submission"' not in saved
+    operations = client.get("/api/atlas/controls", headers=headers).json()["operations"]
+    assert operations[0]["status"] == "cancelled_at_boundary"
+
+
+def test_erasure_generation_survives_a_separate_worker_process(client, learning_export, tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    states, _ = learning_export
+    path, _ = _erasable_adaptation()
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        stale = api_server._load_atlas_state()
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    snapshot = tmp_path / "old-worker-state.json"
+    snapshot.write_text(json.dumps(stale), encoding="utf-8")
+    assert _delete_adaptation(client).status_code == 200
+    script = """
+import json, sys
+from pathlib import Path
+import api_server
+from fastapi import HTTPException
+api_server._REQUEST_USER_ID.set("tenant-a")
+api_server._atlas_state_file_for_request = lambda: Path(sys.argv[1])
+state = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+for write in (lambda: api_server._hydrate_learner_state(state, result={"passed": True}),
+              lambda: api_server._save_atlas_state(state)):
+    try:
+        write()
+    except HTTPException as error:
+        assert error.status_code == 409
+    else:
+        raise AssertionError("A stale worker saved erased adaptation")
+"""
+    env = {**os.environ, "PYTHONPATH": str(Path(api_server.__file__).parent / "src")}
+    worker = subprocess.run([sys.executable, "-c", script, str(states["tenant-a"]), str(snapshot)],
+                            env=env, capture_output=True, text=True, timeout=45)
+    assert worker.returncode == 0, worker.stderr
+    assert not path.exists()
+
+
+def test_erasure_serializes_with_an_active_hosted_writer_in_another_process(client, learning_export, monkeypatch):
+    import os
+    import subprocess
+    import sys
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from contextlib import contextmanager
+    from pathlib import Path
+    from mammoth_os import learning_workspace
+    states, _ = learning_export
+    path, _ = _erasable_adaptation()
+    headers = {"Authorization": "Bearer tenant-a"}
+    preview = client.get("/api/atlas/learner/deletion-preview", headers=headers).json()
+    script = """
+import sys
+from pathlib import Path
+import api_server
+from mammoth_os.learner_model import set_onboarding_profile
+api_server._REQUEST_USER_ID.set("tenant-a")
+api_server._atlas_state_file_for_request = lambda: Path(sys.argv[1])
+state = api_server._load_atlas_state()
+def write(*, storage_path):
+    print("READY", flush=True)
+    assert sys.stdin.readline().strip() == "continue"
+    return set_onboarding_profile(user_id="workspace:default", storage_path=storage_path,
+                                  onboarding={"goals": ["Writer completed first"]})
+api_server._learner_storage_action(write, "workspace:default", guard_state=state)
+"""
+    env = {**os.environ, "PYTHONPATH": str(Path(api_server.__file__).parent / "src")}
+    attempted = threading.Event()
+    original = learning_workspace._workspace_lock
+    @contextmanager
+    def observed(target):
+        if target == states["tenant-a"]:
+            attempted.set()
+        with original(target):
+            yield
+    monkeypatch.setattr(learning_workspace, "_workspace_lock", observed)
+    with subprocess.Popen([sys.executable, "-c", script, str(states["tenant-a"])],
+                          env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, text=True) as worker:
+        assert worker.stdout.readline().strip() == "READY"
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            deletion = pool.submit(_delete_adaptation, client, preview=preview)
+            try:
+                assert attempted.wait(10)
+                assert not deletion.done()
+            finally:
+                _, errors = worker.communicate(input="continue\n", timeout=45)
+            response = deletion.result(timeout=20)
+    assert worker.returncode == 0, errors
+    assert response.status_code == 409
+    assert json.loads(path.read_text(encoding="utf-8"))["onboarding"]["goals"] == ["Writer completed first"]
+    assert _delete_adaptation(client).status_code == 200
+    assert not path.exists()
+
+
+def test_erasure_preserves_other_account_operations_and_all_usage(client, learning_export):
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        store = api_server._learning_controls()
+        own = store.begin("/api/atlas/chat", "default")
+        other = store.begin("/api/atlas/chat", "second")
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    assert _delete_adaptation(client).status_code == 200
+    operations = {item["id"]: item for item in store.snapshot()["operations"]}
+    assert operations[own]["status"] == "cancellation_requested"
+    assert operations[other]["status"] == "running"
+    assert store.snapshot()["admitted_requests"] == 2
+
+
+def test_absent_model_erasure_preserves_legacy_files_and_removes_caches_only(client, learning_export, monkeypatch, tmp_path):
+    from mammoth_os import learner_model
+    states, _ = learning_export
+    legacy = tmp_path / "ambiguous-legacy.json"
+    legacy.write_text('{"user_id":"workspace:default","attempts":999}', encoding="utf-8")
+    before = legacy.read_bytes()
+    original = learner_model._model_path
+    def scoped_only(storage_path=None):
+        assert storage_path is not None, "Deletion must not touch the shared legacy model"
+        return original(storage_path)
+    monkeypatch.setattr(learner_model, "_model_path", scoped_only)
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state["learner_context"] = {"unverified": "cached"}
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    response = _delete_adaptation(client)
+    assert response.status_code == 200
+    saved = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    assert "learner_context" not in saved
+    assert saved["chat_history"] == state["chat_history"]
+    assert legacy.read_bytes() == before
+    preview = client.get("/api/atlas/learner/deletion-preview", headers={"Authorization": "Bearer tenant-a"}).json()
+    assert preview["model_status"] == "not_saved" and preview["cached_fields"] == []
+
+
+def test_second_account_erasure_leaves_first_account_model_and_caches(client, learning_export):
+    states, _ = learning_export
+    first, _ = _erasable_adaptation()
+    second, _ = _erasable_adaptation("tenant-a", "second")
+    before = first.read_bytes()
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state["active_account_id"] = "second"
+    first_session = {"learner_model": {"private": "first cache"}, "chat_history": [{"message": "first conversation"}]}
+    state["account_sessions"] = {"default": first_session, "second": {"learner_context": {"private": "second cache"}}}
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    response = _delete_adaptation(client)
+    assert response.status_code == 200 and response.json()["account_id"] == "second"
+    assert not second.exists() and first.read_bytes() == before
+    saved = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    assert saved["account_sessions"]["default"] == first_session
+    assert "learner_context" not in saved["account_sessions"]["second"]
+    assert set(saved["learner_erasure"]) == {"second"}
+
+
+def test_learner_mutation_approvals_capture_server_scope_and_fresh_approval_still_works(client, learning_export, monkeypatch):
+    captured = []
+    def approval(*args, **kwargs):
+        record = {"id": "test-learner-approval", **kwargs}
+        captured.append(record)
+        return record
+    monkeypatch.setattr(api_server, "_create_approval_record", approval)
+    monkeypatch.setattr(api_server, "_upsert_task", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_append_activity", lambda *args, **kwargs: None)
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
+    for route in ("/api/atlas/onboard", "/api/atlas/learner/reset", "/api/atlas/reset"):
+        response = client.post(route, headers={"Authorization": "Bearer tenant-a"}, json={
+            "approval_mode": True, "experience_level": "advanced", "learner_write_guard": {"forged": True},
+        })
+        assert response.status_code == 200
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        expected = api_server._learner_approval_guard(api_server._load_learning_export_state())
+        assert all(record["payload"]["learner_write_guard"] == expected for record in captured)
+        result = api_server._execute_approval_record(captured[0])
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    assert result["learner_model"]["onboarding"]["experience_level"] == "advanced"
+
+
+@pytest.mark.parametrize("records", [None, [], {"default": {}},
+                                     {"default": {"epoch": "bad", "status": "complete"}}])
+def test_invalid_erasure_fence_fails_closed(client, learning_export, records):
+    states, _ = learning_export
+    path, _ = _erasable_adaptation()
+    before = path.read_bytes()
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state["learner_erasure"] = records
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    for route in ("/api/atlas/learner", "/api/atlas/learner/deletion-preview"):
+        assert client.get(route, headers={"Authorization": "Bearer tenant-a"}).status_code == 503
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("failure", ["fence", "unlink", "completion", "verification"])
+def test_partial_adaptation_erasure_never_issues_receipt_and_is_retryable(client, learning_export, monkeypatch, failure):
+    from pathlib import Path
+    from mammoth_os import learning_workspace
+    states, _ = learning_export
+    path, _ = _erasable_adaptation()
+    original_write = learning_workspace._write_workspace
+    original_unlink = Path.unlink
+    calls = 0
+    def fail_write(target, record, **kwargs):
+        nonlocal calls
+        if target == states["tenant-a"]:
+            calls += 1
+            if (failure == "fence" and calls == 1) or (failure == "completion" and calls == 2):
+                raise OSError("test write failure")
+        original_write(target, record, **kwargs)
+        if failure == "verification" and target == states["tenant-a"] and calls == 1:
+            invalid = json.loads(target.read_text(encoding="utf-8"))
+            invalid["learner_context"] = {"still": "cached"}
+            original_write(target, invalid, **kwargs)
+    def fail_unlink(target, *args, **kwargs):
+        if target == path and failure == "unlink":
+            raise OSError("test unlink failure")
+        return original_unlink(target, *args, **kwargs)
+    with monkeypatch.context() as patch:
+        patch.setattr(learning_workspace, "_write_workspace", fail_write)
+        patch.setattr(Path, "unlink", fail_unlink)
+        result = _delete_adaptation(client)
+    assert result.status_code == 503 and "receipt_id" not in result.json()
+    if failure != "fence":
+        state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+        assert state["learner_erasure"]["default"]["status"] == "pending"
+        assert client.get("/api/atlas/learner", headers={"Authorization": "Bearer tenant-a"}).status_code == 503
+        export = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"})
+        assert export.status_code == 200 and export.json()["learner_adaptation"]["pending_deletion"] is True
+        review = client.get("/api/atlas/learner/privacy-review", headers={"Authorization": "Bearer tenant-a"})
+        assert review.status_code == 200 and review.json()["pending_deletion"] is True
+    else:
+        assert path.exists()
+    assert _delete_adaptation(client).status_code == 200
+    assert not path.exists()
+
+
 def test_adaptation_review_requires_auth_and_is_read_only_private(client, learning_export, monkeypatch):
     states, _ = learning_export
     assert client.get("/api/atlas/learner/privacy-review").status_code == 401
