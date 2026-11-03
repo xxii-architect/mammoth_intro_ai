@@ -436,11 +436,125 @@ def test_learning_export_is_authenticated_private_and_saved_only(client, learnin
         assert result["linked_notes"][0]["body"] == f"{uid} private note"
         assert result["cost"]["model_calls"] == 0
         assert result["cost"]["generation_price_estimate"] is None
+        assert result["learner_adaptation"]["status"] == "not_saved"
+        assert result["learner_adaptation"]["model"] is None
         assert "accounts" not in result["saved_learning"]
         assert "lesson_telemetry" not in result["saved_learning"]
         assert "do-not-export-config" not in response.text
         assert "another-account" not in response.text
     assert {uid: path.read_bytes() for uid, path in states.items()} == before
+
+
+def _saved_adaptation(uid, account="default"):
+    from pathlib import Path
+    token = api_server._REQUEST_USER_ID.set(uid)
+    try:
+        root = Path(api_server._learner_storage_path(f"workspace:{account}"))
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / "atlas_learner_model.json"
+    model = {
+        "version": 1, "user_id": f"workspace:{account}", "attempts": 24,
+        "mastery": {f"{uid}-{account}": 0.8}, "confidence": {"evidence": 0.7},
+        "recent_outcomes": [{"concept": f"evidence-{i}", "timestamp": str(i)} for i in range(24)],
+        "onboarding": {"goals": [f"{uid}-{account} goal"]},
+        "memory_graph": {"nodes": [{"id": "real", "label": "Actual saved concept"}], "edges": []},
+        "private_provider_config": "never-export-this-extension",
+    }
+    path.write_text(json.dumps(model), encoding="utf-8")
+    return path, model
+
+
+def test_learning_export_contains_only_saved_active_private_adaptation(client, learning_export, monkeypatch):
+    a_path, a_model = _saved_adaptation("tenant-a")
+    b_path, _ = _saved_adaptation("tenant-b")
+    second_path, _ = _saved_adaptation("tenant-a", "second")
+    before = {path: path.read_bytes() for path in (a_path, b_path, second_path)}
+    def no_model(*args, **kwargs):
+        pytest.fail("Export must not hydrate, generate or save a model")
+    monkeypatch.setattr(api_server, "_hydrate_learner_state", no_model)
+    response = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"},
+                           json={"user_id": "tenant-b", "account_id": "second"})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    result = response.json()
+    adaptation = result["learner_adaptation"]
+    assert adaptation["contract"] == "mammoth.learner-export.v1"
+    assert adaptation["status"] == "saved"
+    assert adaptation["model"] == {key: value for key, value in a_model.items() if key != "private_provider_config"}
+    assert len(adaptation["model"]["recent_outcomes"]) == 24
+    assert adaptation["storage_scope"]["legacy_imported"] is False
+    assert "tenant-b" not in response.text
+    assert "tenant-a-second" not in response.text
+    assert "never-export-this-extension" not in response.text
+    assert result["cost"]["model_calls"] == 0
+    assert {path: path.read_bytes() for path in before} == before
+
+
+@pytest.mark.parametrize("record", ["bad-json", "[]", '{"user_id":"workspace:second"}',
+                                     '{"user_id":"workspace:default","mastery":{"x":NaN}}'])
+def test_learning_export_rejects_bad_private_model_without_partial_success(client, learning_export, record):
+    path, _ = _saved_adaptation("tenant-a")
+    path.write_text(record, encoding="utf-8")
+    before = path.read_bytes()
+    response = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 503
+    assert "learner_adaptation" not in response.json()
+    assert path.read_bytes() == before
+
+
+def test_adaptation_alone_cannot_bypass_export_size_limit(client, learning_export):
+    path, model = _saved_adaptation("tenant-a")
+    model["onboarding"]["goals"] = ["x" * (8 * 1024 * 1024)]
+    path.write_text(json.dumps(model), encoding="utf-8")
+    before = path.read_bytes()
+    response = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 413
+    assert "no shortened export" in response.json()["detail"]
+    assert path.read_bytes() == before
+
+
+def test_missing_adaptation_export_does_not_create_or_import_model(client, learning_export, monkeypatch, tmp_path):
+    from pathlib import Path
+    from mammoth_os import learner_model
+    legacy = tmp_path / "ambiguous-legacy.json"
+    legacy.write_text('{"user_id":"workspace:default","attempts":999}', encoding="utf-8")
+    before = legacy.read_bytes()
+    original = learner_model._model_path
+    def scoped_only(storage_path=None):
+        assert storage_path is not None, "Export must never open the shared legacy model"
+        return original(storage_path)
+    monkeypatch.setattr(learner_model, "_model_path", scoped_only)
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        root = Path(api_server._learner_storage_path("workspace:default"))
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    assert not root.exists()
+    response = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 200
+    assert response.json()["learner_adaptation"]["model"] is None
+    assert response.json()["learner_adaptation"]["status"] == "not_saved"
+    assert not root.exists()
+    assert legacy.read_bytes() == before
+
+
+def test_export_follows_server_active_learning_account(client, learning_export):
+    states, _ = learning_export
+    _saved_adaptation("tenant-a")
+    _, model = _saved_adaptation("tenant-a", "second")
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state["active_account_id"] = "second"
+    state["accounts"]["second"] = {"profile": {"display_name": "Second learner"}}
+    state["account_sessions"] = {"second": {"chat_history": []}}
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    response = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"},
+                           json={"account_id": "default"})
+    assert response.status_code == 200
+    assert response.json()["account_id"] == "second"
+    assert response.json()["learner_adaptation"]["model"]["mastery"] == model["mastery"]
+    assert "tenant-a-default" not in response.text
 
 
 @pytest.mark.parametrize("storage", ["state", "notes", "draft"])
@@ -517,6 +631,7 @@ def test_learning_export_includes_confirmed_draft_and_only_active_local_account(
 
 
 def test_account_export_reuses_learning_export_instead_of_omitting_tutor_history(client, learning_export, monkeypatch):
+    _, model = _saved_adaptation("tenant-a")
     monkeypatch.setattr(api_server, "_load_json_file", lambda path: [])
     monkeypatch.setattr(api_server, "_load_notifications", lambda: [])
     monkeypatch.setattr(api_server, "_load_message_feedback", lambda: [])
@@ -530,6 +645,7 @@ def test_account_export_reuses_learning_export_instead_of_omitting_tutor_history
     assert learning["contract"] == "mammoth.learning-export.v1"
     assert learning["saved_learning"]["chat_history"][0]["message"] == "tenant-a private answer"
     assert learning["workspace_recovery"]["exercise_key"]
+    assert learning["learner_adaptation"]["model"]["mastery"] == model["mastery"]
 
 
 def test_learning_export_does_not_adopt_unowned_legacy_notes(client, learning_export):
