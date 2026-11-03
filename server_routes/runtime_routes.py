@@ -667,12 +667,23 @@ async def create_plan_endpoint(body: Dict[str, Any]):
     planner = load_agent("planner")
     plan = await planner.create_plan(goal, constraints)
     tasks = plan.get("tasks") or []
-    total_minutes = plan.get("total_estimated_minutes", 0)
-    # Defensive title synthesis — guard against LLM schema drift
-    for _t in tasks:
-        if not _t.get("title"):
-            _agent_label = str(_t.get("agent") or "task").replace("_", " ").title()
-            _t["title"] = f"{_agent_label}: {goal[:50]}"
+    from mammoth_os.planning_quality import planning_agents, task_diagnostics
+    diagnostics = task_diagnostics(tasks, allowed=planning_agents(goal),
+                                   curriculum=bool(constraints.get("curriculum") or constraints.get("use_curriculum")))
+    if plan.get("status") == "failed" or diagnostics:
+        logger.warning("Plan %s rejected before task dispatch: invalid task contract", plan_id)
+        _upsert_task(plan_id, "plan", status="failed", agent_id="planner", description=goal,
+                     details={"trace_id": trace_id, "code": "invalid_plan", "task_count": 0})
+        _append_activity("Plan generation failed", agent_id="planner", task_id=plan_id, kind="task_failed",
+                         details={"trace_id": trace_id, "code": "invalid_plan"})
+        return JSONResponse(status_code=502, content={
+            "status": "failed", "code": "invalid_plan", "plan_id": plan_id, "trace_id": trace_id,
+            "error": "No valid task graph was produced. Retry explicitly with a concrete goal.",
+            "tasks": [], "quality": {"ready": False, "status": "failed"},
+        })
+    total_minutes = sum(task.get("estimated_minutes", 0) for task in tasks
+                        if isinstance(task.get("estimated_minutes"), (int, float))
+                        and not isinstance(task.get("estimated_minutes"), bool))
 
     _upsert_task(
         plan_id,
@@ -706,6 +717,7 @@ async def create_plan_endpoint(body: Dict[str, Any]):
             "task_count": len(tasks),
             "tasks": tasks,
             "total_estimated_minutes": total_minutes,
+            "reasoning_trace": plan.get("reasoning_trace", ""),
         }
 
     # ── Step 2: Orchestrator coordinates execution order (depends_on graph) ─
@@ -804,6 +816,7 @@ async def create_plan_endpoint(body: Dict[str, Any]):
         "task_count": len(tasks),
         "total_estimated_minutes": total_minutes,
         "task_results": task_results,
+        "reasoning_trace": plan.get("reasoning_trace", ""),
     }
 
 @app.post("/api/plan-execute")

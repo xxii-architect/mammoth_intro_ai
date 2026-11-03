@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import api_server
 from mammoth_os.agents.planner_agent import PlannerAgent
+from mammoth_os.planning_quality import education_goal
 
 client = TestClient(api_server.app)
 BANNED_SLUGS = {"tutor", "brand_voice", "reflection", "mammoth_guide"}
@@ -21,7 +22,7 @@ GOALS = [
 _PLAN_CACHE = {}
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def deterministic_planner():
     async def _decompose(self, goal, constraints):
         if constraints.get("use_curriculum"):
@@ -35,7 +36,7 @@ def deterministic_planner():
             }]
         return [{
             "task_id": "plan-1",
-            "agent": "research" if goal.startswith("Research") else "coding",
+            "agent": "curriculum" if education_goal(goal) else "research" if goal.startswith("Research") else "coding",
             "title": f"Plan: {goal}",
             "input": {"goal": goal},
             "depends_on": [],
@@ -59,7 +60,7 @@ def _plan(goal, constraints=None, timeout=45):
         _PLAN_CACHE[key] = resp.json()
     return _PLAN_CACHE[key]
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="module", autouse=True)
 def prefetch_plans():
     """Fetch all goal plans once before tests run."""
     for g in GOALS:

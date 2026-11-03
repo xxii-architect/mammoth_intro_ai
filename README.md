@@ -1277,6 +1277,20 @@ The Agent page opens on a calm workspace instead of a console:
 - **Roster**: agents in plain language (what each one is for), with a live Ready / Working / Offline status from `/api/agents`. System agents are hidden behind **Show system agents**.
 - **Agent chats**: each agent keeps its own thread (stored locally, last 30 messages). Follow-ups send the last 8 turns as `payload.history`, so the agent remembers the conversation. Start a message with `@reflection`, `@coding`, `@research`, etc. to send that message, with the thread's context, to another agent.
 - **Team run**: describe an objective, preview the plan (`POST /api/plan-execute` with `dry_run: true`), untick steps you don't want, then run the selected `step_ids`. Each step sees earlier results, and a final synthesis step returns one answer (`summary`). Every step expands to show its full output.
+  Education objectives use Tutor, Research, Reflection and synthesis without
+  unrelated market/publishing/custodial steps, even under the autonomous profile.
+  Explicit software implementation can add Coding; coding profiles stay intact.
+  Routing is conservative lexical policy, not semantic correctness certification.
+- **Structured planner** (`POST /api/plan`): complete task JSON must contain
+  unique IDs, explicit titles, object inputs and earlier-only dependencies.
+  Education DAGs restrict agents to research/reasoning/search/curriculum plus
+  explicit software Coding. Malformed/truncated/prose/provider-failed outputs
+  return `502 / invalid_plan`, an empty task list and failed quality before
+  dispatch; they never become guessed agent-mention actions or filler titles.
+  Retry is explicit. Model reasoning remains a separate `reasoning_trace`.
+  Saved curriculum planning preserves actual lesson identity and duration
+  normalization. Structural validity does not prove agent availability or
+  educational correctness; existing approvals and repo isolation remain.
 - **Advanced**: creativity (temperature), "Preview file changes before applying", and **Classic console** (the original intent/payload console, unchanged).
 - **Coding with a repository**: the Coding agent's header has a repository picker. It shares Mammoth Mind's selection, and the platform repo is listed only for the owner. With a repository picked, coding requests run through the Mammoth Mind agent loop (`POST /api/mammoth/runs`, `surface: "agent_workspace"`, `task: <intent>`). The agent lists, reads, and searches the real files, shows its run timeline, and returns proposed diffs (user repos also get a local branch + patch). Nothing is applied or pushed. With "Preview file changes" on, every non-read tool waits for Approve/Reject. **Stop** cancels a running request. Patch / Refactor / Review with no repository and no pasted code asks you to pick one instead of guessing.
 - **Changes** and **History & memory** (Agents page header) replace the old right-hand rail, so the workspace uses the full width. **Changes** shows a count badge when file-change previews are waiting and opens a slide-over with **Pending Approvals** (Approve / Delete) and **Rollback Snapshots** (Restore). **History & memory** holds Run History and Autonomous runs (both with Replay) plus Workspace Memory. Reasoning traces, plan progress and live activity now appear inline on each run, in Run Review and in Task Inbox. Panel data refreshes every 2.2 s only while a panel is open; otherwise agent status and the Changes badge refresh every 10 s. The **Classic console** keeps its original right rail.
