@@ -32,6 +32,7 @@ async def prepare_owner_execution(body: Dict[str, Any]):
     job = await asyncio.to_thread(
         _OWNER_EXECUTION.prepare, ctx.repo_root, ctx.repo_slug or ctx.repo_source_id or "selected-owner-repo",
         ctx.user_id, body.get("changes"), base_sha=body.get("base_sha"), profile=body.get("profile"),
+        acceptance=body.get("acceptance"),
     )
     _append_activity("Owner isolated proposal prepared", agent_id="coding_agent", task_id=job["id"], kind="approval_requested",
                      details={"repo": job["repo"], "base_sha": job["base_sha"], "approval_digest": job["approval_digest"]})

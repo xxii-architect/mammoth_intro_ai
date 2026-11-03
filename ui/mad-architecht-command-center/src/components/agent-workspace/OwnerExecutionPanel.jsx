@@ -12,6 +12,7 @@ function ExecutionPanel({ repo = '' }) {
   const [capabilities, setCapabilities] = useState(null)
   const [changes, setChanges] = useState('[{"path":"example.py","content":""}]')
   const [profile, setProfile] = useState('python_unittest')
+  const [acceptance, setAcceptance] = useState('')
   const [job, setJob] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -59,18 +60,27 @@ function ExecutionPanel({ repo = '' }) {
           </option>)}
         </select>
       </label>
-      <p>Availability checks tools, not coverage. ui_build compiles the production UI. ui_component checks actual trust-row rendering at explicit zero, low and high scores; it is not browser interaction or general acceptance coverage. Frontend profiles use a separately reviewed locked image, 768 MB memory and 120 seconds per phase.</p>
+      <p>Availability checks tools, not coverage. ui_build compiles the production UI. ui_component checks actual trust-row rendering, not browser interactions. ui_browser builds and runs the workspace browser suite in the offline locked image, with no skipped or flaky tests allowed. Browser phases are bounded to 10 minutes and 1024 MB; other frontend phases retain their existing limits.</p>
       <label style={{ display: 'block', marginTop: 8 }}>Proposal changes (JSON array: path with content, or path with edits containing exact old/new text)
         <textarea value={changes} onChange={event => setChanges(event.target.value)} rows={5} disabled={busy} style={{ width: '100%', boxSizing: 'border-box' }} />
       </label>
       <p>Exact edits must match once in the committed base, not uncommitted checkout text. Use content for new files. Testing and branch application still require separate approvals.</p>
+      <label>Acceptance (JSON: expected_behavior and regression_tests arrays)
+        <textarea value={acceptance} placeholder='{"expected_behavior":["Observable outcome"],"regression_tests":["tests/workspace-reliability.spec.js"]}' onChange={event => setAcceptance(event.target.value)} rows={3} disabled={busy} style={{ width: '100%', boxSizing: 'border-box' }} />
+      </label>
+      <p>UI JSX/TSX/CSS changes require observable expected behavior and an edit to a declared workspace browser regression-test file. Builds alone leave behavior not tested.</p>
       <button disabled={busy || !profileAvailable} onClick={() => act(() => api('/owner-executions', { method: 'POST', body: {
         repo_context: { root: repo }, base_sha: capabilities.base_sha, profile, changes: JSON.parse(changes),
+        acceptance: acceptance.trim() ? JSON.parse(acceptance) : undefined,
       } }))}>Prepare proposal</button>
     </>}
     {job && <section aria-label="Owner execution evidence">
       <p>Execution {job.id}: <strong>{job.status}</strong></p>
       <p>Profile: {job.profile}. Base: {job.base_sha}. Approval expires: {new Date(job.expires_at * 1000).toLocaleString()}.</p>
+      <p>Build: {job.validation_evidence?.build || 'not_tested'}. Behavior: {job.validation_evidence?.behavior || 'not_tested'}.</p>
+      <p>{job.validation_evidence?.scope || 'Selected profile only; browser interactions not tested.'}</p>
+      {job.acceptance?.expected_behavior?.length > 0 && <ul>{job.acceptance.expected_behavior.map((value, index) => <li key={index}>{value}</li>)}</ul>}
+      {job.acceptance?.regression_tests?.length > 0 && <p>Declared regression tests: {job.acceptance.regression_tests.join(', ')}</p>}
       <pre style={{ whiteSpace: 'pre-wrap', maxHeight: 250, overflow: 'auto' }}>{job.patch}</pre>
       {job.status === 'pending_approval' && <button disabled={busy} onClick={() => act(() => api(`/owner-executions/${job.id}/approve`, {
         method: 'POST', body: { repo_context: { root: repo }, approval_digest: job.approval_digest },

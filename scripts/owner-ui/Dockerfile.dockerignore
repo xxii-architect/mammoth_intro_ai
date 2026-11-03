@@ -1,4 +1,6 @@
 **
+!package.json
+!package-lock.json
 !ui/
 !ui/mad-architecht-command-center/
 !ui/mad-architecht-command-center/package.json
@@ -6,3 +8,4 @@
 !scripts/
 !scripts/owner-ui/
 !scripts/owner-ui/validate.mjs
+!scripts/owner-ui/browser.config.cjs

@@ -16,7 +16,7 @@ mkdirSync(`${ui}/node_modules`)
 for (const name of readdirSync('/opt/mammoth-ui/ui/node_modules')) {
   symlinkSync(`/opt/mammoth-ui/ui/node_modules/${name}`, `${ui}/node_modules/${name}`, 'dir')
 }
-if (process.argv[2] === 'build') {
+if (['build', 'browser'].includes(process.argv[2])) {
   const result = spawnSync('npm', ['run', 'build'], {
     cwd: ui,
     stdio: 'inherit',
@@ -25,6 +25,39 @@ if (process.argv[2] === 'build') {
   if (result.error) throw result.error
   if (result.status !== 0) process.exit(result.status || 1)
   console.log('MAMMOTH_UI_BUILD_PASSED')
+  if (process.argv[2] === 'browser') {
+    for (const name of ['package.json', 'package-lock.json']) {
+      const hash = path => createHash('sha256').update(JSON.stringify(JSON.parse(readFileSync(path, 'utf8')))).digest('hex')
+      assert.equal(hash(`/work/${name}`), hash(`/opt/mammoth-ui/tests/${name}`), 'Browser test dependency manifest changed; rebuild the pinned image.')
+    }
+    symlinkSync('/opt/mammoth-ui/tests/node_modules', '/work/node_modules', 'dir')
+    const result = spawnSync('node', ['/opt/mammoth-ui/tests/node_modules/@playwright/test/cli.js',
+      'test', '--config=/opt/mammoth-ui/browser.config.cjs'], {
+      cwd: '/work', stdio: 'inherit', env: { ...process.env, CI: '1' },
+    })
+    if (result.error) throw result.error
+    const report = JSON.parse(readFileSync('/tmp/browser-results.json', 'utf8'))
+    const testResults = {}
+    const collect = (suite, parents = []) => {
+      const titles = [...parents, suite.title]
+      for (const spec of suite.specs || []) {
+        const id = createHash('sha256').update(JSON.stringify([spec.file, ...titles, spec.title])).digest('hex').slice(0, 24)
+        testResults[id] = spec.tests.every(test => test.status === 'expected') ? 'ok' : 'FAIL'
+      }
+      for (const child of suite.suites || []) collect(child, titles)
+    }
+    for (const suite of report.suites) collect(suite)
+    console.log(`MAMMOTH_UI_BROWSER_TEST_RESULTS:${JSON.stringify(testResults)}`)
+    if (result.status !== 0) process.exit(result.status || 1)
+    const coveredFiles = new Set(report.suites.filter(suite => (suite.specs?.length || suite.suites?.length))
+      .map(suite => suite.file.split(/[\\/]/).pop()))
+    for (const name of ['atlas-workspace.spec.js', 'artifact-library.spec.js', 'document-uploads.spec.js', 'workspace-reliability.spec.js']) {
+      assert.ok(coveredFiles.has(name), `Required browser suite missing or empty: ${name}`)
+    }
+    assert.ok(report.stats.expected > 0 && report.stats.unexpected === 0 &&
+      report.stats.flaky === 0 && report.stats.skipped === 0, 'Browser validation requires passing tests with no skips or flakes.')
+    console.log(`MAMMOTH_UI_BROWSER_PASSED: ${report.stats.expected} tests; no skips, flakes or failures. Workspace suite only, not independent acceptance review.`)
+  }
 } else if (process.argv[2] === 'component') {
   const require = createRequire('/opt/mammoth-ui/ui/package.json')
   const React = require('react')
@@ -50,5 +83,5 @@ if (process.argv[2] === 'build') {
     await server.close()
   }
 } else {
-  throw new Error('Expected build or component profile.')
+  throw new Error('Expected build, component or browser profile.')
 }
