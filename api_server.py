@@ -4215,6 +4215,77 @@ def _validated_learning_selection(state: Dict[str, Any], payload: Any) -> Dict[s
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+def _load_learning_export_state() -> Dict[str, Any]:
+    path = _atlas_state_file_for_request()
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("Invalid learning state.")
+    except FileNotFoundError:
+        raw = {"status": "no_session", "active_account_id": "default"}
+    except (OSError, ValueError) as exc:
+        logger.exception("Learning export state could not be read")
+        raise HTTPException(status_code=503, detail="Saved learning state could not be read. No complete export was confirmed.") from exc
+    return _ensure_account_collections(raw)
+
+
+def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
+    """Export the active account's saved learning data, never the state envelope."""
+    user_id = _current_request_user_id()
+    account_id = _active_account_id(state)
+    fields = (
+        "topic", "curriculum_topic", "module_id", "active_module",
+        "curriculum_id", "curriculum", "curriculum_origin", "lesson_id",
+        "current_lesson", "current_exercise", "lesson_plan", "last_submission",
+        "chat_history", "assistant_chat_history", "lesson_history", "study_aids",
+        "learner_profile",
+    )
+    try:
+        raw_notes = json.loads(NOTES_FILE.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raw_notes = []
+    except (OSError, ValueError) as exc:
+        logger.exception("Learning export notes could not be read")
+        raise HTTPException(status_code=503, detail="Saved notes could not be read. No complete learning export was confirmed.") from exc
+    if not isinstance(raw_notes, list):
+        raise HTTPException(status_code=503, detail="Saved notes could not be exported. No complete learning export was confirmed.")
+    notes = []
+    for raw in raw_notes:
+        if (not isinstance(raw, dict) or str(raw.get("user_id") or "") != user_id
+                or _normalize_account_id(raw.get("account_id") or "default") != account_id):
+            continue
+        metadata = raw.get("metadata")
+        context = metadata.get("learning_context") if isinstance(metadata, dict) else None
+        if isinstance(context, dict) and context.get("contract") == "mammoth.learning-selection.v1":
+            notes.append(deepcopy(raw))
+    result = {
+        "contract": "mammoth.learning-export.v1",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "user_id": user_id, "account_id": account_id,
+        "saved_learning": {key: deepcopy(state[key]) for key in fields if key in state},
+        "workspace_recovery": _learning_workspace_snapshot(state),
+        "linked_notes": notes,
+        "scope": {
+            "saved_only": True, "active_account_only": True,
+            "excludes": ["unsaved_tab_drafts", "uploaded_files", "other_accounts",
+                         "mammoth_mind_threads", "artifacts", "provider_records", "backups",
+                         "standalone_learner_model", "lesson_telemetry"],
+            "not_a_transactional_snapshot": True,
+        },
+        "retention": {
+            "lesson_history_records": 80, "study_aid_records": 120,
+            "messages_per_tutor_or_assistant_history": 60,
+            "telemetry_lessons": 80, "recovery_drafts": 1,
+            "automatic_age_based_expiry": False,
+        },
+        "cost": {"model_calls": 0, "generation_price_estimate": None,
+                 "estimate_status": "unavailable"},
+    }
+    if len(json.dumps(result, ensure_ascii=True).encode("utf-8")) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Learning export exceeds 8 MiB. Export notes or curricula individually; no shortened export was produced.")
+    return result
+
+
 _ACCOUNT_SESSION_KEYS = (
     "status",
     "topic",

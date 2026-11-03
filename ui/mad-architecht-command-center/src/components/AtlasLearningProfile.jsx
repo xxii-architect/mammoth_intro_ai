@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import LearningPrivacy from './LearningPrivacy'
 
-export default function AtlasLearningProfile({ state, loadState, compact = false }) {
+export default function AtlasLearningProfile({ state, loadState, compact = false, setPage }) {
   const profile = state?.learner_model?.onboarding
   const [editing, setEditing] = useState(false)
   const [deferred, setDeferred] = useState(false)
@@ -61,6 +62,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
         <label>Focus areas<input name="focus_areas" value={draft.focus_areas} onChange={update} placeholder="Topics to emphasize, separated by commas" /></label>
         <div><button disabled={busy} type="submit">{busy ? 'Saving profile...' : 'Save learning profile'}</button> <button type="button" disabled={busy} onClick={() => { setDeferred(true); setEditing(false) }}>Not now</button></div>
       </form>}
+      {open && <LearningPrivacy setPage={setPage} />}
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert">{error}</p>}
     </section>

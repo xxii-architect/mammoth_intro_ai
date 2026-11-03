@@ -606,14 +606,15 @@ async def cancel_account_deletion(request: Request):
 async def export_account_data(request: Request):
     """
     GDPR Article 20 — Right to data portability.
-    Returns a structured export of all data associated with this user.
+    Returns available account records plus a scoped saved-learning export.
+    This is not a full archive of files, provider records, or backups.
     """
     user = await _require_auth_user(request)
     if user is None:
         return JSONResponse({"status": "unauthorized"}, status_code=401)
     uid = user.get("id", "local")
 
-    state = _load_atlas_state()
+    state = _load_learning_export_state()
     notes = [n for n in _load_json_file(NOTES_FILE) if str(n.get("user_id") or "") == uid]
     activities = [a for a in _load_json_file(AGENT_ACTIVITY_FILE) if str(a.get("user_id") or "") == uid]
     notifs = [n for n in _load_notifications() if n.get("user_id") == uid or n.get("user_id") is None]
@@ -625,6 +626,7 @@ async def export_account_data(request: Request):
         "email": user.get("email", ""),
         "profile": state.get("profile", {}),
         "learner_model": state.get("learner_model", {}),
+        "learning_workspace": _export_learning_workspace(state),
         "session_history_count": len(state.get("sessions", [])),
         "notes_count": len(notes),
         "notifications_count": len(notifs),
@@ -645,7 +647,8 @@ async def export_account_data(request: Request):
     )
     return JSONResponse(
         content=export,
-        headers={"Content-Disposition": "attachment; filename=mammoth-data-export.json"},
+        headers={"Content-Disposition": "attachment; filename=mammoth-data-export.json",
+                 "Cache-Control": "no-store"},
     )
 
 @app.get("/api/rag/context/{user_id}")

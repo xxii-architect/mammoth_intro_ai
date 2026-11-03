@@ -774,6 +774,53 @@ test('reading preferences survive navigation but clear for another signed-in acc
   expect(errors).toEqual([])
 })
 
+test('learning privacy exports confirmed saved data only without model calls or extra toolbar rows', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const { requests, errors } = await mountWorkspace(page)
+  let exports = 0
+  const saved = { contract: 'mammoth.learning-export.v1', saved_learning: {
+    chat_history: [{ role: 'assistant', message: 'A complete saved answer, not a summary.' }],
+  }, workspace_recovery: { values: { lesson_response: 'Server-confirmed response.' } } }
+  await page.route('**/api/atlas/export', route => {
+    exports += 1
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(saved) })
+  })
+  await expect(page.getByText('Learning privacy & costs', { exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  await expect(page.getByText(/Resetting progress is not a privacy wipe/)).toBeVisible()
+  expect(exports).toBe(0)
+  const downloadPromise = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Export saved learning JSON', exact: true }).click()
+  const download = await downloadPromise
+  expect(download.suggestedFilename()).toBe('mammoth-learning-export.json')
+  const content = require('node:fs').readFileSync(await download.path(), 'utf8')
+  expect(JSON.parse(content)).toEqual(saved)
+  await expect(page.getByRole('status', { name: '' }).filter({ hasText: 'Export prepared' })).toBeVisible()
+  expect(exports).toBe(1)
+  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/onboard', '/api/run'].includes(request.path))).toBe(false)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('learning export failures stay explicit and are not retried automatically', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  let calls = 0
+  await page.route('**/api/atlas/export', route => {
+    calls += 1
+    return route.fulfill({ status: 503, contentType: 'application/json',
+      body: JSON.stringify({ detail: 'Saved workspace could not be read' }) })
+  })
+  await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  await page.getByRole('button', { name: 'Export saved learning JSON', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Saved workspace could not be read')
+  await expect(page.getByRole('alert')).toContainText('No automatic retry')
+  await expect(page.getByText(/Export prepared/)).toHaveCount(0)
+  expect(calls).toBe(1)
+  expect(errors).toEqual([])
+})
+
 test('large mobile lesson text scales headings code and tables with keyboard scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 })
   const wideCode = `const example = "${'original-evidence-'.repeat(20)}"`

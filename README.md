@@ -16,6 +16,17 @@ downloads; it remains supplemental to the active lesson.
 
 ### Workspace reliability and learning resources
 
+Under Edit learning profile, **Learning privacy & costs** exports the current
+account's saved learning JSON without model calls. Retained conversations,
+lessons/exercises/cards, owned linked notes and confirmed recovery are also added
+to Account's existing export. This excludes unsaved tab edits, uploads, other
+accounts, standalone learner-model data, telemetry, Artifacts, Mammoth Mind
+threads and external/provider/backups; it is not a full archive. Corrupt storage
+fails explicitly, and exports over 8 MiB are rejected rather than shortened.
+The panel explains count-based retention, unavailable price estimates, and
+existing Notes/Account deletion controls. Resets are not privacy wipes and
+deletion requests are not verified erasure. Full LEARN-06 controls remain open.
+
 ATLAS reading preferences (text size, spacing, focused mode) survive same-tab
 page navigation and clear on signed-in account changes; they do not persist
 through refresh. Headings, code and tables scale with text size. Read/Practice

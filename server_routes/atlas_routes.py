@@ -47,6 +47,17 @@ async def atlas_lesson_lecture():
         state.get("current_lesson"), lesson_id=str(state.get("lesson_id") or ""),
     )
 
+@app.post("/api/atlas/export")
+async def atlas_export_learning():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    return JSONResponse(
+        _export_learning_workspace(_load_learning_export_state()),
+        headers={"Cache-Control": "no-store",
+                 "Content-Disposition": "attachment; filename=mammoth-learning-export.json"},
+    )
+
 @app.get("/api/atlas/modules")
 async def atlas_modules():
     state = _load_atlas_state()

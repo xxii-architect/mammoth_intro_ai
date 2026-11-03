@@ -194,6 +194,22 @@ feedback over adding more agents or permanent panels.
   limits, cancellation, and clear retention/export/delete controls for learning
   history. Ratings inform reviewed evaluations, not silent lesson changes or
   training on private learner content.
+  Export/disclosure portion implemented: Edit learning profile opens Learning
+  privacy & costs without a permanent toolbar row. Authenticated saved-learning
+  JSON exports use the active account only, include retained full conversations,
+  lessons/exercises/cards, explicitly owned linked notes and confirmed recovery,
+  and also appear in Account's existing data export. The
+  `mammoth.learning-export.v1` contract excludes unsaved tab edits, uploaded files,
+  other accounts, standalone learner-model data, telemetry, Artifacts, Mammoth
+  Mind threads, provider copies and backups. It is not a full archive or an
+  atomic snapshot during concurrent edits. No model calls, no-store responses,
+  explicit corrupt-storage failures, and an 8 MiB ASCII-JSON limit without
+  truncation. Existing retention windows are counts, not age-based erasure.
+  The panel links to existing Notes/Account controls, warns that reset is not
+  deletion and deletion requests are not verified erasure, and reports price
+  estimates as unavailable rather than inventing a number. Per-user generation
+  limits, cancellation across all model routes, and verified learning-history
+  erasure/retention controls remain open. This is not a compliance certification.
 
 Recommended sequence: LEARN-01 recovery, LEARN-02 contextual tutoring,
 LEARN-03 connected study materials, LEARN-04 remediation, LEARN-05 accessibility,

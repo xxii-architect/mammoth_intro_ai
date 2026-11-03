@@ -151,6 +151,47 @@ There are no fabricated durations or seek positions. Voice/provider selection,
 licensed usage review, cached audio, playback/seek/speed controls, microphone
 permissions and duplicate-safe lecture commands remain planned.
 
+### Learning export, privacy and spending
+
+Open **Edit learning profile**, then **Learning privacy & costs**. The disclosure
+is on demand so the normal mobile lesson does not lose another toolbar row.
+**Export saved learning JSON** downloads `mammoth.learning-export.v1`: the active
+local account's saved lessons, exercises, full retained tutor/assistant messages,
+study-aid records, explicitly owned lesson-linked notes, saved learner profile,
+and recovery snapshot. The same payload is included as `learning_workspace` in
+Account's existing data export. It does not generate content or call a model.
+
+The export excludes unsaved tab drafts, uploads, other accounts, standalone
+learner-model data, telemetry, Artifacts, Mammoth Mind threads, provider records
+and backups. It is not a full account archive or an atomic snapshot of concurrent
+edits. Recovery values with `saved_at: null` have no confirmed server draft.
+Previously trimmed history is not recoverable. Exported notes preserve the
+stored record, including provenance; unowned legacy notes are not adopted.
+Downloaded files contain private content and must be managed on your device.
+
+`POST /api/atlas/export` requires sign-in; there is no client-supplied user/account
+selector. Success uses `Cache-Control: no-store`. Corrupt/unreadable state,
+linked-note storage or recovery fails explicitly (503). Up to 8 MiB of
+ASCII-serialized JSON is accepted; larger exports fail (413) without a shortened
+success result. Individual Notes and curricula exports remain alternatives.
+
+Normal saved windows are 80 lesson-history records, 120 study-aid records,
+60 messages per tutor/assistant history and one current recovery draft.
+These are count-based windows, not automatic age-based expiration; an export
+does not prune the underlying stored records. Exact generation-price estimates
+are unavailable: costs vary by provider, tokens, tools and retries. Reading,
+restoring, exporting and source-derived card previews do not call a model.
+Asking for tutor help, lessons/courses or agent work can use credits. Failed or
+interrupted calls can already be billable; no automatic export retry is made.
+
+Use **Open Notes controls** for individual note deletion, the materials manager
+for uploaded-file deletion, and **Open Account controls** for account-deletion
+requests. Resetting progress is not a privacy wipe. A request is not proof of
+completed erasure of operational records, provider copies or backups. This
+release does not add automated history expiry, per-user generation caps,
+cross-route cancellation, or verified full learning-history erasure; those
+remain in LEARN-06. It is not a privacy/compliance certification.
+
 The website uses a dark semantic palette: brass/copper primary actions and agent
 identity, blue keyboard focus/links/secondary interaction, and grey/white text.
 Runtime health and success/warning/failure colors remain meaningful; destructive

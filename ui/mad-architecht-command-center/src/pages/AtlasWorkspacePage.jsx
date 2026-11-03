@@ -12,12 +12,12 @@ import useLearningWorkspace from '../hooks/useLearningWorkspace'
 
 const EDUCATION_AGENTS = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
-export default function AtlasWorkspacePage() {
+export default function AtlasWorkspacePage({ setPage }) {
   const { user } = useAuth()
-  return <LearningWorkspace key={user?.id || 'local'} />
+  return <LearningWorkspace key={user?.id || 'local'} setPage={setPage} />
 }
 
-function LearningWorkspace() {
+function LearningWorkspace({ setPage }) {
   const { user } = useAuth()
   const mobile = useIsMobile(COMPACT_WORKSPACE_QUERY)
   const [tutorOpen, setTutorOpen] = useState(false)
@@ -125,7 +125,7 @@ function LearningWorkspace() {
         {view === 'tutor' && <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(value => !value)}>Advanced tutor tools</button>}
       </header>
       <div className="atlas-workspace-profile" hidden={readingFocus && showLesson}>
-        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} />
+        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} setPage={setPage} />
       </div>
       {error && <div role="alert" className="atlas-workspace-error">{error} <button onClick={() => loadState().catch(() => {})}>Retry</button></div>}
       <div className="atlas-workspace-save" role="status">
