@@ -118,7 +118,7 @@ test('Mammoth Mind recursive review is opt-in and does not add a toolbar row', a
     '/api/mammoth/runs': request => {
       submitted = request.postDataJSON()
       return { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
-        contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1,
+        contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1, ts: '2026-11-03T00:00:00Z',
         type: 'run.completed', data: { reply: 'Reviewed options.' },
       })}\n\n` }
     },
@@ -164,7 +164,7 @@ test(`Mammoth Mind restores recursive checkpoints from authoritative saved state
     usage: { tokens: 300, tool_calls: 0 } }
   let decisions = 0
   let reads = 0
-  const event = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: runId, seq, type, data })
+  const event = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: runId, seq, type, data, ts: '2026-11-03T00:00:00Z' })
   const errors = await mount(page, 'pages/ChatPage', {
     '/api/mammoth/chat/history': { chat_history: [
       { role: 'user', message: 'Explore a hypothesis.' },
@@ -201,6 +201,52 @@ test(`Mammoth Mind restores recursive checkpoints from authoritative saved state
 }
 
 const reviewRunId = 'run-0123456789abcdef'
+
+for (const component of ['pages/ChatPage', 'components/agent-workspace/AgentWorkspace']) {
+  for (const failure of ['malformed_data', 'wrong_run', 'sequence_gap', 'pending_approval']) {
+    test(`${component} surfaces ${failure} without a false completion or automatic retry`, async ({ page }) => {
+      let requests = 0
+      const event = (seq, type, data, runId = reviewRunId) => ({
+        contract: 'mammoth.run.v1', ts: '2026-11-03T00:00:00Z', run_id: runId, seq, type, data,
+      })
+      const first = failure === 'pending_approval'
+        ? event(1, 'approval.requested', { id: 'apr-unfinished', tool: 'owner_execution_run', args: {} })
+        : event(1, 'message.delta', { text: 'Verified prefix' })
+      const last = event(failure === 'sequence_gap' ? 3 : 2, 'run.completed',
+        { reply: 'Untrusted success' }, failure === 'wrong_run' ? 'other-run' : reviewRunId)
+      const malformed = ['malformed_data', 'pending_approval'].includes(failure)
+      const body = `data: ${JSON.stringify(first)}\n\n` + (malformed
+        ? 'data: private malformed body\n\n' : `data: ${JSON.stringify(last)}\n\n`)
+      const errors = await mount(page, component, {
+        '/api/mammoth/repo-sources': { options: [{ value: 'owner/repo', label: 'Owner repo' }] },
+        '/api/mammoth/runs': () => {
+          requests++
+          return { contentType: 'text/event-stream', body }
+        },
+      })
+      if (component === 'components/agent-workspace/AgentWorkspace') {
+        await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Coding/ }).click()
+        await page.getByRole('combobox', { name: 'Required coding result' }).selectOption('applied')
+        await page.getByRole('combobox', { name: 'Repository context' }).selectOption('owner/repo')
+      }
+      await page.getByRole('textbox').last().fill('Check the stream contract')
+      await page.getByRole('button', { name: 'Send', exact: true }).click()
+      await expect(page.getByText(malformed
+        ? 'Stream data is not valid JSON' : /Run stream identity or sequence changed/).first()).toBeVisible()
+      if (failure !== 'pending_approval') {
+        await expect(page.getByText('Verified prefix', { exact: true }).first()).toBeVisible()
+      }
+      await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0)
+      await expect(page.getByRole('button', { name: 'Continue task', exact: true })).toHaveCount(0)
+      await expect(page.getByText('Untrusted success', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('Run complete', { exact: true })).toHaveCount(0)
+      await expect(page.getByText('private malformed body', { exact: true })).toHaveCount(0)
+      expect(requests).toBe(1)
+      expect(errors).toEqual([])
+    })
+  }
+}
+
 function reviewSnapshot(status = 'cancelled') {
   const approval = { id: 'apr-review', tool: 'owner_execution_run', tier: 'exec', args: {}, reason: 'Validate' }
   return {
@@ -208,8 +254,8 @@ function reviewSnapshot(status = 'cancelled') {
     pending_approval: status === 'awaiting_approval' ? approval : null, can_continue: status === 'partial',
     progress: { goal: 'applied', stage: 'proposal', goal_met: false, inspected: [], executions: [] },
     events: [
-      { run_id: reviewRunId, seq: 1, type: 'approval.requested', data: approval },
-      { run_id: reviewRunId, seq: 2, type: 'run.awaiting_approval', data: {} },
+      { contract: 'mammoth.run.v1', ts: '2026-11-03T00:00:00Z', run_id: reviewRunId, seq: 1, type: 'approval.requested', data: approval },
+      { contract: 'mammoth.run.v1', ts: '2026-11-03T00:00:00Z', run_id: reviewRunId, seq: 2, type: 'run.awaiting_approval', data: {} },
     ],
   }
 }
@@ -303,7 +349,7 @@ test('Mammoth Mind retains the full conversation and draft without hidden-page p
           if (request.method() !== 'POST') return { runs: [] }
           runCalls++
           return { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
-            contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1,
+            contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1, ts: '2026-11-03T00:00:00Z',
             type: 'run.completed', data: { reply },
           })}\n\n` }
         },
@@ -404,12 +450,34 @@ test('Run Review surfaces denied and malformed snapshots rather than showing suc
       ? { status: 403, body: JSON.stringify({ error: 'Access denied' }) }
       : { run: { ...reviewSnapshot(), id: 'other' } },
   })
+
   await expect(page.getByRole('alert')).toContainText('identity')
   await expect(page.getByRole('button', { name: 'Download review JSON' })).toHaveCount(0)
   validIdentity = true
   await page.getByRole('button', { name: 'Refresh saved runs' }).click()
   await expect(page.getByRole('alert')).toContainText('Access denied')
   await expect(page.getByRole('region', { name: 'Saved run review' })).toHaveCount(0)
+})
+
+test('Run Review refuses invalid saved metadata and event contracts without exposing export or action controls', async ({ page }) => {
+  let badEnvelope = false
+  const errors = await mount(page, 'pages/RunReviewPage', {
+    '/api/mammoth/runs': { runs: [{ id: reviewRunId, status: 'completed' }] },
+    [`/api/mammoth/runs/${reviewRunId}`]: () => {
+      const saved = reviewSnapshot('completed')
+      if (badEnvelope) saved.events[0].contract = 'mammoth.run.v2'
+      else saved.can_continue = 'false'
+      return { run: saved }
+    },
+  })
+  await expect(page.getByRole('alert')).toContainText('Invalid saved run snapshot')
+  await expect(page.getByRole('button', { name: 'Download review JSON' })).toHaveCount(0)
+  badEnvelope = true
+  await page.getByRole('button', { name: 'Refresh saved runs' }).click()
+  await expect(page.getByRole('alert')).toContainText('Invalid run event envelope')
+  await expect(page.getByRole('region', { name: 'Saved run review' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Approve|^Reject|Continue task/ })).toHaveCount(0)
+  expect(errors).toEqual([])
 })
 
 test('Run Review clears account-scoped evidence immediately when the user changes', async ({ page }) => {
@@ -1133,7 +1201,7 @@ test('required coding result demands explicit repo then reaches the run API with
     '/api/mammoth/runs': request => {
       submitted = request.postDataJSON()
       return { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
-        contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1, type: 'run.partial',
+        contract: 'mammoth.run.v1', run_id: 'run-0123456789abcdef', seq: 1, type: 'run.partial', ts: '2026-11-03T00:00:00Z',
         data: { reply: 'Application not completed.', code: 'missing_evidence', can_continue: true,
           progress: { goal: 'applied', stage: 'answer', goal_met: false, blocker: '', executions: [] } },
       })}\n\n` }
@@ -1161,7 +1229,7 @@ test('Coding approval works after a terminal event even when the response transp
     const original = globalThis.fetch
     const runId = 'run-0123456789abcdef'
     const encode = events => new TextEncoder().encode(events.map((event, index) =>
-      `data: ${JSON.stringify({ ...event, run_id: runId, seq: event.seq || index + 1, contract: 'mammoth.run.v1' })}\n\n`).join(''))
+      `data: ${JSON.stringify({ ...event, run_id: runId, seq: event.seq || index + 1, contract: 'mammoth.run.v1', ts: '2026-11-03T00:00:00Z' })}\n\n`).join(''))
     globalThis.approvalRequests = []
     globalThis.fetch = async (input, init) => {
       const path = new URL(String(input), location.origin).pathname
@@ -1219,7 +1287,7 @@ test(`Coding saved preparation approval survives reload and reports its backend 
       return denied
         ? { status: 409, body: JSON.stringify({ error: 'Repository base changed; prepare a fresh candidate.' }) }
         : { contentType: 'text/event-stream', body: `data: ${JSON.stringify({
-          contract: 'mammoth.run.v1', run_id: runId, seq: 1, type: 'run.partial',
+          contract: 'mammoth.run.v1', run_id: runId, seq: 1, type: 'run.partial', ts: '2026-11-03T00:00:00Z',
           data: { reply: 'Saved approval received.', code: 'step_limit' },
         })}\n\n` }
     },
@@ -1256,7 +1324,7 @@ test('Coding run approval hands off to apply evidence and shows working state', 
   await page.evaluate(({ runId, ownerJob, application }) => {
     const original = globalThis.fetch
     const encode = events => new TextEncoder().encode(events.map(event =>
-      `data: ${JSON.stringify({ ...event, run_id: runId, contract: 'mammoth.run.v1' })}\n\n`).join(''))
+      `data: ${JSON.stringify({ ...event, run_id: runId, contract: 'mammoth.run.v1', ts: '2026-11-03T00:00:00Z' })}\n\n`).join(''))
     globalThis.fetch = async (input, init) => {
       const path = new URL(String(input), location.origin).pathname
       if (path === `/api/mammoth/runs/${runId}/approval`) {
@@ -1313,7 +1381,7 @@ test('Mammoth Mind continues saved work in the same message without a success to
       { type: 'run.continued', data: {} },
       { type: 'message.delta', data: { text: 'Finished from saved evidence' } },
       { type: 'run.completed', data: { reply: 'Finished from saved evidence' } },
-    ].map((event, idx) => `data: ${JSON.stringify({ ...event, run_id: runId, seq: idx + 1, contract: 'mammoth.run.v1' })}\n\n`).join(''),
+    ].map((event, idx) => `data: ${JSON.stringify({ ...event, run_id: runId, seq: idx + 1, contract: 'mammoth.run.v1', ts: '2026-11-03T00:00:00Z' })}\n\n`).join(''),
   }))
   await expect(page.getByRole('button', { name: 'Continue task' })).toBeVisible()
   await page.getByRole('button', { name: 'Continue task' }).click()

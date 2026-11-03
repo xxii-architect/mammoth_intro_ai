@@ -16,45 +16,65 @@ export const TERMINAL_RUN_EVENTS = Object.freeze([
 
 /**
  * Parse Server-Sent Events from a stream of text chunks.
- * Returns a push-style parser: call `push(chunk)` as data arrives and `end()` once done.
+ * Call `push(chunk)` as data arrives and `end()` once done; returning false stops parsing.
  */
 export function createSseParser(onData) {
-  let buffer = ''
-  const flush = (block) => {
-    const data = block
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith('data:'))
-      .map((line) => line.slice(5).replace(/^ /, ''))
-      .join('\n')
-    if (!data) return
+  let line = ''
+  let data = []
+  let skipLf = false
+  let first = true
+  let stopped = false
+  const flush = () => {
+    if (!data.length) return
+    const text = data.join('\n')
+    data = []
     let parsed
     try {
-      parsed = JSON.parse(data)
+      parsed = JSON.parse(text)
     } catch {
-      return
+      throw streamError('Stream data is not valid JSON')
     }
-    if (parsed && typeof parsed === 'object') onData(parsed)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw streamError('Stream data must be a JSON object')
+    }
+    if (onData(parsed) === false) stopped = true
+  }
+  const consumeLine = () => {
+    const current = line
+    line = ''
+    if (!current) flush()
+    else if (current === 'data' || current.startsWith('data:')) data.push(current.slice(5).replace(/^ /, ''))
   }
   return {
     push(chunk) {
-      buffer += chunk
-      buffer = buffer.replace(/\r\n/g, '\n')
-      let boundary = buffer.indexOf('\n\n')
-      while (boundary >= 0) {
-        flush(buffer.slice(0, boundary))
-        buffer = buffer.slice(boundary + 2)
-        boundary = buffer.indexOf('\n\n')
+      for (const char of chunk) {
+        if (stopped) break
+        if (first) {
+          first = false
+          if (char === '\ufeff') continue
+        }
+        if (skipLf && char === '\n') { skipLf = false; continue }
+        skipLf = char === '\r'
+        if (char === '\r' || char === '\n') consumeLine()
+        else line += char
       }
     },
     end() {
-      if (buffer.trim()) flush(buffer)
-      buffer = ''
+      if (stopped) return
+      if (line) consumeLine()
+      flush()
     },
   }
 }
 
+function streamError(message, code = 'invalid_stream') {
+  const error = new TypeError(message)
+  error.code = code
+  return error
+}
+
 /** Read a fetch `Response` body as run events. Throws on non-2xx responses. */
-export async function readRunEventStream(response, onEvent) {
+export async function readRunEventStream(response, onEvent, { runId } = {}) {
   if (!response.ok || !response.body) {
     let detail = ''
     let payload = {}
@@ -72,34 +92,60 @@ export async function readRunEventStream(response, onEvent) {
     throw error
   }
   const reader = response.body.getReader()
-  const decoder = new TextDecoder()
+  const decoder = new TextDecoder('utf-8', { fatal: true })
+  const decode = (bytes, options) => {
+    try { return decoder.decode(bytes, options) } catch {
+      throw streamError('Stream is not valid UTF-8')
+    }
+  }
   let terminal = false
+  let previous
   const parser = createSseParser((event) => {
     if (terminal) return
+    validateRunEvent(event)
+    if ((runId !== undefined && event.run_id !== runId)
+      || (previous !== undefined && event.seq !== previous + 1)) {
+      throw streamError('Run stream identity or sequence changed; recover the saved snapshot', 'invalid_event')
+    }
+    runId = event.run_id
+    previous = event.seq
     terminal = TERMINAL_RUN_EVENTS.includes(event.type)
     onEvent(event)
+    return !terminal
   })
   try {
     for (;;) {
       const { value, done } = await reader.read()
-      if (value) parser.push(decoder.decode(value, { stream: true }))
+      if (value) parser.push(decode(value, { stream: true }))
       if (terminal) break
       if (done) break
     }
-    parser.push(decoder.decode())
-    parser.end()
-    if (!terminal) throw new Error('The run stream ended before a terminal event. Saved work may still be available; check the run before starting again.')
+    if (!terminal) {
+      parser.push(decode())
+      parser.end()
+    }
+    if (!terminal) throw streamError('The run stream ended before a terminal event. Saved work may still be available; check the run before starting again.', 'stream_interrupted')
   } finally {
     try {
-      if (terminal) await reader.cancel()
+      await reader.cancel()
     } finally {
       reader.releaseLock()
     }
   }
 }
 
+function validateRunEvent(event) {
+  if (!event || typeof event !== 'object' || Array.isArray(event) || event.contract !== RUN_CONTRACT_VERSION
+    || ['type', 'run_id', 'ts'].some(key => typeof event[key] !== 'string' || !event[key].trim())
+    || !Number.isSafeInteger(event.seq) || event.seq <= 0
+    || !event.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
+    throw streamError('Invalid run event envelope', 'invalid_event')
+  }
+}
+
 /** Fold one run event into a compact view-model. Pure; never mutates `run`. */
 export function reduceRunEvent(run, event) {
+  validateRunEvent(event)
   if (run?.id && event.run_id !== run.id) throw new TypeError('Cannot combine events from different runs')
   if (run && Number.isInteger(event.seq) && event.seq > 0
     && run.events.some(saved => saved.seq === event.seq)) return run
@@ -139,21 +185,25 @@ export function reduceRunEvent(run, event) {
 
 /** Rebuild a full GET snapshot without starting, continuing or approving a run. */
 export function hydrateRun(snapshot) {
-  if (!snapshot || typeof snapshot.id !== 'string' || !snapshot.id
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+  if (!object(snapshot) || typeof snapshot.id !== 'string' || !snapshot.id.trim()
     || !['running', 'awaiting_approval', 'completed', 'failed', 'cancelled', 'partial'].includes(snapshot.status)
     || !Array.isArray(snapshot.events)
-    || (snapshot.plan != null && !Array.isArray(snapshot.plan))
-    || (snapshot.diagnostics != null && !Array.isArray(snapshot.diagnostics))
+    || ['plan', 'diagnostics'].some(key => snapshot[key] != null
+      && (!Array.isArray(snapshot[key]) || !snapshot[key].every(object)))
     || (snapshot.reply != null && typeof snapshot.reply !== 'string')
     || (snapshot.progress != null && (typeof snapshot.progress !== 'object' || Array.isArray(snapshot.progress)))
-    || (snapshot.pending_approval != null && (typeof snapshot.pending_approval !== 'object' || Array.isArray(snapshot.pending_approval)))) {
+    || (snapshot.pending_approval != null && !object(snapshot.pending_approval))
+    || (snapshot.recursive != null && !object(snapshot.recursive))
+    || ('failure_code' in snapshot && typeof snapshot.failure_code !== 'string')
+    || ('can_continue' in snapshot && typeof snapshot.can_continue !== 'boolean')) {
     throw new TypeError('Invalid saved run snapshot')
   }
   let state = null
   let previous = 0
   for (const event of snapshot.events) {
-    if (!event || event.run_id !== snapshot.id || !Number.isInteger(event.seq) || event.seq !== previous + 1
-      || typeof event.type !== 'string' || !event.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
+    validateRunEvent(event)
+    if (event.run_id !== snapshot.id || event.seq !== previous + 1) {
       throw new TypeError('Saved run events must belong to this run and form a complete sequence starting at one')
     }
     previous = event.seq

@@ -351,7 +351,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
       const aborted = error?.name === 'AbortError'
       replaceMessage(messageId, message => ({
         ...message,
-        run: { ...(message.run || {}), status: aborted ? 'cancelled' : 'failed', error: aborted ? '' : (error?.message || 'Run failed'), approval: null, decision_pending: '' },
+        run: { ...(message.run || {}), status: aborted ? 'cancelled' : 'failed', error: aborted ? '' : (error?.message || 'Run failed'), approval: null, can_continue: false, decision_pending: '' },
       }))
     } finally {
       replaceMessage(messageId, message => ({

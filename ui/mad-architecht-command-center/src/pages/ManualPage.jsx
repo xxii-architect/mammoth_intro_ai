@@ -59,6 +59,7 @@ const liveNow = [
   'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
   'Pull requests now run a separate Chromium workspace interaction check alongside build/type and SDK checks. All four fixture-backed workspace suites must pass without skips, expected failures or retries. CI retains browser reports and failure traces for seven days. This is not a production-auth/provider test; repository branch protection must require the check to block merges.',
   'Python Paths has a separate pinned-tool correctness lint and strict package type gate. Both workspace clients now reject malformed JSON, wrong containers and missing run envelopes instead of producing empty defaults; valid empty lists and extensions remain intact. Nested domain fields and external implementation bodies remain explicit boundaries. Repository-wide legacy diagnostics remain non-blocking; branch rules must require the new check to block merges.',
+  'Paths and the app now reject malformed UTF-8/SSE data, invalid run envelopes and mixed-run or broken live sequences before callbacks. Resumed streams may start above one; approval and continuation must match the requested run. Saved recovery checks full histories and metadata without executing work. Unknown event types/extensions remain supported; these are bounded checks, not complete nested schemas or automatic reconnect/retry.',
   'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',
 ]
 

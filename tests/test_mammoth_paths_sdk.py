@@ -314,6 +314,102 @@ def test_iter_sse_handles_multiline_and_trailing_block():
     assert list(iter_sse(lines)) == [{"a": 1}, {"b": 2}]
 
 
+@pytest.mark.parametrize("payload", [b"private malformed body", b"[]", b"null", b"1", b"", b'{"x":"\xff"}'])
+def test_sse_invalid_data_is_not_silently_discarded(payload):
+    with pytest.raises(PathsError) as error:
+        list(iter_sse([b"data: " + payload + b"\n\n"]))
+    assert error.value.code == "invalid_stream"
+    assert "private malformed body" not in str(error.value)
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"])
+def test_sse_accepts_arbitrary_byte_chunks_and_line_endings(ending):
+    text = '\ufeff: heartbeat' + ending + ending + 'data: {"text":"\u00e9"}' + ending + ending
+    raw = text.encode("utf-8")
+    assert list(iter_sse([raw[i:i + 1] for i in range(len(raw))])) == [{"text": "\u00e9"}]
+
+
+def test_sse_invalid_stream_closes_transport_and_meters_once_without_retry():
+    class Response:
+        status = 200
+        closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            self.closed = True
+
+        def __iter__(self):
+            yield b"data: private malformed body\n\n"
+            raise AssertionError("Invalid stream must stop before another read")
+
+    response = Response()
+    usage = []
+
+    class Opener:
+        def open(self, request, timeout):
+            return response
+
+    client = MammothPaths("https://example.invalid", usage_hook=usage.append)
+    client._opener = Opener()
+    with pytest.raises(PathsError) as error:
+        list(client.stream_run("go"))
+    assert error.value.code == "invalid_stream" and error.value.status == 200
+    assert response.closed and len(usage) == 1 and usage[0]["status"] == 200
+
+
+def test_sse_truncated_utf8_is_rejected_at_eof():
+    with pytest.raises(PathsError) as error:
+        list(iter_sse([b'data: {"text":"\xc3']))
+    assert error.value.code == "invalid_stream"
+
+
+def test_terminal_frame_stops_before_trailing_invalid_data(backend):
+    backend.route("POST", "/api/mammoth/runs",
+                  raw=_sse([_event(1, "run.completed")]) + b"data: ignored after terminal\n\n")
+    assert MammothPaths(backend.url).run("go").status == "completed"
+
+
+@pytest.mark.parametrize("fields", [
+    {"contract": "mammoth.run.v2"}, {"contract": None}, {"type": ""}, {"type": 3},
+    {"run_id": ""}, {"ts": ""}, {"ts": None}, {"data": []}, {"seq": True},
+    {"seq": "1"}, {"seq": 0}, {"seq": 1.5}, {"seq": 9007199254740992},
+])
+def test_event_envelopes_reject_coercion_and_invalid_fields(fields):
+    with pytest.raises(PathsError) as error:
+        RunEvent.from_dict({**_event(1, "run.started"), **fields})
+    assert error.value.code == "invalid_event"
+
+
+@pytest.mark.parametrize("bad", [
+    _event(2, "run.completed", run_id="other"), _event(1, "run.completed"),
+    _event(3, "run.completed"),
+])
+def test_stream_identity_and_sequence_fail_before_callback(backend, bad):
+    backend.route("POST", "/api/mammoth/runs", sse=[_event(1, "run.started"), bad])
+    seen, usage = [], []
+    with pytest.raises(PathsError) as error:
+        MammothPaths(backend.url, usage_hook=usage.append).run("go", on_event=seen.append)
+    assert error.value.code == "invalid_event"
+    assert len(seen) == 1 and len(usage) == 1
+
+
+def test_resume_stream_is_bound_to_requested_run(backend):
+    backend.route("POST", "/api/mammoth/runs/expected/continue", sse=[_event(9, "run.completed")])
+    with pytest.raises(PathsError) as error:
+        list(MammothPaths(backend.url).continue_run("expected"))
+    assert error.value.code == "invalid_event"
+
+
+def test_additive_event_types_and_resumed_sequences_are_preserved(backend):
+    event = {**_event(8, "future.event", {"extension": True}), "extension": "kept"}
+    backend.route("POST", "/api/mammoth/runs", sse=[event, _event(9, "run.completed")])
+    result = MammothPaths(backend.url).run("go")
+    assert result.events[0].type == "future.event"
+    assert result.events[0].data == {"extension": True}
+
+
 def test_run_completes_and_sends_auth_and_contract_headers(backend):
     backend.route("POST", "/api/mammoth/runs", sse=[
         _event(1, "run.started"),
@@ -438,9 +534,26 @@ def test_usage_hook_failures_do_not_break_calls(backend):
     assert MammothPaths(backend.url, usage_hook=broken).list_runs() == [{"id": "run-1"}]
 
 
-def test_run_event_from_dict_defaults():
-    event = RunEvent.from_dict({"type": "run.completed", "seq": "3"})
+def test_run_event_from_dict_preserves_valid_envelope():
+    event = RunEvent.from_dict(_event(3, "run.completed"))
     assert event.seq == 3 and event.is_terminal and event.contract == "mammoth.run.v1"
+
+
+@pytest.mark.parametrize("fields", [
+    {"recursive": []}, {"failure_code": 4}, {"can_continue": "false"},
+    {"plan": [None]}, {"diagnostics": [False]}, {"status": []},
+    {"events": [{**_event(1, "run.completed"), "contract": "mammoth.run.v2"}]},
+    {"events": [{**_event(1, "run.completed"), "ts": None}]},
+    {"events": [{**_event(1, "run.completed"), "type": ""}]},
+])
+def test_recovery_rejects_invalid_metadata_and_envelopes(backend, fields):
+    run_id = "run-0123456789abcdef"
+    saved = {"id": run_id, "status": "completed", "events": [_event(1, "run.completed")], **fields}
+    backend.route("GET", f"/api/mammoth/runs/{run_id}", body={"run": saved})
+    with pytest.raises(PathsError) as error:
+        MammothPaths(backend.url).recover_run(run_id)
+    assert error.value.code == "invalid_snapshot"
+    assert len(backend.requests) == 1 and backend.requests[0]["method"] == "GET"
 
 
 def test_owner_execution_sdk_explicit_payloads_and_error_preservation(backend):

@@ -7,6 +7,7 @@ runs, repositories, notes, or build log.
 
 from __future__ import annotations
 
+import codecs
 import json
 import time
 import urllib.error
@@ -37,7 +38,7 @@ ApprovalPolicy = Callable[["RunEvent"], Union[bool, str]]
 
 
 class PathsError(Exception):
-    """Raised for non-2xx responses or ``status: error`` payloads."""
+    """Raised for backend errors, invalid responses, or interrupted run streams."""
 
     def __init__(self, message: str, *, status: int = 0, code: str = "", payload: Optional[Dict[str, Any]] = None):
         super().__init__(message)
@@ -64,13 +65,14 @@ class RunEvent:
 
     @classmethod
     def from_dict(cls, raw: Mapping[str, Any]) -> "RunEvent":
+        if (not isinstance(raw, Mapping) or raw.get("contract") != RUN_CONTRACT_VERSION
+                or any(not isinstance(raw.get(key), str) or not raw[key].strip() for key in ("type", "run_id", "ts"))
+                or type(raw.get("seq")) is not int or not 0 < raw["seq"] <= 9007199254740991
+                or not isinstance(raw.get("data"), dict)):
+            raise PathsError("Invalid run event envelope", code="invalid_event")
         return cls(
-            type=str(raw.get("type") or ""),
-            seq=int(raw.get("seq") or 0),
-            run_id=str(raw.get("run_id") or ""),
-            ts=str(raw.get("ts") or ""),
-            data=dict(raw.get("data") or {}),
-            contract=str(raw.get("contract") or RUN_CONTRACT_VERSION),
+            type=raw["type"], seq=raw["seq"], run_id=raw["run_id"],
+            ts=raw["ts"], data=dict(raw["data"]), contract=raw["contract"],
         )
 
     @property
@@ -111,8 +113,11 @@ class RunResult:
 
 
 def iter_sse(lines: Iterable[bytes]) -> Iterator[Dict[str, Any]]:
-    """Parse a Server-Sent Events byte stream into decoded JSON ``data`` payloads."""
+    """Parse UTF-8 SSE chunks; malformed data frames fail without exposing their body."""
     data_lines: List[str] = []
+    line_chars: List[str] = []
+    decoder = codecs.getincrementaldecoder("utf-8-sig")()
+    skip_lf = False
 
     def _flush() -> Optional[Dict[str, Any]]:
         if not data_lines:
@@ -122,17 +127,47 @@ def iter_sse(lines: Iterable[bytes]) -> Iterator[Dict[str, Any]]:
         try:
             decoded = json.loads(payload)
         except json.JSONDecodeError:
-            return None
-        return decoded if isinstance(decoded, dict) else None
+            raise PathsError("Stream data is not valid JSON", code="invalid_stream") from None
+        if not isinstance(decoded, dict):
+            raise PathsError("Stream data must be a JSON object", code="invalid_stream")
+        return decoded
 
-    for raw in lines:
-        line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
+    def _line(line: str) -> Optional[Dict[str, Any]]:
         if not line:
-            decoded = _flush()
-            if decoded is not None:
-                yield decoded
-        elif line.startswith("data:"):
-            data_lines.append(line[5:].lstrip())
+            return _flush()
+        if line == "data" or line.startswith("data:"):
+            value = line[5:]
+            data_lines.append(value[1:] if value.startswith(" ") else value)
+        return None
+
+    def _decode(raw: bytes, *, final: bool = False) -> str:
+        try:
+            return decoder.decode(raw, final=final)
+        except UnicodeDecodeError:
+            raise PathsError("Stream is not valid UTF-8", code="invalid_stream") from None
+
+    def _chunks() -> Iterator[str]:
+        for raw in lines:
+            yield _decode(raw)
+        yield _decode(b"", final=True)
+
+    for chunk in _chunks():
+        for char in chunk:
+            if skip_lf and char == "\n":
+                skip_lf = False
+                continue
+            skip_lf = char == "\r"
+            if char in "\r\n":
+                decoded = _line("".join(line_chars))
+                line_chars.clear()
+                if decoded is not None:
+                    yield decoded
+            else:
+                line_chars.append(char)
+    if line_chars:
+        decoded = _line("".join(line_chars))
+        if decoded is not None:
+            yield decoded
     decoded = _flush()
     if decoded is not None:
         yield decoded
@@ -275,7 +310,7 @@ class MammothPaths:
         raise PathsError("Response must be an array of objects" if list_response else "Response must be a JSON object",
                          status=status, code="invalid_response")
 
-    def _stream(self, path: str, body: Any) -> Iterator[RunEvent]:
+    def _stream(self, path: str, body: Any, *, run_id: Optional[str] = None) -> Iterator[RunEvent]:
         request = self._build_request("POST", path, body, None, "text/event-stream")
         started = time.monotonic()
         status = 0
@@ -289,9 +324,15 @@ class MammothPaths:
                 raise PathsError(f"Could not reach {self.base_url}: {exc.reason}") from None
             status = int(getattr(response, "status", 200) or 200)
             terminal = False
+            previous: Optional[int] = None
             with response:
                 for raw in iter_sse(response):
                     event = RunEvent.from_dict(raw)
+                    if ((run_id is not None and event.run_id != run_id)
+                            or (previous is not None and event.seq != previous + 1)):
+                        raise PathsError("Run stream identity or sequence changed; recover the saved snapshot",
+                                         code="invalid_event", status=status)
+                    run_id, previous = event.run_id, event.seq
                     terminal = event.is_terminal
                     yield event
                     if terminal:
@@ -301,6 +342,10 @@ class MammothPaths:
                     "The run stream ended before a terminal event. Check the saved run before starting again.",
                     code="stream_interrupted", status=status,
                 )
+        except PathsError as exc:
+            if not exc.status:
+                exc.status = status
+            raise
         finally:
             self._meter("mind", "POST", path, status, started)
 
@@ -370,6 +415,7 @@ class MammothPaths:
         return self._stream(
             f"/mammoth/runs/{self._seg(run_id)}/approval",
             {"approval_id": approval_id, "decision": decision, "note": note},
+            run_id=run_id,
         )
 
     def run(
@@ -427,7 +473,7 @@ class MammothPaths:
 
     def continue_run(self, run_id: str) -> Iterator[RunEvent]:
         """Continue saved work with a bounded additional budget; may incur model usage."""
-        return self._stream(f"/mammoth/runs/{self._seg(run_id)}/continue", {})
+        return self._stream(f"/mammoth/runs/{self._seg(run_id)}/continue", {}, run_id=run_id)
 
     def cancel_run(self, run_id: str) -> Dict[str, Any]:
         return self._json("mind", "POST", f"/mammoth/runs/{self._seg(run_id)}/cancel", body={})
@@ -442,24 +488,30 @@ class MammothPaths:
     def recover_run(self, run_id: str) -> RunResult:
         """Read a full saved snapshot; never execute, continue or approve work."""
         saved = self.get_run(run_id)
-        if (not isinstance(saved, dict) or saved.get("id") != run_id or saved.get("status") not in {
+        if (not isinstance(saved, dict) or saved.get("id") != run_id
+                or not isinstance(saved.get("status"), str) or saved["status"] not in {
             "running", "awaiting_approval", "completed", "failed", "cancelled", "partial",
         } or not isinstance(saved.get("events"), list)
                 or any(saved.get(key) is not None and not isinstance(saved[key], kind)
                        for key, kind in (("plan", list), ("diagnostics", list), ("reply", str),
-                                         ("progress", dict), ("pending_approval", dict)))):
+                                         ("progress", dict), ("pending_approval", dict), ("recursive", dict)))
+                or any(saved.get(key) is not None and any(not isinstance(item, dict) for item in saved[key])
+                       for key in ("plan", "diagnostics"))
+                or ("failure_code" in saved and not isinstance(saved["failure_code"], str))
+                or ("can_continue" in saved and type(saved["can_continue"]) is not bool)):
             raise PathsError("Invalid saved run snapshot", code="invalid_snapshot")
         previous = 0
         events = []
         for raw in saved["events"]:
-            seq = raw.get("seq") if isinstance(raw, dict) else None
-            if (not isinstance(raw, dict) or raw.get("run_id") != run_id
-                    or type(seq) is not int or seq != previous + 1 or not isinstance(raw.get("type"), str)
-                    or not isinstance(raw.get("data"), dict)):
+            try:
+                event = RunEvent.from_dict(raw)
+            except PathsError:
+                raise PathsError("Invalid saved run event envelope", code="invalid_snapshot") from None
+            if event.run_id != run_id or event.seq != previous + 1:
                 raise PathsError("Saved run events must belong to this run and form a complete sequence starting at one",
                                  code="invalid_snapshot")
-            previous = seq
-            events.append(RunEvent.from_dict(raw))
+            previous = event.seq
+            events.append(event)
         return RunResult(
             run_id=run_id, status=saved["status"], reply=str(saved.get("reply") or ""),
             error=str(saved.get("reply") or "") if saved["status"] in {"failed", "partial"} else "",

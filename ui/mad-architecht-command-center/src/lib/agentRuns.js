@@ -41,7 +41,7 @@ export async function resolveRunApproval(runId, approvalId, decision, { signal, 
     body: JSON.stringify({ approval_id: approvalId, decision, note }),
     signal,
   })
-  await readRunEventStream(response, onEvent)
+  await readRunEventStream(response, onEvent, { runId })
 }
 
 export async function cancelAgentRun(runId) {
@@ -58,7 +58,7 @@ export async function continueAgentRun(runId, { signal, onEvent }) {
     body: '{}',
     signal,
   })
-  await readRunEventStream(response, onEvent)
+  await readRunEventStream(response, onEvent, { runId })
 }
 
 export async function fetchAgentRun(runId) {

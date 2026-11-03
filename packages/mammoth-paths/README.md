@@ -66,6 +66,30 @@ echo raw body text. Usage hooks report HTTP status once, not payload validity.
 These are container guards, not full nested schemas; snapshot recovery retains
 its deeper validation. No retries, permission changes or dependency additions.
 
+### Run stream and recovery guards
+
+SSE requires valid UTF-8 and object JSON data (`invalid_stream`); malformed
+frames no longer disappear. Comments, BOM, multiline data, CR/LF/CRLF, split
+chunks and the existing trailing frame at EOF remain supported. Missing terminal
+events report `stream_interrupted`. The reader is cancelled and released on exit,
+including invalid data or callback errors.
+
+Envelopes require `mammoth.run.v1`, nonblank `type`/`run_id`/`ts`, positive
+safe-integer `seq` and object `data` (`invalid_event`). Unknown event types and
+extensions remain supported. Streams reject mixed run IDs, duplicate/backward
+sequences and gaps before callbacks; resumed streams may start above one.
+Approval/continuation must match the requested ID. Custom readers can pass
+`readRunEventStream(response, onEvent, { runId })` to bind that ID too.
+The app shares these guards. Reducer replay remains idempotent and permits gaps;
+full recovery requires consecutive events starting at one.
+
+`recoverRun` reports malformed saved envelopes/metadata as `invalid_snapshot`
+and never executes work. Optional plan/diagnostics are arrays of objects,
+recursive/progress/approval are objects (or null), `can_continue` is boolean and
+`failure_code` is string when present. Current saved status wins over old events.
+These checks do not validate every nested field or parse timestamp dates.
+Custom transports must supply complete envelopes, not invented defaults.
+
 ### Opt-in RecursiveMAS
 
 ```js

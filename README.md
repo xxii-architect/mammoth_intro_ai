@@ -733,6 +733,34 @@ is not proof of a valid response. No retry is added. Saved-run recovery retains
 its deeper identity, sequence and snapshot validation; these shared guards do
 not validate every nested field or change authorization.
 
+### Run stream and recovery boundaries
+
+Both clients decode SSE as strict UTF-8 and reject malformed JSON/data containers
+with `invalid_stream` instead of silently dropping frames. BOM, comments,
+multiline data, CR/LF/CRLF and split chunks remain supported; the existing
+trailing-data-at-EOF behavior is retained. A stream without a terminal event
+fails with `stream_interrupted`. JavaScript cancels/releases the reader on exit;
+Python closes the response when iteration finishes or fails.
+
+Run envelopes require `mammoth.run.v1`, nonblank string type/run ID/timestamp,
+a positive safe-integer sequence and object data (`invalid_event`). Unknown event
+types and additive fields/data remain accepted. Each stream has one run ID and
+consecutive sequence numbers after its first event; approval/continuation bind
+to the requested ID. A resumed stream may start above one. Invalid events never
+reach consumer callbacks. The app uses the same guards; reducer replay remains
+idempotent and can still accept sequence gaps, unlike a live stream/full snapshot.
+Stream failures clear stale chat approval/continuation controls while retaining
+received text and explicit error evidence.
+
+Recovery additionally checks optional metadata containers, object entries in
+plan/diagnostics, boolean `can_continue` and string `failure_code`. Full histories
+must start at one with no gaps and valid envelopes. SDK recovery reports
+`invalid_snapshot` for invalid saved content and stays GET-only. Current saved
+status remains authoritative. Custom transports/fixtures must now supply complete
+envelopes; missing fields are not coerced or invented. Timestamps are checked for
+nonblank text, not parsed as dates. These are bounded contract checks, not full
+nested schemas, automatic recovery, production proxy timing or billing proof.
+
 ### Browser release gate
 
 The UI workflow runs build/type checks and a separate `ui-interactions` job on

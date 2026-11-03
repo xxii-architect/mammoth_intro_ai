@@ -15,6 +15,120 @@ const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
+test('SSE data errors fail explicitly instead of disappearing', () => {
+  for (const payload of ['private malformed body', '[]', 'null', '1', '']) {
+    const parser = createSseParser(() => assert.fail('Invalid data reached consumer'))
+    assert.throws(() => parser.push(`data: ${payload}\n\n`),
+      error => error.code === 'invalid_stream' && !error.message.includes('private malformed body'))
+  }
+})
+
+test('SSE supports BOM, comments and all line endings across every chunk boundary', () => {
+  for (const ending of ['\n', '\r\n', '\r']) {
+    const text = `\ufeff: heartbeat${ending}${ending}data: {"text":"ok"}${ending}${ending}`
+    for (let split = 0; split <= text.length; split += 1) {
+      const out = []
+      const parser = createSseParser(event => out.push(event))
+      parser.push(text.slice(0, split))
+      parser.push(text.slice(split))
+      parser.end()
+      assert.deepEqual(out, [{ text: 'ok' }])
+    }
+  }
+})
+
+test('malformed UTF-8 and parser failures release and cancel the response body', async () => {
+  for (const bytes of [new Uint8Array([0xff]), new TextEncoder().encode('data: private malformed body\n\n')]) {
+    let cancelled = false
+    const body = new ReadableStream({
+      start(controller) { controller.enqueue(bytes) },
+      cancel() { cancelled = true },
+    })
+    await assert.rejects(readRunEventStream(new Response(body), () => {}),
+      error => error.code === 'invalid_stream')
+    assert.equal(cancelled, true)
+    assert.equal(body.locked, false)
+  }
+})
+
+test('truncated UTF-8 fails at EOF and callback errors retain their identity with transport cleanup', async () => {
+  await assert.rejects(readRunEventStream(new Response(new Uint8Array([0xc3])), () => {}),
+    error => error.code === 'invalid_stream')
+  const expected = new Error('Consumer failed')
+  let cancelled = false
+  const body = new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode(sse([ev(1, 'run.started')]))) },
+    cancel() { cancelled = true },
+  })
+  await assert.rejects(readRunEventStream(new Response(body), () => { throw expected }),
+    error => error === expected)
+  assert.equal(cancelled, true)
+  assert.equal(body.locked, false)
+})
+
+test('a terminal frame stops parsing trailing data even within the same transport chunk', async () => {
+  const seen = []
+  await readRunEventStream(new Response(sse([ev(1, 'run.completed')]) + 'data: ignored after terminal\n\n'),
+    event => seen.push(event))
+  assert.equal(seen.length, 1)
+  assert.equal(seen[0].type, 'run.completed')
+})
+
+test('event envelopes reject coercion before reduction or callbacks', async () => {
+  for (const fields of [
+    { contract: 'mammoth.run.v2' }, { contract: null }, { type: '' }, { type: 3 },
+    { run_id: '' }, { ts: '' }, { ts: null }, { data: [] }, { seq: true },
+    { seq: '1' }, { seq: 0 }, { seq: 1.5 }, { seq: 9007199254740992 },
+  ]) {
+    const event = { ...ev(1, 'run.completed'), ...fields }
+    assert.throws(() => reduceRunEvent(null, event), error => error.code === 'invalid_event')
+    await assert.rejects(readRunEventStream(new Response(sse([event])), () => assert.fail('Invalid event leaked')),
+      error => error.code === 'invalid_event')
+  }
+})
+
+test('stream identity and sequence failures cannot reach consumer callbacks', async () => {
+  for (const bad of [{ ...ev(2, 'run.completed'), run_id: 'other' }, ev(1, 'run.completed'), ev(3, 'run.completed')]) {
+    const seen = []
+    const usage = []
+    const { impl } = fakeFetch({ 'POST /api/mammoth/runs': { sse: [ev(1, 'run.started'), bad] } })
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: impl, usageHook: item => usage.push(item) })
+      .streamRun('go', { onEvent: event => seen.push(event) }),
+    error => error instanceof PathsError && error.code === 'invalid_event')
+    assert.equal(seen.length, 1)
+    assert.equal(usage.length, 1)
+  }
+})
+
+test('resumed streams bind to the requested run while additive event types remain supported', async () => {
+  const { impl } = fakeFetch({
+    'POST /api/mammoth/runs/expected/continue': { sse: [ev(9, 'run.completed')] },
+    'POST /api/mammoth/runs': { sse: [ev(8, 'future.event', { extension: true }), ev(9, 'run.completed')] },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  await assert.rejects(client.continueRun('expected'), error => error.code === 'invalid_event')
+  const events = await client.streamRun('go')
+  assert.equal(events[0].type, 'future.event')
+  assert.deepEqual(events[0].data, { extension: true })
+})
+
+test('saved recovery rejects malformed metadata and envelopes without executing', async () => {
+  for (const fields of [
+    { recursive: [] }, { failure_code: 4 }, { can_continue: 'false' }, { plan: [null] }, { diagnostics: [false] },
+    { events: [{ ...ev(1, 'run.completed'), contract: 'mammoth.run.v2' }] },
+    { events: [{ ...ev(1, 'run.completed'), ts: null }] },
+    { events: [{ ...ev(1, 'run.completed'), type: '' }] },
+  ]) {
+    const snapshot = { id: RUN_ID, status: 'completed', events: [ev(1, 'run.completed')], ...fields }
+    const { impl, calls } = fakeFetch({ [`GET /api/mammoth/runs/${RUN_ID}`]: { body: { run: snapshot } } })
+    assert.throws(() => hydrateRun(snapshot), TypeError)
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: impl }).recoverRun(RUN_ID),
+      error => error instanceof PathsError && error.code === 'invalid_snapshot')
+    assert.equal(calls.length, 1)
+    assert.equal(calls[0].init.method, 'GET')
+  }
+})
+
 test('recursive options, stages, usage and snapshot recovery retain the existing contract', async () => {
   const recursive = { contract: 'mammoth.recursive.v1', stage: 'critic', iteration: 0,
     limits: { max_iterations: 2 }, usage: { tokens: 300 } }

@@ -94,6 +94,32 @@ transport status, not response validity or authoritative billing. These guards
 check containers, not all nested domain fields; recovery adds its existing deeper
 snapshot checks. No retries or new permissions are introduced.
 
+## Stream and saved-run validation
+
+Malformed UTF-8, invalid JSON and non-object SSE data now fail explicitly with
+`invalid_stream`; frames are not silently discarded. Valid BOM, comments,
+multiline data, CR/LF/CRLF, split chunks and trailing data at EOF are supported.
+Ending before a terminal event reports `stream_interrupted`. JavaScript releases
+and cancels the reader on exit; Python closes the response on completion/failure.
+
+Events require contract `mammoth.run.v1`, nonblank string `type`, `run_id` and
+`ts`, positive safe-integer `seq`, and object `data`. Invalid envelopes or mixed
+run IDs/broken sequences report `invalid_event` before callbacks. Unknown event
+types and extensions remain supported. A resumed stream can start above one;
+subsequent events must be consecutive. Approval/continuation streams must belong
+to the requested run. The app uses the same checks. Custom transports must supply
+complete envelopes, not rely on coercion/default fields. Timestamp text is not
+validated as a calendar date.
+Failed streams retain received text and show errors without leaving stale
+chat approval/continuation controls active.
+
+Full recovery requires valid envelopes and consecutive history starting at one.
+It additionally checks optional plan/diagnostic object arrays, recursive metadata
+objects, boolean `can_continue` and string `failure_code`. Invalid saved content
+reports `invalid_snapshot`; recovery remains read-only and current saved state
+is authoritative. These bounded guards do not validate every nested field,
+automatically reconnect/retry, or prove production streaming/proxy behavior.
+
 ## Coding routing and planning
 
 Both clients reach the same backend route: the coding lane and

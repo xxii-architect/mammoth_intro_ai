@@ -21,6 +21,7 @@ export type RunEventType =
   | 'run.continued'
   | 'run.recovering'
   | 'model.completed'
+  | 'recursive.updated'
 
 export interface RunEvent {
   contract: 'mammoth.run.v1'
@@ -52,6 +53,7 @@ export interface RunState {
   tools?: string[]
   summary?: Record<string, unknown>
   can_continue?: boolean
+  recursive?: Record<string, unknown> | null
   failure_code?: string
   diagnostics?: Array<Record<string, unknown>>
   recovery?: Record<string, unknown> | null
@@ -97,6 +99,7 @@ export interface RunSnapshot {
   diagnostics?: Array<Record<string, unknown>>
   failure_code?: string
   can_continue?: boolean
+  recursive?: Record<string, unknown> | null
 }
 
 export interface UsageRecord {
@@ -178,7 +181,7 @@ export interface PathsClient {
 export declare function createPathsClient(options: PathsClientOptions): PathsClient
 export declare function reduceRunEvent(run: RunState | null, event: RunEvent): RunState
 export declare function hydrateRun(snapshot: RunSnapshot): RunState
-export declare function readRunEventStream(response: Response, onEvent: (event: RunEvent) => void): Promise<void>
+export declare function readRunEventStream(response: Response, onEvent: (event: RunEvent) => void, options?: { runId?: string }): Promise<void>
 export declare function createSseParser(onData: (payload: Record<string, unknown>) => void): { push(chunk: string): void; end(): void }
 export declare function createRunStore(initial?: RunState | null): {
   getSnapshot(): RunState | null
