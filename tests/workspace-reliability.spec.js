@@ -809,6 +809,30 @@ test('owner panel submits frozen approval and renders unapplied check evidence o
   expect(errors).toEqual([])
 })
 
+test('owner panel disables incompatible frontend profiles and preserves explicit deletion in the approval patch', async ({ page }) => {
+  const reason = 'Selected repository lacks ui/mad-architecht-command-center/package.json; a compatible reviewed image is required.'
+  const errors = await mount(page, ownerPanel, {
+    '/api/owner-executions/capabilities': {
+      ...ownerCapabilities, profiles: [...ownerCapabilities.profiles, 'ui_build'],
+      isolation: { ...ownerCapabilities.isolation, profile_reasons: { ui_build: reason },
+        profiles: { ...ownerCapabilities.isolation.profiles, ui_build: false } },
+    },
+    '/api/owner-executions': request => {
+      expect(request.postDataJSON().changes).toEqual([{ path: 'obsolete.py', delete: true }])
+      expect(request.postDataJSON().profile).toBe('python_unittest')
+      return { execution: { ...ownerJob, patch: '--- a/obsolete.py\n+++ /dev/null\n@@ -1 +0,0 @@\n-# obsolete Python module\n' } }
+    },
+  }, { repo: 'owner/repo' })
+  await page.getByText('Owner isolated validation pilot').click()
+  await expect(page.getByRole('list', { name: 'Unavailable validation profiles' })).toContainText(reason)
+  await expect(page.getByRole('combobox', { name: 'Approved test profile' }).locator('option[value="ui_build"]')).toHaveJSProperty('disabled', true)
+  await page.getByRole('textbox', { name: /^Proposal changes/ }).fill('[{"path":"obsolete.py","delete":true}]')
+  await page.getByRole('button', { name: 'Prepare proposal' }).click()
+  await expect(page.getByRole('region', { name: 'Owner execution evidence' })).toContainText('+++ /dev/null')
+  await expect(page.getByRole('button', { name: 'Approve isolated baseline and candidate checks' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test('browser proposal keeps explicit acceptance and separate build versus behavior evidence', async ({ page }) => {
   const acceptance = { expected_behavior: ['Not now closes the form without saving.'], regression_tests: ['tests/atlas-workspace.spec.js'] }
   const errors = await mount(page, ownerPanel, {
@@ -874,8 +898,8 @@ test('owner panel applies only after a second approval and shows local branch ev
 test('owner profile picker disables tools absent from the pinned image', async ({ page }) => {
   await mount(page, ownerPanel, { '/api/owner-executions/capabilities': ownerCapabilities }, { repo: 'owner/repo' })
   await page.getByText('Owner isolated validation pilot').click()
-  await expect(page.getByRole('option', { name: 'node_test (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
-  await expect(page.getByRole('option', { name: 'python_pytest (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
+  await expect(page.getByRole('option', { name: 'node_test (unavailable)', exact: true })).toHaveJSProperty('disabled', true)
+  await expect(page.getByRole('option', { name: 'python_pytest (unavailable)', exact: true })).toHaveJSProperty('disabled', true)
   await expect(page.getByRole('option', { name: 'python_unittest', exact: true })).toHaveJSProperty('disabled', false)
   await expect(page.getByText(/ui_build compiles the production UI/)).toBeVisible()
 })
@@ -891,7 +915,7 @@ test('frontend picker exposes separate locked-image readiness and narrow compone
   await page.getByText('Owner isolated validation pilot').click()
   await expect(page.getByText('Frontend image: Reviewed frontend image checked.')).toBeVisible()
   await expect(page.getByRole('option', { name: 'ui_build', exact: true })).toHaveJSProperty('disabled', false)
-  await expect(page.getByRole('option', { name: 'ui_component (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
+  await expect(page.getByRole('option', { name: 'ui_component (unavailable)', exact: true })).toHaveJSProperty('disabled', true)
   await expect(page.getByText(/ui_component checks actual trust-row rendering, not browser interactions/)).toBeVisible()
 })
 

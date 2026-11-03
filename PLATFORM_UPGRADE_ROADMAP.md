@@ -265,6 +265,14 @@ double bill; anonymous users receive no private usage data.
     this bounded gate.
 - [ ] CI-03: classify sandbox failures as release-blocking vs environment
   diagnostics; pin MCP package versions and document verified launch commands.
+  - Owner readiness now separates runtime tools from selected-repository frontend
+    compatibility. Locked ui_* profiles remain MammothOS-workspace-specific;
+    incompatible base/candidate manifests are rejected before freezing approval,
+    with reasons exposed through API, tools and UI. Explicit delete:true proposals
+    retain preview, isolated validation and separate branch-application approval.
+    Arbitrary Next/Vite app images, reviewed per-repository validators and wider
+    sandbox/environment classification remain open; this is not field-guide
+    build validation or a generic execution rollout.
 
 **Acceptance:** breaking SDK payloads or UI builds fail before release; no new
 dependencies in the stdlib-only Python Paths / zero-dependency JS clients.

@@ -175,8 +175,13 @@ These preserve backend response objects and meter the `owner_execution` surface.
 The backend enforces owner/admin access, explicit repo selection and frozen
 approval. Changes accept full text `{path, content}` or small
 `{path, edits: [{old, new}]}` objects. Each old string must match once in the
-frozen committed base; new files need content. Fixed profiles:
-`python_unittest`, `python_pytest`, `node_test`, `ui_build`, `ui_component`.
+frozen committed base; new files need content. Explicit deletion is
+`{path, delete: true}`, without content/edits, for an existing permitted base file.
+Empty content empties a file; it does not delete it. Removal appears in the patch,
+isolated candidate and separately approved branch. Both clients accept optional
+`acceptance` with `expected_behavior` and `regression_tests` arrays when preparing.
+Fixed profiles:
+`python_unittest`, `python_pytest`, `node_test`, `ui_build`, `ui_component`, `ui_browser`.
 The optional frontend profiles need a separately reviewed, locked dependency
 image. Build compiles production assets; component checks render the actual
 trust row at explicit zero/low/high scores. These checks do not prove browser
@@ -190,10 +195,15 @@ regressions. Its approval expires after 15 minutes. Application returns branch
 and commit evidence and refuses to overwrite an existing branch. After an
 interruption query the saved execution; do not assume success or retry blindly.
 Tenant/paid application is not enabled.
-Capabilities expose `isolation.profiles`, a mapping of configured profile names
-to tool-availability booleans from a bounded offline image probe. Preparation
-rejects unavailable profiles. This is not a dependency or coverage guarantee,
-and only `ui_build` runs the UI production build.
+Capabilities expose `isolation.profiles`; frontend profiles additionally compare
+the selected committed repository's manifests with the reviewed image.
+`isolation.profile_reasons` explains mismatches. Preparation rejects incompatible
+base/candidate manifests before an approval is created. The current `ui_*`
+profiles target the MammothOS command-center workspace, not arbitrary Next/Vite
+apps. Other apps need compatible operator-reviewed validation support; do not
+switch repositories or use unrelated tests as a substitute. Generic tool
+availability is not a dependency or coverage guarantee. `ui_browser` builds and
+runs the declared workspace suites, with behavior evidence separate from build.
 Use Python `timeout=420` for synchronous approval and query saved state after
 transport failures. Approval expires after 15 minutes; changed HEAD/reused
 approval fails. Containers share the host kernel and require reviewed pinned

@@ -15,7 +15,6 @@ from mammoth_os.owner_execution import (
     PROFILES,
     ExecutionError,
     OwnerExecution,
-    head_sha,
 )
 
 
@@ -39,8 +38,7 @@ def register_owner_execution_tools(
     async def status(args: dict, ctx: ToolContext) -> dict:
         if ctx.repo_root is None:
             raise ExecutionError("Select an accessible repository explicitly.", "repo_required", 403)
-        return {"status": "ok", **await asyncio.to_thread(service.capabilities),
-                "base_sha": await asyncio.to_thread(head_sha, ctx.repo_root)}
+        return {"status": "ok", **await asyncio.to_thread(service.capabilities, ctx.repo_root)}
 
     async def prepare(args: dict, ctx: ToolContext) -> dict:
         try:
@@ -96,13 +94,13 @@ def register_owner_execution_tools(
             return {"status": "error", "code": exc.code, "error": str(exc)}
 
     registry.register(ToolSpec(
-        name="owner_execution_status", description="Owner-only isolated execution readiness and observed selected-repo HEAD.",
+        name="owner_execution_status", description="Owner-only isolated execution readiness, selected-repository profile compatibility/reasons and observed HEAD. Frontend profiles target the reviewed MammothOS workspace, not arbitrary apps.",
         input_schema={"type": "object", "properties": {}, "additionalProperties": False},
         tier=TIER_READ, handler=status, admin_only=True, needs_repo=True,
     ))
     registry.register(ToolSpec(
         name="owner_execution_prepare",
-        description="Freeze an owner-only proposal against the explicit base SHA from owner_execution_status. For existing files send small exact edits (old/new); the server resolves full contents from committed Git objects, never the dirty checkout. Use content for new files. Do not reproduce entire large files. Never changes the checkout. Expires after 15 minutes.",
+        description="Freeze an owner-only proposal against the explicit base SHA from owner_execution_status and a compatible profile. For existing files send small exact edits (old/new); the server resolves full contents from committed Git objects, never the dirty checkout. Use content for new files, or delete:true alone to explicitly delete a permitted base file. Do not reproduce entire large files. Never changes the checkout. Expires after 15 minutes.",
         input_schema={"type": "object", "required": ["base_sha", "profile", "changes"], "additionalProperties": False,
                       "properties": {"base_sha": {"type": "string", "minLength": 40, "maxLength": 64},
                                      "profile": {"type": "string", "enum": list(PROFILES)},
@@ -115,6 +113,7 @@ def register_owner_execution_tools(
                                      "changes": {"type": "array", "minItems": 1, "maxItems": 20, "items": {
                                          "type": "object", "required": ["path"], "additionalProperties": False,
                                          "properties": {"path": {"type": "string", "maxLength": 240},
+                                                        "delete": {"type": "boolean", "enum": [True]},
                                                         "content": {"type": "string", "maxLength": 500000},
                                                         "edits": {"type": "array", "minItems": 1, "maxItems": 40,
                                                                   "items": {"type": "object", "required": ["old", "new"],

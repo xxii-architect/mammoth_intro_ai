@@ -15,6 +15,19 @@ const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
+test('owner proposals preserve explicit deletion and optional acceptance without changing defaults', async () => {
+  const { impl, calls } = fakeFetch({ 'POST /api/owner-executions': { body: { status: 'ok', execution: { id: 'exec-one' } } } })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  const acceptance = { expected_behavior: ['Config is loaded at root.'], regression_tests: ['tests/workspace-reliability.spec.js'] }
+  const changes = [{ path: 'src/next.config.ts', delete: true }]
+  await client.prepareOwnerExecution('owner/repo', changes, { baseSha: 'a'.repeat(40), profile: 'ui_browser', acceptance })
+  assert.deepEqual(calls[0].body, {
+    repo_context: { root: 'owner/repo' }, changes, base_sha: 'a'.repeat(40), profile: 'ui_browser', acceptance,
+  })
+  await client.prepareOwnerExecution('owner/repo', changes, { baseSha: 'a'.repeat(40), profile: 'python_unittest' })
+  assert.equal(Object.hasOwn(calls[1].body, 'acceptance'), false)
+})
+
 test('SSE data errors fail explicitly instead of disappearing', () => {
   for (const payload of ['private malformed body', '[]', 'null', '1', '']) {
     const parser = createSseParser(() => assert.fail('Invalid data reached consumer'))

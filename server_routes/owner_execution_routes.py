@@ -12,12 +12,9 @@ async def owner_execution_capabilities(repo: str = ""):
     if blocked is not None:
         return blocked
     ctx, notice = _agent_tool_context({"root": repo})
-    result = await asyncio.to_thread(_OWNER_EXECUTION.capabilities)
     if notice:
         return JSONResponse({"status": "error", "error": notice["message"]}, status_code=403)
-    if ctx.has_repo:
-        from mammoth_os.owner_execution import head_sha
-        result["base_sha"] = await asyncio.to_thread(head_sha, ctx.repo_root)
+    result = await asyncio.to_thread(_OWNER_EXECUTION.capabilities, ctx.repo_root if ctx.has_repo else None)
     return {"status": "ok", **result}
 
 

@@ -48,6 +48,9 @@ function ExecutionPanel({ repo = '' }) {
     {!repo && <p>Select a repository first. No default repository is used.</p>}
     <p>{capabilities?.isolation?.reason || 'Checking isolation availability...'}</p>
     {capabilities?.frontend_isolation && <p>Frontend image: {capabilities.frontend_isolation.reason}</p>}
+    {capabilities?.isolation?.profile_reasons && <ul aria-label="Unavailable validation profiles">
+      {Object.entries(capabilities.isolation.profile_reasons).map(([name, reason]) => <li key={name}>{name}: {reason}</li>)}
+    </ul>}
     <button disabled={busy} onClick={() => { setCapabilities(null); setRefresh(value => value + 1) }}>Refresh isolation and HEAD</button>
     <p>Refresh rereads this backend checkout's committed HEAD and installed profiles. It does not fetch GitHub, switch branches, include uncommitted edits, or update your laptop. Connected repository clones must be synced separately.</p>
     {error && <p role="alert">{error}</p>}
@@ -56,15 +59,15 @@ function ExecutionPanel({ repo = '' }) {
       <label>Approved test profile
         <select value={profile} onChange={event => setProfile(event.target.value)} disabled={busy}>
           {capabilities.profiles.map(value => <option key={value} value={value} disabled={capabilities.isolation.profiles?.[value] !== true}>
-            {value}{capabilities.isolation.profiles?.[value] !== true ? ' (unavailable in image)' : ''}
+            {value}{capabilities.isolation.profiles?.[value] !== true ? ' (unavailable)' : ''}
           </option>)}
         </select>
       </label>
-      <p>Availability checks tools, not coverage. ui_build compiles the production UI. ui_component checks actual trust-row rendering, not browser interactions. ui_browser builds and runs the workspace browser suite in the offline locked image, with no skipped or flaky tests allowed. Browser phases are bounded to 10 minutes and 1024 MB; other frontend phases retain their existing limits.</p>
-      <label style={{ display: 'block', marginTop: 8 }}>Proposal changes (JSON array: path with content, or path with edits containing exact old/new text)
+      <p>Frontend availability checks the selected committed repository against reviewed image manifests, not coverage. The ui_* profiles target the MammothOS command-center workspace, not arbitrary Next/Vite apps. ui_build compiles the production UI. ui_component checks actual trust-row rendering, not browser interactions. ui_browser builds and runs the workspace browser suite in the offline locked image, with no skipped or flaky tests allowed. Browser phases are bounded to 10 minutes and 1024 MB; other frontend phases retain their existing limits.</p>
+      <label style={{ display: 'block', marginTop: 8 }}>Proposal changes (JSON array: path with content, path with exact old/new edits, or path with delete:true)
         <textarea value={changes} onChange={event => setChanges(event.target.value)} rows={5} disabled={busy} style={{ width: '100%', boxSizing: 'border-box' }} />
       </label>
-      <p>Exact edits must match once in the committed base, not uncommitted checkout text. Use content for new files. Testing and branch application still require separate approvals.</p>
+      <p>Exact edits must match once in the committed base, not uncommitted checkout text. Use content for new files. Deletion requires delete:true alone and an existing permitted base file; empty content empties a file, not deletes it. Testing and branch application still require separate approvals.</p>
       <label>Acceptance (JSON: expected_behavior and regression_tests arrays)
         <textarea value={acceptance} placeholder='{"expected_behavior":["Observable outcome"],"regression_tests":["tests/workspace-reliability.spec.js"]}' onChange={event => setAcceptance(event.target.value)} rows={3} disabled={busy} style={{ width: '100%', boxSizing: 'border-box' }} />
       </label>

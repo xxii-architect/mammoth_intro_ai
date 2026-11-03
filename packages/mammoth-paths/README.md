@@ -211,14 +211,18 @@ records. These additions do not change the `mammoth.paths.v1` contract.
 ## Owner isolated execution pilot
 
 `ownerExecutionCapabilities(repo)`, `prepareOwnerExecution(repo, changes,
-{baseSha, profile})`, `getOwnerExecution(id)`, `approveOwnerExecution(id,
+{baseSha, profile, acceptance?})`, `getOwnerExecution(id)`, `approveOwnerExecution(id,
 {repo, approvalDigest})`, `cancelOwnerExecution(id)`, and
 `applyOwnerExecution(id, {repo, approvalDigest})` preserve backend payloads.
 Python has matching snake_case methods. Changes are `{path, content}` full-text
 objects or `{path, edits: [{old, new}]}`. Each exact old string must match once
 in the frozen committed base, not uncommitted checkout text. New files need
-content. Profiles: `python_unittest`, `python_pytest`, `node_test`, `ui_build`,
-`ui_component`. Frontend profiles require a separate operator-reviewed image
+content. Explicit deletion uses `{path, delete: true}` alone and requires a
+permitted existing base file. Empty content is not deletion. Removal is visible
+in the patch and isolated candidate, with the same separate branch approval.
+Optional `acceptance` carries `expected_behavior` and `regression_tests` arrays
+in both clients. Profiles: `python_unittest`, `python_pytest`, `node_test`, `ui_build`,
+`ui_component`, `ui_browser`. Frontend profiles require a separate operator-reviewed image
 with locked UI dependencies. Build compiles the production UI; component checks
 render the actual trust row at explicit zero/low/high scores. Neither claims
 general acceptance or browser-interaction coverage. Manifest changes require a
@@ -229,8 +233,14 @@ Approval binds a committed snapshot and image and expires after 15 minutes.
 Tests run in offline Docker only, never on the host, with no automatic merge/push.
 Allow at least 420 seconds for synchronous approval. Query the saved job after
 a request timeout rather than retrying its approval.
-Read `isolation.profiles` in capabilities for actual tool availability in the
-pinned image. Unknown/unavailable profiles are rejected before preparation;
+Read `isolation.profiles` in capabilities for tool availability and selected-repo
+frontend compatibility; `isolation.profile_reasons` explains mismatches.
+The current ui_* profiles target the MammothOS command-center workspace, not
+arbitrary Next/Vite apps. Base/candidate manifests must match the reviewed image,
+or preparation rejects before freezing an approval. Other apps need compatible
+operator-reviewed validation support, not a repository switch or unrelated tests.
+`ui_browser` builds and runs the declared workspace browser suites.
+Unknown/unavailable profiles are rejected before preparation;
 availability is not proof of project dependencies or change coverage.
 Uncommitted source is not included. Passing a profile is not independent
 acceptance evidence or permission to apply the patch. Containers share the host

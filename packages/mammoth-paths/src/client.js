@@ -229,8 +229,9 @@ export function createPathsClient(options = {}) {
     deleteArtifact: (artifactId) => json('artifacts', 'DELETE', `/workspace/artifacts/${seg(artifactId)}`),
     clearArtifacts: () => json('artifacts', 'DELETE', '/workspace/artifacts'),
     ownerExecutionCapabilities: (repo = '') => json('owner_execution', 'GET', '/owner-executions/capabilities', { query: { repo } }),
-    prepareOwnerExecution: (repo, changes, { baseSha, profile }) =>
-      json('owner_execution', 'POST', '/owner-executions', { body: { repo_context: { root: repo }, changes, base_sha: baseSha, profile } }),
+    prepareOwnerExecution: (repo, changes, { baseSha, profile, acceptance }) =>
+      json('owner_execution', 'POST', '/owner-executions', { body: { repo_context: { root: repo }, changes, base_sha: baseSha, profile,
+        ...(acceptance === undefined ? {} : { acceptance }) } }),
     getOwnerExecution: (id) => json('owner_execution', 'GET', `/owner-executions/${seg(id)}`),
     approveOwnerExecution: (id, { repo, approvalDigest }) =>
       json('owner_execution', 'POST', `/owner-executions/${seg(id)}/approve`, { body: { repo_context: { root: repo }, approval_digest: approvalDigest } }),

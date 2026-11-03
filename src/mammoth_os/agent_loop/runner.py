@@ -96,6 +96,7 @@ class AgentRun:
             if name == "owner_execution_status":
                 readiness = {"observation": index, "base_sha": result.get("base_sha"),
                              "profiles": (result.get("isolation") or {}).get("profiles", {}),
+                             "profile_reasons": (result.get("isolation") or {}).get("profile_reasons", {}),
                              "ready": (result.get("isolation") or {}).get("ready"),
                              "reason": (result.get("isolation") or {}).get("reason")}
             if name == "repo_read_file":
@@ -488,7 +489,14 @@ class AgentRunner:
                 "Never prepare an existing-file edit before inspecting its real contents. Then use owner_execution_prepare with small "
                 "exact old/new edits copied from inspected ranges (full content only for new files) and a profile marked "
                 "true in isolation.profiles. Do not reread or output entire large files for a tiny change. Tool availability does not prove that "
-                "repository dependencies are installed or that checks cover the change. For this command-center UI, "
+                "repository dependencies are installed or that checks cover the change. Read isolation.profile_reasons: the locked ui_* profiles target "
+                "the MammothOS command-center workspace, not arbitrary Next/Vite apps. Never switch repositories, "
+                "use an unrelated passing profile, or change dependency manifests just to bypass incompatibility. "
+                "If no meaningful compatible profile exists, report that operator-reviewed validation support is needed; "
+                "do not reprepare an identical failed job. Explicit deletion uses {path, delete:true}, without content/edits, "
+                "only after inspecting the permitted committed base file. Its removal appears in the patch and requires "
+                "the same validation and separate application approvals. "
+                "For this command-center UI, "
                 "ui_build compiles production assets; ui_component checks actual trust-row rendering at explicit "
                 "zero/low/high scores, not general behavior or browser interactions. Both require the separate locked "
                 "frontend image. Generic unittest/pytest/node_test profiles do not compile JSX or validate Actions YAML. "

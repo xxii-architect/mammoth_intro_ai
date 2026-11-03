@@ -582,3 +582,17 @@ def test_owner_execution_sdk_explicit_payloads_and_error_preservation(backend):
     with pytest.raises(PathsError) as error:
         client.owner_execution_capabilities()
     assert error.value.status == 403 and error.value.code == "admin_required"
+
+
+def test_owner_proposal_preserves_explicit_deletion_and_acceptance(backend):
+    backend.route("POST", "/api/owner-executions", body={"status": "ok", "execution": {"id": "exec-one"}})
+    acceptance = {"expected_behavior": ["Config is loaded at root."],
+                  "regression_tests": ["tests/workspace-reliability.spec.js"]}
+    changes = [{"path": "src/next.config.ts", "delete": True}]
+    client = MammothPaths(backend.url)
+    client.prepare_owner_execution("owner/repo", changes, base_sha="a" * 40,
+                                   profile="ui_browser", acceptance=acceptance)
+    assert backend.requests[0]["body"] == {
+        "repo_context": {"root": "owner/repo"}, "changes": changes, "base_sha": "a" * 40,
+        "profile": "ui_browser", "acceptance": acceptance,
+    }
