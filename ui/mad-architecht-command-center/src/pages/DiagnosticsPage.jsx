@@ -142,7 +142,6 @@ export default function DiagnosticsPage() {
   const selectedAudit = history.find(item => item.id === selectedId) || history[0] || null
   const services = Array.isArray(health?.services) ? health.services : []
   const selectedChecks = Array.isArray(selectedAudit?.checks) ? selectedAudit.checks : []
-  const selectedRecommendations = Array.isArray(selectedAudit?.recommendations) ? selectedAudit.recommendations : []
   const selectedObservability = selectedAudit?.observability || null
   const runtime = health?.runtime || {}
   const providers = Array.isArray(runtime?.providers) ? runtime.providers : []
@@ -465,18 +464,6 @@ export default function DiagnosticsPage() {
                     </div>
                   </div>
                 ) : null}
-                <div>
-                  <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-mut)', marginBottom: 8 }}>
-                    Suggested next upgrades
-                  </div>
-                  <div style={{ display: 'grid', gap: 8 }}>
-                    {selectedRecommendations.map(item => (
-                      <div key={item} style={{ padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)', fontSize: '0.8rem', color: 'var(--txt-sec)' }}>
-                        {item}
-                      </div>
-                    ))}
-                  </div>
-                </div>
                 <div style={{ padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(77,166,255,0.2)', background: 'rgba(77,166,255,0.05)' }}>
                   <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--txt-pri)', marginBottom: 8 }}>Backend audit stream</div>
                   {auditEvents.length > 0 ? (
