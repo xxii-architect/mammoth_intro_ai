@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef } from 'react'
+import { useEffect, useId, useMemo, useRef } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import './lesson-content.css'
@@ -32,6 +32,7 @@ function renderTokens(tokens) {
 export default function LessonContent({ content, navigation = false, collapsibleNavigation = false }) {
   const prefix = useId()
   const sectionsRef = useRef([])
+  const readerRef = useRef(null)
   const sections = useMemo(() => {
     if (typeof content !== 'string' || !content.trim()) return []
     const tokens = marked.lexer(normalizeHeadings(content), { gfm: true })
@@ -47,6 +48,13 @@ export default function LessonContent({ content, navigation = false, collapsible
     if (current.tokens.length) groups.push(current)
     return groups.map(group => ({ title: group.title, html: renderTokens(group.tokens) }))
   }, [content])
+  useEffect(() => {
+    readerRef.current?.querySelectorAll('pre, table').forEach(element => {
+      element.tabIndex = 0
+      if (element.tagName === 'PRE') element.setAttribute('role', 'region')
+      element.setAttribute('aria-label', element.tagName === 'PRE' ? 'Scrollable code example' : 'Scrollable lesson table')
+    })
+  }, [sections])
   if (!sections.length) return null
   const headings = sections.map((section, index) => ({ ...section, index })).filter(section => section.title)
   const Navigation = collapsibleNavigation ? 'details' : 'div'
@@ -56,7 +64,7 @@ export default function LessonContent({ content, navigation = false, collapsible
     section?.scrollIntoView({ block: 'start' })
   }
   return (
-    <div className="lesson-reader">
+    <div ref={readerRef} className="lesson-reader">
       {navigation && headings.length >= 3 && <Navigation className="lesson-reader-outline">
         {collapsibleNavigation && <summary>In this lesson</summary>}
         <nav aria-label="Lesson sections" className="lesson-reader-nav">

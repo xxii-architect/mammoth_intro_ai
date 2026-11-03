@@ -20,6 +20,16 @@ mobile. The lesson outline and learning-progress panel expand on demand.
 No measured retention or time-to-competency is inferred from lesson counts.
 Mastery gates, explicit overrides and backend assessment are unchanged.
 
+Reading size, spacing and focused mode stay selected when navigating away and
+back in the same signed-in tab; they are not server-saved preferences and refresh
+resets them. Changing signed-in accounts clears these settings. Larger text also
+scales lesson headings, code and tables. **Read** moves keyboard focus into the
+reading area; focused-reading toggles return focus to **Reading options**.
+Tab to code examples or lesson tables and use arrow keys to inspect horizontal
+overflow. Tables retain their normal screen-reader table structure. Outline
+buttons have minimum 44px targets. These refinements are not an accessibility
+certification; screen-reader/device testing and future audio captions remain.
+
 The unified workspace privately autosaves the current lesson response, tutor
 exercise response, checklist, unsent tutor message, conversation mode and selected
 view after a short debounce. **Workspace saved** confirms server storage; those

@@ -7,6 +7,7 @@ import LessonContent from '../components/LessonContent'
 import LessonStudyActions from '../components/LessonStudyActions'
 import '../components/atlas-workspace.css'
 import useIsMobile, { COMPACT_WORKSPACE_QUERY } from '../lib/useIsMobile'
+import { usePageMemory } from '../lib/PageMemory'
 
 // ─── Expanded module catalog ──────────────────────────────────────────────────
 const FALLBACK_MODULE_TRACKS = [
@@ -170,11 +171,15 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
   const lessonScroll = useRef(null)
   const practiceStart = useRef(null)
   const [showSettings, setShowSettings] = useState(false)
-  const [focusedReading, setFocusedReading] = useState(false)
-  const [readingSize, setReadingSize] = useState('standard')
-  const [spaciousReading, setSpaciousReading] = useState(false)
+  const [focusedReading, setFocusedReading] = usePageMemory('atlas:reading:focused', false)
+  const [readingSize, setReadingSize] = usePageMemory('atlas:reading:size', 'standard')
+  const [spaciousReading, setSpaciousReading] = usePageMemory('atlas:reading:spacious', false)
+  const readingOptionsButton = useRef(null)
   useEffect(() => { onFocusChange?.(focusedReading) }, [focusedReading, onFocusChange])
-  const jumpToLesson = () => lessonScroll.current?.scrollTo({ top: 0 })
+  const jumpToLesson = () => {
+    lessonScroll.current?.focus({ preventScroll: true })
+    lessonScroll.current?.scrollTo({ top: 0 })
+  }
   const jumpToPractice = () => {
     practiceStart.current?.focus({ preventScroll: true })
     practiceStart.current?.scrollIntoView({ block: 'start' })
@@ -527,14 +532,19 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
           <button type="button" onClick={() => { setSidebarCollapsed(true); jumpToLesson() }}>Read</button>
           <button type="button" onClick={() => { setSidebarCollapsed(true); jumpToPractice() }}>Practice</button>
         </>}
-        <button type="button" aria-expanded={showSettings} onClick={() => setShowSettings(value => !value)}>Reading options</button>
+        <button ref={readingOptionsButton} type="button" aria-expanded={showSettings} onClick={() => setShowSettings(value => !value)}>Reading options</button>
       </nav>
       <div hidden={!showSettings} className="atlas-reading-options">
         <label>Text size <select value={readingSize} onChange={event => setReadingSize(event.target.value)}>
           <option value="standard">Standard</option><option value="comfortable">Comfortable</option><option value="large">Large</option>
         </select></label>
         <label><input type="checkbox" checked={spaciousReading} onChange={event => setSpaciousReading(event.target.checked)} /> More line spacing</label>
-        <button type="button" aria-pressed={focusedReading} onClick={() => { setFocusedReading(value => !value); setSidebarCollapsed(true); setShowSettings(false) }}>{focusedReading ? 'Exit focused reading' : 'Focus reading'}</button>
+        <button type="button" aria-pressed={focusedReading} onClick={() => {
+          setFocusedReading(value => !value)
+          setSidebarCollapsed(true)
+          setShowSettings(false)
+          readingOptionsButton.current?.focus()
+        }}>{focusedReading ? 'Exit focused reading' : 'Focus reading'}</button>
       </div>
       <div hidden={embedded && !showSettings}>
       {/* Hero header */}

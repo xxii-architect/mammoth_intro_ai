@@ -180,6 +180,15 @@ feedback over adding more agents or permanent panels.
   spacing; collapsed outline and progress. Phone landscape uses the same compact
   layout. Retention and time-to-competency figures are no longer fabricated from
   counts/confidence. No audio/captions are implemented; draft recovery is LEARN-01.
+  Keyboard/readability refinement implemented: Read moves keyboard focus to the
+  lesson scroll surface; entering/exiting focused reading returns focus to the
+  still-visible Reading options button. Text size, spacing and focused mode
+  survive same-tab page navigation and clear with signed-in account changes.
+  Headings, code and tables scale with the chosen text size. Code examples and
+  tables are keyboard-focusable horizontal scroll surfaces with accessible
+  labels; tables retain native table semantics. Outline controls have 44px
+  minimum targets. This is targeted accessibility coverage, not WCAG
+  certification; assistive-technology review and future audio captions remain.
 - [ ] LEARN-06: cost and privacy controls. Show estimates before expensive
   research or narration only when they can be calculated reliably. Add per-user
   limits, cancellation, and clear retention/export/delete controls for learning

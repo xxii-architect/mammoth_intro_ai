@@ -16,6 +16,13 @@ downloads; it remains supplemental to the active lesson.
 
 ### Workspace reliability and learning resources
 
+ATLAS reading preferences (text size, spacing, focused mode) survive same-tab
+page navigation and clear on signed-in account changes; they do not persist
+through refresh. Headings, code and tables scale with text size. Read/Practice
+move keyboard focus to their content, focused-mode controls retain reachable
+focus, and wide code/table content is keyboard scrollable. These are targeted
+accessibility improvements, not a compliance certification.
+
 Workspace pages now retain full working state during in-app navigation, scoped
 to the signed-in account: Agent conversations/results and team previews/follow-ups,
 Mammoth Mind history/composer/repository/attachments, Notes drafts and Build Log
