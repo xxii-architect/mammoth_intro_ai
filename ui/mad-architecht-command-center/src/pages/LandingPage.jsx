@@ -215,9 +215,9 @@ export default function LandingPage({ setPage }) {
                 width: 110,
                 height: 110,
                 borderRadius: 28,
-                background: 'var(--mm-color-agent-soft)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                boxShadow: 'none',
+                background: 'rgba(255,255,255,0.035)',
+                border: '1px solid rgba(255,255,255,0.07)',
+                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
                 marginBottom: 18,
               }}
             >
@@ -251,11 +251,8 @@ export default function LandingPage({ setPage }) {
                 fontSize: 'clamp(2.45rem, 5vw, 4.25rem)',
                 fontWeight: 800,
                 letterSpacing: '-0.045em',
-                background: 'var(--mm-color-action-primary)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text',
-                lineHeight: 1.02,
+                color: 'var(--txt-pri)',
+                lineHeight: 1.05,
               }}
             >
               The learning OS where guidance, execution, and trust finally live in one place.
@@ -265,7 +262,7 @@ export default function LandingPage({ setPage }) {
               MammothOS combines Mammoth Mind, ATLAS Tutor, agent orchestration, materials-aware learning, and buyer-ready packaging into one coherent system instead of a pile of disconnected AI demos.
             </p>
 
-            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
+            <div style={{ display: 'flex', gap: 18, alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', marginBottom: 18 }}>
               <button
                 onClick={() => setPage('chat')}
                 style={{
@@ -285,17 +282,18 @@ export default function LandingPage({ setPage }) {
               <button
                 onClick={() => setPage('atlas')}
                 style={{
-                  padding: '13px 28px',
-                  borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  background: 'rgba(255,255,255,0.02)',
-                  color: 'var(--txt-pri)',
-                  fontWeight: 700,
-                  fontSize: '0.96rem',
+                  padding: '10px 2px',
+                  border: 'none',
+                  background: 'none',
+                  color: 'var(--txt-sec)',
+                  fontWeight: 600,
+                  fontSize: '0.9rem',
                   cursor: 'pointer',
+                  textDecoration: 'underline',
+                  textUnderlineOffset: 4,
                 }}
               >
-                Open ATLAS Tutor
+                or try ATLAS Tutor →
               </button>
             </div>
 
