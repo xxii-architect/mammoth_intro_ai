@@ -237,9 +237,11 @@ double bill; anonymous users receive no private usage data.
     baseline for the Python Paths package. Correctness lint and bounded strict
     typing run without success-forcing fallbacks; nine actual-tool probes
     verify failing regressions and the clean baseline. External import bodies
-    are skipped; the client's 24 existing dynamic JSON returns explicitly
-    exempt `no-any-return`, which remains enforced elsewhere. Runtime shape
-    validation and broader legacy baseline/enforcement remain open. Legacy
+    are skipped. A follow-up added Python/JS JSON container guards and removed
+    the client's prior `no-any-return` exemption. Invalid JSON, empty success
+    bodies, wrong containers and invalid run envelopes fail explicitly; valid
+    empty lists/extensions survive. Full nested domain schemas and broader
+    legacy baseline/enforcement remain open. Legacy
     diagnostics are labeled non-blocking; branch rules must require the new
     job separately.
 - [ ] CI-02: add explicit frontend build and targeted interaction tests to PR

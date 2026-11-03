@@ -23,7 +23,9 @@ class FakeBackend:
         self.requests = []
         self.routes = {}
 
-    def route(self, method, path, status=200, body=None, sse=None):
+    def route(self, method, path, status=200, body=None, sse=None, raw=None):
+        if raw is not None:
+            body = raw
         self.routes[(method, path)] = (status, body, sse)
 
 
@@ -43,7 +45,7 @@ def backend():
             })
             path = self.path.split("?", 1)[0]
             status, body, sse = fake.routes.get((self.command, path), (404, {"status": "error", "error": "nope"}, None))
-            payload = _sse(sse) if sse is not None else json.dumps(body).encode("utf-8")
+            payload = _sse(sse) if sse is not None else body if isinstance(body, bytes) else json.dumps(body).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "text/event-stream" if sse is not None else "application/json")
             self.send_header("Content-Length", str(len(payload)))
@@ -68,6 +70,69 @@ def test_public_names_and_aliases():
     assert MammothMind is AtlasFAB
     assert "MammothPaths" in mammoth_os.__all__
     assert "MammothMind" in mammoth_os.__all__
+
+
+def test_json_object_endpoints_reject_invalid_success_payloads(backend):
+    usage = []
+    client = MammothPaths(backend.url, usage_hook=usage.append)
+    for payload in [None, False, 0, "private text", [], [{}]]:
+        backend.route("GET", "/api/mammoth/tools", body=payload)
+        with pytest.raises(PathsError) as error:
+            client.tools()
+        assert error.value.code == "invalid_response" and error.value.status == 200
+        assert "private text" not in str(error.value)
+    assert len(usage) == 6 and all(item["status"] == 200 for item in usage)
+    backend.route("GET", "/api/mammoth/tools", body={"tools": [], "extension": {"zero": 0}})
+    assert client.tools() == {"tools": [], "extension": {"zero": 0}}
+
+
+def test_json_list_endpoints_require_arrays_of_objects(backend):
+    client = MammothPaths(backend.url)
+    for path, method in [("/api/tasks", client.list_tasks), ("/api/notes", client.list_notes),
+                         ("/api/buildlog", client.list_build_log)]:
+        for payload in [None, {}, "", [None], ["record"], [1], [[]]]:
+            backend.route("GET", path, body=payload)
+            with pytest.raises(PathsError) as error:
+                method()
+            assert error.value.code == "invalid_response" and error.value.status == 200
+        for payload in [[], [{"id": "one", "extra": False}]]:
+            backend.route("GET", path, body=payload)
+            assert method() == payload
+
+
+def test_json_decoding_failures_are_explicit_and_never_echo_body(backend):
+    client = MammothPaths(backend.url)
+    for raw in [b"", b" ", b'{"unfinished":', b"private upstream failure", b"\xff"]:
+        backend.route("GET", "/api/mammoth/tools", raw=raw)
+        with pytest.raises(PathsError) as error:
+            client.tools()
+        assert error.value.code == "invalid_response" and error.value.status == 200
+        assert "private upstream failure" not in str(error.value)
+
+
+def test_run_envelopes_do_not_default_missing_or_invalid_records(backend):
+    client = MammothPaths(backend.url)
+    for payload in [{}, {"run": None}, {"run": []}, {"run": "record"}]:
+        backend.route("GET", "/api/mammoth/runs/run-one", body=payload)
+        with pytest.raises(PathsError) as error:
+            client.get_run("run-one")
+        assert error.value.code == "invalid_response" and error.value.status == 200
+    for payload in [{}, {"runs": None}, {"runs": {}}, {"runs": [None]}]:
+        backend.route("GET", "/api/mammoth/runs", body=payload)
+        with pytest.raises(PathsError) as error:
+            client.list_runs()
+        assert error.value.code == "invalid_response"
+    backend.route("GET", "/api/mammoth/runs", body={"runs": []})
+    assert client.list_runs() == []
+
+
+def test_json_application_error_retains_detail_and_metadata(backend):
+    payload = {"status": "error", "detail": "Refresh your session.", "code": "session_expired"}
+    backend.route("GET", "/api/mammoth/tools", body=payload)
+    with pytest.raises(PathsError) as error:
+        MammothPaths(backend.url).tools()
+    assert error.value.message == payload["detail"]
+    assert error.value.code == payload["code"] and error.value.payload == payload
 
 
 def test_workspace_context_options_are_additive_and_preserve_explicit_empty_values(backend):

@@ -10,6 +10,9 @@ const options: RunOptions = {
 const client = createPathsClient({ baseUrl: 'https://example.invalid' })
 void client.run('Review', options)
 void client.streamRun('Review', options)
+const tasks: Promise<Array<Record<string, unknown>>> = client.listTasks()
+const savedRun: Promise<Record<string, unknown>> = client.getRun('run-id')
+void [tasks, savedRun]
 const surface: UsageRecord['surface'] = 'owner_execution'
 void surface
 

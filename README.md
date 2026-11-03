@@ -695,10 +695,9 @@ The separate `paths-sdk-quality` CI job enforces a zero-diagnostic baseline for
 the stdlib-only Python Paths package using pinned Ruff/mypy tools. Ruff checks
 correctness rules (`E4`, `E7`, `E9`, `F`), not a legacy-wide style rewrite. Mypy
 uses strict checks within the package while skipping imported implementation
-bodies outside it. The client module's existing dynamic HTTP JSON return
-boundaries explicitly exempt `no-any-return`; this is not runtime response-shape
-validation or a claim that every payload is typed. Other modules retain that
-check. Nine real-tool tests verify clean code passes and undefined names, unused
+bodies outside it. Runtime JSON container guards now remove the prior client
+`no-any-return` exemption; nested domain fields remain dynamic, not fully
+schema-validated. Nine real-tool tests verify clean code passes and undefined names, unused
 imports, wrong return types, untyped functions and bare generics fail.
 
 ```powershell
@@ -712,8 +711,27 @@ Repository-wide lint/type steps remain explicitly labeled non-blocking legacy
 diagnostics. The new job fails normally, with no `|| true`, and requires the probe
 tools rather than skipping them. This does not replace SDK behavioral tests,
 JavaScript public type checks or browser coverage. Branch protection/rulesets
-must separately require `paths-sdk-quality` to block merges. Runtime dependencies,
-SDK response behavior and reviewed owner-image manifests are unchanged.
+must separately require `paths-sdk-quality` to block merges. Runtime dependencies
+and reviewed owner-image manifests are unchanged; valid SDK responses retain
+their documented shapes.
+
+### JSON response boundaries
+
+Both clients reject malformed JSON, empty successful JSON bodies, and wrong
+response containers with `PathsError.code == "invalid_response"`. Object-returning
+methods require JSON objects; tasks, notes and build-log lists require arrays of
+objects. Run retrieval/listing require `run`/`runs` envelopes with those same
+container shapes; missing or null records no longer become empty defaults.
+Valid empty arrays and unknown extension fields remain intact. Error messages
+for malformed responses do not embed raw response text.
+
+This intentionally tightens invalid-response handling, including custom transports:
+return `{}` or `[]` according to the endpoint, not an empty body or `null`.
+Backend HTTP/application errors still retain their code, status and object
+payload. The usage hook records transport status once per request, so HTTP 200
+is not proof of a valid response. No retry is added. Saved-run recovery retains
+its deeper identity, sequence and snapshot validation; these shared guards do
+not validate every nested field or change authorization.
 
 ### Browser release gate
 

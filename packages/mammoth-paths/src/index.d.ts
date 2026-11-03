@@ -146,7 +146,7 @@ export interface PathsClient {
   continueRun(runId: string, options?: { signal?: AbortSignal; onEvent?: (event: RunEvent) => void }): Promise<RunEvent[]>
   run(message: string, options?: RunOptions & { approve?: (approval: Approval) => boolean | 'approve' | 'reject' | Promise<boolean | 'approve' | 'reject'>; maxApprovals?: number }): Promise<RunResult>
   cancelRun(runId: string): Promise<Record<string, unknown>>
-  getRun(runId: string, options?: { after?: number }): Promise<Record<string, unknown> | null>
+  getRun(runId: string, options?: { after?: number }): Promise<Record<string, unknown>>
   recoverRun(runId: string): Promise<RunState>
   listRuns(): Promise<Array<Record<string, unknown>>>
   listRepos(): Promise<Record<string, unknown>>
@@ -154,7 +154,7 @@ export interface PathsClient {
   syncRepo(sourceId: string): Promise<Record<string, unknown>>
   removeRepo(sourceId: string): Promise<Record<string, unknown>>
   proposeChange(sourceId: string, changes: Array<Record<string, unknown>>, options?: { title?: string }): Promise<Record<string, unknown>>
-  listTasks(): Promise<Record<string, unknown>>
+  listTasks(): Promise<Array<Record<string, unknown>>>
   saveTask(task: Record<string, unknown>): Promise<Record<string, unknown>>
   listArtifacts(): Promise<Record<string, unknown>>
   saveArtifact(artifact: Record<string, unknown>): Promise<Record<string, unknown>>
