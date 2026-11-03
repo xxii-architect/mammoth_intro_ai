@@ -1,4 +1,4 @@
-import { createPathsClient, readRunEventStream, type RunOptions, type RunSnapshot, type UsageRecord } from '../src/index.js'
+import { createPathsClient, readRunEventStream, type OwnerExecutionChange, type RunOptions, type RunSnapshot, type UsageRecord } from '../src/index.js'
 
 const options: RunOptions = {
   surface: 'agent_workspace',
@@ -21,6 +21,16 @@ void snapshot
 void readRunEventStream(new Response(), event => { void event }, { runId: 'run-id' })
 const surface: UsageRecord['surface'] = 'owner_execution'
 void surface
+const changes: OwnerExecutionChange[] = [{ path: 'src/next.config.ts', delete: true }]
+void client.prepareOwnerExecution('owner/repo', changes, {
+  baseSha: 'a'.repeat(40), profile: 'ui_browser',
+  acceptance: { expected_behavior: ['Config remains available'], regression_tests: ['tests/workspace-reliability.spec.js'] },
+})
+// @ts-expect-error Deletion is explicit and cannot include content.
+const ambiguousDelete: OwnerExecutionChange = { path: 'x', delete: true, content: '' }
+// @ts-expect-error A false delete flag is not an operation.
+const falseDelete: OwnerExecutionChange = { path: 'x', delete: false }
+void [ambiguousDelete, falseDelete]
 
 // @ts-expect-error Unknown run surfaces are rejected.
 const badSurface: RunOptions = { surface: 'operator' }

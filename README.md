@@ -970,20 +970,38 @@ readiness, HEAD, preview, explicit approval, cancellation and recorded evidence.
 
 Readiness runs a bounded, offline, non-root probe of the pinned image.
 `isolation.profiles` reports available tools for each configured profile;
-unavailable profiles are disabled in the picker and rejected before freezing a
+frontend booleans additionally require the selected committed repository's
+manifests to match the reviewed image. `isolation.profile_reasons` explains
+repository mismatches. Missing repository selection, missing/malformed manifests,
+unverified image manifests and different dependency data disable those profiles.
+Preparation checks both base and candidate before freezing any approval; direct
+container execution checks compatibility again. The API and agent tool report
+the same scoped readiness and observed HEAD; uncommitted edits are not inspected.
+Unavailable profiles are disabled in the picker and rejected before freezing a
 proposal and again before container execution. A plain Python image typically
 supports `python_unittest`, not pytest or Node. Tool availability does not prove
 that a repository's dependencies are installed or that its tests cover an edit.
 The three generic profiles do not run `npm run build` or validate GitHub Actions
-YAML. Optional `ui_build`, `ui_component` and `ui_browser` profiles use a separate frontend image.
+YAML. Optional `ui_build`, `ui_component` and `ui_browser` profiles use a separate
+frontend image for **this MammothOS command-center workspace only**. They are not
+generic Next.js/Vite validators. Another app needs compatible operator-reviewed
+validation support with its own locked dependencies and meaningful checks.
+Do not switch repositories or select unrelated passing tests to bypass this
+boundary. No automatic dependency installation or image pull is added.
+
+Owner proposals also accept `{"path":"src/obsolete-config.ts","delete":true}`.
+Deletion must target an existing permitted file in the frozen base and cannot
+include content/edits. The preview records removal, the candidate excludes the
+file, and separate approval applies the validated patch to a new local branch.
+`content: ""` still creates/empties a file; it never means deletion. Path, owner,
+snapshot, stale-base, image and approval checks remain enforced.
 
 The standalone **UI Build** workflow runs `npm ci` and `npm run build` with Node
-22 using the versioned command-center lockfile on relevant PRs, pushes to `main`,
+22 using the versioned command-center lockfile on main-targeting PRs, pushes to `main`,
 and manual dispatch. Keep that lockfile synchronized when changing UI
 dependencies; a local-only ignored lockfile cannot support clean CI installs.
-Triggers include the
-command-center UI, `packages/mammoth-paths` (imported by Vite), and the workflow
-itself. It is post-publication CI, not a pre-application owner validation profile.
+There are no path filters excluding backend/test-only changes. It is
+post-publication CI, not a pre-application owner validation profile.
 Making it a required merge check is a separate GitHub branch-protection setting.
 For isolated pre-application frontend checks, build the reviewed image with
 immutable Node 22.12+ and Python 3.11.8+ base references:
@@ -1003,7 +1021,9 @@ Playwright and Chromium are installed into the reviewed image. Dependencies are 
 at image-build time, never during execution. Manifest-data changes fail closed
 until the image is reviewed and rebuilt; newline/formatting changes are ignored.
 `frontend_isolation` reports the separate image probe; `isolation.profiles`
-combines both images' actual availability.
+combines runtime availability with the selected repository's frontend manifest
+compatibility. This probe reads existing image manifests; unchanged reviewed
+images do not need a rebuild solely for this additional readiness evidence.
 
 `ui_build` runs the real token generation and Vite production build.
 `ui_component` loads the actual React trust row through Vite and renders explicit

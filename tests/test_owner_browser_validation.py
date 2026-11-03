@@ -10,7 +10,10 @@ from mammoth_os.owner_execution import (
     BROWSER_TESTS,
     ContainerExecutor,
     ExecutionError,
+    FRONTEND_MANIFESTS,
     acceptance_contract,
+    fingerprint,
+    frontend_profile_reason,
     git,
     head_sha,
     snapshot,
@@ -45,6 +48,23 @@ def test_invalid_acceptance_is_explicitly_rejected(value):
 
 def test_non_ui_legacy_proposals_remain_supported():
     assert acceptance_contract(None, [{"path": "app.py", "content": "pass"}], {}, "python_unittest") == {}
+
+
+def test_frontend_compatibility_checks_locked_manifests_not_working_directory_or_repo_name():
+    files = {path: json.dumps({"name": path, "version": "1"}).encode() for path in FRONTEND_MANIFESTS}
+    readiness = {"frontend_manifests": {path: fingerprint(json.loads(data)) for path, data in files.items()}}
+    for profile in ("ui_build", "ui_component", "ui_browser"):
+        assert frontend_profile_reason(files, profile, readiness) == ""
+        assert "Select" in frontend_profile_reason(None, profile, readiness)
+        assert "no verified" in frontend_profile_reason(files, profile, {})
+        assert "invalid JSON" in frontend_profile_reason({**files, next(iter(files)): b"\xff"}, profile, readiness)
+        assert "differs" in frontend_profile_reason({**files, next(iter(files)): b"{}"}, profile, readiness)
+    root_changed = {**files, "package.json": b"{}"}
+    assert frontend_profile_reason(root_changed, "ui_build", readiness) == ""
+    assert "differs" in frontend_profile_reason(root_changed, "ui_browser", readiness)
+    cosmetic = {path: json.dumps(json.loads(data), indent=2).encode() for path, data in files.items()}
+    assert frontend_profile_reason(cosmetic, "ui_browser", readiness) == ""
+
 
 
 @pytest.mark.parametrize(("profile", "passed", "build", "behavior"), [
@@ -99,6 +119,7 @@ def test_real_browser_profile_rejects_failing_skipped_empty_and_changed_dependen
     assert not empty["passed"] and not empty["tests_detected"], empty
     manifest = json.loads(files["package.json"])
     manifest["version"] = "0.0.0-unreviewed"
-    mismatch = run(b"const {test}=require('@playwright/test'); test('runs',()=>{});",
-                   {"package.json": json.dumps(manifest).encode()})
-    assert not mismatch["passed"] and "Browser test dependency manifest changed" in mismatch["log"], mismatch
+    with pytest.raises(ExecutionError) as error:
+        run(b"const {test}=require('@playwright/test'); test('runs',()=>{});",
+            {"package.json": json.dumps(manifest).encode()})
+    assert error.value.code == "profile_repository_mismatch"

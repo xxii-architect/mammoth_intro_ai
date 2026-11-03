@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import subprocess
 import threading
@@ -19,6 +20,7 @@ from mammoth_os.owner_execution import (
     ExecutionError,
     OwnerExecution,
     PROFILES,
+    fingerprint,
     git,
     head_sha,
     snapshot,
@@ -188,7 +190,91 @@ def test_prepare_rejects_unavailable_profile_without_freezing(repository, tmp_pa
     assert not list(service.storage.glob("exec-*.json")) and not executor.calls
 
 
-@pytest.mark.parametrize("probe_result", ["available", "invalid", "failure", "timeout"])
+def test_frontend_profiles_reject_unrelated_repo_before_freezing(repository, tmp_path):
+    class Frontend(FakeExecutor):
+        def readiness(self):
+            return {"ready": True, "profiles": {name: name.startswith("ui_") for name in PROFILES},
+                    "frontend_manifests": {"ui/mad-architecht-command-center/package.json": "a" * 64,
+                                           "ui/mad-architecht-command-center/package-lock.json": "b" * 64}}
+    executor = Frontend()
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True, frontend_executor=executor)
+    caps = service.capabilities(repository)
+    for profile in ("ui_build", "ui_component", "ui_browser"):
+        assert caps["isolation"]["profiles"][profile] is False
+        assert "repository" in caps["isolation"]["profile_reasons"][profile].lower()
+        with pytest.raises(ExecutionError) as error:
+            service.prepare(repository, "owner/field-guide", "owner", [{"path": "app.py", "content": "pass\n"}],
+                            base_sha=head_sha(repository), profile=profile)
+        assert error.value.code == "profile_repository_mismatch"
+    assert not list(service.storage.glob("exec-*.json")) and not executor.calls
+    registry = ToolRegistry()
+    register_owner_execution_tools(registry, service)
+    result = asyncio.run(registry.invoke("owner_execution_status", {}, ToolContext(
+        user_id="owner", is_admin=True, repo_root=repository)))
+    assert result["base_sha"] == head_sha(repository)
+    assert result["isolation"]["profiles"]["ui_build"] is False
+    assert "repository" in result["isolation"]["profile_reasons"]["ui_build"].lower()
+    assert service.capabilities()["isolation"]["profiles"]["ui_build"] is False
+
+
+@pytest.mark.parametrize("filename,content", [("obsolete.txt", "unused\n"), ("empty.txt", "")])
+@pytest.mark.parametrize("executable", [False, True])
+def test_explicit_delete_is_validated_and_only_applied_to_new_branch(repository, tmp_path, filename, content, executable):
+    (repository / filename).write_text(content, encoding="utf-8")
+    git(repository, "add", filename)
+    if executable:
+        git(repository, "update-index", "--chmod=+x", "--", filename)
+    git(repository, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "Obsolete file")
+    executor = FakeExecutor()
+    service = OwnerExecution(tmp_path / "jobs", executor, enabled=True)
+    changes = [{"path": "app.py", "edits": [{"old": "return a - b", "new": "return a + b"}]},
+               {"path": filename, "delete": True}]
+    job = service.prepare(repository, "owner/repo", "owner", changes,
+                          base_sha=head_sha(repository), profile="python_unittest")
+    assert filename in job["patch"] and ("deleted file mode" in job["patch"] or "+++ /dev/null" in job["patch"])
+    result = service.execute(job["id"], "owner", repository, job["approval_digest"])
+    assert result["status"] == "validated"
+    assert filename in executor.calls[0] and filename not in executor.calls[1]
+    applied = service.apply(job["id"], "owner", repository, result["application"]["approval_digest"])
+    branch = applied["application"]["branch"]
+    assert git(repository, "ls-tree", branch, "--", filename) == b""
+    assert (repository / filename).read_text() == content
+    assert git(repository, "show", "HEAD:app.py").decode().endswith("return a - b\n")
+
+
+@pytest.mark.parametrize("change", [
+    {"path": "app.py", "delete": False}, {"path": "app.py", "delete": 1},
+    {"path": "missing.py", "delete": True}, {"path": ".env", "delete": True},
+    {"path": "../app.py", "delete": True}, {"path": "app.py", "delete": True, "content": ""},
+])
+def test_invalid_deletes_do_not_freeze(repository, tmp_path, change):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    with pytest.raises(ExecutionError):
+        service.prepare(repository, "owner/repo", "owner", [change],
+                        base_sha=head_sha(repository), profile="python_unittest")
+    assert not list(service.storage.glob("exec-*.json"))
+
+
+def test_delete_tool_schema_and_acceptance_cannot_hide_a_removed_regression(repository, tmp_path):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    registry = ToolRegistry()
+    register_owner_execution_tools(registry, service)
+    context = ToolContext(user_id="owner", is_admin=True, repo_root=repository)
+    result = asyncio.run(registry.invoke("owner_execution_prepare", {
+        "base_sha": head_sha(repository), "profile": "python_unittest",
+        "changes": [{"path": "app.py", "delete": True}],
+    }, context))
+    assert result["status"] == "ok" and "+++ /dev/null" in result["execution"]["patch_preview"]
+    from mammoth_os.owner_execution import acceptance_contract
+    with pytest.raises(ExecutionError) as error:
+        acceptance_contract({"expected_behavior": ["Must still work"],
+                             "regression_tests": ["tests/workspace-reliability.spec.js"]},
+                            [{"path": "tests/workspace-reliability.spec.js", "delete": True}],
+                            {"tests/workspace-reliability.spec.js": b"test()"}, "ui_browser")
+    assert error.value.code == "invalid_acceptance"
+
+
+@pytest.mark.parametrize("probe_result", ["available", "invalid", "invalid_manifests", "failure", "timeout"])
 def test_image_probe_reports_actual_tools_and_cleans_up(monkeypatch, probe_result):
     import json
     calls = []
@@ -200,17 +286,21 @@ def test_image_probe_reports_actual_tools_and_cleans_up(monkeypatch, probe_resul
             assert "--network=none" in command and "--read-only" in command and "--pull=never" in command
             assert "--user=65534:65534" in command and "--memory=256m" in command
             assert not any("mount" in arg for arg in command)
+            compile(command[-1], "<image-readiness-probe>", "exec")
             if probe_result == "timeout":
                 raise subprocess.TimeoutExpired(command, 15)
             return subprocess.CompletedProcess(command, 1 if probe_result == "failure" else 0,
                 stdout="{}" if probe_result == "invalid" else json.dumps(
-                    {name: name == "python_unittest" for name in PROFILES}), stderr="probe error")
+                    {**{name: name == "python_unittest" for name in PROFILES},
+                     "frontend_manifests": [] if probe_result == "invalid_manifests" else {
+                         "ui/mad-architecht-command-center/package.json": "a" * 64}}), stderr="probe error")
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
     monkeypatch.setattr(subprocess, "run", run)
     readiness = ContainerExecutor(IMAGE).readiness()
     assert readiness["ready"] is (probe_result == "available")
     if readiness["ready"]:
         assert readiness["profiles"] == {name: name == "python_unittest" for name in PROFILES}
+        assert readiness["frontend_manifests"]["ui/mad-architecht-command-center/package.json"] == "a" * 64
     else:
         assert readiness["reason"]
     assert calls[-1][:3] == ["docker", "rm", "-f"]
@@ -255,19 +345,39 @@ def test_invalid_exact_edits_never_freeze_a_proposal(repository, tmp_path, chang
 
 @pytest.mark.parametrize("standard_ready", [True, False])
 def test_frontend_profile_uses_separate_pinned_executor(repository, tmp_path, standard_ready):
+    manifests = {
+        "ui/mad-architecht-command-center/package.json": {"scripts": {"build": "vite build"}},
+        "ui/mad-architecht-command-center/package-lock.json": {"lockfileVersion": 3},
+    }
+    for path, value in manifests.items():
+        target = repository / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(value), encoding="utf-8")
+    git(repository, "add", "ui")
+    git(repository, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "Reviewed UI manifests")
     class Standard(FakeExecutor):
         def readiness(self):
             return super().readiness() if standard_ready else {"ready": False, "reason": "Standard image missing."}
     class Frontend(FakeExecutor):
         image = "sha256:" + "1" * 64
         def readiness(self):
-            return {"ready": True, "profiles": {name: name in {"ui_build", "ui_component"} for name in PROFILES}}
+            return {"ready": True, "profiles": {name: name in {"ui_build", "ui_component"} for name in PROFILES},
+                    "frontend_manifests": {path: fingerprint(value) for path, value in manifests.items()}}
     executor = Frontend()
     service = OwnerExecution(tmp_path / "jobs", Standard(), enabled=True, frontend_executor=executor)
-    capabilities = service.capabilities()
+    capabilities = service.capabilities(repository)
     assert capabilities["isolation"]["ready"] is True
     assert capabilities["isolation"]["profiles"]["python_unittest"] is standard_ready
     assert capabilities["isolation"]["profiles"]["ui_build"] is True
+    manifest_path = repository / "ui/mad-architecht-command-center/package.json"
+    manifest_path.write_text('{"name":"uncommitted"}', encoding="utf-8")
+    assert service.capabilities(repository)["isolation"]["profiles"]["ui_build"] is True
+    with pytest.raises(ExecutionError) as error:
+        service.prepare(repository, "owner/repo", "owner",
+                        [{"path": "ui/mad-architecht-command-center/package.json", "content": "{}"}],
+                        base_sha=head_sha(repository), profile="ui_build")
+    assert error.value.code == "profile_repository_mismatch"
+    assert not list(service.storage.glob("exec-*.json"))
     job = service.prepare(repository, "owner/repo", "owner",
                           [{"path": "app.py", "edits": [{"old": "return a - b", "new": "return a + b"}]}],
                           base_sha=head_sha(repository), profile="ui_build")
@@ -751,8 +861,15 @@ def test_api_accepted_execution_saves_task_patch_and_truthful_approval(repositor
     monkeypatch.setattr(api_server, "_append_activity", lambda title, **kwargs: activity.append((title, kwargs)))
     client = TestClient(api_server.app)
     headers = {"Authorization": "Bearer owner"}
+    observed_roots = []
+    original_capabilities = service.capabilities
+    def scoped_capabilities(root=None):
+        observed_roots.append(root)
+        return original_capabilities(root)
+    monkeypatch.setattr(service, "capabilities", scoped_capabilities)
     capability = client.get("/api/owner-executions/capabilities?repo=owner/repo", headers=headers).json()
     assert capability["base_sha"] == head_sha(repository)
+    assert observed_roots == [repository]
     response = client.post("/api/owner-executions", headers=headers, json={
         "repo_context": {"root": "owner/repo"}, "base_sha": capability["base_sha"], "profile": "python_unittest",
         "changes": [{"path": "app.py", "content": "def add(a, b):\n    return a + b\n"}],
@@ -947,8 +1064,9 @@ def test_real_frontend_build_rendering_regressions_and_approved_branch(tmp_path)
     manifest_path = "ui/mad-architecht-command-center/package.json"
     manifest = json.loads(files[manifest_path])
     manifest["version"] = "0.0.0-unreviewed"
-    mismatch = check({**files, manifest_path: json.dumps(manifest).encode()}, "ui_build")
-    assert mismatch["passed"] is False and "Dependency manifest changed" in mismatch["log"]
+    with pytest.raises(ExecutionError) as error:
+        check({**files, manifest_path: json.dumps(manifest).encode()}, "ui_build")
+    assert error.value.code == "profile_repository_mismatch"
 
     root = tmp_path / "frontend-repo"
     root.mkdir()

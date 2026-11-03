@@ -565,10 +565,14 @@ class MammothPaths:
     def owner_execution_capabilities(self, repo: str = "") -> Dict[str, Any]:
         return self._json("owner_execution", "GET", "/owner-executions/capabilities", query={"repo": repo})
 
-    def prepare_owner_execution(self, repo: str, changes: List[Dict[str, Any]], *, base_sha: str, profile: str) -> Dict[str, Any]:
-        return self._json("owner_execution", "POST", "/owner-executions", body={
+    def prepare_owner_execution(self, repo: str, changes: List[Dict[str, Any]], *, base_sha: str, profile: str,
+                                acceptance: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        body = {
             "repo_context": {"root": repo}, "changes": changes, "base_sha": base_sha, "profile": profile,
-        })
+        }
+        if acceptance is not None:
+            body["acceptance"] = acceptance
+        return self._json("owner_execution", "POST", "/owner-executions", body=body)
 
     def get_owner_execution(self, execution_id: str) -> Dict[str, Any]:
         return self._json("owner_execution", "GET", f"/owner-executions/{self._seg(execution_id)}")

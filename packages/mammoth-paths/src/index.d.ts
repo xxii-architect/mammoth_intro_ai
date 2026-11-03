@@ -63,7 +63,7 @@ export interface RunState {
     goal_met: boolean
     state: string
     blocker: string
-    readiness?: { observation: number; base_sha: string; ready: boolean; reason: string; profiles: Record<string, boolean> } | null
+    readiness?: { observation: number; base_sha: string; ready: boolean; reason: string; profiles: Record<string, boolean>; profile_reasons?: Record<string, string> } | null
     inspected: Array<Record<string, unknown>>
     proposals: Array<Record<string, unknown>>
     executions: Array<{
@@ -109,6 +109,12 @@ export interface UsageRecord {
   status: number
   durationMs: number
 }
+
+export type OwnerExecutionChange = { path: string } & (
+  | { content: string; edits?: never; delete?: never }
+  | { edits: Array<{ old: string; new: string }>; content?: never; delete?: never }
+  | { delete: true; content?: never; edits?: never }
+)
 
 export interface PathsClientOptions {
   baseUrl: string
@@ -165,7 +171,7 @@ export interface PathsClient {
   deleteArtifact(id: string): Promise<Record<string, unknown>>
   clearArtifacts(): Promise<Record<string, unknown>>
   ownerExecutionCapabilities(repo?: string): Promise<Record<string, unknown>>
-  prepareOwnerExecution(repo: string, changes: Array<{ path: string } & ({ content: string; edits?: never } | { edits: Array<{ old: string; new: string }>; content?: never })>, options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' | 'ui_build' | 'ui_component' }): Promise<Record<string, unknown>>
+  prepareOwnerExecution(repo: string, changes: OwnerExecutionChange[], options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' | 'ui_build' | 'ui_component' | 'ui_browser'; acceptance?: { expected_behavior: string[]; regression_tests: string[] } }): Promise<Record<string, unknown>>
   getOwnerExecution(id: string): Promise<Record<string, unknown>>
   approveOwnerExecution(id: string, options: { repo: string; approvalDigest: string }): Promise<Record<string, unknown>>
   cancelOwnerExecution(id: string): Promise<Record<string, unknown>>

@@ -40,6 +40,12 @@ PROFILES = {
     "ui_browser": ["node", "/opt/mammoth-ui/validate.mjs", "browser"],
 }
 FRONTEND_PROFILES = {"ui_build", "ui_component", "ui_browser"}
+FRONTEND_MANIFESTS = {
+    "ui/mad-architecht-command-center/package.json": "/opt/mammoth-ui/ui/package.json",
+    "ui/mad-architecht-command-center/package-lock.json": "/opt/mammoth-ui/ui/package-lock.json",
+    "package.json": "/opt/mammoth-ui/tests/package.json",
+    "package-lock.json": "/opt/mammoth-ui/tests/package-lock.json",
+}
 BROWSER_TESTS = {
     "tests/atlas-workspace.spec.js", "tests/artifact-library.spec.js",
     "tests/document-uploads.spec.js", "tests/workspace-reliability.spec.js",
@@ -85,7 +91,7 @@ def acceptance_contract(value: Any, changes: list[dict[str, Any]], files: dict[s
     if any(not isinstance(text, str) or not text.strip() or len(text) > 1000
            for text in value["expected_behavior"]):
         raise ExecutionError("Expected behavior must contain bounded, nonempty descriptions.", "invalid_acceptance")
-    candidate = {**files, **{change["path"]: change["content"].encode() for change in changes}}
+    candidate = changed_files(files, changes)
     if any(not isinstance(path, str) or path not in BROWSER_TESTS or path not in candidate
            for path in value["regression_tests"]):
         raise ExecutionError("Name existing regression test files covered by the workspace browser profile.",
@@ -144,6 +150,25 @@ def fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def frontend_profile_reason(files: dict[str, bytes] | None, profile: str, readiness: dict[str, Any]) -> str:
+    if files is None:
+        return "Select an accessible repository to check frontend profile compatibility."
+    manifests = readiness.get("frontend_manifests", {})
+    required = list(FRONTEND_MANIFESTS) if profile == "ui_browser" else list(FRONTEND_MANIFESTS)[:2]
+    for path in required:
+        if path not in files:
+            return f"Selected repository lacks {path}; this frontend profile targets the reviewed MammothOS workspace, not arbitrary apps."
+        if path not in manifests:
+            return "Pinned image has no verified frontend manifest evidence; review the image before using this repository."
+        try:
+            digest = fingerprint(json.loads(files[path]))
+        except (ValueError, UnicodeDecodeError):
+            return f"Selected repository has an invalid JSON manifest: {path}."
+        if digest != manifests[path]:
+            return f"Selected repository manifest differs from the reviewed image: {path}. A compatible operator-reviewed image is required."
+    return ""
+
+
 def git(root: Path, *args: str, input_bytes: bytes | None = None, index_path: Path | None = None) -> bytes:
     # Do not inherit git credentials, alternate object directories, or injected config.
     env = {key: os.environ[key] for key in ("PATH", "SystemRoot", "TEMP", "TMP", "HOME") if key in os.environ}
@@ -166,16 +191,19 @@ def head_sha(root: Path) -> str:
     return value
 
 
-def validate_changes(changes: Any, root: Path) -> list[dict[str, str]]:
+def validate_changes(changes: Any, root: Path) -> list[dict[str, Any]]:
     if not isinstance(changes, list) or not 1 <= len(changes) <= 20:
         raise ExecutionError("Supply 1-20 explicit file changes.", "invalid_changes")
     normalized = []
     seen = set()
     size = 0
     for change in changes:
-        if not isinstance(change, dict) or set(change) != {"path", "content"}:
-            raise ExecutionError("Each change requires exactly path and content.", "invalid_changes")
-        rel, content = change["path"], change["content"]
+        if not isinstance(change, dict) or set(change) not in ({"path", "content"}, {"path", "delete"}):
+            raise ExecutionError("Each resolved change requires path and content, or path and delete:true.", "invalid_changes")
+        deletion = "delete" in change
+        if deletion and change["delete"] is not True:
+            raise ExecutionError("Deletion requires delete:true without content or edits.", "invalid_changes")
+        rel, content = change["path"], change.get("content", "")
         if not isinstance(rel, str) or not isinstance(content, str) or "\x00" in rel or "\x00" in content:
             raise ExecutionError("Changes must contain text paths and text content.", "invalid_changes")
         rel = rel.replace("\\", "/")
@@ -188,7 +216,7 @@ def validate_changes(changes: Any, root: Path) -> list[dict[str, str]]:
             raise ExecutionError("Duplicate change paths are not permitted.", "invalid_changes")
         seen.add(rel.casefold())
         size += len(content.encode())
-        normalized.append({"path": rel, "content": content})
+        normalized.append({"path": rel, "delete": True} if deletion else {"path": rel, "content": content})
     if size > MAX_CHANGE_BYTES:
         raise ExecutionError("Proposal exceeds the 500 KB change limit.", "too_large")
     return normalized
@@ -233,15 +261,20 @@ def snapshot(root: Path, sha: str) -> dict[str, bytes]:
     return files
 
 
-def resolve_changes(changes: Any, root: Path, files: dict[str, bytes]) -> list[dict[str, str]]:
+def resolve_changes(changes: Any, root: Path, files: dict[str, bytes]) -> list[dict[str, Any]]:
     if not isinstance(changes, list) or not 1 <= len(changes) <= 20:
         raise ExecutionError("Supply 1-20 explicit file changes.", "invalid_changes")
     resolved = []
     for change in changes:
-        if not isinstance(change, dict) or set(change) not in ({"path", "content"}, {"path", "edits"}):
-            raise ExecutionError("Each change requires path and exactly one of content or edits.", "invalid_changes")
+        if not isinstance(change, dict) or set(change) not in ({"path", "content"}, {"path", "edits"}, {"path", "delete"}):
+            raise ExecutionError("Each change requires path and exactly one of content, edits or delete:true.", "invalid_changes")
         # Validate paths before looking up or decoding any base content.
         rel = validate_changes([{"path": change["path"], "content": ""}], root)[0]["path"]
+        if "delete" in change:
+            if change["delete"] is not True or rel not in files:
+                raise ExecutionError("Deletion requires delete:true and an existing permitted file in the frozen base.", "invalid_changes")
+            resolved.append({"path": rel, "delete": True})
+            continue
         if "content" in change:
             resolved.append({"path": rel, "content": change["content"]})
             continue
@@ -257,11 +290,30 @@ def resolve_changes(changes: Any, root: Path, files: dict[str, bytes]) -> list[d
     return validate_changes(resolved, root)
 
 
-def patch_text(before: dict[str, bytes], changes: list[dict[str, str]]) -> str:
+def changed_files(files: dict[str, bytes], changes: list[dict[str, Any]]) -> dict[str, bytes]:
+    result = dict(files)
+    for change in changes:
+        if change.get("delete") is True:
+            if change["path"] not in result:
+                raise ExecutionError("Deletion target is absent from the frozen base.", "invalid_changes")
+            del result[change["path"]]
+        else:
+            result[change["path"]] = change["content"].encode()
+    return result
+
+
+def patch_text(before: dict[str, bytes], changes: list[dict[str, Any]]) -> str:
     chunks: list[str] = []
     for change in changes:
         rel = change["path"]
-        if rel not in before and change["content"] == "":
+        deletion = change.get("delete") is True
+        if deletion and rel not in before:
+            raise ExecutionError("Deletion target is absent from the frozen base.", "invalid_changes")
+        if deletion and before[rel] == b"":
+            old_path, new_path = (json.dumps(prefix + rel, ensure_ascii=False) for prefix in ("a/", "b/"))
+            chunks.append(f"diff --git {old_path} {new_path}\ndeleted file mode 100644\n")
+            continue
+        if not deletion and rel not in before and change["content"] == "":
             old_path, new_path = (json.dumps(prefix + rel, ensure_ascii=False) for prefix in ("a/", "b/"))
             chunks.append(f"diff --git {old_path} {new_path}\nnew file mode 100644\n")
             continue
@@ -270,8 +322,8 @@ def patch_text(before: dict[str, bytes], changes: list[dict[str, str]]) -> str:
         except UnicodeDecodeError as exc:
             raise ExecutionError("Binary files cannot be changed by this text proposal.", "invalid_changes") from exc
         lines = difflib.unified_diff(
-            original.splitlines(keepends=True), change["content"].splitlines(keepends=True),
-            fromfile=f"a/{rel}" if rel in before else "/dev/null", tofile=f"b/{rel}",
+            original.splitlines(keepends=True), ("" if deletion else change["content"]).splitlines(keepends=True),
+            fromfile=f"a/{rel}" if rel in before else "/dev/null", tofile="/dev/null" if deletion else f"b/{rel}",
         )
         chunks.extend(line if line.endswith("\n") else line + "\n\\ No newline at end of file\n" for line in lines)
     return "".join(chunks)
@@ -293,11 +345,14 @@ class ContainerExecutor:
             return {"ready": False, "reason": "A Linux Docker daemon and the pinned local image are required; automatic image pulls are disabled."}
         name = "mammoth-owner-probe-" + uuid.uuid4().hex[:24]
         probe = (
-            "import importlib.util,json,os,re,shutil,subprocess,sys\n"
+            "import hashlib,importlib.util,json,os,re,shutil,subprocess,sys\n"
             "node=shutil.which('node')\n"
             "version=subprocess.run([node,'--version'],capture_output=True,text=True,timeout=3) if node else None\n"
             "match=re.match(r'^v([0-9]+)\\.',version.stdout) if version and version.returncode==0 else None\n"
-            "print(json.dumps({'python_unittest':sys.version_info>=(3,11,8),"
+            f"paths={FRONTEND_MANIFESTS!r}\n"
+            "manifests={key:hashlib.sha256(json.dumps(json.load(open(path)),sort_keys=True,separators=(',',':')).encode()).hexdigest()"
+            " for key,path in paths.items() if os.path.isfile(path)}\n"
+            "print(json.dumps({'frontend_manifests':manifests,'python_unittest':sys.version_info>=(3,11,8),"
             "'python_pytest':sys.version_info>=(3,11,8) and importlib.util.find_spec('pytest') is not None,"
             "'node_test':sys.version_info>=(3,11,8) and bool(match and int(match.group(1))>=18),"
             "'ui_build':bool(match and int(match.group(1))>=22 and os.path.isfile('/opt/mammoth-ui/validate.mjs')),"
@@ -316,9 +371,15 @@ class ContainerExecutor:
             if result.returncode:
                 return {"ready": False, "reason": "Pinned image runtime probe failed: " + result.stderr[:400]}
             profiles = json.loads(result.stdout)
+            manifests = profiles.pop("frontend_manifests", {}) if isinstance(profiles, dict) else {}
             if not isinstance(profiles, dict) or set(profiles) != set(PROFILES) or any(type(value) is not bool for value in profiles.values()):
                 return {"ready": False, "reason": "Pinned image runtime probe returned invalid profile evidence."}
+            if (not isinstance(manifests, dict) or not set(manifests) <= set(FRONTEND_MANIFESTS)
+                    or any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{64}", value)
+                           for value in manifests.values())):
+                return {"ready": False, "reason": "Pinned image runtime probe returned invalid frontend manifest evidence."}
             return {"ready": profiles["python_unittest"], "profiles": profiles, "image": self.image,
+                    "frontend_manifests": manifests,
                     "reason": "Pinned Linux image runtime checked; profile availability does not verify repository dependencies."
                     if profiles["python_unittest"] else "Pinned image requires Python 3.11.8+ for the archive launcher."}
         except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
@@ -339,6 +400,10 @@ class ContainerExecutor:
             raise ExecutionError(f"Profile {profile!r} is unavailable in the pinned image. "
                                  "Use an available profile or an operator-reviewed image containing its tools.",
                                  "profile_unavailable", 409)
+        if profile in FRONTEND_PROFILES:
+            reason = frontend_profile_reason(files, profile, readiness)
+            if reason:
+                raise ExecutionError(reason, "profile_repository_mismatch", 409)
         if not re.fullmatch(r"mammoth-owner-exec-[a-f0-9]{24}-(baseline|candidate)", container_name):
             raise ExecutionError("Invalid isolated container identity.", "invalid_execution")
         name = container_name
@@ -581,18 +646,30 @@ class OwnerExecution:
             return self.frontend_executor
         return self.executor
 
-    def capabilities(self) -> dict[str, Any]:
+    def capabilities(self, root: Path | None = None) -> dict[str, Any]:
         isolation: dict[str, Any] = ({"ready": False, "reason": self.recovery_error} if self.recovery_error else
                      self.executor.readiness() if self.enabled else {"ready": False, "reason": "Owner execution pilot is disabled."})
         frontend: dict[str, Any] = (self.frontend_executor.readiness() if self.enabled and not self.recovery_error and self.frontend_executor
                     else {"ready": False, "reason": "Frontend validation image is not configured or execution is disabled."})
         profiles = {name: bool((frontend if name in FRONTEND_PROFILES else isolation).get("profiles", {}).get(name))
                     for name in PROFILES}
-        if frontend.get("ready") and not isolation.get("ready"):
+        base_sha = head_sha(root) if root is not None else None
+        files = snapshot(root, base_sha) if root is not None and any(profiles[name] for name in FRONTEND_PROFILES) else None
+        reasons = {}
+        for name in FRONTEND_PROFILES:
+            if profiles[name]:
+                reason = frontend_profile_reason(files, name, frontend)
+                if reason:
+                    profiles[name] = False
+                    reasons[name] = reason
+        frontend = {**frontend, "profiles": {name: profiles[name] for name in FRONTEND_PROFILES},
+                    "profile_reasons": reasons}
+        if frontend.get("ready") and any(profiles[name] for name in FRONTEND_PROFILES) and not isolation.get("ready"):
             isolation = {**isolation, "ready": True,
                          "reason": "Frontend image is ready. Standard profiles unavailable: " + isolation["reason"]}
-        isolation = {**isolation, "profiles": profiles}
+        isolation = {**isolation, "profiles": profiles, "profile_reasons": reasons}
         return {"contract": CONTRACT, "enabled": self.enabled,
+                 **({"base_sha": base_sha} if base_sha is not None else {}),
                 "profiles": list(PROFILES), "limits": {"timeout_s": self.executor.timeout, "memory_mb": 256,
                     "snapshot_bytes": MAX_BYTES, "files": MAX_FILES, "change_bytes": MAX_CHANGE_BYTES, "patch_bytes": MAX_PATCH_BYTES},
                 "isolation": isolation, "frontend_isolation": frontend,
@@ -707,6 +784,11 @@ class OwnerExecution:
             raise ExecutionError("Repository HEAD changed. Prepare a new proposal.", "stale_base", 409)
         files = snapshot(root, base_sha)
         normalized = resolve_changes(changes, root, files)
+        if profile in FRONTEND_PROFILES:
+            for content in (files, changed_files(files, normalized)):
+                reason = frontend_profile_reason(content, profile, readiness)
+                if reason:
+                    raise ExecutionError(reason, "profile_repository_mismatch", 409)
         acceptance = acceptance_contract(acceptance, normalized, files, profile)
         patch = patch_text(files, normalized)
         if not patch:
@@ -798,14 +880,16 @@ class OwnerExecution:
                     raise ExecutionError("Unsafe worktree path.", "invalid_path")
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(data)
-            candidate = dict(files)
+            candidate = changed_files(files, record["changes"])
             for change in record["changes"]:
                 target = safe_repo_path(worktree, change["path"])
                 if target is None:
                     raise ExecutionError("Unsafe proposal path.", "invalid_path")
-                target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(change["content"], encoding="utf-8", newline="")
-                candidate[change["path"]] = change["content"].encode()
+                if change.get("delete") is True:
+                    target.unlink()
+                else:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(change["content"], encoding="utf-8", newline="")
             if sum(map(len, candidate.values())) > MAX_BYTES or len(candidate) > MAX_FILES:
                 raise ExecutionError("Candidate exceeds snapshot limits.", "too_large")
             record["baseline"] = self._executor(record["profile"]).run(files, record["profile"], cancelled, container_name=f"mammoth-owner-{job_id}-baseline")
