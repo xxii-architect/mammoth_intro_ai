@@ -99,6 +99,15 @@ async def atlas_learning_history_preview():
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/atlas/learner/privacy-review")
+async def atlas_learner_privacy_review():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    return JSONResponse(_learner_privacy_review(_load_learning_export_state()),
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.delete("/api/atlas/history")
 async def atlas_delete_learning_history(body: Dict[str, Any]):
     blocked = _require_signed_in_api()

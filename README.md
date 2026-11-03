@@ -54,6 +54,15 @@ and evaluation probes use temporary storage. Saved private adaptation is now
 exported; standalone model deletion and reviewed legacy ownership recovery remain
 open. Exporting is not erasure.
 
+Learning privacy also offers **Review private adaptation deletion scope**.
+The authenticated, no-store `/api/atlas/learner/privacy-review` endpoint reports
+saved field names and record counts for the active account, or explicit
+`not_saved`. It returns no lesson/model content and creates no default model.
+This is a read-only review, not a deletion preview authorizing execution:
+`deletion_available` is false until standalone stale-write protection exists.
+No cancellation, deletion or receipt occurs; legacy models, other accounts and
+external copies remain outside scope. Counts are not mastery verification.
+
 ATLAS reading preferences (text size, spacing, focused mode) survive same-tab
 page navigation and clear on signed-in account changes; they do not persist
 through refresh. Headings, code and tables scale with text size. Read/Practice

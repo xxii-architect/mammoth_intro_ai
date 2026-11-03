@@ -69,7 +69,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
         <label>Focus areas<input name="focus_areas" value={draft.focus_areas} onChange={update} placeholder="Topics to emphasize, separated by commas" /></label>
         <div><button disabled={busy} type="submit">{busy ? 'Saving profile...' : 'Save learning profile'}</button> <button type="button" disabled={busy} onClick={toggle}>Not now</button></div>
       </form>}
-      {open && <LearningPrivacy setPage={setPage} onDeleted={onDeleted} />}
+      {open && <LearningPrivacy key={`${state.learner_storage?.scope_key || ''}:${state.active_account_id || 'default'}`} setPage={setPage} onDeleted={onDeleted} />}
       {notice && <p role="status">{notice}</p>}
       {error && <p role="alert">{error}</p>}
     </section>

@@ -10,6 +10,7 @@ export default function LearningPrivacy({ setPage, onDeleted }) {
   const [limit, setLimit] = useState('')
   const [preview, setPreview] = useState(null)
   const [confirmation, setConfirmation] = useState('')
+  const [adaptationReview, setAdaptationReview] = useState(null)
 
   const action = async handler => {
     if (busy) return
@@ -56,6 +57,36 @@ export default function LearningPrivacy({ setPage, onDeleted }) {
       {notice && <p role="status">{notice}</p>}
       <p>Current retained windows: 80 lesson-history records, 120 study-aid records, 60 messages per tutor/assistant history, and one current recovery draft. These are count limits, not automatic age-based deletion. Previously trimmed records cannot be recovered by export.</p>
       <p>New learner adaptation is stored separately for each signed-in user and learning account. Legacy shared models are left untouched and are not automatically imported. Saved-learning export includes the current private model's supported fields without generating or trimming saved history. Standalone adaptation is still outside saved-learning deletion; exporting it does not erase it.</p>
+      <button type="button" disabled={busy} onClick={() => action(async () => {
+        setAdaptationReview(null)
+        const result = await api('/atlas/learner/privacy-review')
+        if (result?.contract !== 'mammoth.learner-privacy-review.v1' || result.review_only !== true ||
+            result.deletion_available !== false || !Array.isArray(result.saved_fields) ||
+            !Array.isArray(result.retained_outside_scope) ||
+            typeof result.account_id !== 'string' || !result.account_id ||
+            [...result.saved_fields, ...result.retained_outside_scope].some(field => typeof field !== 'string') ||
+            !['saved', 'not_saved'].includes(result.model_status)) {
+          throw new Error('The server did not confirm a read-only adaptation review.')
+        }
+        const counts = result.saved_record_counts
+        if ((result.model_status === 'not_saved' && (counts !== null || result.saved_fields.length !== 0)) ||
+            (result.model_status === 'saved' && (!counts || [
+          'mastery_concepts', 'confidence_concepts', 'error_patterns',
+          'retained_outcomes', 'memory_nodes', 'memory_edges',
+        ].some(key => !Number.isInteger(counts[key]) || counts[key] < 0)))) {
+          throw new Error('The server did not confirm saved adaptation counts.')
+        }
+        setAdaptationReview(result)
+      })}>Review private adaptation deletion scope</button>
+      {adaptationReview && <section aria-label="Private adaptation scope review">
+        <p>Account: {adaptationReview.account_id}. {adaptationReview.model_status === 'saved' ? 'A private adaptation record is saved.' : 'No private adaptation record is saved; no default was created.'}</p>
+        {adaptationReview.model_status === 'saved' && <>
+          <p>Saved fields: {adaptationReview.saved_fields.map(field => field.replaceAll('_', ' ')).join(', ')}.</p>
+          <p>{adaptationReview.saved_record_counts.mastery_concepts} mastery concepts; {adaptationReview.saved_record_counts.confidence_concepts} confidence concepts; {adaptationReview.saved_record_counts.error_patterns} error patterns; {adaptationReview.saved_record_counts.retained_outcomes} retained outcomes; {adaptationReview.saved_record_counts.memory_nodes} memory nodes; {adaptationReview.saved_record_counts.memory_edges} memory edges. Counts describe saved records, not verified understanding.</p>
+        </>}
+        <p>Review only. No data was deleted and no deletion receipt was issued. Private-model deletion is not enabled until stale-write protection is implemented. Use Export saved learning JSON to keep a copy.</p>
+        <p>Outside this review: {adaptationReview.retained_outside_scope.map(field => field.replaceAll('_', ' ')).join(', ')}. This list is not a future erasure promise. Legacy ownership is unverified; no legacy model was imported. This is not a full account inventory or an atomic snapshot of concurrent edits.</p>
+      </section>}
       <p>Model costs vary with provider, tokens, tools and retries; a reliable per-request price estimate is unavailable. Reading, restoring, exporting, and source-derived card previews make no model calls. Ask tutor, lesson/course generation and agent runs can use credits. A failed or interrupted request may already have incurred charges; do not retry automatically.</p>
       <button type="button" disabled={busy} onClick={() => action(loadControls)}>Refresh learning request controls</button>
       {controls && <section aria-label="Learning request controls">

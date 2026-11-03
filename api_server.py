@@ -4573,6 +4573,50 @@ def _learner_storage_action(action, scope_user_id: str, *args, **kwargs):
         raise HTTPException(status_code=503, detail="Private learner adaptation is unavailable. No reset or save was confirmed; retry explicitly.") from exc
 
 
+def _learner_privacy_review(state: Dict[str, Any]) -> Dict[str, Any]:
+    from mammoth_os.learner_model import read_saved_learner_model
+
+    learner_id = _atlas_user_id(state)
+    model = _learner_storage_action(read_saved_learner_model, learner_id, learner_id)
+    counts = None
+    if model is not None:
+        graph = model.get("memory_graph") or {}
+        try:
+            nodes, edges = graph.get("nodes", []), graph.get("edges", [])
+            if not isinstance(nodes, list) or not isinstance(edges, list):
+                raise ValueError("Invalid memory graph collections.")
+            counts = {
+                "mastery_concepts": len(model.get("mastery") or {}),
+                "confidence_concepts": len(model.get("confidence") or {}),
+                "error_patterns": len(model.get("error_patterns") or {}),
+                "retained_outcomes": len(model.get("recent_outcomes") or []),
+                "memory_nodes": len(nodes), "memory_edges": len(edges),
+            }
+        except (ValueError, TypeError, AttributeError) as exc:
+            logger.exception("Private learner adaptation review failed")
+            raise HTTPException(status_code=503, detail="Private learner adaptation could not be reviewed. No data was deleted.") from exc
+    return {
+        "contract": "mammoth.learner-privacy-review.v1",
+        "account_id": _active_account_id(state),
+        "model_status": "saved" if model is not None else "not_saved",
+        "saved_fields": sorted(model) if model is not None else [],
+        "saved_record_counts": counts,
+        "storage_scope": _learner_storage_scope(learner_id),
+        "deletion_available": False,
+        "deletion_blockers": ["standalone_model_stale_write_protection_not_implemented"],
+        "review_only": True, "model_calls": 0,
+        "not_a_transactional_snapshot": True,
+        "scope": "active_account_private_learner_adaptation",
+        "retained_outside_scope": [
+            "lesson_session_and_recovery", "linked_notes", "uploaded_files",
+            "curriculum_library", "other_accounts", "unverified_legacy_models",
+            "unknown_learner_extension_fields", "lesson_telemetry",
+            "mammoth_mind_threads", "artifacts", "plans", "audit_logs",
+            "usage_records", "provider_records", "backups", "other_tabs_and_downloads",
+        ],
+    }
+
+
 def _build_workspace_accounts_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
     _ensure_account_collections(state)
     accounts = state.get("accounts") if isinstance(state.get("accounts"), dict) else {}
