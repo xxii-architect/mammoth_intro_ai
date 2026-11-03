@@ -40,8 +40,6 @@ jobs:
   ui-interactions:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      MAMMOTH_BROWSER_REPORT_DIR: ${{ runner.temp }}/workspace-browser
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,6 +67,8 @@ jobs:
         run: npm run test:workspace-gate
 
       - name: Verify workspace browser interactions
+        env:
+          MAMMOTH_BROWSER_REPORT_DIR: ${{ runner.temp }}/workspace-browser
         run: npm run test:workspace
 
       - name: Upload browser evidence
