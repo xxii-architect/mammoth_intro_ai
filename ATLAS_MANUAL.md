@@ -153,8 +153,9 @@ permissions and duplicate-safe lecture commands remain planned.
 
 ### Learning export, privacy and spending
 
-Open **Learning profile** in the desktop workspace header (or **Edit learning profile**,
-including on mobile where the header avoids a duplicate control),
+Open **Learning profile** in the desktop workspace header (or **Edit learning profile**
+in the mobile profile strip). Each layout has one profile toggle, not a duplicate
+desktop strip control,
 then **Learning privacy & costs**. Closing the profile retains unsaved edits while
 the workspace stays mounted; it does not save them. **Not now** collapses the form,
 and successful saving collapses it while retaining the confirmation. Existing

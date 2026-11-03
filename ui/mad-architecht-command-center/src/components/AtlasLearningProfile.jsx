@@ -49,7 +49,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
     <section aria-label="Learning profile" className="atlas-learning-profile">
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'space-between' }}>
         <strong>{compact ? 'Learning profile' : profile?.completed_at ? 'Your learning profile' : 'Set up your learning experience'}</strong>
-        <button type="button" aria-label={open ? 'Close profile' : 'Edit learning profile'} aria-expanded={open} onClick={toggle}>{open ? 'Close profile' : compact && !profile?.completed_at ? 'Set up profile' : 'Edit learning profile'}</button>
+        {(!controlled || compact) && <button type="button" aria-label={open ? 'Close profile' : 'Edit learning profile'} aria-expanded={open} onClick={toggle}>{open ? 'Close profile' : compact && !profile?.completed_at ? 'Set up profile' : 'Edit learning profile'}</button>}
       </div>
       {(open || notice) && <>
         <p>Starting level: {state.learner_context?.starting_level || 'beginner'} · Current recommendation: {state.learner_context?.recommended_difficulty || 'beginner'}</p>
