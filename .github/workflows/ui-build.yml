@@ -3,15 +3,8 @@ name: UI Build
 on:
   push:
     branches: [main]
-    paths:
-      - 'ui/mad-architecht-command-center/**'
-      - 'packages/mammoth-paths/**'
-      - '.github/workflows/ui-build.yml'
   pull_request:
-    paths:
-      - 'ui/mad-architecht-command-center/**'
-      - 'packages/mammoth-paths/**'
-      - '.github/workflows/ui-build.yml'
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -43,3 +36,46 @@ jobs:
 
       - name: Check workspace SDK public types
         run: npx --no-install tsc -p ../../packages/mammoth-paths/typecheck/tsconfig.json
+
+  ui-interactions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MAMMOTH_BROWSER_REPORT_DIR: ${{ runner.temp }}/workspace-browser
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/mad-architecht-command-center/package-lock.json
+
+      - name: Install locked browser test dependencies
+        run: npm ci
+
+      - name: Install locked UI dependencies
+        working-directory: ui/mad-architecht-command-center
+        run: npm ci
+
+      - name: Install Chromium and Linux browser dependencies
+        run: npx --no-install playwright install --with-deps chromium
+
+      - name: Test fail-closed browser reporter
+        run: npm run test:workspace-gate
+
+      - name: Verify workspace browser interactions
+        run: npm run test:workspace
+
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-browser-evidence
+          path: ${{ runner.temp }}/workspace-browser
+          if-no-files-found: warn
+          retention-days: 7

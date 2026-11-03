@@ -689,6 +689,38 @@ The `AtlasFAB*` names are permanent aliases for `MammothMind*` (same classes), a
 
 ## Mammoth Paths workspace SDK
 
+### Browser release gate
+
+The UI workflow runs build/type checks and a separate `ui-interactions` job on
+every PR targeting `main` and every push to `main`, including test-only changes.
+The browser job installs locked root/UI dependencies and Chromium, starts its own
+fixture-configured Vite server, and runs all four workspace suites: ATLAS,
+artifacts, document uploads and workspace reliability. It fails on focused tests,
+missing/empty suites, skipped tests, expected failures, retries or failed tests;
+it cannot substitute a successful build for behavior coverage.
+
+```powershell
+# From the repository root, after dependencies are installed:
+npm run test:workspace-gate
+npm run test:workspace
+```
+
+For a fresh checkout, use `npm ci` at the root and in
+`ui\mad-architecht-command-center`, then
+`npx --no-install playwright install chromium` (Linux CI also uses `--with-deps`).
+Unset `ATLAS_UI_URL`: the release gate refuses an external server. Set
+`MAMMOTH_BROWSER_REPORT_DIR` to choose a local report directory; otherwise reports
+go to a process-specific OS temp folder. CI uploads JSON, HTML, and retained
+failure screenshots/traces for seven days, including after test failures.
+Reports can contain rendered fixture content and network details; review before
+sharing. This checks real Chromium interactions against mocked API/auth responses,
+not production auth, paid providers, deployment proxies, other browsers or
+independent acceptance. No model calls are required.
+
+Repository branch protection must separately require the `ui-interactions`
+check if merges must be blocked by it; a workflow alone cannot configure that
+repository setting. Existing build/type and SDK checks remain separate evidence.
+
 ### Agent Workspace payload parity
 
 Python and JavaScript now expose matching `surface`, `task`, `history`, and

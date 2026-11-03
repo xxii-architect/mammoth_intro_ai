@@ -8,7 +8,9 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "test:workspace-gate": "node --test tests/workspace-browser-reporter.test.cjs",
+    "test:workspace": "playwright test --config tests/workspace-ci.playwright.config.js"
   },
   "repository": {
     "type": "git",
