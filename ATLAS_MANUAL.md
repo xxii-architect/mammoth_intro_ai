@@ -1007,8 +1007,47 @@ React trust-row rendering checks. They require a separate reviewed
 `MAMMOTH_OWNER_UI_IMAGE`, with locked dependencies baked in, 768 MB memory and
 120 seconds per phase. Dependency changes require an image rebuild; runtime
 stays offline. Component rendering does not prove browser interactions or
-general acceptance. Full isolated browser interaction remains deferred rather
-than disabling Chromium's sandbox or granting extra container privileges.
+general acceptance.
+
+The additive `ui_browser` profile first builds production assets, then runs the
+four workspace browser suites (ATLAS, artifacts, uploads, reliability) using
+locked Playwright and Chromium dependencies baked into the reviewed frontend
+image. The configuration is image-owned, uses one worker, forbids focused tests,
+and rejects empty, skipped, flaky or failing results.
+Stable hashed test identities also retain baseline regression evidence; removing
+a previously passing test blocks branch application even if the remaining suite passes.
+It does not run arbitrary
+test commands or download dependencies during validation. The outer Docker
+boundary remains offline, non-root, read-only, capability-dropped and
+no-new-privileges, without host execution or a Docker socket. Chromium uses
+Playwright's container-compatible non-sandboxed mode **inside this boundary**;
+this is not an additional browser sandbox or a hostile-code VM. Browser-only
+limits are 1024 MB memory, 256 MB each for work/tmp storage, a 64 MB per-file limit
+for Chromium shared-memory files, 256 PIDs and 600 seconds per phase. Existing
+profiles retain their limits. No extra container privileges are granted.
+
+UI JSX/TSX/CSS changes conservatively require an `acceptance` object containing
+nonempty `expected_behavior` and `regression_tests` arrays, plus an edit to a
+declared test file in that suite. Examples of outcomes: closing without saving,
+successful-save dismissal, retained drafts, keyboard access, mobile fit and
+account switches. This is a reviewed test requirement, not proof that generated
+tests are sufficient or honest; never weaken tests to make a proposal pass.
+`ui_browser` is preferred when available. A build-only proposal can still be
+separately approved, but its browser behavior remains explicitly `not_tested`.
+
+API evidence, approval cards and run handoffs separately expose build
+`passed|failed|not_tested` and behavior `verified|failed|not_tested`. A failing
+browser suite can retain a passed build result. "Verified" means the recorded
+workspace browser tests passed, not independent acceptance or certification.
+Existing records without new evidence default to `not_tested`.
+
+Operators must rebuild and pin the reviewed frontend image before `ui_browser`
+becomes available; existing images report it unavailable, never fall back to
+host execution. The image now includes root test manifests as well as UI
+manifests, so either dependency change requires review/rebuild. The browser
+configuration serves baked Monaco assets through local Vite using
+`VITE_MONACO_BASE_URL`; production's default loader behavior is unchanged when
+this variable is unset. Deployments may set it to their own hosted `vs` directory.
 
 Preparation accepts full `{path, content}` changes or small
 `{path, edits: [{old, new}]}` changes, resolved against committed base bytes.

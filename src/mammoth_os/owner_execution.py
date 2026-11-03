@@ -37,8 +37,13 @@ PROFILES = {
     "node_test": ["node", "--test"],
     "ui_build": ["node", "/opt/mammoth-ui/validate.mjs", "build"],
     "ui_component": ["node", "/opt/mammoth-ui/validate.mjs", "component"],
+    "ui_browser": ["node", "/opt/mammoth-ui/validate.mjs", "browser"],
 }
-FRONTEND_PROFILES = {"ui_build", "ui_component"}
+FRONTEND_PROFILES = {"ui_build", "ui_component", "ui_browser"}
+BROWSER_TESTS = {
+    "tests/atlas-workspace.spec.js", "tests/artifact-library.spec.js",
+    "tests/document-uploads.spec.js", "tests/workspace-reliability.spec.js",
+}
 MAX_BYTES = 32 * 1024 * 1024
 MAX_FILES = 3000
 MAX_CHANGE_BYTES = 500_000
@@ -47,6 +52,49 @@ LOG_BYTES = 16_000
 APPROVAL_TTL = 900
 JOB_RE = re.compile(r"^exec-[a-f0-9]{24}$")
 IMAGE_RE = re.compile(r"^(?:[a-zA-Z0-9./:_-]+@)?sha256:[a-f0-9]{64}$")
+
+
+def validation_evidence(record: dict[str, Any]) -> dict[str, Any]:
+    candidate = record.get("candidate", {})
+    profile = record.get("profile")
+    passed = candidate.get("passed") is True
+    build_passed = candidate.get("build_passed", passed)
+    return {
+        "build": "passed" if build_passed and profile in {"ui_build", "ui_browser"} else
+                 "failed" if candidate and profile in {"ui_build", "ui_browser"} else "not_tested",
+        "behavior": "verified" if passed and profile == "ui_browser" else
+                    "failed" if candidate and profile == "ui_browser" else "not_tested",
+        "scope": "Declared regression tests within the workspace browser suite; not independent acceptance review."
+                 if profile == "ui_browser" else "Selected profile only; browser interactions not tested.",
+        "expected_behavior": record.get("acceptance", {}).get("expected_behavior", []),
+        "regression_tests": record.get("acceptance", {}).get("regression_tests", []),
+    }
+
+
+def acceptance_contract(value: Any, changes: list[dict[str, Any]], files: dict[str, bytes],
+                        profile: str) -> dict[str, Any]:
+    interaction = any(change["path"].startswith("ui/") and change["path"].endswith((".jsx", ".tsx", ".css"))
+                      for change in changes)
+    if value is None and not interaction and profile != "ui_browser":
+        return {}
+    if (not isinstance(value, dict) or set(value) != {"expected_behavior", "regression_tests"}
+            or any(not isinstance(value.get(key), list) or not 1 <= len(value[key]) <= 12
+                   for key in ("expected_behavior", "regression_tests"))):
+        raise ExecutionError("UI changes require acceptance.expected_behavior and acceptance.regression_tests lists.",
+                             "acceptance_required")
+    if any(not isinstance(text, str) or not text.strip() or len(text) > 1000
+           for text in value["expected_behavior"]):
+        raise ExecutionError("Expected behavior must contain bounded, nonempty descriptions.", "invalid_acceptance")
+    candidate = {**files, **{change["path"]: change["content"].encode() for change in changes}}
+    if any(not isinstance(path, str) or path not in BROWSER_TESTS or path not in candidate
+           for path in value["regression_tests"]):
+        raise ExecutionError("Name existing regression test files covered by the workspace browser profile.",
+                             "invalid_acceptance")
+    if interaction and not any(change["path"] in value["regression_tests"] for change in changes):
+        raise ExecutionError("UI interaction changes must include a regression-test edit in the declared test files.",
+                             "regression_test_required")
+    return {"expected_behavior": [text.strip() for text in value["expected_behavior"]],
+            "regression_tests": list(dict.fromkeys(value["regression_tests"]))}
 
 
 class ExecutionError(Exception):
@@ -253,7 +301,8 @@ class ContainerExecutor:
             "'python_pytest':sys.version_info>=(3,11,8) and importlib.util.find_spec('pytest') is not None,"
             "'node_test':sys.version_info>=(3,11,8) and bool(match and int(match.group(1))>=18),"
             "'ui_build':bool(match and int(match.group(1))>=22 and os.path.isfile('/opt/mammoth-ui/validate.mjs')),"
-            "'ui_component':bool(match and int(match.group(1))>=22 and os.path.isfile('/opt/mammoth-ui/validate.mjs'))}))"
+            "'ui_component':bool(match and int(match.group(1))>=22 and os.path.isfile('/opt/mammoth-ui/validate.mjs')),"
+            "'ui_browser':bool(match and int(match.group(1))>=22 and os.path.isfile('/opt/mammoth-ui/browser-ready'))}))"
         )
         try:
             result = subprocess.run(
@@ -294,7 +343,9 @@ class ContainerExecutor:
             raise ExecutionError("Invalid isolated container identity.", "invalid_execution")
         name = container_name
         frontend = profile in FRONTEND_PROFILES
-        memory, work_mb, tmp_mb, pids = (768, 128, 128, 192) if frontend else (256, 64, 16, 64)
+        timeout = max(self.timeout, 600) if profile == "ui_browser" else self.timeout
+        memory, work_mb, tmp_mb, pids = ((1024, 256, 256, 256) if profile == "ui_browser" else
+                                       (768, 128, 128, 192) if frontend else (256, 64, 16, 64))
         started = time.monotonic()
         # The only host mount is read-only. Test code writes exclusively to bounded tmpfs.
         with tempfile.TemporaryDirectory(prefix="mammoth-exec-input-") as folder:
@@ -317,7 +368,7 @@ class ContainerExecutor:
                 "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
                 "--user=65534:65534", f"--pids-limit={pids}", f"--memory={memory}m", f"--memory-swap={memory}m",
                 "--cpus=1", "--ulimit=nofile=1024:1024" if frontend else "--ulimit=nofile=256:256",
-                "--ulimit=fsize=16777216:16777216",
+                "--ulimit=fsize=67108864:67108864" if profile == "ui_browser" else "--ulimit=fsize=16777216:16777216",
                 "--log-driver=none", f"--tmpfs=/work:rw,nosuid,nodev,size={work_mb}m,mode=1777",
                 f"--tmpfs=/tmp:rw,noexec,nosuid,nodev,size={tmp_mb}m,mode=1777",
                 "--mount", f"type=bind,source={archive},target=/input/source.tar,readonly",
@@ -347,7 +398,7 @@ class ContainerExecutor:
                     if cancelled.is_set():
                         reason = "cancelled"
                         break
-                    if time.monotonic() - started >= self.timeout:
+                    if time.monotonic() - started >= timeout:
                         reason = "timeout"
                         break
                     time.sleep(0.05)
@@ -377,9 +428,25 @@ class ContainerExecutor:
                 collected = "MAMMOTH_UI_COMPONENT_PASSED:" in log
             if profile == "ui_build":
                 collected = "MAMMOTH_UI_BUILD_PASSED" in log
+            if profile == "ui_browser":
+                collected = "MAMMOTH_UI_BROWSER_PASSED" in log and "MAMMOTH_UI_BUILD_PASSED" in log
             passed = proc.returncode == 0 and collected and not reason and not cleanup_error
             test_results = dict(re.findall(r"^test\S+ \(([^)\r\n]+)\) \.\.\. (ok|FAIL|ERROR|skipped[^\r\n]*)$", log, re.MULTILINE))
+            if profile == "ui_browser":
+                markers = re.findall(r"^MAMMOTH_UI_BROWSER_TEST_RESULTS:(\{[^\r\n]*\})$", log, re.MULTILINE)
+                if markers:
+                    try:
+                        test_results = json.loads(markers[-1])
+                    except json.JSONDecodeError as exc:
+                        raise ExecutionError("Browser result identity evidence is invalid.", "invalid_evidence") from exc
+                    if (not isinstance(test_results, dict)
+                            or any(not re.fullmatch(r"[a-f0-9]{24}", key) or value not in {"ok", "FAIL"}
+                                   for key, value in test_results.items())):
+                        raise ExecutionError("Browser result identity evidence is invalid.", "invalid_evidence")
+                if not test_results:
+                    passed = False
             return {"passed": passed, "returncode": proc.returncode, "log": log,
+                    "build_passed": "MAMMOTH_UI_BUILD_PASSED" in log if frontend else False,
                     "test_results": test_results,
                     "log_truncated": truncated.is_set(), "tests_detected": collected,
                     "failure_code": reason or ("cleanup_failed" if cleanup_error else "" if passed else "checks_failed"),
@@ -503,7 +570,9 @@ class OwnerExecution:
 
     @staticmethod
     def public(record: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in record.items() if key not in {"root", "changes", "snapshot_digest", "worktree"}}
+        return {**{key: value for key, value in record.items()
+                   if key not in {"root", "changes", "snapshot_digest", "worktree"}},
+                "validation_evidence": validation_evidence(record)}
 
     def _executor(self, profile: str) -> ContainerExecutor:
         if profile in FRONTEND_PROFILES:
@@ -529,6 +598,9 @@ class OwnerExecution:
                 "isolation": isolation, "frontend_isolation": frontend,
                 "frontend_limits": {"memory_mb": 768, "work_mb": 128, "tmp_mb": 128, "pids": 192,
                                     "timeout_s": self.frontend_executor.timeout if self.frontend_executor else 120},
+                "browser_limits": {"memory_mb": 1024, "work_mb": 256, "tmp_mb": 256, "pids": 256,
+                                   "file_bytes": 64 * 1024 * 1024,
+                                   "timeout_s": max(self.frontend_executor.timeout, 600) if self.frontend_executor else 600},
                 "approved_application": "new_local_branch", "automatic_merge": False,
                 "automatic_push": False, "benchmark_gated_autonomy": False}
 
@@ -570,8 +642,10 @@ class OwnerExecution:
                         or approval_digest != application.get("approval_digest")
                         or approval_digest != self._application_digest(record)):
                     raise ExecutionError("Application approval is expired, mismatched, unavailable, or already used.", "stale_application", 409)
-                if record["approval_digest"] != fingerprint({key: record[key] for key in
-                        ("repo", "base_sha", "profile", "changes", "image", "snapshot_digest")}):
+                digest_keys: tuple[str, ...] = ("repo", "base_sha", "profile", "changes", "image", "snapshot_digest")
+                if "acceptance" in record:
+                    digest_keys += ("acceptance",)
+                if record["approval_digest"] != fingerprint({key: record[key] for key in digest_keys}):
                     raise ExecutionError("Validated proposal changed.", "stale_application", 409)
                 if head_sha(root) != record["base_sha"]:
                     raise ExecutionError("Repository HEAD changed. Validate and approve a new proposal.", "stale_base", 409)
@@ -614,7 +688,8 @@ class OwnerExecution:
             finally:
                 lease.close()
 
-    def prepare(self, root: Path, repo_ref: str, user_id: str, changes: Any, *, base_sha: str, profile: str) -> dict[str, Any]:
+    def prepare(self, root: Path, repo_ref: str, user_id: str, changes: Any, *, base_sha: str, profile: str,
+                acceptance: Any = None) -> dict[str, Any]:
         if not self.enabled:
             raise ExecutionError("Owner execution pilot is disabled.", "execution_disabled", 503)
         if self.recovery_error:
@@ -632,6 +707,7 @@ class OwnerExecution:
             raise ExecutionError("Repository HEAD changed. Prepare a new proposal.", "stale_base", 409)
         files = snapshot(root, base_sha)
         normalized = resolve_changes(changes, root, files)
+        acceptance = acceptance_contract(acceptance, normalized, files, profile)
         patch = patch_text(files, normalized)
         if not patch:
             raise ExecutionError("Proposal makes no changes.", "empty_patch")
@@ -640,11 +716,11 @@ class OwnerExecution:
         record = {
             "contract": CONTRACT, "id": "exec-" + uuid.uuid4().hex[:24], "owner_id": user_id,
             "root": str(root), "repo": repo_ref, "base_sha": base_sha, "profile": profile,
-            "changes": normalized, "patch": patch, "snapshot_digest": fingerprint({k: hashlib.sha256(v).hexdigest() for k, v in files.items()}),
+            "changes": normalized, "acceptance": acceptance, "patch": patch, "snapshot_digest": fingerprint({k: hashlib.sha256(v).hexdigest() for k, v in files.items()}),
             "image": executor.image, "status": "pending_approval", "created_at": stamp(),
             "expires_at": time.time() + APPROVAL_TTL,
         }
-        record["approval_digest"] = fingerprint({key: record[key] for key in ("repo", "base_sha", "profile", "changes", "image", "snapshot_digest")})
+        record["approval_digest"] = fingerprint({key: record[key] for key in ("repo", "base_sha", "profile", "changes", "acceptance", "image", "snapshot_digest")})
         with self.lock:
             self._save(record)
         return self.public(record)

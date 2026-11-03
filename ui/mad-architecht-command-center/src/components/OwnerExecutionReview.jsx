@@ -68,6 +68,10 @@ export default function OwnerExecutionReview({ approval, onReady }) {
     {job && <>
       <p>Approval window closes at {formatTime(permission.expires_at)}.</p>
       <p>Repository: {job.repo}. Base: <code>{job.base_sha}</code></p>
+      <p>Build: {job.validation_evidence?.build || 'not_tested'}. Behavior: {job.validation_evidence?.behavior || 'not_tested'}.</p>
+      <p>{job.validation_evidence?.scope || 'Selected profile only; browser interactions not tested.'}</p>
+      {job.acceptance?.expected_behavior?.length > 0 && <ul>{job.acceptance.expected_behavior.map((value, index) => <li key={index}>{value}</li>)}</ul>}
+      {job.acceptance?.regression_tests?.length > 0 && <p>Declared regression tests: {job.acceptance.regression_tests.join(', ')}</p>}
       {approval.tool === 'owner_execution_apply'
         ? <p>Approve a commit on new local branch <code>{job.application.branch}</code>. Your selected checkout, remote and production deployment stay unchanged. No push or merge.</p>
         : <p>Approve isolated baseline/candidate checks only. This does not apply changes.</p>}

@@ -86,6 +86,7 @@ class AgentRun:
                 executions[job["id"]] = {key: job.get(key) for key in
                                         ("id", "status", "base_sha", "profile", "application")}
                 executions[job["id"]]["checks"] = job.get("checks") or {}
+                executions[job["id"]]["validation_evidence"] = job.get("validation_evidence") or {}
                 executions[job["id"]]["failure_excerpts"] = job.get("failure_excerpts") or {}
             if result.get("status") != "ok":
                 if result.get("status") in {"error", "rejected"}:
@@ -492,6 +493,12 @@ class AgentRunner:
                 "zero/low/high scores, not general behavior or browser interactions. Both require the separate locked "
                 "frontend image. Generic unittest/pytest/node_test profiles do not compile JSX or validate Actions YAML. "
                 "An unrelated passing test is not acceptance evidence. "
+                "UI JSX/TSX/CSS edits require acceptance.expected_behavior (explicit observable outcomes) and "
+                "acceptance.regression_tests (workspace browser test paths); include an actual regression-test edit. "
+                "Read the relevant existing tests before changing them; test dismissal, saving, draft preservation, "
+                "keyboard access, mobile geometry and account switches where applicable. Never weaken tests to "
+                "make a candidate pass. Prefer ui_browser when available: it builds and runs the workspace browser "
+                "suite offline. If unavailable, report behavior as not_tested; a build cannot prove interactions. "
                 "An unsupported_snapshot error names the blocking source path; do not remove or bypass source symlinks "
                 "or submodules to force validation. A file-not-readable result can mean a proposed file does not exist "
                 "yet; preparing a new file does not require reading it first. "
@@ -829,11 +836,14 @@ class AgentRunner:
                                if (item.get("application") or {}).get("status") == "applied")
                     application = job["application"]
                     checks = job.get("checks") or {}
+                    evidence = job.get("validation_evidence") or {}
                     run.reply = (
                         f"Applied validated changes to a new local branch.\n\n"
                         f"- Execution: `{job['id']}`\n- Profile: `{job['profile']}`\n"
                         f"- Baseline passed: {checks.get('baseline', {}).get('passed') is True}\n"
                         f"- Candidate passed: {checks.get('candidate', {}).get('passed') is True}\n"
+                        f"- Build: {evidence.get('build', 'not_tested')}\n"
+                        f"- Behavior: {evidence.get('behavior', 'not_tested')}\n"
                         f"- Branch: `{application['branch']}`\n- Commit: `{application['commit_sha']}`\n\n"
                         "The selected checkout is unchanged. Nothing was pushed, merged or deployed. "
                         "Passing this profile is not independent acceptance verification."

@@ -729,14 +729,39 @@ test('owner panel submits frozen approval and renders unapplied check evidence o
     },
   }, { repo: 'owner/repo' })
   await page.getByText('Owner isolated validation pilot').click()
-  await page.getByRole('textbox').fill('[{"path":"app.py","edits":[{"old":"return 0","new":"return 1"}]}]')
+  await page.getByRole('textbox', { name: /^Proposal changes/ }).fill('[{"path":"app.py","edits":[{"old":"return 0","new":"return 1"}]}]')
   await page.getByRole('button', { name: 'Prepare proposal' }).click()
   await page.getByRole('button', { name: 'Approve isolated baseline and candidate checks' }).click()
   await expect(page.getByText('validated', { exact: true })).toBeVisible()
   await expect(page.getByText(/Passing a profile is not review approval/)).toBeVisible()
   await expect(page.getByText('candidate: profile passed (10 ms)')).toBeVisible()
+  await expect(page.getByText('Build: not_tested. Behavior: not_tested.')).toBeVisible()
   expect(approval).toEqual({ repo_context: { root: 'owner/repo' }, approval_digest: ownerJob.approval_digest })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('browser proposal keeps explicit acceptance and separate build versus behavior evidence', async ({ page }) => {
+  const acceptance = { expected_behavior: ['Not now closes the form without saving.'], regression_tests: ['tests/atlas-workspace.spec.js'] }
+  const errors = await mount(page, ownerPanel, {
+    '/api/owner-executions/capabilities': {
+      ...ownerCapabilities, profiles: [...ownerCapabilities.profiles, 'ui_browser'],
+      isolation: { ...ownerCapabilities.isolation, profiles: { ...ownerCapabilities.isolation.profiles, ui_browser: true } },
+    },
+    '/api/owner-executions': request => {
+      expect(request.postDataJSON().acceptance).toEqual(acceptance)
+      expect(request.postDataJSON().profile).toBe('ui_browser')
+      return { status: 'ok', execution: { ...ownerJob, profile: 'ui_browser', acceptance,
+        validation_evidence: { build: 'passed', behavior: 'failed', scope: 'Workspace suite only.' } } }
+    },
+  }, { repo: 'owner/repo' })
+  await page.getByText('Owner isolated validation pilot').click()
+  await page.getByRole('combobox', { name: 'Approved test profile' }).selectOption('ui_browser')
+  await page.getByRole('textbox', { name: /^Acceptance/ }).fill(JSON.stringify(acceptance))
+  await page.getByRole('button', { name: 'Prepare proposal' }).click()
+  await expect(page.getByText('Build: passed. Behavior: failed.')).toBeVisible()
+  await expect(page.getByText(acceptance.expected_behavior[0], { exact: true })).toBeVisible()
+  await expect(page.getByText('Declared regression tests: tests/atlas-workspace.spec.js')).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -799,7 +824,7 @@ test('frontend picker exposes separate locked-image readiness and narrow compone
   await expect(page.getByText('Frontend image: Reviewed frontend image checked.')).toBeVisible()
   await expect(page.getByRole('option', { name: 'ui_build', exact: true })).toHaveJSProperty('disabled', false)
   await expect(page.getByRole('option', { name: 'ui_component (unavailable in image)', exact: true })).toHaveJSProperty('disabled', true)
-  await expect(page.getByText(/not browser interaction or general acceptance coverage/)).toBeVisible()
+  await expect(page.getByText(/ui_component checks actual trust-row rendering, not browser interactions/)).toBeVisible()
 })
 
 for (const evidence of ['valid', 'denied', 'mismatched', 'missing-expiry']) {

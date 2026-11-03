@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Editor } from '@monaco-editor/react'
+import { Editor, loader } from '@monaco-editor/react'
 import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
 import LearningProvenance from '../components/LearningProvenance'
@@ -12,6 +12,9 @@ import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 import { useInterval } from '../hooks/useApi'
 import { LessonGateNotice, LessonManifestCard, StallNotice } from '../components/LessonDelivery'
 
+if (import.meta.env.VITE_MONACO_BASE_URL) {
+  loader.config({ paths: { vs: import.meta.env.VITE_MONACO_BASE_URL } })
+}
 
 const ATLAS_MONACO_THEME = {
   base: 'vs-dark', inherit: true, rules: [],

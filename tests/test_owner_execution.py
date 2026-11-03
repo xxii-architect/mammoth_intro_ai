@@ -63,6 +63,34 @@ def prepared(service, root):
                            base_sha=head_sha(root), profile="python_unittest")
 
 
+def test_ui_acceptance_is_frozen_in_approval_and_survives_tool_envelopes(repository, tmp_path):
+    service = OwnerExecution(tmp_path / "jobs", FakeExecutor(), enabled=True)
+    acceptance = {"expected_behavior": ["Dismissal retains the draft."],
+                  "regression_tests": ["tests/workspace-reliability.spec.js"]}
+    changes = [
+        {"path": "app.py", "content": "def add(a, b):\n    return a + b\n"},
+        {"path": "ui/src/Profile.jsx", "content": "export default function Profile() { return null }"},
+        {"path": "tests/workspace-reliability.spec.js", "content": "test('dismissal', () => {})"},
+    ]
+    registry = ToolRegistry()
+    register_owner_execution_tools(registry, service)
+    context = ToolContext(user_id="owner", is_admin=True, repo_root=repository, repo_scope="platform")
+    prepared_result = asyncio.run(registry.invoke("owner_execution_prepare", {
+        "base_sha": head_sha(repository), "profile": "python_unittest", "changes": changes,
+        "acceptance": acceptance,
+    }, context))
+    assert prepared_result["execution"]["acceptance"] == acceptance
+    job = prepared_result["execution"]
+    result = service.execute(job["id"], "owner", repository, job["approval_digest"])
+    assert result["status"] == "validated"
+    assert result["validation_evidence"]["behavior"] == "not_tested"
+    record = service._load(job["id"], "owner")
+    record["acceptance"]["expected_behavior"] = ["Changed after validation"]
+    service._save(record)
+    with pytest.raises(ExecutionError, match="Validated proposal changed"):
+        service.apply(job["id"], "owner", repository, result["application"]["approval_digest"])
+
+
 def test_disposable_worktree_does_not_modify_owner_checkout(repository, tmp_path):
     executor = FakeExecutor()
     service = OwnerExecution(tmp_path / "jobs", executor, enabled=True)
@@ -936,9 +964,19 @@ def test_real_frontend_build_rendering_regressions_and_approved_branch(tmp_path)
     (root / rel).write_bytes(dirty)
     index = git(root, "ls-files", "--stage")
     service = OwnerExecution(tmp_path / "frontend-jobs", FakeExecutor(), enabled=True, frontend_executor=executor)
+    test_path = "tests/workspace-reliability.spec.js"
     job = service.prepare(root, "owner/frontend", "owner", [{"path": rel, "edits": [{
         "old": old.decode(), "new": "Math.round(100 * normalized)",
-    }]}], base_sha=base, profile="ui_component")
+    }]}, {"path": test_path, "content": files[test_path].decode() + """
+test('equivalent confidence expression retains the high score', async ({ page }) => {
+  await mount(page, 'trust', {}, { trustProps: { provider: 'openai', confidence: 0.91 } })
+  await expect(page.getByTitle(/Reported score \\(uncalibrated\\): 91%/)).toBeVisible()
+})
+"""}],
+        base_sha=base, profile="ui_component", acceptance={
+            "expected_behavior": ["Equivalent score expression retains explicit confidence rendering."],
+            "regression_tests": [test_path],
+        })
     checked = service.execute(job["id"], "owner", root, job["approval_digest"])
     assert checked["status"] == "validated", checked
     assert checked["baseline"]["passed"] and checked["candidate"]["passed"]

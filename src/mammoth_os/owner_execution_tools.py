@@ -11,6 +11,7 @@ from mammoth_os.agent_loop.tools import (
     ToolSpec,
 )
 from mammoth_os.owner_execution import (
+    BROWSER_TESTS,
     PROFILES,
     ExecutionError,
     OwnerExecution,
@@ -48,6 +49,7 @@ def register_owner_execution_tools(
             job = await asyncio.to_thread(
                 service.prepare, ctx.repo_root, ctx.repo_slug or ctx.repo_source_id or "selected-owner-repo",
                 ctx.user_id, args["changes"], base_sha=args["base_sha"], profile=args["profile"],
+                acceptance=args.get("acceptance"),
             )
             return {"status": "ok", "execution": tool_job(job)}
         except ExecutionError as exc:
@@ -104,6 +106,12 @@ def register_owner_execution_tools(
         input_schema={"type": "object", "required": ["base_sha", "profile", "changes"], "additionalProperties": False,
                       "properties": {"base_sha": {"type": "string", "minLength": 40, "maxLength": 64},
                                      "profile": {"type": "string", "enum": list(PROFILES)},
+                                     "acceptance": {"type": "object", "required": ["expected_behavior", "regression_tests"],
+                                                    "additionalProperties": False, "properties": {
+                                                        "expected_behavior": {"type": "array", "minItems": 1, "maxItems": 12,
+                                                                              "items": {"type": "string", "minLength": 1, "maxLength": 1000}},
+                                                        "regression_tests": {"type": "array", "minItems": 1, "maxItems": 12,
+                                                                             "items": {"type": "string", "enum": sorted(BROWSER_TESTS)}}}},
                                      "changes": {"type": "array", "minItems": 1, "maxItems": 20, "items": {
                                          "type": "object", "required": ["path"], "additionalProperties": False,
                                          "properties": {"path": {"type": "string", "maxLength": 240},

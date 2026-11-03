@@ -159,6 +159,7 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
         </p>}
         {run.progress.executions?.map(job => <p key={job.id}>
           Execution <code>{job.id}</code>: {job.status} ({job.profile})
+          {' · '}build: {job.validation_evidence?.build || 'not_tested'} · behavior: {job.validation_evidence?.behavior || 'not_tested'}
           {job.application?.status === 'applied' && <> · branch <code>{job.application.branch}</code> · commit <code>{job.application.commit_sha}</code></>}
         </p>)}
         {run.progress.blocker && <p role="status">{run.progress.blocker}</p>}

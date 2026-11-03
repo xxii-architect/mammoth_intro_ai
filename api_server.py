@@ -7138,7 +7138,9 @@ async def _record_owner_execution(job: Dict[str, Any], run_id: str = "") -> None
         "origin": {"page": "agent", "task_id": job["id"], "trace_id": run_id}, "format": "diff",
         "lineage": {"repo": job["repo"], "base_sha": job["base_sha"], "branch": application.get("branch", "") if applied else ""},
         "verification": {"baseline": job.get("baseline", {}), "candidate": job.get("candidate", {}),
-                         "execution_status": job["status"], "regression": job.get("regression"), "application": application},
+                         "execution_status": job["status"], "regression": job.get("regression"), "application": application,
+                         "validation_evidence": job.get("validation_evidence", {}),
+                         "acceptance": job.get("acceptance", {})},
         "quality": {"ready": False, "tests_are_independent": False},
     })
     if not isinstance(artifact, dict) or artifact.get("status") != "ok":

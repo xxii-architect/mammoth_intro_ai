@@ -112,7 +112,7 @@
   .atlas-learning-profile { padding: 4px 8px; }
   .atlas-learning-profile strong { font-size: .7rem; }
   .atlas-learning-profile button { min-height: 44px; padding: 4px 6px; font-size: .7rem; }
-  .atlas-lessons-embedded { padding: 6px !important; }
+  .atlas-lessons-embedded { padding: 4px !important; }
   .atlas-lesson-toolbar { gap: 4px; }
   .atlas-lesson-toolbar button { min-height: 44px; padding: 6px 8px; flex: 1; }
   .atlas-lesson-layout { gap: 0 !important; }

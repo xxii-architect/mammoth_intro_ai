@@ -806,7 +806,7 @@ proposal and again before container execution. A plain Python image typically
 supports `python_unittest`, not pytest or Node. Tool availability does not prove
 that a repository's dependencies are installed or that its tests cover an edit.
 The three generic profiles do not run `npm run build` or validate GitHub Actions
-YAML. Optional `ui_build` and `ui_component` profiles use a separate frontend image.
+YAML. Optional `ui_build`, `ui_component` and `ui_browser` profiles use a separate frontend image.
 
 The standalone **UI Build** workflow runs `npm ci` and `npm run build` with Node
 22 using the versioned command-center lockfile on relevant PRs, pushes to `main`,
@@ -828,8 +828,9 @@ $env:MAMMOTH_OWNER_UI_IMAGE = 'sha256:<image-id-from-inspect>'
 Set the optional image variable persistently on the backend host and restart the
 service. Both repo@sha256 references and immutable local image IDs are accepted.
 Install that image on the backend yourself; runtime never pulls it. The
-Dockerfile-specific allowlist sends only the UI manifests/lockfile and trusted
-validator to the build. Dependencies are installed from the versioned lockfile
+Dockerfile-specific allowlist sends only UI/root test manifests and lockfiles,
+the trusted validator and the image-owned browser configuration to the build.
+Playwright and Chromium are installed into the reviewed image. Dependencies are installed from the versioned lockfile
 at image-build time, never during execution. Manifest-data changes fail closed
 until the image is reviewed and rebuilt; newline/formatting changes are ignored.
 `frontend_isolation` reports the separate image probe; `isolation.profiles`
@@ -844,8 +845,40 @@ These profiles are separate: choose the relevant one and review its evidence.
 Frontend phases allow 120 seconds, 768 MB memory, one CPU, 192 processes, 128 MB
 work tmpfs and 128 MB temporary tmpfs. Ordinary profile limits are unchanged.
 Offline networking, read-only dependencies/root, non-root execution, capability
-removal and no-new-privileges remain enforced. No browser sandbox is disabled;
-full isolated browser interaction remains deferred pending a reviewed runtime.
+removal and no-new-privileges remain enforced.
+
+`ui_browser` additionally runs all four workspace browser suites using one
+worker, no retries, a frozen configuration and local baked Monaco assets.
+Empty/skipped/flaky/failing tests never yield a passing browser marker. Browser
+results retain stable hashed test identities so previously passing tests cannot
+silently disappear without blocking branch application.
+Browser phases use 600 seconds, 1024 MB memory, 256 PIDs, 256 MB each for work/tmp storage,
+and a 64 MB per-file limit for Chromium shared-memory buffers. This additive
+profile uses Chromium's container-compatible non-sandboxed mode **inside the
+unchanged outer Docker isolation**, not an extra browser sandbox or hostile-code
+VM. It grants no additional container privileges, mounts or network access.
+Existing images report `ui_browser` unavailable until reviewed/rebuilt.
+
+UI JSX/TSX/CSS changes conservatively require `acceptance.expected_behavior`
+and `acceptance.regression_tests` arrays, plus a regression-test edit in a named
+workspace suite file. Read the tests and preserve their assertions; generated
+test changes still require independent review. Example:
+
+```json
+{
+  "expected_behavior": ["Not now closes the profile without saving or losing unsaved edits."],
+  "regression_tests": ["tests/atlas-workspace.spec.js"]
+}
+```
+
+Approval evidence and handoffs report separate build `passed|failed|not_tested`
+and browser behavior `verified|failed|not_tested`. A browser failure can coexist
+with a passed build. "Verified" covers recorded tests, not independent acceptance
+or certification. Build-only proposals remain possible with behavior explicitly
+`not_tested`; no host fallback fills missing browser coverage. Legacy evidence
+defaults to `not_tested`. The optional `VITE_MONACO_BASE_URL` points the editor
+loader to an operator-hosted `vs` directory; the isolated profile sets it to
+baked assets served by Vite. Unset production behavior is unchanged.
 
 **What HEAD refresh means:** the panel reads the selected backend checkout's
 current committed HEAD and probes installed image profiles. New runs can obtain
