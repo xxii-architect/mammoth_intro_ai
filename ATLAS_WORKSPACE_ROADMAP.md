@@ -207,9 +207,26 @@ feedback over adding more agents or permanent panels.
   truncation. Existing retention windows are counts, not age-based erasure.
   The panel links to existing Notes/Account controls, warns that reset is not
   deletion and deletion requests are not verified erasure, and reports price
-  estimates as unavailable rather than inventing a number. Per-user generation
-  limits, cancellation across all model routes, and verified learning-history
-  erasure/retention controls remain open. This is not a compliance certification.
+  estimates as unavailable rather than inventing a number.
+  Additional bounded controls are implemented: opt-in, uncapped-by-default
+  per-user UTC daily HTTP-request caps cover ATLAS lesson/submit/next/course
+  activation/regenerate/chat/plan and the direct ATLAS agent route. Reservations
+  are durable and atomic; failed/cancelled/guarded requests count, with no
+  invented token/dollar accounting. Other agent runs (including Learning agents),
+  Mammoth Mind and SDK/local calls are explicitly outside this cap.
+  Private operation records support cooperative cancellation at checked
+  model/fallback/save boundaries. Cancellation requests are not represented as
+  instantaneous provider stops, and prior completed side effects are not undone.
+  Reviewed, typed-confirmation deletion verifies active-account saved lesson
+  session and recovery removal, returns a receipt, clears this tab's workspace/
+  study drafts and rejects stale state writes after the erasure epoch changes.
+  Linked notes, uploads, separately saved curricula, legacy learner models and
+  cached context/mastery, telemetry, artifacts/plans, other accounts, provider
+  copies and backups are not erased by this scoped action. The legacy learner
+  model's tenant ownership needs a separate reviewed migration before deletion.
+  Full-platform limits/cancellation, age-based retention, reliable paid-action
+  estimates and erasure of excluded stores remain open; LEARN-06 stays unchecked.
+  This is not a compliance certification.
 
 Recommended sequence: LEARN-01 recovery, LEARN-02 contextual tutoring,
 LEARN-03 connected study materials, LEARN-04 remediation, LEARN-05 accessibility,

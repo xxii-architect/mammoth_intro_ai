@@ -821,6 +821,143 @@ test('learning export failures stay explicit and are not retried automatically',
   expect(errors).toEqual([])
 })
 
+test('learning caps are opt-in and cancellation stays requested until a recorded boundary', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 })
+  const { requests, errors } = await mountWorkspace(page)
+  let state = { contract: 'mammoth.learning-controls.v1', day_utc: '2026-11-03',
+    daily_request_limit: null, admitted_requests: 2, operations: [
+      { id: 'one-private-operation', route: '/api/atlas/chat', account_id: 'default', status: 'running' },
+    ] }
+  const limits = []
+  await page.route('**/api/atlas/controls', route => {
+    if (route.request().method() === 'PUT') {
+      limits.push(route.request().postDataJSON().daily_request_limit)
+      state = { ...state, daily_request_limit: limits.at(-1) }
+    }
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify(state) })
+  })
+  await page.route('**/api/atlas/operations/*/cancel', route => {
+    state = { ...state, operations: [{ ...state.operations[0], status: 'cancellation_requested' }] }
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'cancellation_requested' }) })
+  })
+  await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  expect(limits).toEqual([])
+  await page.getByRole('button', { name: 'Refresh learning request controls', exact: true }).click()
+  const cap = page.getByRole('spinbutton', { name: 'Daily ATLAS request cap (blank means uncapped)', exact: true })
+  await expect(cap).toHaveValue('')
+  await cap.fill('0')
+  await page.getByRole('button', { name: 'Save learning request cap', exact: true }).click()
+  await expect(page.getByText(/cap saved. Existing requests are not cancelled/)).toBeVisible()
+  await cap.fill('')
+  await page.getByRole('button', { name: 'Save learning request cap', exact: true }).click()
+  expect(limits).toEqual([0, null])
+  await page.getByRole('button', { name: 'Request cancellation one-priv', exact: true }).click()
+  await expect(page.getByText(/Request state: cancellation_requested/)).toBeVisible()
+  await expect(page.getByRole('listitem').filter({ hasText: '/api/atlas/chat' })).toContainText('cancellation_requested')
+  await expect(page.getByRole('button', { name: /Request cancellation/ })).toHaveCount(0)
+  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/onboard', '/api/run'].includes(request.path))).toBe(false)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('pending contextual help can close its view to reach cancellation without pretending to stop', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  let release
+  const gate = new Promise(resolve => { release = resolve })
+  await page.route('**/api/atlas/chat', async route => {
+    await gate
+    await route.fulfill({ status: 409, contentType: 'application/json',
+      body: JSON.stringify({ status: 'cancelled', detail: 'Cancellation reached a safe boundary.' }) })
+  })
+  await page.route('**/api/atlas/controls', route => route.fulfill({ contentType: 'application/json',
+    body: JSON.stringify({ contract: 'mammoth.learning-controls.v1', day_utc: '2026-11-03',
+      daily_request_limit: null, admitted_requests: 1, operations: [] }) }))
+  try {
+    await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Study selected text', exact: true })
+    await dialog.getByRole('button', { name: 'Ask tutor', exact: true }).click()
+    await expect(dialog.getByText(/Closing this view does not cancel the request/)).toBeVisible()
+    await dialog.getByRole('button', { name: 'Close view (request continues)', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+    await page.getByText('Learning privacy & costs', { exact: true }).click()
+    await page.getByRole('button', { name: 'Refresh learning request controls', exact: true }).click()
+    await expect(page.getByRole('region', { name: 'Learning request controls', exact: true })).toBeVisible()
+  } finally { release() }
+  await page.getByRole('button', { name: 'Not now', exact: true }).click()
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Study selected text', exact: true }).getByRole('alert')).toContainText('Cancellation reached a safe boundary')
+  expect(errors).toEqual([])
+})
+
+test('learning deletion requires reviewed scope and exact confirmation then clears this tab drafts', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  const lesson = page.getByRole('region', { name: 'Lesson and practice', exact: true })
+  await lesson.locator('textarea').fill('A private response to remove from this tab.')
+  await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
+  let deletes = 0
+  await page.route('**/api/atlas/history/preview', route => route.fulfill({ contentType: 'application/json',
+    body: JSON.stringify({ contract: 'mammoth.learning-erasure.v1', account_id: 'default',
+      preview_token: 'reviewed-token', excludes: ['linked_notes', 'uploaded_files', 'provider_records', 'backups'] }) }))
+  await page.route('**/api/atlas/history', async route => {
+    expect(route.request().method()).toBe('DELETE')
+    expect(route.request().postDataJSON()).toEqual({ confirmation: 'DELETE SAVED LEARNING', preview_token: 'reviewed-token' })
+    deletes += 1
+    await page.route('**/api/atlas/status', status => status.fulfill({ contentType: 'application/json',
+      body: JSON.stringify({ lesson_id: null, current_lesson: null, current_exercise: null, chat_history: [],
+        learner_model: { onboarding: { completed_at: 'today' } }, workspace_recovery: {
+          contract: 'mammoth.learning-workspace.v1', exercise_key: 'after-erasure', revision: 0, saved_at: null,
+          values: { view: 'lesson', lesson_response: '', tutor_response: '', tutor_message: '', tutor_mode: 'tutor', checklist: {} },
+        } }) }))
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      status: 'deleted_from_active_storage', receipt_id: 'confirmed-private-deletion',
+    }) })
+  })
+  await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Delete saved lesson session', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Preview saved learning deletion', exact: true }).click()
+  await expect(page.getByText(/NOT deleted: linked_notes, uploaded_files, provider_records, backups/)).toBeVisible()
+  const remove = page.getByRole('button', { name: 'Delete saved lesson session', exact: true })
+  await expect(remove).toBeDisabled()
+  const confirm = page.getByRole('textbox', { name: 'Type DELETE SAVED LEARNING to confirm', exact: true })
+  await confirm.fill('delete saved learning')
+  await expect(remove).toBeDisabled()
+  await confirm.fill('DELETE SAVED LEARNING')
+  await remove.click()
+  await expect(page.getByRole('status').filter({ hasText: 'Receipt: confirmed-private-deletion' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Edit learning profile', exact: true })).toBeVisible()
+  expect(await page.locator('textarea').evaluateAll(nodes => nodes.map(node => node.value))).not.toContain('A private response to remove from this tab.')
+  await page.evaluate(() => globalThis.showTestWorkspace(false))
+  await page.evaluate(() => globalThis.showTestWorkspace(true))
+  await expect(page.getByText('Reliable research', { exact: true })).toHaveCount(0)
+  expect(deletes).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('failed learning deletion preserves the preview and never shows a deletion receipt', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  let deletes = 0
+  await page.route('**/api/atlas/history/preview', route => route.fulfill({ contentType: 'application/json',
+    body: JSON.stringify({ contract: 'mammoth.learning-erasure.v1', account_id: 'default',
+      preview_token: 'reviewed-token', excludes: ['backups'] }) }))
+  await page.route('**/api/atlas/history', route => {
+    deletes += 1
+    return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ detail: 'Saved learning changed. Review a new deletion preview.' }) })
+  })
+  await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  await page.getByRole('button', { name: 'Preview saved learning deletion', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Type DELETE SAVED LEARNING to confirm', exact: true }).fill('DELETE SAVED LEARNING')
+  await page.getByRole('button', { name: 'Delete saved lesson session', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Review a new deletion preview')
+  await expect(page.getByText(/Receipt:/)).toHaveCount(0)
+  await expect(page.getByRole('textbox', { name: 'Type DELETE SAVED LEARNING to confirm', exact: true })).toHaveValue('DELETE SAVED LEARNING')
+  expect(deletes).toBe(1)
+  expect(errors).toEqual([])
+})
+
 test('large mobile lesson text scales headings code and tables with keyboard scrolling', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 })
   const wideCode = `const example = "${'original-evidence-'.repeat(20)}"`

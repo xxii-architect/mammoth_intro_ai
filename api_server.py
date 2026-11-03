@@ -25,6 +25,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from functools import wraps
 from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -4183,9 +4184,165 @@ def _load_atlas_state() -> Dict[str, Any]:
 
 
 def _save_atlas_state(state: Dict[str, Any]):
-    _persist_active_account_collections(state)
+    from mammoth_os.learning_controls import check_cancelled
+    from mammoth_os.learning_workspace import _workspace_lock, _write_workspace
+
+    check_cancelled()
     atlas_file = _atlas_state_file_for_request()
-    atlas_file.write_text(json.dumps(state, indent=2, default=str), encoding="utf-8")
+    try:
+        with _workspace_lock(atlas_file):
+            try:
+                latest = json.loads(atlas_file.read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                latest = {}
+            if not isinstance(latest, dict):
+                raise ValueError("Invalid saved state.")
+            if latest.get("learning_erasure_epoch") != state.get("learning_erasure_epoch"):
+                raise HTTPException(status_code=409, detail="Saved learning was deleted while this request was running. Reload; stale content was not saved.")
+            check_cancelled()
+            _persist_active_account_collections(state)
+            _write_workspace(atlas_file, state, default=str)
+    except (OSError, ValueError) as exc:
+        logger.exception("Learning state save failed")
+        raise HTTPException(status_code=503, detail="Saved learning could not be written. No save was confirmed.") from exc
+
+
+def _learning_controls():
+    from mammoth_os.learning_controls import LearningControls
+
+    path = _atlas_state_file_for_request()
+    return LearningControls(path.with_name(f"{path.stem}_controls.sqlite3"))
+
+
+def _learning_control_action(action, *args):
+    import sqlite3
+
+    try:
+        return getattr(_learning_controls(), action)(*args)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (OSError, sqlite3.Error) as exc:
+        logger.exception("Learning controls storage failed")
+        raise HTTPException(status_code=503, detail="Learning controls could not be read or changed. Retry explicitly.") from exc
+
+
+_ERASABLE_LEARNING_FIELDS = (
+    "topic", "curriculum_topic", "module_id", "active_module",
+    "curriculum_id", "curriculum", "curriculum_origin", "lesson_id",
+    "current_lesson", "current_exercise", "lesson_plan", "last_submission",
+    "chat_history", "assistant_chat_history", "lesson_history", "study_aids",
+    "learner_profile", "resume_packet", "regenerated_exercise",
+)
+
+
+def _learning_erasure_preview(state):
+    import hashlib
+
+    recovery = _learning_workspace_snapshot(state)
+    account_id = _active_account_id(state)
+    identity = {
+        "user_id": _current_request_user_id(), "account_id": account_id,
+        "epoch": state.get("learning_erasure_epoch"),
+        "saved": {key: state.get(key) for key in _ERASABLE_LEARNING_FIELDS},
+        "recovery": recovery,
+    }
+    return {
+        "contract": "mammoth.learning-erasure.v1", "account_id": account_id,
+        "preview_token": hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=True).encode()).hexdigest(),
+        "scope": "active_account_saved_lesson_session_and_recovery",
+        "excludes": ["linked_notes", "uploaded_files", "curriculum_library", "other_accounts",
+                     "learner_model_and_cached_context", "lesson_telemetry", "onboarding",
+                     "mammoth_mind_threads", "artifacts", "plans", "audit_logs",
+                     "usage_records", "provider_records", "backups", "other_tabs_and_downloads"],
+    }
+
+
+def _erase_saved_learning(body):
+    from mammoth_os.learning_workspace import _workspace_lock, _write_workspace
+
+    if (set(body) != {"confirmation", "preview_token"}
+            or body.get("confirmation") != "DELETE SAVED LEARNING"):
+        raise HTTPException(status_code=400, detail="Preview deletion and type DELETE SAVED LEARNING to confirm the stated scope.")
+    path = _atlas_state_file_for_request()
+    try:
+        with _workspace_lock(path):
+            state = _load_learning_export_state()
+            workspace_path = _learning_workspace_path(state)
+            with _workspace_lock(workspace_path):
+                preview = _learning_erasure_preview(state)
+                if body.get("preview_token") != preview["preview_token"]:
+                    raise HTTPException(status_code=409, detail="The active account or saved learning changed. Review a new deletion preview.")
+                _learning_control_action("cancel_account", _active_account_id(state))
+                for key in _ERASABLE_LEARNING_FIELDS:
+                    state.pop(key, None)
+                state["status"] = "no_session"
+                state["workspace_epoch"] = uuid.uuid4().hex
+                state["learning_erasure_epoch"] = uuid.uuid4().hex
+                _persist_active_account_collections(state)
+                # Remove the old draft before recording success. Failure is explicit and retryable.
+                workspace_path.unlink(missing_ok=True)
+                _write_workspace(path, state, default=str)
+                verified = json.loads(path.read_text(encoding="utf-8"))
+                session = verified["account_sessions"][_active_account_id(state)]
+                if any(key in session or key in verified for key in _ERASABLE_LEARNING_FIELDS) or workspace_path.exists():
+                    raise ValueError("Deletion verification failed.")
+        return {**preview, "status": "deleted_from_active_storage",
+                "deleted_at": datetime.now(timezone.utc).isoformat(),
+                "receipt_id": state["learning_erasure_epoch"],
+                "provider_erasure_confirmed": False, "backup_erasure_confirmed": False}
+    except (OSError, ValueError) as exc:
+        logger.exception("Saved learning deletion was not confirmed")
+        raise HTTPException(status_code=503, detail="Deletion was not confirmed. A recovery draft may already have been removed; reload the preview before retrying.") from exc
+
+
+def _controlled_learning(route):
+    """Reserve before executing; never refund requests that may already be billable."""
+    def decorate(handler):
+        @wraps(handler)
+        async def controlled(*args, **kwargs):
+            import sqlite3
+            from mammoth_os.learning_controls import (
+                LearningCancelled, LearningLimitReached, check_cancelled, operation_context,
+            )
+            from mammoth_os.learning_workspace import _workspace_lock
+
+            blocked = _require_signed_in_api()
+            if blocked is not None:
+                return blocked
+            store = _learning_controls()
+            operation_id = None
+            status = "failed"
+            try:
+                with _workspace_lock(_atlas_state_file_for_request()):
+                    state = _load_learning_export_state()
+                    operation_id = store.begin(route, _active_account_id(state))
+                with operation_context(store, operation_id):
+                    result = await handler(*args, **kwargs)
+                    check_cancelled()
+                status = "finished"
+                return result
+            except LearningCancelled:
+                status = "cancelled_at_boundary"
+                return JSONResponse({
+                    "status": "cancelled", "operation_id": operation_id,
+                    "detail": "Cancellation reached a safe boundary. Provider work already sent may have finished and may be billable. Prior completed side effects are not undone.",
+                }, status_code=409, headers={"Cache-Control": "no-store"})
+            except LearningLimitReached as exc:
+                raise HTTPException(status_code=429, detail=str(exc)) from exc
+            except (OSError, sqlite3.Error) as exc:
+                logger.exception("Learning controls storage failed")
+                raise HTTPException(status_code=503, detail="Learning controls are unavailable. This request was not confirmed complete; earlier work may already be billable. Check saved results before retrying.") from exc
+            finally:
+                if operation_id:
+                    try:
+                        store.finish(operation_id, status)
+                    except (OSError, sqlite3.Error):
+                        logger.exception("Could not confirm learning request completion")
+                        raise HTTPException(status_code=503, detail="Learning request completion could not be recorded. Check saved results before retrying.")
+        return controlled
+    return decorate
 
 
 def _learning_workspace_path(state: Dict[str, Any]) -> Path:
@@ -4221,11 +4378,18 @@ def _load_learning_export_state() -> Dict[str, Any]:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("Invalid learning state.")
+        for field in ("accounts", "account_sessions"):
+            collection = raw.get(field, {})
+            if not isinstance(collection, dict) or any(not isinstance(value, dict) for value in collection.values()):
+                raise ValueError("Invalid saved account collection.")
+        for account in raw.get("accounts", {}).values():
+            if "profile" in account and not isinstance(account["profile"], dict):
+                raise ValueError("Invalid saved account profile.")
     except FileNotFoundError:
         raw = {"status": "no_session", "active_account_id": "default"}
     except (OSError, ValueError) as exc:
         logger.exception("Learning export state could not be read")
-        raise HTTPException(status_code=503, detail="Saved learning state could not be read. No complete export was confirmed.") from exc
+        raise HTTPException(status_code=503, detail="Saved learning state could not be read. No learning operation was confirmed.") from exc
     return _ensure_account_collections(raw)
 
 

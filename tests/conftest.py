@@ -13,6 +13,22 @@ if _tests_dir not in sys.path:
 # Import the fake factory from tests/support
 from support.fake_supabase import fake_get_supabase  # type: ignore
 
+
+@pytest.fixture(autouse=True)
+def isolate_learning_request_controls(monkeypatch, tmp_path):
+    api = sys.modules.get("api_server")
+    if api is not None:
+        import hashlib
+        from mammoth_os.learning_controls import LearningControls
+        original = api._learning_controls
+
+        def controls():
+            key = hashlib.sha256(api._current_request_user_id().encode()).hexdigest()
+            return LearningControls(tmp_path / f"controls-{key}.sqlite3")
+
+        monkeypatch.setattr(api, "_learning_controls", controls)
+        return original
+
 # Create a single fake instance to reuse
 _fake_instance = fake_get_supabase()
 

@@ -260,13 +260,18 @@ class FallbackAdapter(LLMClient):
         return (await self.generate_completion(prompt, **kwargs)).text
 
     async def generate_completion(self, prompt: str, **kwargs) -> Completion:
+        from mammoth_os.learning_controls import check_cancelled
+
+        check_cancelled()
         self._reset_last()
         try:
             result = await complete(self.primary, prompt, **kwargs)
+            check_cancelled()
             self.last_used_provider = self.primary_name
             self.model = str(getattr(self.primary, "model", self.model))
             return result
         except Exception as exc:
+            check_cancelled()
             if not _is_fallback_eligible_error(exc):
                 raise
             self.last_fallback_used = True
@@ -274,19 +279,25 @@ class FallbackAdapter(LLMClient):
             self.last_error_type = type(exc).__name__
             self.last_error_detail = str(exc)
             result = await complete(self.fallback, prompt, **kwargs)
+            check_cancelled()
             state = getattr(self.fallback, "describe_runtime_state", lambda: {})()
             self.last_used_provider = str(state.get("last_used_provider") or self.fallback_name)
             self.model = str(getattr(self.fallback, "model", self.model))
             return result
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
+        from mammoth_os.learning_controls import check_cancelled
+
+        check_cancelled()
         self._reset_last()
         try:
             result = await self.primary.embed(texts, **kwargs)
+            check_cancelled()
             self.last_used_provider = self.primary_name
             self.model = str(getattr(self.primary, "model", self.model))
             return result
         except Exception as exc:
+            check_cancelled()
             if not _is_fallback_eligible_error(exc):
                 raise
             self.last_fallback_used = True
@@ -294,6 +305,7 @@ class FallbackAdapter(LLMClient):
             self.last_error_type = type(exc).__name__
             self.last_error_detail = str(exc)
             result = await self.fallback.embed(texts, **kwargs)
+            check_cancelled()
             self.last_used_provider = self.fallback_name
             self.model = str(getattr(self.fallback, "model", self.model))
             return result
@@ -388,20 +400,35 @@ def _build_coding_chain(cfg: Dict[str, Any]) -> LLMClient | None:
 
 
 class ContextualClient(LLMClient):
-    """Wraps a client so generate() carries the active conversation background."""
+    """Carry conversation background and cooperative learning cancellation."""
 
     def __init__(self, inner: Any, background: str):
         self._inner = inner
         self._background = background
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        return await self._inner.generate(with_background(prompt, self._background), **kwargs)
+        from mammoth_os.learning_controls import check_cancelled
+
+        check_cancelled()
+        result = await self._inner.generate(with_background(prompt, self._background), **kwargs)
+        check_cancelled()
+        return result
 
     async def generate_completion(self, prompt: str, **kwargs) -> Completion:
-        return await complete(self._inner, with_background(prompt, self._background), **kwargs)
+        from mammoth_os.learning_controls import check_cancelled
+
+        check_cancelled()
+        result = await complete(self._inner, with_background(prompt, self._background), **kwargs)
+        check_cancelled()
+        return result
 
     async def embed(self, texts: List[str], **kwargs) -> List[List[float]]:
-        return await self._inner.embed(texts, **kwargs)
+        from mammoth_os.learning_controls import check_cancelled
+
+        check_cancelled()
+        result = await self._inner.embed(texts, **kwargs)
+        check_cancelled()
+        return result
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._inner, name)
@@ -416,7 +443,9 @@ def get_llm_client(config: Dict[str, Any] | None = None):
     """
     client = _resolve_llm_client(config)
     background = _CONVERSATION_CONTEXT.get()
-    return ContextualClient(client, background) if background else client
+    from mammoth_os.learning_controls import has_operation
+
+    return ContextualClient(client, background or "") if background or has_operation() else client
 
 
 def _resolve_llm_client(config: Dict[str, Any] | None = None):

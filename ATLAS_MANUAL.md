@@ -187,10 +187,72 @@ interrupted calls can already be billable; no automatic export retry is made.
 Use **Open Notes controls** for individual note deletion, the materials manager
 for uploaded-file deletion, and **Open Account controls** for account-deletion
 requests. Resetting progress is not a privacy wipe. A request is not proof of
-completed erasure of operational records, provider copies or backups. This
-release does not add automated history expiry, per-user generation caps,
-cross-route cancellation, or verified full learning-history erasure; those
-remain in LEARN-06. It is not a privacy/compliance certification.
+completed erasure of operational records, provider copies or backups.
+
+**Refresh learning request controls** loads your private
+`mammoth.learning-controls.v1` record. The optional **Daily ATLAS request cap**
+is uncapped by default; blank disables it and zero pauses covered requests.
+It counts admitted HTTP requests, not model calls, tokens, dollars or credits.
+Failed, cancelled, guarded, and gated requests count too: there are no refunds
+that might conceal already-billable work. Counts reset at midnight UTC;
+changing a limit does not reset usage. Atomic SQLite reservations enforce the
+exact allowance across concurrent workers and all local accounts of the signed-in
+user. Usage counts retain at most 32 UTC dates; recent terminal request metadata
+is bounded to about 100 records. Unconfirmed running/requested records are retained
+without a fabricated completion or expiry. No prompts or replies are stored there.
+
+Covered routes: `POST /api/atlas/lesson`, `/submit`, `/next`, `/curricula/start`,
+`/regenerate`, `/chat`, `/plan`, and `POST /agent/atlas/run`. Reading, exports,
+source-derived previews and saved-workspace recovery are outside the cap.
+**Other agent runs (including Learning agents), Mammoth Mind and SDK/local calls
+are not covered**. This is a self-imposed ATLAS request cap, not an operator
+billing ceiling, subscription entitlement or full-platform spending guarantee.
+`GET/PUT /api/atlas/controls` require sign-in; PUT accepts only
+`{"daily_request_limit": null}` or a whole number from 0 to 100000.
+Exhausted admission returns 429 before the route executes. Invalid input is 400;
+storage failures are explicit 503, never an uncapped fallback.
+
+Each recorded request offers **Request cancellation**.
+`POST /api/atlas/operations/{id}/cancel` selects only the authenticated user's
+private operation record (404 for another user's ID). It first records
+`cancellation_requested`, not "stopped". Cooperative checks before/after model
+calls, before fallback and state saves stop at the next checked boundary and
+record `cancelled_at_boundary`; the original HTTP request then returns 409
+with `status: cancelled`. Already-sent provider work may finish and be billed;
+prior assessment/mastery updates, executed plan steps or other completed side
+effects are not undone. Blocking generation runs off the event loop so the
+controls remain reachable and preserve request context. No thread is killed.
+After a server interruption, an unconfirmed running record is not proof of
+ongoing provider work. Refresh explicitly to read the latest recorded status.
+Contextual-help dialogs can close their view while help runs; closing is not
+cancellation, and the pending help remains in same-tab memory.
+
+**Preview saved learning deletion** reviews the active account and exclusions.
+Type **DELETE SAVED LEARNING** to enable the destructive action. The preview
+fingerprint binds to the account, saved session and recovery revision; changed
+content or an account switch requires a new preview (409). Successful
+`DELETE /api/atlas/history` verifies removal of the active saved lesson/exercise,
+curriculum session, tutor/assistant conversations, lesson history, study cards,
+session learner profile and recovery file from their canonical active stores.
+It returns a content-free receipt, requests cancellation of tracked operations
+for that account, and clears workspace/study drafts in this tab. The saved
+erasure epoch prevents older in-flight state saves from restoring deleted data,
+including an older envelope containing other local accounts.
+New requests admitted after deletion can create new saved data.
+
+This action deliberately **does not delete** linked Notes, uploads, separately
+saved curricula, standalone learner models or cached learner context,
+onboarding/mastery, telemetry, other accounts, Mammoth Mind threads, artifacts,
+plans, audit/usage records, provider records, backups, other tabs or downloaded
+exports. Those need their own controls; do not describe this as an account wipe.
+The legacy standalone learner-model ownership must be resolved before claiming
+safe per-tenant erasure of that store. Deletion failures are explicit 503 with
+no success receipt; a recovery file may already have been removed before a
+failed state commit. Review a new preview before retrying.
+
+Automatic age-based history expiry, full-platform cancellation/spending limits,
+and verified erasure of the excluded stores remain in LEARN-06. This is not a
+privacy/compliance certification.
 
 The website uses a dark semantic palette: brass/copper primary actions and agent
 identity, blue keyboard focus/links/secondary interaction, and grey/white text.

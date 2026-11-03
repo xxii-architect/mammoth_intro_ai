@@ -129,14 +129,15 @@ export default function LessonStudyActions({ children, source, exerciseKey, fall
         {source === 'lesson' ? 'Study selection' : source === 'feedback' ? 'Work on feedback' : 'Explain instructions'}
       </button>}
       <dialog ref={dialog} className="lesson-study-dialog" aria-label="Study selected text"
-        onCancel={event => { if (busy) event.preventDefault(); else setOpen(false) }}
+        onCancel={event => { if (busy && busy !== 'help') event.preventDefault(); else setOpen(false) }}
         onClose={() => { setOpen(false); opener.current?.focus() }}>
         {open && <>
         <div className="lesson-study-heading">
           <h2>Study selected text</h2>
-          <button type="button" disabled={Boolean(busy)} onClick={() => setOpen(false)}>Close</button>
+          <button type="button" disabled={Boolean(busy && busy !== 'help')} onClick={() => setOpen(false)}>{busy === 'help' ? 'Close view (request continues)' : 'Close'}</button>
         </div>
         <p>Source: {source}. Help uses model credits only when you choose Ask tutor. It does not submit work or change mastery.</p>
+        {busy === 'help' && <p>Closing this view does not cancel the request. To request cancellation, close the view and open Edit learning profile, Learning privacy &amp; costs, then Refresh learning request controls.</p>}
         <p>Study drafts stay in this tab for this selection. Selecting different text starts a new draft; refresh does not recover unsaved study notes or cards.</p>
         <blockquote>{selection}</blockquote>
         <label>Help type

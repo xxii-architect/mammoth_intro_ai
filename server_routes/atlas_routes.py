@@ -2,6 +2,7 @@
 # Not importable on its own: handlers execute in api_server globals, so keep helpers there.
 
 @app.post("/agent/atlas/run")
+@_controlled_learning("/agent/atlas/run")
 async def run_atlas_agent_endpoint(payload: Any):
     return await _dispatch_http_agent("atlas", payload)
 
@@ -17,17 +18,18 @@ async def atlas_status():
 
 @app.post("/api/atlas/workspace")
 async def atlas_save_workspace(body: Dict[str, Any]):
-    from mammoth_os.learning_workspace import WorkspaceStorageError, save_workspace
+    from mammoth_os.learning_workspace import WorkspaceStorageError, save_workspace, _workspace_lock
 
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
-    state = _load_atlas_state()
     try:
-        saved = save_workspace(
-            _learning_workspace_path(state), state, body,
-            datetime.now(timezone.utc).isoformat(),
-        )
+        with _workspace_lock(_atlas_state_file_for_request()):
+            state = _load_atlas_state()
+            saved = save_workspace(
+                _learning_workspace_path(state), state, body,
+                datetime.now(timezone.utc).isoformat(),
+            )
     except (WorkspaceStorageError, OSError) as exc:
         logger.exception("Learning workspace save failed")
         raise HTTPException(status_code=503, detail="Workspace storage is unavailable or invalid. No save was confirmed; retry or contact support.") from exc
@@ -57,6 +59,52 @@ async def atlas_export_learning():
         headers={"Cache-Control": "no-store",
                  "Content-Disposition": "attachment; filename=mammoth-learning-export.json"},
     )
+
+@app.get("/api/atlas/controls")
+async def atlas_learning_controls():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    return JSONResponse(_learning_control_action("snapshot"), headers={"Cache-Control": "no-store"})
+
+
+@app.put("/api/atlas/controls")
+async def atlas_set_learning_controls(body: Dict[str, Any]):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    if set(body) != {"daily_request_limit"}:
+        raise HTTPException(status_code=400, detail="Provide only daily_request_limit (null disables the cap).")
+    return JSONResponse(_learning_control_action("set_limit", body["daily_request_limit"]),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/atlas/operations/{operation_id}/cancel")
+async def atlas_cancel_learning(operation_id: str):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    status = _learning_control_action("cancel", operation_id)
+    return JSONResponse({"status": status, "operation_id": operation_id,
+                         "provider_work_may_continue": True, "prior_effects_undone": False},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/atlas/history/preview")
+async def atlas_learning_history_preview():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    return JSONResponse(_learning_erasure_preview(_load_learning_export_state()),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.delete("/api/atlas/history")
+async def atlas_delete_learning_history(body: Dict[str, Any]):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    return JSONResponse(_erase_saved_learning(body), headers={"Cache-Control": "no-store"})
 
 @app.get("/api/atlas/modules")
 async def atlas_modules():
@@ -151,6 +199,7 @@ async def atlas_learner_reset(body: Optional[Dict[str, Any]] = None):
     return _apply_atlas_learner_reset()
 
 @app.post("/api/atlas/lesson")
+@_controlled_learning("/api/atlas/lesson")
 async def atlas_lesson(body: Dict[str, Any]):
     requested_topic = str(body.get("topic") or "").strip()
     module_track = _resolve_module_track(body.get("module_id"), requested_topic)
@@ -175,8 +224,8 @@ async def atlas_lesson(body: Dict[str, Any]):
         if module_track:
             learner_context["module_track"] = _serialize_module_track(module_track)
         difficulty = str(lesson_plan.get("difficulty") or learner_context.get("recommended_difficulty") or "beginner").strip().lower() or "beginner"
-        exercise = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: session.start_lesson(curriculum_topic, difficulty=difficulty, learner_context=learner_context)
+        exercise = await asyncio.to_thread(
+            session.start_lesson, curriculum_topic, difficulty=difficulty, learner_context=learner_context
         )
         session.current_lesson = _decorate_lesson_for_module_track(session.current_lesson, module_track)
         exercise = _decorate_exercise_for_module_track(exercise, session.current_lesson, module_track)
@@ -216,11 +265,14 @@ async def atlas_lesson(body: Dict[str, Any]):
             "curriculum_topic": curriculum_topic,
             "lesson_manifest": state.get("lesson_manifest"),
         }
+    except HTTPException:
+        raise
     except Exception:
         logging.getLogger("mammoth.atlas").exception("Could not prepare a teaching-ready lesson")
         raise HTTPException(status_code=503, detail="Could not complete lesson preparation. Check your current lesson before retrying. Use the Curriculum learning agent to review drafts.")
 
 @app.post("/api/atlas/submit")
+@_controlled_learning("/api/atlas/submit")
 async def atlas_submit(body: Dict[str, Any]):
     code = body.get("code", "")
     try:
@@ -280,7 +332,7 @@ async def atlas_submit(body: Dict[str, Any]):
             and not bool(result.get("passed"))
             and adaptive_feedback.get("remediation_needed")
         ):
-            regenerated_exercise = _regenerate_current_exercise(
+            regenerated_exercise = await asyncio.to_thread(_regenerate_current_exercise,
                 state,
                 reason="remediation_after_failed_submission",
             )
@@ -327,10 +379,13 @@ async def atlas_submit(body: Dict[str, Any]):
             "contradictions": [],
         }
         return _wrap_response_with_trust(response, endpoint="/api/atlas/submit", response_type="tutor")
+    except HTTPException:
+        raise
     except Exception as e:
         return {"status": "error", "error": str(e)}
 
 @app.post("/api/atlas/next")
+@_controlled_learning("/api/atlas/next")
 async def atlas_next(body: Optional[Dict[str, Any]] = None):
     body = body if isinstance(body, dict) else {}
     state = _load_atlas_state()
@@ -399,8 +454,8 @@ async def atlas_next(body: Optional[Dict[str, Any]] = None):
         context = state.get("learner_context") or {}
         plan = build_lesson_plan(state, state.get("topic"))
         context = {**context, "recommended_difficulty": plan["difficulty"], "lesson_plan": plan}
-        generated = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: generate_exercises_for_lesson(next_lesson, count=1, difficulty=context.get("recommended_difficulty", "beginner"), learner_context=context)
+        generated = await asyncio.to_thread(
+            generate_exercises_for_lesson, next_lesson, count=1, difficulty=context.get("recommended_difficulty", "beginner"), learner_context=context
         )
         if not generated:
             raise RuntimeError("No exercise generated")
@@ -531,6 +586,7 @@ async def atlas_save_curriculum(body: Dict[str, Any]):
 
 
 @app.post("/api/atlas/curricula/start")
+@_controlled_learning("/api/atlas/curricula/start")
 async def atlas_start_curriculum(body: Dict[str, Any]):
     blocked = _require_signed_in_api()
     if blocked is not None:
@@ -562,8 +618,8 @@ async def atlas_start_curriculum(body: Dict[str, Any]):
     plan = build_lesson_plan(state, course["subject"])
     context = {**context, "recommended_difficulty": plan["difficulty"], "lesson_plan": plan}
     try:
-        exercise = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: session.start_curriculum(course, difficulty=context.get("recommended_difficulty", "beginner"), learner_context=context)
+        exercise = await asyncio.to_thread(
+            session.start_curriculum, course, difficulty=context.get("recommended_difficulty", "beginner"), learner_context=context
         )
     except (ValueError, RuntimeError):
         logging.getLogger("mammoth.atlas").exception("Could not activate curriculum exercise")
@@ -650,6 +706,7 @@ async def atlas_study_preview(body: Dict[str, Any]):
             "generated_by": "source-derived", "model_calls": 0}
 
 @app.post("/api/atlas/plan")
+@_controlled_learning("/api/atlas/plan")
 async def atlas_plan(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()
     _hydrate_learner_state(state, user_id=_atlas_user_id(state))
@@ -746,12 +803,13 @@ async def atlas_evals(body: Optional[Dict[str, Any]] = None):
     return {"status": "ok", "evaluation": evaluation, "history": history, "observability": _build_atlas_observability(state, eval_history=history)}
 
 @app.post("/api/atlas/regenerate")
+@_controlled_learning("/api/atlas/regenerate")
 async def atlas_regenerate(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()
     reason = "manual_regeneration"
     if isinstance(body, dict):
         reason = str(body.get("reason") or reason)
-    exercise = _regenerate_current_exercise(state, reason=reason)
+    exercise = await asyncio.to_thread(_regenerate_current_exercise, state, reason=reason)
     if not exercise:
         return {"status": "error", "error": "No active lesson available for regeneration."}
     _append_lesson_history(state, state.get("current_lesson") or {}, exercise or {})
@@ -851,6 +909,7 @@ async def atlas_reset(body: Optional[Dict[str, Any]] = None):
     return _apply_atlas_session_reset()
 
 @app.post("/api/atlas/chat")
+@_controlled_learning("/api/atlas/chat")
 async def atlas_chat(body: Dict[str, Any]):
     contextual_help = None
     if "contextual_help" in body:
@@ -1063,7 +1122,7 @@ async def atlas_chat(body: Dict[str, Any]):
     if guard_triggered:
         regenerated_exercise = None
         if regenerate_on_guard:
-            regenerated_exercise = _regenerate_current_exercise(
+            regenerated_exercise = await asyncio.to_thread(_regenerate_current_exercise,
                 state,
                 reason="anti_cheat_guard_triggered",
             )

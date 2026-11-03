@@ -103,14 +103,14 @@ def read_workspace(path: Path):
     return saved
 
 
-def _write_workspace(path: Path, record):
+def _write_workspace(path: Path, record, *, default=None):
     path.parent.mkdir(parents=True, exist_ok=True)
     name = None
     try:
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
                                          prefix=f"{path.stem}.", suffix=".tmp", delete=False) as stream:
             name = stream.name
-            json.dump(record, stream, ensure_ascii=True)
+            json.dump(record, stream, ensure_ascii=True, default=default)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(name, path)

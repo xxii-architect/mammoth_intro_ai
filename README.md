@@ -25,7 +25,17 @@ threads and external/provider/backups; it is not a full archive. Corrupt storage
 fails explicitly, and exports over 8 MiB are rejected rather than shortened.
 The panel explains count-based retention, unavailable price estimates, and
 existing Notes/Account deletion controls. Resets are not privacy wipes and
-deletion requests are not verified erasure. Full LEARN-06 controls remain open.
+deletion requests are not verified erasure. The panel now also offers optional
+per-user daily ATLAS HTTP-request caps (uncapped by default), durable request
+records, cooperative cancellation and reviewed, typed-confirmation deletion of
+the active saved lesson session/recovery. Caps count admitted requests, not model
+calls or dollars; other agent runs (including Learning agents), Mammoth Mind and
+SDK/local calls are outside their scope. Cancellation can wait for already-sent
+provider work, which may be billable; completed side effects are not undone.
+Scoped deletion verifies canonical session/recovery removal and blocks stale
+state saves, but retains notes, uploads, saved curricula, learner models/context,
+telemetry, artifacts/plans, other accounts and external copies. Full LEARN-06
+controls remain open. See [the manual](ATLAS_MANUAL.md#learning-export-privacy-and-spending).
 
 ATLAS reading preferences (text size, spacing, focused mode) survive same-tab
 page navigation and clear on signed-in account changes; they do not persist

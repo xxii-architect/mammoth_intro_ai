@@ -10,6 +10,16 @@ export function PageMemoryProvider({ owner, children }: { owner: string; childre
   return <PageMemory.Provider value={store}>{children}</PageMemory.Provider>
 }
 
+export function useForgetPageMemory() {
+  const store = useContext(PageMemory)
+  return useCallback((prefixes: string[]) => {
+    if (!store) return
+    for (const key of store.keys()) {
+      if (prefixes.some(prefix => key.startsWith(prefix))) store.delete(key)
+    }
+  }, [store])
+}
+
 /** Tab-lifetime memory only. Unmounted pages stop their effects, not their data. */
 export function usePageMemory<T>(key: string, initial: T | (() => T)): [T, Dispatch<SetStateAction<T>>] {
   const shared = useContext(PageMemory)

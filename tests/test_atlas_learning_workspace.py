@@ -33,6 +33,11 @@ def client(monkeypatch):
 def test_learning_catalog_requires_sign_in(client):
     assert client.get("/api/atlas/agents").status_code == 401
     assert client.get("/api/atlas/lecture").status_code == 401
+    for method, path in [("get", "/api/atlas/controls"), ("put", "/api/atlas/controls"),
+                         ("get", "/api/atlas/history/preview"), ("delete", "/api/atlas/history"),
+                         ("post", "/api/atlas/operations/unknown/cancel")]:
+        kwargs = {"json": {}} if method in {"put", "delete"} else {}
+        assert client.request(method, path, **kwargs).status_code == 401
 
 
 def test_lecture_reads_only_the_authenticated_request_users_lesson(client, monkeypatch):
@@ -84,8 +89,186 @@ def test_failed_registry_is_not_empty_success(client, monkeypatch):
     assert "private diagnostic" not in response.text
 
 
+@pytest.mark.parametrize("route", ["lesson", "submit", "next", "curricula/start", "plan", "regenerate", "chat"])
+def test_zero_learning_cap_blocks_each_generation_route_before_work(client, learning_export, route):
+    headers = {"Authorization": "Bearer tenant-a"}
+    configured = client.put("/api/atlas/controls", headers=headers, json={"daily_request_limit": 0})
+    assert configured.status_code == 200
+    assert configured.headers["cache-control"] == "no-store"
+    response = client.post(f"/api/atlas/{route}", headers=headers, json={})
+    assert response.status_code == 429
+    assert "limit" in response.json()["detail"]
+    result = client.get("/api/atlas/controls", headers=headers).json()
+    assert result["admitted_requests"] == 0
+    assert result["operations"] == []
+
+
+def test_learning_controls_and_cancel_are_private_to_request_user(client, learning_export):
+    a = {"Authorization": "Bearer tenant-a"}
+    b = {"Authorization": "Bearer tenant-b"}
+    client.put("/api/atlas/controls", headers=a, json={"daily_request_limit": 0})
+    assert client.post("/agent/atlas/run", headers=a, params={"payload": "test"}).status_code == 429
+    assert client.get("/api/atlas/controls", headers=b).json()["daily_request_limit"] is None
+    assert client.post("/api/atlas/operations/missing/cancel", headers=b).status_code == 404
+    for bad in [{"daily_request_limit": True}, {"daily_request_limit": 1, "user_id": "tenant-b"}]:
+        assert client.put("/api/atlas/controls", headers=a, json=bad).status_code == 400
+
+
+def test_corrupt_learning_controls_fail_closed_without_reset_or_generation(client, learning_export):
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        path = api_server._learning_controls().path
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    path.write_bytes(b"not-a-sqlite-database")
+    headers = {"Authorization": "Bearer tenant-a"}
+    assert client.get("/api/atlas/controls", headers=headers).status_code == 503
+    assert client.post("/api/atlas/chat", headers=headers, json={"message": "Do not generate."}).status_code == 503
+    assert path.read_bytes() == b"not-a-sqlite-database"
+
+
+@pytest.mark.parametrize("field,value", [("accounts", []), ("account_sessions", {"default": "invalid"}),
+                                        ("accounts", {"default": {"profile": "invalid"}})])
+def test_invalid_saved_account_shapes_block_learning_changes(client, learning_export, field, value):
+    states, _ = learning_export
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state[field] = value
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    before = states["tenant-a"].read_bytes()
+    headers = {"Authorization": "Bearer tenant-a"}
+    for method, path, body in [("POST", "/api/atlas/export", {}),
+                                ("POST", "/api/atlas/chat", {"message": "Do not generate."}),
+                                ("DELETE", "/api/atlas/history", {"confirmation": "DELETE SAVED LEARNING", "preview_token": "old"})]:
+        assert client.request(method, path, headers=headers, json=body).status_code == 503
+    assert states["tenant-a"].read_bytes() == before
+
+
+def test_chat_cancellation_waits_for_provider_boundary_and_does_not_save_reply(client, learning_export, monkeypatch):
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from mammoth_os import llm_client
+
+    states, _ = learning_export
+    before = states["tenant-a"].read_bytes()
+    started = threading.Event()
+    release = threading.Event()
+    headers = {"Authorization": "Bearer tenant-a"}
+
+    class Client:
+        async def generate(self, prompt, **kwargs):
+            started.set()
+            await asyncio.to_thread(release.wait, 10)
+            return "A complete answer that must not be saved after cancellation."
+
+    monkeypatch.setattr(llm_client, "get_llm_client", lambda config=None: Client())
+    monkeypatch.setattr(api_server, "_hydrate_learner_state", lambda *args, **kwargs: {})
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        request = pool.submit(client.post, "/api/atlas/chat", headers=headers,
+                              json={"message": "Explain evidence comparisons.", "mode": "assistant"})
+        try:
+            assert started.wait(10)
+            operation = client.get("/api/atlas/controls", headers=headers).json()["operations"][0]
+            assert client.post(f"/api/atlas/operations/{operation['id']}/cancel",
+                               headers={"Authorization": "Bearer tenant-b"}).status_code == 404
+            cancel = client.post(f"/api/atlas/operations/{operation['id']}/cancel", headers=headers)
+            assert cancel.json()["status"] == "cancellation_requested"
+            assert not request.done()
+        finally:
+            release.set()
+        response = request.result(timeout=15)
+    assert response.status_code == 409
+    assert response.json()["status"] == "cancelled"
+    assert states["tenant-a"].read_bytes() == before
+    result = client.get("/api/atlas/controls", headers=headers).json()
+    assert result["admitted_requests"] == 1
+    assert result["operations"][0]["status"] == "cancelled_at_boundary"
+    assert result["operations"][0]["finished_at"]
+
+
+def test_learning_deletion_erases_selected_storage_and_rejects_stale_saves(client, learning_export):
+    from mammoth_os.learning_workspace import save_workspace, workspace_snapshot
+    from fastapi import HTTPException
+
+    states, notes = learning_export
+    other_before = states["tenant-b"].read_bytes()
+    notes_before = notes.read_bytes()
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state["account_sessions"] = {
+        "default": {key: state[key] for key in ["lesson_id", "current_lesson", "current_exercise", "chat_history"]},
+        "other": {"chat_history": [{"message": "Other account retained."}]},
+    }
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        stale = api_server._load_learning_export_state()
+        draft_path = api_server._learning_workspace_path(stale)
+        snapshot = workspace_snapshot(stale)
+        save_workspace(draft_path, stale, {**snapshot, "values": {**snapshot["values"], "lesson_response": "Private saved draft"}}, "now")
+        headers = {"Authorization": "Bearer tenant-a"}
+        preview = client.get("/api/atlas/history/preview", headers=headers)
+        assert preview.status_code == 200
+        assert preview.headers["cache-control"] == "no-store"
+        body = {"confirmation": "DELETE SAVED LEARNING", "preview_token": preview.json()["preview_token"]}
+        assert client.request("DELETE", "/api/atlas/history", headers=headers,
+                              json={**body, "confirmation": "yes"}).status_code == 400
+        response = client.request("DELETE", "/api/atlas/history", headers=headers, json=body)
+        assert response.status_code == 200
+        assert response.json()["status"] == "deleted_from_active_storage"
+        assert response.json()["provider_erasure_confirmed"] is False
+        after = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+        assert all(field not in after for field in api_server._ERASABLE_LEARNING_FIELDS)
+        assert all(field not in after["account_sessions"]["default"] for field in api_server._ERASABLE_LEARNING_FIELDS)
+        assert after["account_sessions"]["other"] == state["account_sessions"]["other"]
+        assert after["provider_key"] == "do-not-export-config"
+        assert not draft_path.exists()
+        assert states["tenant-b"].read_bytes() == other_before
+        assert notes.read_bytes() == notes_before
+        with pytest.raises(HTTPException) as error:
+            api_server._save_atlas_state(stale)
+        assert error.value.status_code == 409
+        assert client.request("DELETE", "/api/atlas/history", headers=headers, json=body).status_code == 409
+        exported = client.post("/api/atlas/export", headers=headers).json()
+        assert exported["saved_learning"] == {}
+        assert exported["workspace_recovery"]["saved_at"] is None
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+
+
+def test_deletion_preview_is_invalidated_by_saved_changes(client, learning_export):
+    states, _ = learning_export
+    headers = {"Authorization": "Bearer tenant-a"}
+    preview = client.get("/api/atlas/history/preview", headers=headers).json()
+    state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+    state["chat_history"].append({"message": "A newer message."})
+    states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
+    before = states["tenant-a"].read_bytes()
+    response = client.request("DELETE", "/api/atlas/history", headers=headers,
+                              json={"confirmation": "DELETE SAVED LEARNING", "preview_token": preview["preview_token"]})
+    assert response.status_code == 409
+    assert states["tenant-a"].read_bytes() == before
+
+
+def test_learning_deletion_does_not_claim_success_when_write_fails(client, learning_export, monkeypatch):
+    from mammoth_os import learning_workspace
+
+    headers = {"Authorization": "Bearer tenant-a"}
+    preview = client.get("/api/atlas/history/preview", headers=headers).json()
+    states, _ = learning_export
+    before = states["tenant-a"].read_bytes()
+
+    def failed(*args, **kwargs):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr(learning_workspace, "_write_workspace", failed)
+    response = client.request("DELETE", "/api/atlas/history", headers=headers,
+                              json={"confirmation": "DELETE SAVED LEARNING", "preview_token": preview["preview_token"]})
+    assert response.status_code == 503
+    assert states["tenant-a"].read_bytes() == before
+
+
 @pytest.fixture
-def learning_export(monkeypatch, tmp_path):
+def learning_export(monkeypatch, tmp_path, isolate_learning_request_controls):
     states = {}
     for uid in ("tenant-a", "tenant-b"):
         state = {
@@ -102,6 +285,7 @@ def learning_export(monkeypatch, tmp_path):
         states[uid] = path
     monkeypatch.setattr(api_server, "_atlas_state_file_for_request",
                         lambda: states[api_server._current_request_user_id()])
+    monkeypatch.setattr(api_server, "_learning_controls", isolate_learning_request_controls)
     notes = tmp_path / "notes.json"
     notes.write_text(json.dumps([
         {"id": uid, "body": f"{uid} private note", "user_id": uid, "account_id": account,

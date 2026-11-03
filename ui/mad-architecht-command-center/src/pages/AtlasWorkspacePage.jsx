@@ -9,15 +9,31 @@ import AtlasLearningProfile from '../components/AtlasLearningProfile'
 import CurriculumArtifactPanel from '../components/CurriculumArtifactPanel'
 import '../components/atlas-workspace.css'
 import useLearningWorkspace from '../hooks/useLearningWorkspace'
+import { useForgetPageMemory } from '../lib/PageMemory'
 
 const EDUCATION_AGENTS = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
 export default function AtlasWorkspacePage({ setPage }) {
   const { user } = useAuth()
-  return <LearningWorkspace key={user?.id || 'local'} setPage={setPage} />
+  const forget = useForgetPageMemory()
+  const [reset, setReset] = useState(0)
+  const [receipt, setReceipt] = useState('')
+  const owner = useRef(user?.id)
+  owner.current = user?.id
+  useEffect(() => { setReceipt('') }, [user?.id])
+  const onDeleted = result => {
+    if (owner.current !== user?.id) return
+    forget(['atlas:workspace-recovery', 'atlas:study:'])
+    setReceipt(`Saved lesson session and recovery deleted from active storage. Receipt: ${result.receipt_id}. Linked notes, uploads, learner model, other accounts, provider copies and backups were not deleted.`)
+    setReset(value => value + 1)
+  }
+  return <>
+    {receipt && <p role="status">{receipt}</p>}
+    <LearningWorkspace key={`${user?.id || 'local'}:${reset}`} setPage={setPage} onDeleted={onDeleted} />
+  </>
 }
 
-function LearningWorkspace({ setPage }) {
+function LearningWorkspace({ setPage, onDeleted }) {
   const { user } = useAuth()
   const mobile = useIsMobile(COMPACT_WORKSPACE_QUERY)
   const [tutorOpen, setTutorOpen] = useState(false)
@@ -125,7 +141,7 @@ function LearningWorkspace({ setPage }) {
         {view === 'tutor' && <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(value => !value)}>Advanced tutor tools</button>}
       </header>
       <div className="atlas-workspace-profile" hidden={readingFocus && showLesson}>
-        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} setPage={setPage} />
+        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} setPage={setPage} onDeleted={onDeleted} />
       </div>
       {error && <div role="alert" className="atlas-workspace-error">{error} <button onClick={() => loadState().catch(() => {})}>Retry</button></div>}
       <div className="atlas-workspace-save" role="status">
