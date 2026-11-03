@@ -273,6 +273,14 @@ double bill; anonymous users receive no private usage data.
     Arbitrary Next/Vite app images, reviewed per-repository validators and wider
     sandbox/environment classification remain open; this is not field-guide
     build validation or a generic execution rollout.
+  - Legacy sandbox smoke now has explicit Docker-required/no-host-fallback
+    execution, structured verified/failed/not_verified receipts, actual CLI exit
+    regression tests and an honestly named sandbox-diagnostics job. Infrastructure
+    evidence may remain not_verified in diagnostic mode; actual smoke/hardening
+    failures block that job. Runtime logs and review-only tuner artifacts are
+    retained; automatic suggested-policy PR creation is removed. This does not
+    establish owner-image, non-root test-process or production isolation
+    acceptance. Generic reviewed validators and MCP pinning remain open.
 
 **Acceptance:** breaking SDK payloads or UI builds fail before release; no new
 dependencies in the stdlib-only Python Paths / zero-dependency JS clients.

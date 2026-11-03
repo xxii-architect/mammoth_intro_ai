@@ -1379,7 +1379,11 @@ dark-on-dark text. Settings shows the active appearance without an inactive togg
 6. Completion Graph — visual skill tree of completed vs pending lessons
 
 ### Parked
-- Docker sandbox seccomp tuning (needs CI artifacts)
+- Docker sandbox seccomp tuning (review-only CI artifacts; `sandbox-diagnostics`
+  now records verified/failed/not_verified Docker-only smoke evidence without
+  host fallback. Diagnostic collection is not owner or production isolation
+  acceptance. Missing infrastructure remains unverified; observed smoke or
+  hardening failures fail the job. See the README's legacy sandbox CI section.)
 - Full LLM lesson generation at scale (`ATLAS_EXERCISE_GEN_MODE=llm`)
 - Wednesday gothic neon theme variant
 

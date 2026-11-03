@@ -1,5 +1,15 @@
 MammothOS / ATLAS — Status \& Next Steps
 
+Historical planning snapshot, not the current release checklist. Use
+[PLATFORM_UPGRADE_ROADMAP.md](../PLATFORM_UPGRADE_ROADMAP.md) and
+[README.md](../README.md) for current behavior and remaining work. In particular,
+the legacy `docker-tests-linux` job is replaced by `sandbox-diagnostics`:
+Docker-required smoke execution cannot fall back to the host, structured receipts
+distinguish verified/failed/not_verified, and missing infrastructure evidence is
+not isolation acceptance. Seccomp suggestions are review-only; automatic policy
+patch PR creation has been removed. The old scores, branch instructions and
+blocker descriptions below are retained as historical context, not revalidated.
+
 Purpose
 
 * Provide context for where the project currently stands, where we are aiming, and concrete next actions so a regular Copilot instance (or another developer) can continue work while you wait for a credit refresh.
@@ -82,7 +92,7 @@ How to continue (instructions for Copilot or another developer)
 
 Notes on safety and review
 
-* Never merge seccomp profile changes without human review. The repo includes an optional CI auto-PR flow, but it is gated and should be reviewed before merging.
+* Never merge seccomp profile changes without human review. Current CI only records suggestions; it does not apply changes or open PRs automatically.
 * Keep Supabase credentials out of the repo. Use environment variables for remote persistence.
 
 Contact points
@@ -90,4 +100,3 @@ Contact points
 * Files to inspect when debugging CI: .github/workflows/ci.yml, .github/scripts/run\_sandbox\_test.py, .github/scripts/ci\_seccomp\_tuner.py, .mammoth/seccomp.json, src/mammoth\_os/sandbox\_runner.py
 
 If you want, I can also produce a compact checklist (one-page) to paste into Copilot prompts so it knows exactly which commands and files to run next.
-
