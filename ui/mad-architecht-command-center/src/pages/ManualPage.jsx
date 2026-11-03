@@ -58,6 +58,7 @@ const liveNow = [
   'Notes and the build log are now private to each account and enforced on the server for Pro tier and above.',
   'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
   'Pull requests now run a separate Chromium workspace interaction check alongside build/type and SDK checks. All four fixture-backed workspace suites must pass without skips, expected failures or retries. CI retains browser reports and failure traces for seven days. This is not a production-auth/provider test; repository branch protection must require the check to block merges.',
+  'Python Paths now has a separate pinned-tool correctness lint and bounded strict type gate. Actual-tool regression probes verify it rejects new errors. Dynamic client JSON returns and external implementation bodies remain explicit boundaries, not runtime payload validation; repository-wide legacy diagnostics remain non-blocking. Branch rules must require the new check to block merges.',
   'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',
 ]
 

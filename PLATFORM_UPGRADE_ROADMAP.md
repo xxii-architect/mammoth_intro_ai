@@ -233,6 +233,15 @@ double bill; anonymous users receive no private usage data.
 - [ ] CI-01: establish a lint/type baseline and fail on newly introduced
   violations; expand enforcement incrementally instead of turning on an
   unmanageable legacy-wide gate without triage.
+  - Added fail-closed `paths-sdk-quality` with pinned Ruff/mypy and a clean
+    baseline for the Python Paths package. Correctness lint and bounded strict
+    typing run without success-forcing fallbacks; nine actual-tool probes
+    verify failing regressions and the clean baseline. External import bodies
+    are skipped; the client's 24 existing dynamic JSON returns explicitly
+    exempt `no-any-return`, which remains enforced elsewhere. Runtime shape
+    validation and broader legacy baseline/enforcement remain open. Legacy
+    diagnostics are labeled non-blocking; branch rules must require the new
+    job separately.
 - [ ] CI-02: add explicit frontend build and targeted interaction tests to PR
   validation; retain existing JavaScript SDK tests and release guardrails.
   - Added an independent `ui-interactions` job alongside build/type checks for
