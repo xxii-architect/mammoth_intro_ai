@@ -613,6 +613,21 @@ async def atlas_lesson_notes():
         lessons.append(entry)
     return {"status": "ok", "lessons": lessons}
 
+
+@app.post("/api/atlas/study-preview")
+async def atlas_study_preview(body: Dict[str, Any]):
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    state = _load_atlas_state()
+    context = _validated_learning_selection(state, body.get("learning_selection"))
+    cards = tutor_delivery.build_lesson_flashcards({
+        "title": context["section"] or context["lesson_title"],
+        "teaching_points": [context["quote"]],
+    })
+    return {"status": "draft", "cards": cards, "learning_context": context,
+            "generated_by": "source-derived", "model_calls": 0}
+
 @app.post("/api/atlas/plan")
 async def atlas_plan(body: Optional[Dict[str, Any]] = None):
     state = _load_atlas_state()
@@ -816,6 +831,20 @@ async def atlas_reset(body: Optional[Dict[str, Any]] = None):
 
 @app.post("/api/atlas/chat")
 async def atlas_chat(body: Dict[str, Any]):
+    contextual_help = None
+    if "contextual_help" in body:
+        blocked = _require_signed_in_api()
+        if blocked is not None:
+            return blocked
+        try:
+            contextual_help = tutor_delivery.contextual_help_request(_load_atlas_state(), body["contextual_help"])
+        except LookupError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        body = {**body, "message": contextual_help["message"], "mode": "tutor",
+                "strict_guard": True, "regenerate_on_guard": False, "repo_context": None,
+                "agent_id": None, "page_context": None, "page_snapshot": None}
     message = str(body.get("message", "")).strip()
     if not message:
         return {"status": "error", "error": "message is required"}
@@ -850,7 +879,8 @@ async def atlas_chat(body: Dict[str, Any]):
     resume_packet = state.get("resume_packet") or _build_resume_packet(state, state.get("lesson_id"))
     learner_context = {**(state.get("learner_context") or learner_context), "lesson_plan": lesson_plan}
     has_active_exercise = bool(current_exercise and current_exercise.get("prompt"))
-    guard_triggered = mode in {"tutor", "build"} and strict_guard and has_active_exercise and _is_answer_seeking_request(message)
+    guard_message = tutor_delivery.CONTEXT_ACTIONS[contextual_help["action"]] if contextual_help else message
+    guard_triggered = mode in {"tutor", "build"} and strict_guard and has_active_exercise and _is_answer_seeking_request(guard_message)
     _sync_resume_packet(state, state.get("lesson_id"))
 
     adapter = str(body.get("adapter", "")).strip()
@@ -861,9 +891,11 @@ async def atlas_chat(body: Dict[str, Any]):
     history = state.get(history_key) or []
     if not isinstance(history, list):
         history = []
+    history = list(history)
     history.append({
         "role": "user",
-        "message": message,
+        "message": (f"{tutor_delivery.CONTEXT_ACTIONS[contextual_help['action']]}\n\n"
+                    f"Selected {contextual_help['source']}: {contextual_help['quote']}") if contextual_help else message,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "mode": mode,
         "page": str(page_context.get("current_page") or ""),
@@ -1084,7 +1116,7 @@ async def atlas_chat(body: Dict[str, Any]):
         )
     else:
         tutor_prompt = (
-            "You are ATLAS Tutor, a practical coding mentor. "
+            "You are ATLAS Tutor, a practical subject-aware learning mentor. "
             "Give clear, concise help. Never provide harmful content.\n\n"
             f"Interaction mode: {mode}\n"
             f"Current lesson: {current_lesson.get('title', 'N/A')}\n"
@@ -1101,6 +1133,14 @@ async def atlas_chat(body: Dict[str, Any]):
             "Policy: do not provide direct final answers for active exercises. Use hints and checks.\n"
             "If mode is 'build', include a short implementation plan plus one safe next action.\n"
             "Respond with: 1) diagnosis, 2) next concrete step, 3) short example when useful."
+        )
+    if contextual_help:
+        tutor_prompt += (
+            "\n\nContextual help: answer the requested action using the exact quotation above "
+            "and the active lesson. Do not invent a learner mistake or source verification. "
+            "For remediation, feedback is evidence of a reported difficulty, not proof of its cause. "
+            "Use the requested study action rather than the default diagnosis outline. "
+            "Do not give the final exercise solution or ask the learner to regenerate the whole lesson."
         )
 
     llm_reply = ""
@@ -1143,6 +1183,9 @@ async def atlas_chat(body: Dict[str, Any]):
                 runtime_status["fallback_error_type"] = client_meta.get("fallback_error_type")
         _remember_runtime_status(runtime_status)
     except Exception as e:
+        if contextual_help:
+            logger.exception("Contextual tutor generation failed")
+            raise HTTPException(status_code=503, detail="The tutor could not produce this help. Your exercise is unchanged; retry explicitly.") from e
         runtime_status = _runtime_status_snapshot()
         safe_error = _sanitize_runtime_error_message(e)
         llm_reply = (
@@ -1158,6 +1201,23 @@ async def atlas_chat(body: Dict[str, Any]):
         runtime_status["safe_error"] = safe_error
         _remember_runtime_status(runtime_status)
 
+    reasoning_trace = ""
+    if contextual_help:
+        from mammoth_os.research_quality import trim_to_last_sentence
+
+        llm_reply, reasoning_trace = strip_reasoning(llm_reply)
+        llm_reply, _ = trim_to_last_sentence(llm_reply)
+        if (not llm_reply.strip() or active_adapter in {"fallback-local", "local"}
+                or llm_reply.lstrip().startswith("[LOCAL_ADAPTER]")):
+            raise HTTPException(status_code=503, detail="The tutor returned no usable help. Your exercise is unchanged.")
+        latest = _load_atlas_state()
+        try:
+            tutor_delivery.contextual_help_request(latest, body["contextual_help"])
+        except (ValueError, LookupError) as exc:
+            raise HTTPException(status_code=409, detail="Your learning context changed while generating help. No exercise was changed; the request may have used model credits.") from exc
+        state = latest
+        prior = state.get(history_key) if isinstance(state.get(history_key), list) else []
+        history = [*prior, history[-1]]
     assistant_evidence = list(repo_evidence_items[:2])
     if attached_material_context.get("count"):
         assistant_evidence.extend({
@@ -1189,6 +1249,9 @@ async def atlas_chat(body: Dict[str, Any]):
         "evidence_items": assistant_evidence,
         "confidence": llm_confidence,
         "trust_metadata": llm_trust,
+        **({"learning_context": {key: value for key, value in contextual_help.items() if key != "message"},
+            "reasoning_trace": reasoning_trace, "quality": {"ready": True, "status": "generated",
+            "factual_verification": "not_verified"}} if contextual_help else {}),
     })
     state[history_key] = history[-60:]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -1215,6 +1278,8 @@ async def atlas_chat(body: Dict[str, Any]):
         "evidence_items": assistant_evidence,
         "confidence": llm_confidence,
         "trust_metadata": llm_trust,
+        **({"reasoning_trace": reasoning_trace, "quality": {"ready": True, "status": "generated",
+            "factual_verification": "not_verified"}} if contextual_help else {}),
     }
 
 @app.post("/api/atlas/files/upload")

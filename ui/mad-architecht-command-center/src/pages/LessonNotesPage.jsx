@@ -3,6 +3,7 @@ import { BookOpen, FileText } from 'lucide-react'
 
 import { api } from '../api/client'
 import { useAuth } from '../lib/authContext'
+import LearningProvenance from '../components/LearningProvenance'
 
 function lessonTitleFromEntry(entry) {
   const lesson = entry?.lesson && typeof entry.lesson === 'object' ? entry.lesson : {}
@@ -58,6 +59,7 @@ function LessonNotes() {
             id: String(note?.id || `${entry?.lesson_id || 'lesson'}-${idx}`),
             title: String(note?.title || 'Lesson note').trim(),
             preview: String(note?.preview || '').trim(),
+            learning_context: note?.learning_context,
           })),
         }
       })
@@ -124,6 +126,7 @@ function LessonNotes() {
                       <div style={{ marginTop: 4, fontSize: '0.8rem', color: 'var(--txt-sec)', whiteSpace: 'pre-wrap', lineHeight: 1.55 }}>
                         {note.preview || '—'}
                       </div>
+                      <LearningProvenance context={note.learning_context} />
                     </div>
                   ))
                 ) : (

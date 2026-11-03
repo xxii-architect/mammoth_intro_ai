@@ -60,8 +60,55 @@ Page memory is not a permanent archive or background-execution guarantee.
 Leaving a live chat can still end its streaming connection. After a browser reload,
 use confirmed ATLAS saves and private Artifacts/run records; keep exports for an
 independent copy. Unsubmitted Notes/Build Log drafts are navigation memory only.
-Contextual Explain this, connected notes/cards, remediation and narration remain
-in the [ATLAS roadmap](ATLAS_WORKSPACE_ROADMAP.md).
+Accessibility, privacy/cost controls and narration follow-ups remain in the
+[ATLAS roadmap](ATLAS_WORKSPACE_ROADMAP.md).
+
+### Contextual help and connected study materials
+
+Select rendered lesson text (2-4,000 characters), then choose **Study selection**.
+**Explain instructions** and **Work on feedback** also open the same on-demand
+dialog. Choose a simpler explanation, worked example, practice question, or
+feedback-specific remediation, then explicitly choose **Ask tutor**. Opening the
+dialog does not call a model; asking uses the configured provider and model
+credits. Help does not submit work, change the exercise, or demonstrate mastery.
+Remediation uses actual feedback, not an inferred diagnosis of the learner.
+
+The backend validates the exact quotation against the active lesson, instructions
+or feedback and checks exercise identity again after generation. Stale context
+is rejected, even if the request has already used credits. Runtime failure or a
+local echo is an explicit failure, not a canned successful explanation. Private
+model reasoning is separated from the visible answer. Successful help is also
+saved in the existing tutor conversation.
+
+Within the dialog, write a **Study note** or use the help as an AI-assisted draft.
+**Save reviewed note** uses existing private Notes and its Pro/developer gate.
+For cards, **Draft recall card** derives an editable question/answer from the
+selected teaching passage without a model call. Instruction-only passages may
+produce no card; **Write my own card** lets you supply the answer instead.
+Review both sides before **Save reviewed card**, which uses existing lesson
+flashcards. Notes/cards distinguish learner-written/edited, source-derived and
+AI-assisted content as applicable; no save action generates a model answer.
+
+Saved items show collapsed **Lesson provenance** in Notes, lesson notes and
+flashcards. It records the lesson, section, quotation, authorship and source URLs
+already present in that lesson section. These are provenance links, not
+independently verified facts or newly researched citations.
+
+Study drafts, help and pending-request state survive in-app navigation in the
+same signed-in tab. A failed save retains the draft; no automatic retry is made.
+Selecting different text starts a new study draft. Unsaved dialog notes/cards
+are not included in the server recovery snapshot and do not survive refresh.
+Confirmed notes/cards use their existing storage and retention; flashcard study
+aid history retains the latest 120 records. Repeating an ambiguous save after a
+network failure can create a duplicate; check the destination before retrying.
+
+API additions are additive: `POST /api/atlas/study-preview` accepts
+`learning_selection: {exercise_key, source, selection}` and returns a model-free
+draft. `POST /api/atlas/chat` accepts that selection plus `action` inside
+`contextual_help`. `POST /api/notes` and `POST /api/flashcards` accept
+`learning_selection`, `reviewed: true`, and explicit `authorship`. The server
+derives `mammoth.learning-selection.v1` provenance and ownership; clients cannot
+choose another user's context. Standalone tutor SDK behavior is unchanged.
 
 The website uses a dark semantic palette: brass/copper primary actions and agent
 identity, blue keyboard focus/links/secondary interaction, and grey/white text.

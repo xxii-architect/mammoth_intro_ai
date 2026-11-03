@@ -155,6 +155,21 @@ async def upsert_note(body: Dict[str, Any]):
         return blocked
     scope_user_id = _current_request_user_id()
     state = _load_atlas_state()
+    if "learning_selection" in body:
+        context = _validated_learning_selection(state, body["learning_selection"])
+        if body.get("reviewed") is not True:
+            raise HTTPException(status_code=400, detail="Review the study note before saving.")
+        authorship = body.get("authorship")
+        if authorship not in ("learner", "ai-assisted"):
+            raise HTTPException(status_code=400, detail="Choose learner or ai-assisted authorship.")
+        note_text = body.get("body") or body.get("content")
+        if not isinstance(note_text, str) or not 1 <= len(note_text.strip()) <= 12000:
+            raise HTTPException(status_code=400, detail="A reviewed study note must contain 1 to 12,000 characters.")
+        metadata = body.get("metadata") if isinstance(body.get("metadata"), dict) else {}
+        body = {**body, "body": note_text.strip(), "content": note_text.strip(), "type": "lesson_note", "metadata": {
+            **metadata, "lesson_id": context["lesson_id"],
+            "learning_context": {**context, "authorship": authorship, "reviewed": True},
+        }}
     scope_account_id = _active_account_id(state)
     notes = _read_json(NOTES_FILE, default=[])
     if not isinstance(notes, list):

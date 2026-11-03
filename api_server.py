@@ -4206,6 +4206,15 @@ def _learning_workspace_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Saved workspace could not be read. Retry or contact support; it has not been overwritten.") from exc
 
 
+def _validated_learning_selection(state: Dict[str, Any], payload: Any) -> Dict[str, Any]:
+    try:
+        return tutor_delivery.contextual_selection(state, payload)
+    except LookupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 _ACCOUNT_SESSION_KEYS = (
     "status",
     "topic",
@@ -4860,7 +4869,8 @@ def _normalize_flashcard_item(raw: Any) -> Optional[Dict[str, Any]]:
             source = normalized_source
     else:
         source = None
-    return {"front": front, "back": back, "source": source}
+    return {"front": front, "back": back, "source": source,
+            **({"learning_context": raw["learning_context"]} if isinstance(raw.get("learning_context"), dict) else {})}
 
 
 def _is_placeholder_flashcard(front: str, back: str) -> bool:
@@ -4935,6 +4945,7 @@ def _flashcards_to_ui_cards(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                 "front": front,
                 "back": back,
                 "source": card.get("source") if isinstance(card.get("source"), dict) else None,
+                **({"learning_context": card["learning_context"]} if isinstance(card.get("learning_context"), dict) else {}),
             }
         )
     return normalized
@@ -4995,6 +5006,7 @@ def _matching_notes_for_lesson(state: Dict[str, Any], lesson_id: Optional[str]) 
             "title": title or "Untitled",
             "preview": body[:220],
             "updated_at": raw.get("updated_at"),
+            **({"learning_context": metadata["learning_context"]} if isinstance(metadata.get("learning_context"), dict) else {}),
         })
         if len(matches) >= 5:
             break

@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { TutorJourneyRail, OutcomesCard } from '../components/TutorJourneyRail'
 import { LessonGateNotice, LessonManifestCard, StallNotice } from '../components/LessonDelivery'
 import LessonContent from '../components/LessonContent'
+import LessonStudyActions from '../components/LessonStudyActions'
 import '../components/atlas-workspace.css'
 import useIsMobile, { COMPACT_WORKSPACE_QUERY } from '../lib/useIsMobile'
 
@@ -135,7 +136,7 @@ function formatSourceLabel(source = '') {
 const CATEGORIES = ['Outdoors', 'Emergency', 'Business', 'Health', 'Human Systems', 'Technology', 'Creative', 'Life Skills']
 const CATEGORY_ICONS = { Outdoors: '🏕️', Emergency: '🚑', Business: '💼', Health: '💪', 'Human Systems': '🧠', Technology: '💻', Creative: '🎨', 'Life Skills': '🔑' }
 
-export default function LessonsPage({ setPage, embedded = false, sharedState, loadSharedState, onFocusChange, workspace }) {
+export default function LessonsPage({ setPage, embedded = false, sharedState, loadSharedState, onFocusChange, workspace, onOpenTutor }) {
   const [atlasState, setAtlasState] = useState(null)
   const [topic, setTopic]           = useState('')
   const [localCode, setLocalCode] = useState('')
@@ -998,6 +999,8 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                   </div>
 
                   <div style={{ display: 'grid', gap: 12 }}>
+                    <LessonStudyActions source="lesson" exerciseKey={sharedState?.workspace_recovery?.exercise_key} onRefresh={loadSharedState} onOpenTutor={onOpenTutor}>
+                    <div style={{ display: 'grid', gap: 12 }}>
                     {lessonOverview && <div style={{ padding: '12px 14px', borderRadius: 10, background: 'rgba(var(--mm-color-system-rgb),0.06)', border: '1px solid rgba(var(--mm-color-system-rgb),0.22)', display: 'grid', gap: 6 }}>
                       <p style={{ margin: 0, fontSize: '0.94rem', color: 'var(--txt-pri)', lineHeight: 1.7 }}>{lessonOverview}</p>
                     </div>}
@@ -1025,6 +1028,8 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                         ))}
                       </div>
                     )}
+                    </div>
+                    </LessonStudyActions>
 
                     <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(var(--mm-color-agent-rgb),0.06)', border: '1px solid rgba(var(--mm-color-agent-rgb),0.22)', display: 'grid', gap: 6 }}>
                       <p style={{ margin: 0, fontSize: '0.66rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--mm-color-agent-default)', fontWeight: 700 }}>Feedback loop</p>
@@ -1062,7 +1067,9 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                       )}
                     </div>
                     <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: 8, color: 'var(--txt-pri)' }}>{exercise.title || 'Untitled Exercise'}</h2>
-                    <p style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', lineHeight: 1.65, margin: 0 }}>{exercise.prompt || exercise.description}</p>
+                    <LessonStudyActions source="exercise" exerciseKey={sharedState?.workspace_recovery?.exercise_key} fallbackText={exercise.prompt || exercise.description} onRefresh={loadSharedState} onOpenTutor={onOpenTutor}>
+                      <p style={{ fontSize: '0.85rem', color: 'var(--txt-sec)', lineHeight: 1.65, margin: 0 }}>{exercise.prompt || exercise.description}</p>
+                    </LessonStudyActions>
                   </div>
                   <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                     <button onClick={submitCode} disabled={loading}
@@ -1164,9 +1171,11 @@ export default function LessonsPage({ setPage, embedded = false, sharedState, lo
                       {result.mastery_evidence === false ? 'Coverage feedback (not mastery)' : result.passed ? '✓ Passed' : result.error ? 'Error' : '✗ Failed'}
                     </p>
                   </div>
+                  <LessonStudyActions source="feedback" exerciseKey={sharedState?.workspace_recovery?.exercise_key} fallbackText={result.hint || result.assessment_note || ''} onRefresh={loadSharedState} onOpenTutor={onOpenTutor}>
                   {result.hint && <p style={{ fontSize: '0.82rem', color: 'var(--txt-sec)', lineHeight: 1.65, margin: 0 }}>{result.hint}</p>}
                   {result.assessment_note && <p style={{ fontSize: '0.74rem', color: 'var(--txt-sec)' }}>{result.assessment_note}</p>}
                   {result.criteria?.length > 0 && <ul>{result.criteria.map(criterion => <li key={criterion.id}>{criterion.id}: {criterion.feedback}</li>)}</ul>}
+                  </LessonStudyActions>
                   {result.error && <pre style={{ fontSize: '0.76rem', fontFamily: 'JetBrains Mono,monospace', color: '#f87171', whiteSpace: 'pre-wrap', margin: 0 }}>{result.error}</pre>}
                   {result.recommendation && (
                     <p style={{ fontSize: '0.72rem', color: 'var(--txt-mut)', marginTop: 8, margin: '8px 0 0' }}>

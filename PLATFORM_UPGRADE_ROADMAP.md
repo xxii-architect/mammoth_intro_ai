@@ -10,6 +10,37 @@ from unchecked audit phases.
 
 ## Purpose and boundaries
 
+### Personal Health direction (requested 2026-11-02; not implemented)
+
+The Health destination is a private personal-health dashboard with an AI
+assistant, not just an owner/operator health console. Keep existing owner-only
+tools restricted until a separate user-scoped surface is implemented and tested.
+
+- [ ] PERSONAL-HEALTH-01: design explicit consent, per-user storage and access,
+  export/deletion/retention, minimal necessary collection, and clear provenance.
+  Do not reuse operator defaults or expose another account's records.
+- [ ] PERSONAL-HEALTH-02: implement a private dashboard with manual entries and
+  a clearly labeled **Personal Health Assistant** for educational explanations,
+  organizing records/questions, and descriptive trends. Missing data stays empty.
+  Do not imply a licensed physician assistant/associate or clinician, diagnose,
+  prescribe, promise clinical accuracy, or offer emergency monitoring.
+- [ ] PERSONAL-HEALTH-03: feasibility/privacy/platform review for Apple
+  Health/Watch and Android Health Connect/Wear OS. Phone-native permission and
+  background-sync requirements need review before choosing native wrappers.
+  No device connector or provider is selected or enabled yet.
+- [ ] PERSONAL-HEALTH-04: opt-in, read-only steps/heart-rate/activity imports,
+  device/timezone/unit attribution, duplicate handling, gaps and sync failures.
+  Never invent continuous readings or medical conclusions from wearable data.
+- [ ] PERSONAL-HEALTH-05: verify cross-account isolation, revocation/deletion,
+  safe model context, accessible mobile delivery and appropriate health-data
+  regulatory/security review before production collection or integrations.
+
+The first proposed milestone is consent/privacy plus manual dashboard and
+educational assistance; device integrations follow. This sequencing is a
+conservative implementation assumption, not user approval of a health-data
+provider or unresolved retention/clinical decisions. Complete the active ATLAS
+learning upgrades first; obtain those decisions before collecting health data.
+
 This is the execution backlog for agents improving MammothOS, Mammoth Mind,
 the tutor SDK, and the Mammoth Paths workspace SDK. Prioritize trustworthy
 behavior over adding more features.

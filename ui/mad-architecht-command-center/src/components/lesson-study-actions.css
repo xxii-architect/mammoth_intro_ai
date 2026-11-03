@@ -1,0 +1,27 @@
+.lesson-study-trigger {
+  margin-top: 8px; padding: 8px 10px; min-height: 44px;
+  color: var(--txt-sec); background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; cursor: pointer;
+}
+.lesson-study-dialog {
+  width: min(660px, calc(100vw - 32px)); max-height: calc(100dvh - 48px);
+  box-sizing: border-box; padding: 20px; overflow-y: auto;
+  color: var(--txt-pri); background: var(--card); border: 1px solid var(--border);
+  border-radius: 12px; overflow-wrap: anywhere;
+}
+.lesson-study-dialog::backdrop { background: rgba(0,0,0,.7); }
+.lesson-study-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.lesson-study-heading h2 { font-size: 1.05rem; margin: 0; }
+.lesson-study-dialog p { font-size: .82rem; line-height: 1.6; color: var(--txt-sec); }
+.lesson-study-dialog blockquote { margin: 12px 0; padding: 10px; border-left: 3px solid var(--photon); white-space: pre-wrap; max-height: 180px; overflow-y: auto; }
+.lesson-study-dialog label { display: grid; gap: 6px; margin: 12px 0; font-size: .85rem; }
+.lesson-study-dialog button, .lesson-study-dialog select, .lesson-study-dialog textarea {
+  padding: 8px 10px; min-height: 44px; color: var(--txt-pri); background: var(--shell);
+  border: 1px solid var(--border); border-radius: 8px; box-sizing: border-box; max-width: 100%;
+}
+.lesson-study-dialog button { cursor: pointer; }
+.lesson-study-dialog button:disabled { opacity: .6; cursor: wait; }
+.lesson-study-dialog [role="alert"] { color: #fca5a5; }
+.lesson-study-dialog textarea { width: 100%; }
+.lesson-study-dialog details { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.lesson-study-dialog summary { min-height: 44px; cursor: pointer; font-size: .85rem; }

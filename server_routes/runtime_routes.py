@@ -1800,6 +1800,22 @@ async def create_flashcards(body: Dict[str, Any]):
         )
 
     state = _load_atlas_state()
+    if "learning_selection" in body:
+        context = _validated_learning_selection(state, body["learning_selection"])
+        if body.get("reviewed") is not True or not isinstance(cards_input, list) or not 1 <= len(cards_input) <= 12:
+            raise HTTPException(status_code=400, detail="Review between 1 and 12 source-linked cards before saving.")
+        if len(normalized_cards) != len(cards_input) or any(
+            len(card["front"]) > 4000 or len(card["back"]) > 12000 for card in normalized_cards
+        ):
+            raise HTTPException(status_code=400, detail="Cards must have complete questions and answers within the size limits.")
+        authorship = body.get("authorship")
+        if authorship not in ("learner", "source-derived", "ai-assisted"):
+            raise HTTPException(status_code=400, detail="Choose an explicit card authorship.")
+        for card in normalized_cards:
+            card["learning_context"] = {**context, "authorship": authorship, "reviewed": True}
+            card["source"] = {"title": context["lesson_title"], "url": ""}
+        body = {**body, "lesson_id": context["lesson_id"], "lesson_title": context["lesson_title"],
+                "generated_by": authorship}
     lesson_id = str(body.get("lesson_id") or state.get("lesson_id") or "").strip()
     topic = str(
         body.get("topic")

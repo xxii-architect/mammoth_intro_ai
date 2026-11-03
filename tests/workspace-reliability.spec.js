@@ -518,6 +518,36 @@ test('specialist output can be exported when archival saving fails', async ({ pa
   expect(errors).toEqual([])
 })
 
+for (const surface of ['NotesPage', 'LessonNotesPage', 'FlashcardsPage']) {
+  test(`${surface} retains recorded lesson provenance on mobile`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    const url = `https://example.test/record/${'a'.repeat(160)}`
+    const context = { contract: 'mammoth.learning-selection.v1', lesson_id: 'evidence-one',
+      lesson_title: 'Evidence foundations', source: 'lesson', section: 'Primary records',
+      quote: 'An original record preserves first-hand evidence.', authorship: 'learner', source_urls: [url] }
+    const note = { id: 'linked-note', title: 'My evidence note', content: 'Keep an original record.', body: 'Keep an original record.',
+      source: 'personal', metadata: { learning_context: context } }
+    const errors = await mount(page, `pages/${surface}`, {
+      '/api/notes': [note],
+      '/api/atlas/lesson-notes': { lessons: [{ lesson_id: 'evidence-one', lesson: { title: 'Evidence foundations' },
+        resume_packet: { notes: [{ id: note.id, title: note.title, preview: note.body, learning_context: context }] } }] },
+      '/api/flashcards': { cards: [{ front: 'What is a primary source?', back: 'An original record.', learning_context: context }] },
+    })
+    await page.getByText('Lesson provenance (not fact verification)', { exact: true }).click()
+    await expect(page.getByText(context.quote, { exact: true })).toBeVisible()
+    await expect(page.getByRole('link', { name: url, exact: true })).toHaveAttribute('href', url)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    if (surface === 'FlashcardsPage') {
+      await page.getByRole('button', { name: 'Reveal recall answer', exact: true }).focus()
+      await page.keyboard.press('Enter')
+      await expect(page.getByRole('button', { name: 'Hide recall answer', exact: true })).toContainText('An original record.')
+      await page.keyboard.press('Space')
+      await expect(page.getByRole('button', { name: 'Reveal recall answer', exact: true })).toBeFocused()
+    }
+    expect(errors).toEqual([])
+  })
+}
+
 test('Notes supports search, edits, full export and confirmed deletion on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   let note = { id: 'notes-one', title: 'Coffee research', content: 'Coffee research\nKeep the exact variant.', body: 'Coffee research\nKeep the exact variant.', source: 'personal' }

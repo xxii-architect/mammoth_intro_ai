@@ -136,7 +136,8 @@ function LearningWorkspace() {
       </div>
       {workspace.ready && <div className={`atlas-workspace-content ${showLesson && showTutor ? 'with-tutor' : ''}`}>
         <section aria-label="Lesson and practice" hidden={!showLesson} className="atlas-workspace-lesson">
-          <LessonsPage embedded sharedState={state} loadSharedState={loadState} onFocusChange={setReadingFocus} workspace={workspace} />
+          <LessonsPage embedded sharedState={state} loadSharedState={loadState} onFocusChange={setReadingFocus} workspace={workspace}
+            onOpenTutor={() => { workspace.update('tutor_mode', 'tutor'); setView('tutor') }} />
         </section>
         <section aria-label="ATLAS tutor conversation" hidden={!showTutor} className="atlas-workspace-tutor">
           <AtlasTutorPage conversationOnly={!(view === 'tutor' && advanced)} sharedState={state} loadSharedState={loadState} workspace={workspace} />

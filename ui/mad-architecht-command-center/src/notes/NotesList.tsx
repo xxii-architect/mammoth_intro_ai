@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { NoteRecord } from './types/NoteRecord'
 import { usePageMemory } from '../lib/PageMemory'
+import LearningProvenance from '../components/LearningProvenance'
 
 const listStyle: React.CSSProperties = {
   listStyle: 'none',
@@ -99,6 +100,7 @@ const NotesList: React.FC<{ notes: NoteRecord[]; onDelete: (id: string) => void;
               Delete
             </button>
           </div>
+          <LearningProvenance context={note.metadata?.learning_context} />
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
             <button disabled={busy} onClick={() => { setEditingId(note.id); setDraft(note.content || note.body); setEditError('') }}>Edit note</button>
             <button onClick={() => exportNote(note)}>Export note</button>

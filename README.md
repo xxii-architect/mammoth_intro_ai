@@ -36,6 +36,18 @@ recovered; reset clears its saved draft. Unsaved keystrokes and other pages'
 unsubmitted drafts are not guaranteed after browser close or refresh. See the
 [ATLAS manual](ATLAS_MANUAL.md) for recovery controls and remaining roadmap work.
 
+ATLAS also offers on-demand **Study selection**, **Explain instructions** and
+**Work on feedback**. The server validates the selected lesson quotation;
+only **Ask tutor** uses model credits. Smaller explanations, examples, practice
+questions and feedback-grounded hints never submit or replace the exercise or
+establish mastery. Reviewed linked notes use existing private Notes and its Pro
+gate. Recall-card previews use teaching text without a model call, and never
+invent a missing answer. Saved notes/cards display lesson/section/quote/authorship
+provenance and recorded source links, not a fact-verification badge. Study drafts
+and pending help survive page navigation in the same account/tab, not refresh.
+Failed saves keep the draft and require explicit retry; ambiguous retries can
+duplicate a saved item. See the [ATLAS manual](ATLAS_MANUAL.md) for the API shapes.
+
 Idea Shaper assesses the supplied idea and context without assuming the owner's
 brand, industry, or location. Structured output is checked before success:
 invalid or cut-off assessments receive at most one corrective model call, which

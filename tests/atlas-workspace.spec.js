@@ -10,6 +10,7 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
   let lessonId = 'lesson-1'
   let starterResponse = ''
   let chatHistory = []
+  let lastSubmission = null
   let savedWorkspace = null
   let nextSaveGate = null
   const recovery = () => {
@@ -37,6 +38,7 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     lesson_history: [], available_modules: [], learner: {}, comprehension_gate: {}, chat_history: chatHistory,
     learner_model: { onboarding }, learner_context: { starting_level: onboarding.experience_level, recommended_difficulty: onboarding.experience_level, adaptation_reason: 'Using your selected starting level until there is practice evidence.' },
     workspace_recovery: recovery(),
+    last_submission: lastSubmission,
   })
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
   await page.route(url => url.pathname.startsWith('/api/'), async route => {
@@ -81,7 +83,10 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
       if (catalogFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Catalog unavailable' }) })
       result = { agents: agents.map(id => ({ id, name: id, status: 'ready', capabilities: [] })) }
     }
-    if (path === '/api/atlas/submit') result = { result: { passed: false, hint: 'Include a primary source.' } }
+    if (path === '/api/atlas/submit') {
+      lastSubmission = { passed: false, mastery_evidence: false, hint: 'Include a primary source.' }
+      result = { result: lastSubmission }
+    }
     if (path === '/api/atlas/lesson') {
       if (lessonFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Lesson generation unavailable' }) })
       lessonId = 'lesson-2'
@@ -92,9 +97,13 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
       result = { exercise: snapshot().current_exercise }
     }
     if (path === '/api/atlas/chat') {
-      chatHistory = [...chatHistory, { role: 'user', message: body.message }, { role: 'assistant', message: 'Compare the original evidence with an independent source.' }]
-      result = { chat_history: chatHistory }
+      const reply = 'Compare the original evidence with an independent source.'
+      chatHistory = [...chatHistory, { role: 'user', message: body.message || body.contextual_help?.selection }, { role: 'assistant', message: reply }]
+      result = { status: 'ok', reply, chat_history: chatHistory }
     }
+    if (path === '/api/atlas/study-preview') result = { status: 'draft', cards: [{ front: 'What should you compare?', back: body.learning_selection.selection }] }
+    if (path === '/api/notes' && route.request().method() === 'POST') result = { id: 'note-linked', metadata: { learning_context: body.learning_selection } }
+    if (path === '/api/flashcards' && route.request().method() === 'POST') result = { status: 'ok', count: 1, cards: [{ ...body.cards[0], learning_context: body.learning_selection }] }
     if (path === '/api/atlas/next') {
       if (!body?.override) result = { status: 'gated', gate: { message: 'Practice first.', allowed: false } }
       else { lessonId = 'lesson-2'; result = { status: 'ok' } }
@@ -162,6 +171,157 @@ test('a failed lesson start preserves the active exercise draft', async ({ page 
   await page.getByRole('button', { name: 'Start Lesson', exact: true }).click()
   await expect(page.getByText(/Lesson action failed:.*Lesson generation unavailable/)).toBeVisible()
   await expect(response).toHaveValue('Keep this unfinished exercise.')
+  expect(errors).toEqual([])
+})
+
+test('selected lesson text requests explicit contextual help and preserves the exercise draft', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page)
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('My unfinished answer remains here.')
+  await page.locator('.atlas-lessons-page .lesson-reader-section').first().evaluate(element => {
+    const range = document.createRange()
+    range.selectNodeContents(element)
+    window.getSelection().removeAllRanges()
+    window.getSelection().addRange(range)
+    element.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
+  })
+  await page.getByRole('button', { name: 'Study selection', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Study selected text' })
+  await expect(dialog.locator('blockquote').first()).toHaveText('Compare primary sources before drawing conclusions.')
+  expect(requests.filter(request => request.path === '/api/atlas/chat')).toHaveLength(0)
+  await dialog.getByLabel('Help type').selectOption('example')
+  await dialog.getByRole('button', { name: 'Ask tutor', exact: true }).click()
+  await expect(dialog.getByRole('region', { name: 'Contextual tutor response' })).toContainText('Compare the original evidence')
+  const call = requests.find(request => request.path === '/api/atlas/chat')
+  expect(call.body.contextual_help).toEqual({ exercise_key: JSON.stringify(['lesson-1', '']), source: 'lesson',
+    selection: 'Compare primary sources before drawing conclusions.', action: 'example' })
+  expect(requests.some(request => ['/api/atlas/regenerate', '/api/atlas/submit', '/api/atlas/next'].includes(request.path))).toBe(false)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(response).toHaveValue('My unfinished answer remains here.')
+  expect(errors).toEqual([])
+})
+
+test('reviewed notes and source-derived cards use existing stores without a model call', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const { requests, errors } = await mountWorkspace(page)
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Study selected text' })
+  await dialog.getByText('Save a linked study note', { exact: true }).click()
+  await dialog.getByLabel('Study note', { exact: true }).fill('My own takeaway.')
+  await dialog.getByRole('button', { name: 'Save reviewed note' }).click()
+  await expect(dialog.getByRole('status')).toContainText('private Notes')
+  await dialog.getByText('Create a linked recall card', { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Draft recall card' }).click()
+  await expect(dialog.getByLabel('Recall answer')).toHaveValue('Explain how you verify a claim.')
+  expect(requests.filter(request => request.path === '/api/flashcards')).toHaveLength(0)
+  await dialog.getByLabel('Recall question').fill('How do I verify a claim?')
+  await dialog.getByRole('button', { name: 'Save reviewed card' }).click()
+  await expect(dialog.getByRole('status')).toContainText('lesson flashcards')
+  expect(requests.find(request => request.path === '/api/notes').body.reviewed).toBe(true)
+  expect(requests.find(request => request.path === '/api/flashcards').body.authorship).toBe('learner')
+  expect(requests.some(request => ['/api/atlas/chat', '/api/run'].includes(request.path))).toBe(false)
+  expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Explain instructions', exact: true })).toBeFocused()
+  expect(errors).toEqual([])
+})
+
+test('targeted feedback help leaves the active exercise and learner answer untouched', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page)
+  const response = page.getByRole('region', { name: 'Lesson and practice' }).locator('textarea')
+  await response.fill('My actual attempt.')
+  await page.getByRole('button', { name: 'Submit response', exact: true }).click()
+  await page.getByRole('button', { name: 'Work on feedback', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Study selected text' })
+  await expect(dialog.getByLabel('Help type')).toHaveValue('remediate')
+  await dialog.getByRole('button', { name: 'Ask tutor', exact: true }).click()
+  await expect(dialog.getByRole('region', { name: 'Contextual tutor response' })).toBeVisible()
+  expect(requests.find(request => request.path === '/api/atlas/chat').body.contextual_help)
+    .toMatchObject({ source: 'feedback', selection: 'Include a primary source.', action: 'remediate' })
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(response).toHaveValue('My actual attempt.')
+  expect(requests.filter(request => request.path === '/api/atlas/submit')).toHaveLength(1)
+  expect(requests.some(request => ['/api/atlas/regenerate', '/api/atlas/next'].includes(request.path))).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('study drafts survive page navigation and failed saves without automatic model retries', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page)
+  let modelCalls = 0
+  await page.route('**/api/atlas/chat', route => {
+    modelCalls += 1
+    return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Tutor temporarily unavailable' }) })
+  })
+  await page.route('**/api/notes', route => route.fulfill({
+    status: 403, contentType: 'application/json', body: JSON.stringify({ detail: 'Pro access required' }),
+  }))
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  let dialog = page.getByRole('dialog', { name: 'Study selected text' })
+  await dialog.getByText('Save a linked study note', { exact: true }).click()
+  await dialog.getByLabel('Study note', { exact: true }).fill('Keep my complete unsaved study note.')
+  await dialog.getByRole('button', { name: 'Save reviewed note' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Pro access required')
+  await expect(dialog.getByRole('textbox', { name: 'Study note', exact: true })).toHaveValue('Keep my complete unsaved study note.')
+  await dialog.getByRole('button', { name: 'Ask tutor', exact: true }).click()
+  await expect(dialog.getByRole('alert')).toContainText('Tutor temporarily unavailable')
+  await expect(dialog.getByRole('region', { name: 'Contextual tutor response' })).toHaveCount(0)
+  await page.evaluate(() => globalThis.showTestWorkspace(false))
+  await expect(page.getByText('ATLAS is unmounted', { exact: true })).toBeVisible()
+  await page.evaluate(() => globalThis.showTestWorkspace(true))
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  dialog = page.getByRole('dialog', { name: 'Study selected text' })
+  await expect(dialog.getByRole('alert')).toContainText('Tutor temporarily unavailable')
+  await dialog.getByText('Save a linked study note', { exact: true }).click()
+  await expect(dialog.getByRole('textbox', { name: 'Study note', exact: true })).toHaveValue('Keep my complete unsaved study note.')
+  expect(modelCalls).toBe(1)
+  expect(requests.some(request => ['/api/atlas/submit', '/api/flashcards'].includes(request.path))).toBe(false)
+  await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.evaluate(() => globalThis.changeTestAccount('different-learner'))
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  await dialog.getByText('Save a linked study note', { exact: true }).click()
+  await expect(dialog.getByLabel('Study note', { exact: true })).toHaveValue('')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a pending contextual request is not duplicated by leaving and returning', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  let release
+  let modelCalls = 0
+  const gate = new Promise(resolve => { release = resolve })
+  await page.route('**/api/atlas/chat', async route => {
+    modelCalls += 1
+    await gate
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', reply: 'A complete delayed explanation.' }) })
+  })
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  await page.getByRole('button', { name: 'Ask tutor', exact: true }).click()
+  await expect.poll(() => modelCalls).toBe(1)
+  await page.evaluate(() => globalThis.showTestWorkspace(false))
+  await expect(page.getByText('ATLAS is unmounted', { exact: true })).toBeVisible()
+  await page.evaluate(() => globalThis.showTestWorkspace(true))
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Asking tutor...', exact: true })).toBeDisabled()
+  release()
+  await expect(page.getByRole('region', { name: 'Contextual tutor response' })).toContainText('A complete delayed explanation.')
+  expect(modelCalls).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('empty source-derived previews do not invent or save a recall answer', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page)
+  await page.route('**/api/atlas/study-preview', route => route.fulfill({
+    contentType: 'application/json', body: JSON.stringify({ status: 'draft', cards: [] }),
+  }))
+  await page.getByRole('button', { name: 'Explain instructions', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Study selected text' })
+  await dialog.getByText('Create a linked recall card', { exact: true }).click()
+  await dialog.getByRole('button', { name: 'Draft recall card' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('write your own card')
+  await expect(dialog.getByLabel('Recall answer')).toHaveCount(0)
+  expect(requests.some(request => ['/api/atlas/chat', '/api/flashcards'].includes(request.path))).toBe(false)
+  await dialog.getByRole('button', { name: 'Write my own card' }).click()
+  await expect(dialog.getByLabel('Recall answer')).toHaveValue('Explain how you verify a claim.')
   expect(errors).toEqual([])
 })
 

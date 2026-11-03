@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { Editor } from '@monaco-editor/react'
 import { BookOpen, Send, ChevronRight, MessageSquare, Paperclip, X, AlertTriangle } from 'lucide-react'
 import { api } from '../api/client'
+import LearningProvenance from '../components/LearningProvenance'
 import { responseConfidence } from '../lib/confidence'
 import MammothDiffViewer from '../components/MammothDiffViewer'
 import AtlasMaterialsLibrary from '../components/AtlasMaterialsLibrary'
@@ -1300,6 +1301,7 @@ export default function AtlasTutorPage({ conversationOnly = false, sharedState, 
                   </p>
                   <div style={{ padding: '8px 10px', borderRadius: 10, background: msg.role === 'user' ? 'rgba(77,166,255,0.1)' : 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
                     <p style={{ fontSize: '0.8rem', color: 'var(--txt-pri)', whiteSpace: 'pre-wrap', lineHeight: 1.5, margin: 0 }}>{msg.message}</p>
+                    <LearningProvenance context={msg.learning_context} />
                     {msg.role !== 'user' && (
                       <TrustBadgeRow
                         provider={String(msg.adapter || msg.provider || 'unknown')}

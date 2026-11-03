@@ -110,8 +110,8 @@ routes. This is not a live textbook factual benchmark or enabled OCR.
 These improvements do not rewrite stored curriculum content on profile changes,
 certify expertise, or guarantee factual correctness. Provider failures can still
 prevent course authoring; the UI reports drafts rather than pretending success.
-Durable exercise drafts, multi-course progress switching, and expert-reviewed
-subject assessments remain separate follow-ups.
+Durable exercise drafts are implemented in LEARN-01 below. Multi-course progress
+switching and expert-reviewed subject assessments remain separate follow-ups.
 
 Unchecked recommendations remain planned, not approved for
 execution merely by appearing here. Prefer learning continuity and trustworthy
@@ -131,19 +131,34 @@ feedback over adding more agents or permanent panels.
   signed-in/local-account isolation. Full-result page memory is separately tested
   with an exact greater-than-40,000-character Agent JSON export, team continuity,
   Mammoth Mind conversation retention, note edits and Build Log drafts.
-- [ ] LEARN-02: contextual "Explain this" actions. Select lesson text, exercise
+- [x] LEARN-02: contextual "Explain this" actions. Select lesson text, exercise
   instructions, or correction feedback and request a simpler explanation,
   worked example, or practice question. Send the exact selection and its lesson
   context to the tutor without introducing another permanent panel.
-- [ ] LEARN-03: source-linked notes and flashcards. Extend the existing study
+  Implemented as an on-demand, keyboard-accessible dialog. Only explicit Ask
+  tutor spends model credits. Authoritative selection/exercise validation runs
+  before generation and after delayed replies; failed help is not replaced with
+  local echo. Reasoning is separate from the answer. Navigation retains study
+  drafts and pending requests without repeating model calls; refresh does not
+  recover unsaved dialog notes/cards.
+- [x] LEARN-03: source-linked notes and flashcards. Extend the existing study
   tools rather than creating a second notes system. Link saved items to their
   lesson, section, and source; distinguish learner-written from AI-generated
   content. Let learners review generated cards before saving. Build this
   foundation independently of audio, then reuse it for lecture commands.
-- [ ] LEARN-04: evidence-based remediation. Offer a smaller explanation or
+  Reviewed saves use existing private Notes (existing Pro gate) and lesson
+  flashcards. Provenance records the validated lesson, heading, quotation,
+  authorship, and available recorded source URLs; it is not fact verification.
+  Source-derived recall previews are model-free and may return no card; learners
+  can write one rather than receiving an invented answer. Saved-item views keep
+  provenance. A failed save keeps the editable draft, with no automatic retry.
+- [x] LEARN-04: evidence-based remediation. Offer a smaller explanation or
   targeted exercise addressing the actual mistake instead of regenerating the
   whole lesson by default. Distinguish attempted, completed, and demonstrated
   understanding. Reading, listening, or liking an answer never implies mastery.
+  Work on feedback uses actual submission feedback for a smaller hint,
+  analogous example and self-check. It cannot submit, replace the exercise or
+  establish mastery, and does not claim to diagnose the cause of a mistake.
 - [ ] LEARN-05: accessibility and focused reading. Add a distraction-reduced
   lesson view, adjustable text size, comfortable line spacing, keyboard
   navigation, and captions/transcripts when audio arrives. On mobile, prioritize
