@@ -641,6 +641,25 @@ MammothOS then:
 2. Enable discovery with `GET /api/agents` and `GET /api/modules`.
 3. Use the bridge for execution: `POST /agent/atlas/run`, `POST /agent/coding/run`, `POST /agent/shell/run`.
 4. Use `POST /api/plan-execute` with `plan_profile` and `approval_mode` for multi-step work.
+
+Education objectives in balanced/ATLAS/autonomous plans use Tutor, Research,
+Reflection and synthesis rather than adding market, deployment, publishing or
+custodial steps because of topic words or the autonomous profile. Explicit
+software implementation wording can add Coding; explicit coding/coding-only
+profiles retain their existing behavior. This routing is conservative and
+lexical, not a guarantee that a plan understands every ambiguous request.
+
+`POST /api/plan` and PlannerAgent require complete structured task graphs with
+unique task IDs, explicit titles, object inputs and dependencies referencing
+earlier tasks. Invalid JSON, truncated arrays, lesson-shaped execution payloads,
+out-of-scope education agents and provider failures do not become generic
+fallback plans. The API returns `502`, `status: failed`, `code: invalid_plan`,
+an empty task list and `quality.ready: false` before dispatch. Retry is explicit;
+no automatic model retry or fabricated task title is used. Saved curriculum
+plans retain actual lesson IDs, titles and normalized estimated durations.
+Stripped model reasoning is returned separately as `reasoning_trace`, never
+inside task inputs. Structural DAG validation does not prove agent availability
+or teaching correctness; normal execution approval/access checks still apply.
 5. Respect approvals and rollback before any mutable action.
 6. Display run history via `GET /api/autonomous/runs`.
 

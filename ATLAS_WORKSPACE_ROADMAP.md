@@ -72,9 +72,19 @@ routes. This is not a live textbook factual benchmark or enabled OCR.
 - [x] EDU-03: verify new lesson delivery, exercise submission/corrections,
   mastery gate and override, tutor consultation, research, exports, mobile
   navigation, account switching, and unavailable backend behavior.
-- [ ] PLAN-01: fix irrelevant planning steps and structured-response failures.
+- [x] PLAN-01: fix irrelevant planning steps and structured-response failures.
   An education-design request must not produce community publishing or custodial
-  restore actions. This remains separate from the workspace UI delivery.
+  restore actions. Balanced/ATLAS/autonomous education objectives now route to
+  Tutor, Research, Reflection and synthesis; explicit software wording can add
+  Coding. Explicit coding profiles retain their existing behavior. The shared
+  planning policy also restricts model-generated education DAGs to research,
+  reasoning, search and curriculum (plus Coding for explicit software work).
+  Complete task JSON, unique IDs, object inputs and earlier-only dependencies
+  are required. Malformed/truncated/prose/provider-failed responses return an
+  explicit failed plan rather than synthesized task titles or agent-mention
+  fallback actions. Empty saved curricula do not trigger unrelated planning.
+  This is conservative lexical routing and structural validation, not semantic
+  correctness certification or independent verification of teaching content.
 - [x] AUDIO-01: add versioned lesson sections/narration contract. Read-only
   `mammoth.lesson_lecture.v1` derives Markdown transcript sections from actual
   lesson content/summary, teaching points and examples. Section IDs persist

@@ -3170,6 +3170,24 @@ def _build_plan_steps(objective: str, plan_profile: str = "balanced", coding_int
     lower = objective.lower()
     profile = _normalize_plan_profile(plan_profile)
     effective_coding_intent = _normalize_coding_intent(coding_intent) or _default_coding_intent_for_profile(profile)
+    from mammoth_os.planning_quality import education_goal, software_goal
+    if education_goal(objective) and profile not in {"coding", "coding_only"}:
+        steps = [
+            {"id": "education-design", "title": "Clarify learning goals and teaching approach",
+             "agent_id": "tutor_agent", "intent": "tutor",
+             "prompt": f"Design a learning approach for this objective. Identify audience, prerequisites, learning outcomes and practice. Do not invent learner history, publish content or operate on repositories: {objective}"},
+            {"id": "research-brief", "title": "Research learning content and constraints",
+             "agent_id": "research_agent", "intent": "research_curriculum",
+             "prompt": f"Research the educational content and constraints for: {objective}", "chain_context": True},
+            {"id": "reflection-risks", "title": "Review teaching risks and comprehension checks",
+             "agent_id": "reflection_agent", "intent": "reflection",
+             "prompt": f"Review teaching clarity, prerequisites and observable comprehension checks for: {objective}",
+             "chain_context": True},
+        ]
+        if software_goal(objective):
+            steps.append(_build_coding_step(objective, effective_coding_intent))
+        steps.append(_build_synthesis_step(objective))
+        return steps
     include_coding = profile in {"coding", "coding_only"} or _objective_mentions(lower, _PLAN_CODING_WORDS)
     include_market = profile == "atlas" or _objective_mentions(lower, _PLAN_MARKET_WORDS)
     include_field_ops = profile == "atlas" or _objective_mentions(lower, _PLAN_FIELD_OPS_WORDS)

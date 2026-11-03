@@ -1,4 +1,12 @@
 from .base_agent import BaseAgent
+import json
+import logging
+from typing import Any
+
+from mammoth_os.planning_quality import planning_agents, task_diagnostics
+from mammoth_os.research_quality import strip_reasoning
+
+logger = logging.getLogger(__name__)
 
 PLANNER_SYSTEM = """You are MammothOS's execution planner. Break a goal into a precise task list.
 
@@ -45,135 +53,44 @@ class PlannerAgent(BaseAgent):# type: ignore
         lesson/module keys instead — those must be rejected so the prose
         fallback fires and returns well-formed tasks.
         """
-        if not (isinstance(tasks, list) and tasks):
-            return False
-        _ALLOWED = frozenset([
-            "research", "market_intel", "coding", "community_engine",
-            "field_ops", "reasoning", "executor", "build", "deploy",
-            "search", "curriculum", "orchestrator",
-        ])
-        for t in tasks:
-            if not isinstance(t, dict):
-                return False
-            if not (t.get("task_id") and t.get("agent") and t.get("title")):
-                return False
-            # Reject agent slugs not in the execution allowlist
-            if t.get("agent") not in _ALLOWED:
-                return False
-            # Reject if it looks like a curriculum lesson
-            if "lesson" in t.get("input", {}) or "module_id" in t:
-                return False
-        return True
+        return not task_diagnostics(tasks)
 
-    async def _llm_decompose(self, goal: str) -> list:
-        import json as _j, re as _re, uuid as _uuid
+    async def _llm_decompose(self, goal: str) -> dict:
         from mammoth_os.llm_client import get_llm_client
 
-        # Few-shot template forces the model to fill JSON directly
-        _REAL_AGENTS = (
-            "research, market_intel, coding, community_engine, "
-            "field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator"
-        )
+        allowed = planning_agents(goal)
+        real_agents = ", ".join(sorted(allowed))
         template = (
-            "Fill the JSON task list below for the GOAL. "
-            "Replace ALL placeholder values. Keep exact keys. "
-            f"Use ONLY these agent slugs: {_REAL_AGENTS}. "
-            "Output JSON only, no prose.\n\n"
-            '[{"task_id":"t1","agent":"research","title":"Research the domain",'
-            '"input":{"goal":"understand context"},"depends_on":[],"estimated_minutes":10},'
-            '{"task_id":"t2","agent":"coding","title":"Build technical components",'
-            '"input":{"goal":"implement the solution"},"depends_on":["t1"],"estimated_minutes":30}]'
-            "\n\nGOAL: " + goal
+            "Decompose the GOAL into only relevant tasks. Do not add business, publishing, "
+            "maintenance, deployment or restore actions unless the goal actually requests them. "
+            f"Use ONLY these agent slugs: {real_agents}. "
+            "Each task requires task_id, agent, title, input (object), depends_on (earlier task IDs), "
+            "estimated_minutes (positive integer). Output a complete JSON array, no prose. "
+            "Lesson/module content is not an execution-task response.\n\nGOAL: " + goal
         )
         raw = await get_llm_client().generate(
             template,
             system_prompt=(
                 "Output ONLY a JSON array of tasks. No prose. No explanation. "
-                "Valid agent slugs: research, market_intel, coding, community_engine, "
-                "field_ops, reasoning, executor, build, deploy, search, curriculum, orchestrator. "
+                f"Valid agent slugs: {real_agents}. "
                 "NEVER use tutor, brand_voice, reflection, or mammoth_guide."
             ),
             max_tokens=2000,
             temperature=0.1,
         )
-        # DEBUG: dump raw LLM output for inspection
-
-        # Pass 1: direct JSON parse
-        if isinstance(raw, str):
-            try:
-                parsed = _j.loads(raw)
-                if self._valid_exec_tasks(parsed):
-                    return parsed
-            except Exception:
-                pass
-
-        # Pass 1.5: truncation recovery — close incomplete JSON array and retry
-        if isinstance(raw, str) and raw.strip().startswith('['):
-            _partial = raw.strip()
-            # Find the last complete object by locating the last '}}'
-            _last_close = _partial.rfind('}')
-            if _last_close != -1:
-                _recovered = _partial[:_last_close + 1] + ']'
-                try:
-                    _rparsed = _j.loads(_recovered)
-                    if self._valid_exec_tasks(_rparsed):
-                        return _rparsed
-                except Exception:
-                    pass
-
-        # Pass 2: extract JSON array from prose
-        if isinstance(raw, str):
-            m = _re.search(r'\[\s*\{[\s\S]*?\}\s*\]', raw)
-            if m:
-                try:
-                    parsed = _j.loads(m.group())
-                    if self._valid_exec_tasks(parsed):
-                        return parsed
-                except Exception:
-                    pass
-
-        # Pass 3: prose fallback — extract any agent mentions and synthesise tasks
-        if isinstance(raw, str) and raw.strip():
-            agent_slugs = [
-                "research", "market_intel", "coding", "community_engine",
-                "field_ops", "reasoning", "executor", "build", "deploy",
-                "search", "curriculum", "orchestrator"
-            ]
-            seen = []
-            for slug in agent_slugs:
-                if slug.replace("_", " ") in raw.lower() or slug in raw.lower():
-                    seen.append(slug)
-            if not seen:
-                seen = ["research", "market_intel", "orchestrator"]
-            tasks = []
-            titles = {
-                "research": "Research background and context",
-                "market_intel": "Gather market intelligence",
-                "coding": "Build technical components",
-                "community_engine": "Engage and grow the community",
-                "field_ops": "Execute field operations",
-                "reasoning": "Analyse and reason about the problem",
-                "executor": "Execute planned actions",
-                "build": "Build and compile artifacts",
-                "deploy": "Deploy to target environment",
-                "search": "Search for relevant information",
-                "curriculum": "Build educational content",
-                "orchestrator": "Orchestrate multi-step workflow",
-            }
-            for i, slug in enumerate(seen[:6]):
-                tid = f"t{i+1}"
-                dep = [f"t{i}"] if i > 0 else []
-                tasks.append({
-                    "task_id": tid,
-                    "agent": slug,
-                    "title": titles.get(slug, slug.replace("_", " ").title()),
-                    "input": {"goal": goal},
-                    "depends_on": dep,
-                    "estimated_minutes": 15,
-                })
-            return tasks
-
-        return []
+        if not isinstance(raw, str) or raw.startswith("[LOCAL_ADAPTER]"):
+            raise ValueError("Planner provider did not return structured task text.")
+        clean, trace = strip_reasoning(raw)
+        if clean.strip().startswith("```json") and clean.strip().endswith("```"):
+            clean = clean.strip()[7:-3].strip()
+        try:
+            parsed = json.loads(clean)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Planner returned incomplete or malformed task JSON.") from exc
+        diagnostics = task_diagnostics(parsed, allowed=frozenset(allowed))
+        if diagnostics:
+            raise ValueError("Planner task contract rejected: " + "; ".join(diagnostics))
+        return {"tasks": parsed, "reasoning_trace": trace}
 
 
 
@@ -239,14 +156,35 @@ class PlannerAgent(BaseAgent):# type: ignore
             try:
                 from mammoth_os.agent_registry import load_agent
                 curriculum_agent = load_agent("curriculum", None)
-                cur_res = curriculum_agent.run(goal)
-                if isinstance(cur_res, dict) and cur_res.get("status") == "ok":
-                    constraints["curriculum"] = cur_res.get("curriculum")
-            except Exception:
-                pass
+                import asyncio
+                cur_res = await asyncio.to_thread(curriculum_agent.run, goal)
+                if not isinstance(cur_res, dict) or cur_res.get("status") != "ok":
+                    raise ValueError("Requested curriculum generation failed.")
+                constraints["curriculum"] = cur_res.get("curriculum")
+                if self._normalize_curriculum(constraints) is None:
+                    raise ValueError("Requested curriculum has no valid module list.")
+            except (ValueError, TypeError, RuntimeError, OSError) as exc:
+                logger.warning("Requested curriculum preparation failed: %s", type(exc).__name__)
+                return {"status": "failed", "plan_id": str(uuid.uuid4()), "goal": goal, "tasks": [],
+                        "estimated_duration_sec": 0, "quality_flags": ["planning_failed"],
+                        "quality": {"ready": False, "status": "failed"},
+                        "diagnostics": ["Requested curriculum could not be prepared. Retry explicitly."]}
 
         curriculum = self._normalize_curriculum(constraints)
-        tasks = await self._decompose_to_tasks(goal, {**constraints, "curriculum": curriculum} if curriculum else constraints)
+        reasoning_trace = ""
+        try:
+            decomposition = await self._decompose_to_tasks(goal, {**constraints, "curriculum": curriculum} if curriculum else constraints)
+            tasks = decomposition.get("tasks") if isinstance(decomposition, dict) else decomposition
+            reasoning_trace = decomposition.get("reasoning_trace", "") if isinstance(decomposition, dict) else ""
+            diagnostics = task_diagnostics(tasks, allowed=planning_agents(goal), curriculum=bool(curriculum))
+            if diagnostics or not isinstance(tasks, list):
+                raise ValueError("; ".join(diagnostics))
+        except (ValueError, TypeError, RuntimeError, OSError) as exc:
+            logger.warning("Planner generation rejected: %s", type(exc).__name__)
+            return {"status": "failed", "plan_id": str(uuid.uuid4()), "goal": goal, "tasks": [],
+                    "estimated_duration_sec": 0, "quality_flags": ["planning_failed"],
+                    "quality": {"ready": False, "status": "failed"},
+                    "diagnostics": ["No valid task graph was produced. Retry explicitly with a concrete goal."]}
         estimated_minutes = 0
         for task in tasks:
             value = self._coerce_duration_minutes(task.get("estimated_minutes"), fallback=max(15, len(goal.split()) // 10 + 10))
@@ -256,36 +194,42 @@ class PlannerAgent(BaseAgent):# type: ignore
             estimated_minutes = max(len(tasks) * 10, 30)
 
         return {
+            "status": "planned",
             "plan_id": str(uuid.uuid4()),
             "goal": goal,
             "tasks": tasks,
             "estimated_duration_sec": estimated_minutes * 60,
             "quality_flags": ["structured_plan", "dag_validated", "duration_normalized"] if tasks else ["structured_plan", "duration_normalized"],
+            "reasoning_trace": reasoning_trace,
+            "quality": {"ready": True, "status": "structured", "independent_verification": False},
         }
 
-    async def _decompose_to_tasks(self, goal: str, constraints: dict) -> list[dict]:
+    async def _decompose_to_tasks(self, goal: str, constraints: dict) -> list[dict] | dict:
         """Decompose a goal into an ordered task list.
 
         If `constraints` contains a 'curriculum' dict (as produced by
         CurriculumAgent), convert modules and lessons into discrete tasks.
-        Otherwise, return a single fallback task representing the goal.
+        Otherwise, require a complete, validated model-generated task graph.
         """
-        import uuid
-
         curriculum = self._normalize_curriculum(constraints)
 
         tasks: list[dict] = []
         if curriculum and isinstance(curriculum, dict):
             prev_task_id = None
             for module in curriculum.get("modules", []):
+                if not isinstance(module, dict) or not isinstance(module.get("lessons"), list):
+                    raise ValueError("Curriculum modules require a lesson list.")
                 module_id = module.get("module_id")
-                module_title = module.get("title") or "Module"
+                module_title = module.get("title") or ""
                 for lesson in module.get("lessons", []):
-                    task_id = lesson.get("lesson_id") or str(uuid.uuid4())
+                    if not isinstance(lesson, dict) or not lesson.get("lesson_id"):
+                        raise ValueError("Curriculum lessons require their actual saved identity.")
+                    task_id = lesson["lesson_id"]
                     estimated_minutes = self._duration_from_lesson(lesson, fallback=20)
                     task = {
                         "task_id": task_id,
                         "agent": "tutor",
+                        "title": str(lesson.get("title") or lesson.get("lesson_title") or "").strip(),
                         "input": {"module_id": module_id, "module_title": module_title, "lesson": lesson},
                         "depends_on": [prev_task_id] if prev_task_id else [],
                         "estimated_minutes": int(estimated_minutes),
@@ -294,23 +238,10 @@ class PlannerAgent(BaseAgent):# type: ignore
                     prev_task_id = task_id
             if tasks:
                 return tasks
+            raise ValueError("Provided curriculum contains no lessons to plan.")
 
         # LLM DAG decomposition
-        _llm_tasks = self._run_async(self._llm_decompose(goal))
-        if _llm_tasks and isinstance(_llm_tasks, list):
-            print("  [PlannerAgent] LLM DAG active")
-            return _llm_tasks
-        fallback_minutes = max(15, min(90, len(goal.split()) // 4 + 15))
-        return [
-            {
-                "task_id": str(uuid.uuid4()),
-                "agent": "orchestrator",
-                "title": goal[:80] if goal else "Execute goal",
-                "input": {"goal": goal},
-                "depends_on": [],
-                "estimated_minutes": fallback_minutes,
-            }
-        ]
+        return await self._llm_decompose(goal)
 
     async def validate_plan(self, plan: dict) -> tuple[bool, list[str]]:
         """Check the plan DAG for cycles and ensure agent availability for tasks.
@@ -322,6 +253,12 @@ class PlannerAgent(BaseAgent):# type: ignore
 
         diagnostics: list[str] = []
         tasks = plan.get("tasks", [])
+        diagnostics = task_diagnostics(tasks, allowed=planning_agents(str(plan.get("goal") or "")), curriculum=any(
+            isinstance(task, dict) and task.get("agent") == "tutor" and isinstance(task.get("input"), dict)
+            and isinstance(task["input"].get("lesson"), dict) for task in tasks
+        ) if isinstance(tasks, list) else False)
+        if diagnostics:
+            return False, diagnostics
         task_map = {t["task_id"]: t for t in tasks}
 
         # Check for missing dependency references
@@ -402,19 +339,19 @@ class PlannerAgent(BaseAgent):# type: ignore
         plan = await self.create_plan(goal, constraints)
         is_valid, diagnostics = await self.validate_plan(plan)
         return {
-            "status": "ok",
+            "status": "ok" if is_valid else "failed",
             "agent": "PlannerAgent",
             "plan": plan,
             "valid": is_valid,
             "diagnostics": diagnostics,
             "summary": f"Plan created with {len(plan.get('tasks', []))} task(s). Valid={is_valid}.",
-            "quality_flags": ["structured_plan", "dag_validated"],
+            "quality_flags": ["structured_plan", "dag_validated"] if is_valid else ["planning_failed"],
         }
 
-    async def process(self, event: "MammothEvent") -> None:# type: ignore
+    async def process(self, event: Any) -> None:
         if event.event_type == "PLAN_REQUEST":
             plan = await self.create_plan(event.payload["goal"], event.payload.get("constraints"))
-            await self.emit_event("PLAN_READY", plan)
+            await self.emit_event("PLAN_READY" if plan.get("status") == "planned" else "PLAN_FAILED", plan)
 
     async def shutdown(self) -> None:
         self.log("INFO", "PlannerAgent shutting down.")
