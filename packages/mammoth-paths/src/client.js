@@ -71,7 +71,7 @@ export function createPathsClient(options = {}) {
       }
       const failed = !response.ok || (payload && !Array.isArray(payload) && payload.status === 'error')
       if (failed) {
-        throw new PathsError(String(payload?.error || payload?.detail || `Request failed (${status})`), {
+        throw new PathsError(String(payload?.error || payload?.detail || payload?.message || `Request failed (${status})`), {
           status,
           code: String(payload?.code || ''),
           payload,
@@ -97,7 +97,7 @@ export function createPathsClient(options = {}) {
         })
       } catch (error) {
         if (error instanceof PathsError) throw error
-        throw new PathsError(error.message, { status: error.status || status })
+        throw new PathsError(error.message, { status: error.status || status, code: error.code || '', payload: error.payload || {} })
       }
       return events
     } finally {
@@ -112,9 +112,30 @@ export function createPathsClient(options = {}) {
     tools: ({ repo } = {}) => json('mind', 'GET', '/mammoth/tools', { query: { repo } }),
 
     /** Start a run; resolves with all events once the stream ends. */
-    streamRun(message, { agentId = 'assistant', repo, approvalMode = 'tools', completionGoal, threadId, recursive = false, onEvent, signal } = {}) {
+    streamRun(message, { agentId = 'assistant', repo, approvalMode = 'tools', completionGoal, threadId, recursive = false,
+      surface, task, history, attachedFileIds, onEvent, signal } = {}) {
       if (!['tools', 'always'].includes(approvalMode)) throw new TypeError("approvalMode must be 'tools' or 'always'")
       const body = { message, agent_id: agentId, approval_mode: approvalMode }
+      if (surface !== undefined) {
+        if (!['mind', 'agent_workspace'].includes(surface)) throw new TypeError("surface must be 'mind' or 'agent_workspace'")
+        body.surface = surface
+      }
+      if (task !== undefined) {
+        if (typeof task !== 'string') throw new TypeError('task must be a task key string')
+        body.task = task
+      }
+      if (history !== undefined) {
+        if (!Array.isArray(history) || history.some(turn => !turn || typeof turn !== 'object' || Array.isArray(turn))) {
+          throw new TypeError('history must be an array of conversation objects')
+        }
+        body.history = history.map(turn => ({ ...turn }))
+      }
+      if (attachedFileIds !== undefined) {
+        if (!Array.isArray(attachedFileIds) || attachedFileIds.some(id => typeof id !== 'string')) {
+          throw new TypeError('attachedFileIds must be an array of strings')
+        }
+        body.attached_file_ids = [...attachedFileIds]
+      }
       if (recursive !== false) {
         if (recursive !== true && (!recursive || typeof recursive !== 'object' || Array.isArray(recursive))) {
           throw new TypeError('recursive must be a boolean or budget object')

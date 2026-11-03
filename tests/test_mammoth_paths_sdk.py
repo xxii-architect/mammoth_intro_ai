@@ -70,6 +70,45 @@ def test_public_names_and_aliases():
     assert "MammothMind" in mammoth_os.__all__
 
 
+def test_workspace_context_options_are_additive_and_preserve_explicit_empty_values(backend):
+    backend.route("POST", "/api/mammoth/runs", sse=[_event(1, "run.completed")])
+    client = MammothPaths(backend.url)
+    history = [{"role": "user", "text": "Read the actual module"}]
+    client.run("Review", surface="agent_workspace", task="analyze_codebase",
+               history=history, attached_file_ids=["file-1"])
+    assert backend.requests[-1]["body"] == {
+        "message": "Review", "agent_id": "assistant", "approval_mode": "tools",
+        "surface": "agent_workspace", "task": "analyze_codebase", "history": history,
+        "attached_file_ids": ["file-1"],
+    }
+    client.run("Empty", history=[], attached_file_ids=[], task="")
+    assert backend.requests[-1]["body"]["history"] == []
+    assert backend.requests[-1]["body"]["attached_file_ids"] == []
+    assert backend.requests[-1]["body"]["task"] == ""
+    client.run("Original")
+    assert backend.requests[-1]["body"] == {"message": "Original", "agent_id": "assistant", "approval_mode": "tools"}
+
+
+@pytest.mark.parametrize("options", [
+    {"surface": "operator"}, {"task": {}}, {"history": "private text"},
+    {"history": [None]}, {"attached_file_ids": "file-1"}, {"attached_file_ids": [1]},
+])
+def test_invalid_workspace_context_is_rejected_before_network(backend, options):
+    with pytest.raises(ValueError):
+        list(MammothPaths(backend.url).stream_run("Review", **options))
+    assert not backend.requests
+
+
+def test_stream_repo_denial_preserves_backend_message_and_code(backend):
+    payload = {"status": "error", "code": "repo_access_denied", "message": "Select your own repository."}
+    backend.route("POST", "/api/mammoth/runs", status=403, body=payload)
+    with pytest.raises(PathsError) as error:
+        MammothPaths(backend.url).run("Read", repo="platform")
+    assert error.value.message == payload["message"]
+    assert error.value.status == 403 and error.value.code == payload["code"]
+    assert error.value.payload == payload
+
+
 @pytest.mark.parametrize("recursive", [True, {"max_iterations": 1, "max_tokens": 8000}])
 def test_recursive_run_options_and_usage_survive_transport(backend, recursive):
     usage = {"contract": "mammoth.recursive.v1", "usage": {"tokens": 400}}

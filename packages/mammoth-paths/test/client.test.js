@@ -126,6 +126,45 @@ function fakeFetch(routes) {
   return { impl, calls }
 }
 
+test('workspace run context is additive and preserves explicit empty values', async () => {
+  const { impl, calls } = fakeFetch({ 'POST /api/mammoth/runs': { sse: [ev(1, 'run.completed')] } })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  const history = [{ role: 'user', text: 'Read the actual module' }]
+  await client.run('Review', { surface: 'agent_workspace', task: 'analyze_codebase', history, attachedFileIds: ['file-1'] })
+  assert.deepEqual(calls[0].body, {
+    message: 'Review', agent_id: 'assistant', approval_mode: 'tools',
+    surface: 'agent_workspace', task: 'analyze_codebase', history, attached_file_ids: ['file-1'],
+  })
+  await client.run('Empty', { task: '', history: [], attachedFileIds: [] })
+  assert.deepEqual(calls[1].body.history, [])
+  assert.deepEqual(calls[1].body.attached_file_ids, [])
+  assert.equal(calls[1].body.task, '')
+  await client.run('Original')
+  assert.deepEqual(calls[2].body, { message: 'Original', agent_id: 'assistant', approval_mode: 'tools' })
+})
+
+test('invalid workspace context fails before network', () => {
+  const { impl, calls } = fakeFetch({})
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  for (const options of [{ surface: 'operator' }, { task: {} }, { history: 'private text' },
+    { history: [null] }, { attachedFileIds: 'file-1' }, { attachedFileIds: [1] }]) {
+    assert.throws(() => client.streamRun('Review', options), TypeError)
+  }
+  assert.equal(calls.length, 0)
+})
+
+test('stream denials preserve backend detail, message, code and payload', async () => {
+  for (const payload of [
+    { status: 'error', code: 'repo_access_denied', message: 'Select your own repository.' },
+    { detail: 'Sign in required.', code: 'auth_required' },
+  ]) {
+    const { impl } = fakeFetch({ 'POST /api/mammoth/runs': { status: 403, body: payload } })
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: impl }).run('Read'),
+      error => error instanceof PathsError && error.status === 403 && error.code === payload.code &&
+        error.message === (payload.message || payload.detail) && JSON.stringify(error.payload) === JSON.stringify(payload))
+  }
+})
+
 test('owner execution methods preserve explicit approval payloads and backend denial', async () => {
   const id = `exec-${'a'.repeat(24)}`
   const routes = Object.fromEntries([

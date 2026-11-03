@@ -224,7 +224,7 @@ class MammothPaths:
             payload = {}
         if not isinstance(payload, dict):
             payload = {}
-        message = str(payload.get("error") or payload.get("detail") or exc.reason or "Request failed")
+        message = str(payload.get("error") or payload.get("detail") or payload.get("message") or exc.reason or "Request failed")
         return PathsError(message, status=exc.code, code=str(payload.get("code") or ""), payload=payload)
 
     def _json(self, surface: str, method: str, path: str, body: Any = None, query: Optional[Mapping[str, Any]] = None) -> Any:
@@ -296,11 +296,31 @@ class MammothPaths:
         thread_id: Optional[str] = None,
         completion_goal: Optional[str] = None,
         recursive: Union[bool, Mapping[str, int]] = False,
+        surface: Optional[str] = None,
+        task: Optional[str] = None,
+        history: Optional[List[Mapping[str, Any]]] = None,
+        attached_file_ids: Optional[List[str]] = None,
     ) -> Iterator[RunEvent]:
         """Start a run and yield events until it completes, fails, is cancelled, or awaits approval."""
         if approval_mode not in {"tools", "always"}:
             raise ValueError("approval_mode must be 'tools' or 'always'")
         body: Dict[str, Any] = {"message": message, "agent_id": agent_id, "approval_mode": approval_mode}
+        if surface is not None:
+            if surface not in {"mind", "agent_workspace"}:
+                raise ValueError("surface must be 'mind' or 'agent_workspace'")
+            body["surface"] = surface
+        if task is not None:
+            if not isinstance(task, str):
+                raise ValueError("task must be a task key string")
+            body["task"] = task
+        if history is not None:
+            if not isinstance(history, list) or any(not isinstance(turn, Mapping) for turn in history):
+                raise ValueError("history must be a list of conversation objects")
+            body["history"] = [dict(turn) for turn in history]
+        if attached_file_ids is not None:
+            if not isinstance(attached_file_ids, list) or any(not isinstance(item, str) for item in attached_file_ids):
+                raise ValueError("attached_file_ids must be a list of strings")
+            body["attached_file_ids"] = list(attached_file_ids)
         if recursive is not False:
             if recursive is not True and not isinstance(recursive, Mapping):
                 raise ValueError("recursive must be a boolean or budget mapping")

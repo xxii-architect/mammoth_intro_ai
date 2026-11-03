@@ -689,6 +689,26 @@ The `AtlasFAB*` names are permanent aliases for `MammothMind*` (same classes), a
 
 ## Mammoth Paths workspace SDK
 
+### Agent Workspace payload parity
+
+Python and JavaScript now expose matching `surface`, `task`, `history`, and
+attachment options (`attached_file_ids` / `attachedFileIds`) on run/stream calls.
+Use `surface="agent_workspace"` / `surface: 'agent_workspace'` for bounded supplied
+history without importing or appending to Mind threads. Omitted fields preserve
+existing requests; no selected repo still means no repo context. Task briefs and
+document access remain server-controlled. See the
+[workspace SDK guide](docs/public/mammoth_paths_sdk_guide.md#agent-workspace-context).
+
+Contract coverage builds and installs a wheel and npm tarball into temporary
+locations, then exercises both against the loaded backend routes: workspace
+context, approval/resume, cancellation/recovery, per-request token changes,
+cross-user denial, platform-repo denial and anonymous rejection. Auth, document
+context and providers/tools use isolated fixtures; SSE responses are buffered by
+the test bridge. This does not test paid providers, real document retrieval,
+production proxy timing/disconnects or hostile-code isolation. CI requires these
+package tests rather than silently skipping missing Node/npm, and checks the
+public JavaScript run-option types.
+
 ### Saved-run recovery and review
 
 **Workspace > Run Review** lists the current account's saved runs and reopens

@@ -40,3 +40,6 @@ jobs:
 
       - name: Build tokens and UI
         run: npm run build
+
+      - name: Check workspace SDK public types
+        run: npx --no-install tsc -p ../../packages/mammoth-paths/typecheck/tsconfig.json

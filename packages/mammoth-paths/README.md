@@ -32,6 +32,28 @@ console.log(result.status, result.reply)
 
 Without `approve`, a run that needs approval stops with `status: 'awaiting_approval'` and `pendingApproval` set. Call `paths.decide(runId, approval.id, 'approve' | 'reject')` later.
 
+### Agent Workspace context
+
+```js
+const result = await paths.run('Review input validation', {
+  surface: 'agent_workspace',
+  task: 'analyze_codebase',
+  history: [{ role: 'user', text: 'Focus on the selected module' }],
+  attachedFileIds: ['your-uploaded-document-id'],
+})
+```
+
+Python uses the same keys except `attached_file_ids`. All options are additive;
+omitting them preserves the previous payload. Workspace runs use bounded supplied
+history (last eight turns, 800 characters each), never private Mind history, and
+do not append to Mind threads even if `threadId` is supplied. Task keys select
+server-owned briefs; unknown keys add no brief. Attachment and repository access
+remain backend-controlled. No repo option means no repo context.
+
+`getToken` is evaluated per request, including approval and recovery; the caller
+owns token refresh. `PathsError` retains backend status, code and payload for JSON
+and streamed denials. These options add no automatic retries or new privileges.
+
 ### Opt-in RecursiveMAS
 
 ```js
