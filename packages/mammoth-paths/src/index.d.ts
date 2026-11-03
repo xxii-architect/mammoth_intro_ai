@@ -100,7 +100,7 @@ export interface RunSnapshot {
 }
 
 export interface UsageRecord {
-  surface: 'mind' | 'repos' | 'notes' | 'buildlog' | 'terminal'
+  surface: 'mind' | 'repos' | 'notes' | 'buildlog' | 'terminal' | 'tasks' | 'artifacts' | 'owner_execution'
   method: string
   path: string
   status: number
@@ -122,6 +122,12 @@ export interface RunOptions {
   approvalMode?: 'tools' | 'always'
   completionGoal?: 'answer' | 'proposal' | 'validated' | 'applied'
   threadId?: string
+  surface?: 'mind' | 'agent_workspace'
+  /** Server-owned task key; arbitrary instruction text is not used as a task brief. */
+  task?: string
+  history?: Array<{ role?: string; text?: string; message?: string; [field: string]: unknown }>
+  attachedFileIds?: string[]
+  recursive?: boolean | Record<string, number>
   signal?: AbortSignal
   onEvent?: (event: RunEvent, state?: RunState) => void
 }

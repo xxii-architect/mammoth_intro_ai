@@ -31,6 +31,49 @@ Mammoth Paths is separate from the **Mammoth Mind tutor SDK** (formerly ATLAS FA
 
 Read-only tools run automatically. Anything that would run a command or change something pauses with an approval request. In the SDK you can supply an approval policy, or leave the run paused and decide later.
 
+## Agent Workspace context
+
+Both clients support the same additive run options:
+
+| Python | JavaScript | Purpose |
+| --- | --- | --- |
+| `surface` | `surface` | `mind` (backend default) or `agent_workspace` |
+| `task` | `task` | Server-owned task key, such as `analyze_codebase` |
+| `history` | `history` | Conversation objects with `role` and `text` or `message` |
+| `attached_file_ids` | `attachedFileIds` | Previously uploaded, caller-accessible document IDs |
+
+```python
+result = paths.run(
+    "Review this module",
+    surface="agent_workspace",
+    task="analyze_codebase",
+    history=[{"role": "user", "text": "Focus on input validation"}],
+    attached_file_ids=["your-uploaded-document-id"],
+)
+```
+
+```js
+const result = await paths.run('Review this module', {
+  surface: 'agent_workspace',
+  task: 'analyze_codebase',
+  history: [{ role: 'user', text: 'Focus on input validation' }],
+  attachedFileIds: ['your-uploaded-document-id'],
+})
+```
+
+Omitted fields leave existing requests unchanged; explicit empty lists remain
+empty. Agent Workspace uses the supplied history (last eight turns, up to 800
+characters each), not private Mind history, and does not append its exchanges to
+Mind threads. A `thread_id` / `threadId` cannot change that boundary. Mind continues
+to use server-scoped history. Task keys select server-owned briefs; unknown keys
+add no brief. Document IDs and repo selectors are not access grants: the backend
+still checks ownership and permissions. No repo option means no repo context.
+
+Python `token_provider` and JavaScript `getToken` are evaluated per request;
+refresh tokens in your own authentication layer. Denials retain backend status,
+code and payload in `PathsError`, including streamed requests. No automatic
+authentication retry or provider retry is introduced by these options.
+
 ## Usage metering
 
 Both clients accept a usage hook that reports each call (surface, status, duration) so you can meter usage in your own product.

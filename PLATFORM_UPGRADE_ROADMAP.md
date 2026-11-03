@@ -221,6 +221,15 @@ double bill; anonymous users receive no private usage data.
   context; test additive fields, approvals, cancellation, auth refresh, and errors.
 - [ ] SDK-02: verify SDK behavior against server contract fixtures and packaged
   installs, not only independently mocked client responses.
+  - Implemented bounded SDK-01/02 run-contract coverage: matching surface, task,
+    history and attachment fields; unchanged defaults; approval/resume;
+    cancellation/recovery; per-request token changes; explicit backend errors.
+    Installed wheel and npm-tarball fixtures exercise loaded routes with actual
+    runner/store/ownership checks and scripted auth, document context and models.
+    CI requires Node/npm and checks public run-option types. The bridge buffers
+    SSE: live proxy timing/disconnects, paid providers, real attachment retrieval,
+    and wider endpoint/release coverage remain open. These items stay unchecked
+    until their broader acceptance is met.
 - [ ] CI-01: establish a lint/type baseline and fail on newly introduced
   violations; expand enforcement incrementally instead of turning on an
   unmanageable legacy-wide gate without triage.

@@ -54,6 +54,7 @@ const liveNow = [
   'Recursive review is opt-in under Mammoth Mind More chat options. A clean pass normally uses four model-role calls; one revision normally uses seven, before extra tool/repair calls. Credits depend on actual tokens and providers, not a fixed multiplier. The default 64,000-token ceiling is a limit, not an upfront charge.',
   'Lessons now show a manifest (what to know first, sample input, expected output, done-when). Stuck detection suggests one concrete next move. Next checks that the exercise passed, and you can always choose Continue anyway.',
   'Mammoth Paths is the new workspace SDK (Python `MammothPaths`, JS `@mammothos/paths`) for embedding agent runs, your repos, notes, and the build log in other software. The tutor SDK is now called Mammoth Mind (formerly ATLAS FAB).',
+  'Both workspace SDK clients accept surface, task, conversation history and uploaded-document IDs on runs. Agent Workspace uses bounded supplied history, not private Mind history, and does not save into Mind threads. Document/repo access remains server-enforced; omitting a repo adds no repo context. Tokens are resolved per request, and backend error status/code/payload are retained without automatic retries.',
   'Notes and the build log are now private to each account and enforced on the server for Pro tier and above.',
   'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
   'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',

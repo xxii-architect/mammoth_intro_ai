@@ -57,14 +57,18 @@ export function createSseParser(onData) {
 export async function readRunEventStream(response, onEvent) {
   if (!response.ok || !response.body) {
     let detail = ''
+    let payload = {}
     try {
-      const payload = await response.json()
-      detail = payload?.error || payload?.message || ''
+      const decoded = await response.json()
+      if (decoded && typeof decoded === 'object' && !Array.isArray(decoded)) payload = decoded
+      detail = payload.error || payload.detail || payload.message || ''
     } catch {
       /* body was not JSON */
     }
     const error = new Error(detail || `Run request failed (${response.status})`)
     error.status = response.status
+    error.code = String(payload.code || '')
+    error.payload = payload
     throw error
   }
   const reader = response.body.getReader()
