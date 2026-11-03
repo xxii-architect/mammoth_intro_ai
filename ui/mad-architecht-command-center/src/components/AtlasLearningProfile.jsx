@@ -56,6 +56,7 @@ export default function AtlasLearningProfile({ state, loadState, compact = false
         <p>{state.learner_context?.adaptation_reason || 'Choose a starting level; ATLAS adapts from your practice outcomes.'}</p>
       </>}
       {open && <form onSubmit={save} className="atlas-profile-form">
+        {state.learner_storage?.legacy_ownership === 'unverified_not_imported' && !profile?.completed_at && <p role="note">Adaptation is now private to this signed-in user and learning account. Legacy shared mastery and profile data were not imported because ownership is unverified. Existing lessons and conversations are preserved; choose your starting preferences here.</p>}
         <p>Tell ATLAS what you already know and what you want to learn. Pacing is a preference, not proof of mastery. Expert study is not professional certification.</p>
         <label>Starting level<select name="experience_level" value={draft.experience_level} onChange={update}>
           <option value="beginner">Beginner - no prior knowledge</option><option value="intermediate">Intermediate</option><option value="advanced">Advanced</option><option value="expert">Expert study</option>

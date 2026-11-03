@@ -126,7 +126,8 @@ async def atlas_library():
 async def atlas_learner():
     state = _load_atlas_state()
     learner_state = _hydrate_learner_state(state, user_id=_atlas_user_id(state))
-    return {"status": "ok", "learner_model": learner_state, "learner_context": state.get("learner_context")}
+    return {"status": "ok", "learner_model": learner_state, "learner_context": state.get("learner_context"),
+            "learner_storage": state.get("learner_storage")}
 
 @app.post("/api/atlas/onboard")
 async def atlas_onboard(body: Dict[str, Any]):

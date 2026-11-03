@@ -4501,6 +4501,9 @@ _ACCOUNT_SESSION_KEYS = (
     "lesson_history",
     "study_aids",
     "learner_profile",
+    "learner_model",
+    "learner_context",
+    "learner_storage",
     "fab_usage_events",
     "workspace_artifacts",
     "agent_run_history",
@@ -4532,6 +4535,30 @@ def _active_account_id(state: Dict[str, Any]) -> str:
 
 def _atlas_user_id(state: Dict[str, Any]) -> str:
     return f"workspace:{_active_account_id(state)}"
+
+
+def _learner_storage_scope(user_id: str) -> Dict[str, Any]:
+    import hashlib
+
+    owner = str(_REQUEST_USER_ID.get() or "local")
+    key = hashlib.sha256(json.dumps([owner, user_id], ensure_ascii=True).encode("utf-8")).hexdigest()
+    return {"contract": "mammoth.learner-storage.v1", "scope_key": key,
+            "legacy_imported": False, "legacy_ownership": "unverified_not_imported"}
+
+
+def _learner_storage_path(user_id: str) -> str:
+    scope = _learner_storage_scope(user_id)
+    return str(_atlas_state_file_for_request().parent / "learner_models" / scope["scope_key"])
+
+
+def _learner_storage_action(action, scope_user_id: str, *args, **kwargs):
+    from mammoth_os.learner_model import LearnerStorageError
+
+    try:
+        return action(*args, **kwargs, storage_path=_learner_storage_path(scope_user_id))
+    except (LearnerStorageError, OSError) as exc:
+        logger.exception("Private learner adaptation storage failed")
+        raise HTTPException(status_code=503, detail="Private learner adaptation is unavailable. No reset or save was confirmed; retry explicitly.") from exc
 
 
 def _build_workspace_accounts_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -4642,6 +4669,9 @@ def _ensure_account_collections(state: Dict[str, Any]) -> Dict[str, Any]:
     state["developer_access_updated_at"] = account.get("developer_access_updated_at")
     state["session_scope"] = "workspace_multi_account"
     state["user_id"] = _atlas_user_id(state)
+    if state.get("learner_storage") != _learner_storage_scope(state["user_id"]):
+        for key in ("learner_model", "learner_context", "learner_profile", "learner_storage"):
+            state.pop(key, None)
     return state
 
 
@@ -4792,23 +4822,29 @@ def _normalize_agent_run_history_collection(raw_items: Any) -> List[Dict[str, An
 
 
 def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
-    learner_state = load_learner_model(user_id)
-    learner_state.update({
-        "mastery": {},
-        "confidence": {},
-        "streak": 0,
-        "attempts": 0,
-        "error_patterns": {},
-        "recent_outcomes": [],
-        "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
-    })
-    return save_learner_model(learner_state)
+    from mammoth_os.learning_workspace import _workspace_lock
+
+    def reset(*, storage_path: str):
+        with _workspace_lock(Path(storage_path) / "atlas_learner_model.json"):
+            learner_state = load_learner_model(user_id, storage_path=storage_path)
+            learner_state.update({
+                "mastery": {},
+                "confidence": {},
+                "streak": 0,
+                "attempts": 0,
+                "error_patterns": {},
+                "recent_outcomes": [],
+                "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
+            })
+            return save_learner_model(learner_state, storage_path=storage_path)
+    return _learner_storage_action(reset, user_id)
 
 
 def _apply_atlas_onboarding_update(onboarding: Dict[str, Any]) -> Dict[str, Any]:
     state = _load_atlas_state()
     learner_user_id = _atlas_user_id(state)
-    learner_state = set_onboarding_profile(state, user_id=learner_user_id, onboarding=onboarding)
+    learner_state = _learner_storage_action(set_onboarding_profile, learner_user_id, state, user_id=learner_user_id, onboarding=onboarding)
+    state["learner_storage"] = _learner_storage_scope(learner_user_id)
     _save_atlas_state(state)
     _append_audit_event(
         kind="atlas_onboard",
@@ -4832,6 +4868,7 @@ def _apply_atlas_learner_reset() -> Dict[str, Any]:
     learner_user_id = _atlas_user_id(state)
     learner_state = _reset_learner_model_state(learner_user_id)
     state["learner_model"] = learner_state
+    state["learner_storage"] = _learner_storage_scope(learner_user_id)
     state["workspace_epoch"] = uuid.uuid4().hex
     clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
     state["learner_context"] = build_learner_context(learner_state)
@@ -4856,6 +4893,7 @@ def _apply_atlas_session_reset() -> Dict[str, Any]:
     clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
     state["user_id"] = learner_user_id
     state["learner_model"] = learner_state
+    state["learner_storage"] = _learner_storage_scope(learner_user_id)
     state["learner_context"] = build_learner_context(learner_state)
     state["learner_profile"] = {
         "streak": 0,
@@ -4869,10 +4907,11 @@ def _apply_atlas_session_reset() -> Dict[str, Any]:
 
 
 def _hydrate_learner_state(state: Dict[str, Any], *, user_id: str = "default_user", lesson: Optional[Dict[str, Any]] = None, exercise: Optional[Dict[str, Any]] = None, result: Optional[Dict[str, Any]] = None, topic: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    learner_state = load_learner_model(user_id)
+    user_id = _atlas_user_id(state)
+    learner_state = _learner_storage_action(load_learner_model, user_id, user_id)
     if result is not None:
-        learner_state = update_learner_model(
-            user_id,
+        learner_state = _learner_storage_action(
+            update_learner_model, user_id, user_id,
             lesson=lesson,
             exercise=exercise,
             result=result,
@@ -4881,6 +4920,7 @@ def _hydrate_learner_state(state: Dict[str, Any], *, user_id: str = "default_use
         )
     learner_context = build_learner_context(learner_state, topic=topic or state.get("topic"))
     state["learner_model"] = learner_state
+    state["learner_storage"] = _learner_storage_scope(user_id)
     state["learner_context"] = learner_context
     state["learner_profile"] = {
         "streak": learner_context.get("streak", 0),
@@ -5561,22 +5601,26 @@ def _run_atlas_evals(state: Dict[str, Any]) -> Dict[str, Any]:
         "focus_areas": "debugging, planning",
     }
     learner_user_id = _atlas_user_id(eval_state)
-    learner_state = set_onboarding_profile(eval_state, user_id=learner_user_id, onboarding=onboarding_payload)
-    onboarding_ok = bool(learner_state.get("onboarding") or {})
-
     failure_result = {
         "passed": False,
         "hint": "Add a return statement and validate the function signature.",
         "error": "AssertionError: expected 3",
     }
-    learner_state = update_learner_model(
-        learner_user_id,
-        lesson=eval_state.get("current_lesson") or {},
-        exercise=eval_state.get("current_exercise") or {},
-        result=failure_result,
-        topic=eval_state.get("topic"),
-        metadata={"eval_run": True},
-    )
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="mammoth-learner-eval-") as storage:
+        learner_state = set_onboarding_profile(
+            eval_state, user_id=learner_user_id, onboarding=onboarding_payload, storage_path=storage,
+        )
+        onboarding_ok = bool(learner_state.get("onboarding") or {})
+        learner_state = update_learner_model(
+            learner_user_id,
+            lesson=eval_state.get("current_lesson") or {},
+            exercise=eval_state.get("current_exercise") or {},
+            result=failure_result,
+            topic=eval_state.get("topic"),
+            metadata={"eval_run": True},
+            storage_path=storage,
+        )
     learner_context = build_learner_context(learner_state)
     adaptive_feedback = _build_submit_adaptation(learner_context, failure_result)
     adaptation_ok = bool(adaptive_feedback.get("next_step"))

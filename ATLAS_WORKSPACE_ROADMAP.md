@@ -238,7 +238,14 @@ feedback over adding more agents or permanent panels.
   Linked notes, uploads, separately saved curricula, legacy learner models and
   cached context/mastery, telemetry, artifacts/plans, other accounts, provider
   copies and backups are not erased by this scoped action. The legacy learner
-  model's tenant ownership needs a separate reviewed migration before deletion.
+  model's tenant ownership needs a separate reviewed recovery process before import
+  or deletion. New hosted adaptation now uses hashed signed-in-user + account
+  storage scopes; unverified legacy models/cached adaptation are not imported.
+  Existing lessons/conversations and legacy files are preserved. Learners can
+  re-enter starting preferences without assigning shared legacy mastery by guess.
+  Atomic writes and serialized onboarding/assessment updates reject corrupt/foreign
+  records explicitly; evaluation probes use temporary storage. Standalone model
+  export/deletion and reviewed legacy recovery remain open.
   Full-platform limits/cancellation, age-based retention, reliable paid-action
   estimates and erasure of excluded stores remain open; LEARN-06 stays unchecked.
   This is not a compliance certification.

@@ -1,8 +1,37 @@
 import json
+import logging
+import math
 import os
 import re
+from functools import wraps
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from mammoth_os.learning_workspace import _workspace_lock, _write_workspace
+from mammoth_os.learning_controls import check_cancelled
+
+
+class LearnerStorageError(RuntimeError):
+    """Saved adaptation cannot be safely read or confirmed written."""
+
+
+def _model_transaction(handler):
+    @wraps(handler)
+    def locked(*args, **kwargs):
+        with _workspace_lock(Path(_model_path(kwargs.get("storage_path")))):
+            return handler(*args, **kwargs)
+    return locked
+
+
+def _validate_model_record(raw: Any, user_id: str) -> None:
+    if not isinstance(raw, dict) or raw.get("user_id") != user_id:
+        raise ValueError("Learner model ownership does not match.")
+    for field, expected in (
+        ("mastery", dict), ("confidence", dict), ("error_patterns", dict),
+        ("recent_outcomes", list), ("onboarding", dict), ("memory_graph", dict),
+    ):
+        if field in raw and raw[field] is not None and not isinstance(raw[field], expected):
+            raise ValueError(f"Learner model {field} has an invalid shape.")
 
 
 DEFAULT_LEARNER_MODEL = {
@@ -93,12 +122,16 @@ def _ensure_model_shape(model: Optional[Dict[str, Any]], user_id: str) -> Dict[s
     state["streak"] = int(state.get("streak") or 0)
     state["attempts"] = int(state.get("attempts") or 0)
     state["last_updated"] = state.get("last_updated") or None
-    onboarding = state.get("onboarding") if isinstance(state.get("onboarding"), dict) else {}
+    onboarding = state.get("onboarding")
+    if not isinstance(onboarding, dict):
+        onboarding = {}
     merged_onboarding = {**_default_onboarding_profile(), **onboarding}
     merged_onboarding["goals"] = _normalize_text_list(merged_onboarding.get("goals"))
     merged_onboarding["focus_areas"] = _normalize_text_list(merged_onboarding.get("focus_areas"))
     state["onboarding"] = merged_onboarding
-    graph = state.get("memory_graph") if isinstance(state.get("memory_graph"), dict) else {}
+    graph = state.get("memory_graph")
+    if not isinstance(graph, dict):
+        graph = {}
     merged_graph = {**_default_memory_graph(), **graph}
     merged_graph["nodes"] = [node for node in (merged_graph.get("nodes") or []) if isinstance(node, dict) and node.get("id")]
     merged_graph["edges"] = [edge for edge in (merged_graph.get("edges") or []) if isinstance(edge, dict) and edge.get("source") and edge.get("target")]
@@ -166,10 +199,14 @@ def _record_memory_graph(
     result: Optional[Dict[str, Any]] = None,
     topic: Optional[str] = None,
 ) -> Dict[str, Any]:
-    graph = state.get("memory_graph") if isinstance(state.get("memory_graph"), dict) else _default_memory_graph()
+    graph = state.get("memory_graph")
+    if not isinstance(graph, dict):
+        graph = _default_memory_graph()
     lesson = lesson or {}
     exercise = exercise or {}
-    onboarding = state.get("onboarding") if isinstance(state.get("onboarding"), dict) else _default_onboarding_profile()
+    onboarding = state.get("onboarding")
+    if not isinstance(onboarding, dict):
+        onboarding = _default_onboarding_profile()
     concept = _resolve_concept(lesson=lesson, exercise=exercise, topic=topic)
     lesson_id = str(lesson.get("lesson_id") or concept or "lesson").strip()
     lesson_title = str(lesson.get("title") or lesson.get("lesson_title") or topic or lesson_id).strip()
@@ -245,7 +282,8 @@ def _record_memory_graph(
         "relation": "teaches",
         "created_at": now,
     })
-    if onboarding.get("goals"):
+    goals = onboarding.get("goals") or []
+    if goals:
         _upsert_graph_node(graph, {
             "id": "onboarding:profile",
             "type": "onboarding",
@@ -255,7 +293,7 @@ def _record_memory_graph(
             "updated_at": now,
             "metadata": onboarding,
         })
-        for goal in onboarding.get("goals")[:4]:
+        for goal in goals[:4]:
             goal_id = _slugify(goal)
             _upsert_graph_node(graph, {
                 "id": f"goal:{goal_id}",
@@ -283,6 +321,7 @@ def _record_memory_graph(
     return graph
 
 
+@_model_transaction
 def set_onboarding_profile(
     state: Optional[Dict[str, Any]] = None,
     *,
@@ -307,6 +346,7 @@ def set_onboarding_profile(
     if any(merged.get(key) for key in ("experience_level", "preferred_pacing", "learning_style")):
         merged["completed_at"] = _now_iso()
     learner_state["onboarding"] = merged
+    learner_state = save_learner_model(learner_state, storage_path=storage_path)
     if state is not None:
         state["learner_model"] = learner_state
         state["learner_context"] = build_learner_context(learner_state, topic=state.get("topic"))
@@ -316,7 +356,7 @@ def set_onboarding_profile(
             "recommended_difficulty": state["learner_context"].get("recommended_difficulty", "beginner"),
             "preferred_pacing": state["learner_context"].get("preferred_pacing", "gentle"),
         }
-    return save_learner_model(learner_state, storage_path=storage_path)
+    return learner_state
 
 
 def _model_path(storage_path: Optional[str] = None) -> str:
@@ -334,25 +374,39 @@ def load_learner_model(user_id: str = "default_user", storage_path: Optional[str
     try:
         with open(path, 'r', encoding='utf-8') as fh:
             raw = json.load(fh)
-    except Exception:
-        return _ensure_model_shape(DEFAULT_LEARNER_MODEL, user_id)
-    state = _ensure_model_shape(raw, user_id)
-    state["user_id"] = user_id or state.get("user_id") or "default_user"
-    return state
+    except (OSError, ValueError) as exc:
+        logging.getLogger(__name__).exception("Learner model could not be read")
+        raise LearnerStorageError("Saved learner adaptation could not be read; it has not been reset.") from exc
+    try:
+        _validate_model_record(raw, user_id)
+        state = _ensure_model_shape(raw, user_id)
+        if any(not math.isfinite(value) for field in ("mastery", "confidence") for value in state[field].values()):
+            raise ValueError("Learner scores must be finite.")
+        return state
+    except (ValueError, TypeError, AttributeError, OverflowError) as exc:
+        logging.getLogger(__name__).exception("Learner model shape or ownership is invalid")
+        raise LearnerStorageError("Saved learner adaptation is invalid or belongs to another learner; it has not been reset.") from exc
 
 
 def save_learner_model(state: Dict[str, Any], storage_path: Optional[str] = None) -> Dict[str, Any]:
-    normalized = _ensure_model_shape(state, state.get("user_id") or "default_user")
-    normalized["last_updated"] = _now_iso()
     path = _model_path(storage_path)
     try:
-        with open(path, 'w', encoding='utf-8') as fh:
-            json.dump(normalized, fh, indent=2)
-    except Exception:
-        pass
+        normalized = _ensure_model_shape(state, state.get("user_id") or "default_user")
+        _validate_model_record({**state, "user_id": normalized["user_id"]}, normalized["user_id"])
+        normalized["last_updated"] = _now_iso()
+        if os.path.exists(path):
+            load_learner_model(normalized["user_id"], storage_path=storage_path)
+        if any(not math.isfinite(value) for field in ("mastery", "confidence") for value in normalized[field].values()):
+            raise ValueError("Learner scores must be finite.")
+        check_cancelled()
+        _write_workspace(Path(path), normalized)
+    except (OSError, ValueError, TypeError, AttributeError, OverflowError) as exc:
+        logging.getLogger(__name__).exception("Learner model save was not confirmed")
+        raise LearnerStorageError("Learner adaptation could not be saved. No save was confirmed.") from exc
     return normalized
 
 
+@_model_transaction
 def update_learner_model(
     user_id: str = "default_user",
     *,

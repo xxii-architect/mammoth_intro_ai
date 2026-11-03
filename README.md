@@ -40,6 +40,16 @@ state saves, but retains notes, uploads, saved curricula, learner models/context
 telemetry, artifacts/plans, other accounts and external copies. Full LEARN-06
 controls remain open. See [the manual](ATLAS_MANUAL.md#learning-export-privacy-and-spending).
 
+Hosted learner adaptation now uses a hashed signed-in-user + learning-account
+storage scope, including onboarding, mastery, confidence and memory graphs.
+Unverified shared legacy models and cached adaptation are not imported; legacy
+files remain untouched and existing lessons/conversations are preserved. Learners
+can re-enter starting preferences; old mastery is not assigned to a tenant by
+guessing. Corrupt/mismatched storage fails explicitly rather than silently
+resetting. Writes are atomic, assessment/onboarding updates are serialized,
+and evaluation probes use temporary storage. Standalone model export/deletion
+and reviewed legacy ownership recovery remain open; this is not verified erasure.
+
 ATLAS reading preferences (text size, spacing, focused mode) survive same-tab
 page navigation and clear on signed-in account changes; they do not persist
 through refresh. Headings, code and tables scale with text size. Read/Practice
