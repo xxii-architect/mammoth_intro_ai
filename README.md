@@ -29,8 +29,11 @@ deletion requests are not verified erasure. The panel now also offers optional
 per-user daily ATLAS HTTP-request caps (uncapped by default), durable request
 records, cooperative cancellation and reviewed, typed-confirmation deletion of
 the active saved lesson session/recovery. Caps count admitted requests, not model
-calls or dollars; other agent runs (including Learning agents), Mammoth Mind and
-SDK/local calls are outside their scope. Cancellation can wait for already-sent
+calls or dollars. Non-streaming Learning-panel agent requests now share this cap
+through `POST /api/atlas/agents/run`; the backend enforces the six-agent catalog.
+General workspace runs, repository/tool-loop runs, Mammoth Mind and SDK/local
+calls remain outside its scope; this is not a platform-wide spending limit.
+Cancellation reaches worker-thread model/fallback and response boundaries, can wait for already-sent
 provider work, which may be billable; completed side effects are not undone.
 Scoped deletion verifies canonical session/recovery removal and blocks stale
 state saves, but retains notes, uploads, saved curricula, learner models/context,

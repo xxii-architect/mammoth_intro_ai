@@ -208,9 +208,15 @@ is bounded to about 100 records. Unconfirmed running/requested records are retai
 without a fabricated completion or expiry. No prompts or replies are stored there.
 
 Covered routes: `POST /api/atlas/lesson`, `/submit`, `/next`, `/curricula/start`,
-`/regenerate`, `/chat`, `/plan`, and `POST /agent/atlas/run`. Reading, exports,
+`/regenerate`, `/chat`, `/plan`, `POST /agent/atlas/run`, and
+`POST /api/atlas/agents/run` for non-streaming Learning-panel requests.
+The latter requires an explicit Tutor, Curriculum, Research, Reflection, Coding
+or Browser catalog ID; invalid agents fail before dispatch. Failed requests count.
+The worker thread retains private request/cancellation context; cancellation
+discards a delayed answer before completion is recorded and prevents checked retries.
+Reading, exports,
 source-derived previews and saved-workspace recovery are outside the cap.
-**Other agent runs (including Learning agents), Mammoth Mind and SDK/local calls
+**General workspace runs, repository/tool-loop runs, Mammoth Mind and SDK/local calls
 are not covered**. This is a self-imposed ATLAS request cap, not an operator
 billing ceiling, subscription entitlement or full-platform spending guarantee.
 `GET/PUT /api/atlas/controls` require sign-in; PUT accepts only

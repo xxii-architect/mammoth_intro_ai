@@ -222,8 +222,13 @@ feedback over adding more agents or permanent panels.
   per-user UTC daily HTTP-request caps cover ATLAS lesson/submit/next/course
   activation/regenerate/chat/plan and the direct ATLAS agent route. Reservations
   are durable and atomic; failed/cancelled/guarded requests count, with no
-  invented token/dollar accounting. Other agent runs (including Learning agents),
-  Mammoth Mind and SDK/local calls are explicitly outside this cap.
+  invented token/dollar accounting.   Non-streaming Learning-panel requests now use the authenticated
+  `/api/atlas/agents/run` endpoint and share the same cap and private cooperative
+  cancellation records. The backend restricts this endpoint to the six-agent
+  learning catalog; worker-thread request/cancellation context is preserved.
+  Cancelled delayed replies are discarded before task completion or checked retries.
+  General workspace runs, repository/tool-loop runs, Mammoth Mind and SDK/local
+  calls remain outside this cap; it is not a platform-wide spending guarantee.
   Private operation records support cooperative cancellation at checked
   model/fallback/save boundaries. Cancellation requests are not represented as
   instantaneous provider stops, and prior completed side effects are not undone.

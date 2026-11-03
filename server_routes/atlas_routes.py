@@ -528,7 +528,7 @@ async def atlas_learning_agents():
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
-    allowed = {"tutor_agent", "curriculum_agent", "research_agent", "reflection_agent", "coding_agent", "browser_agent"}
+    allowed = _LEARNING_AGENT_IDS
     if not _agent_registry_ok:
         return JSONResponse({"status": "error", "error": "The learning agent registry is unavailable."}, status_code=503)
     try:
@@ -545,6 +545,15 @@ async def atlas_learning_agents():
         }
         for manifest in manifests if manifest.agent_id in allowed
     ]}
+
+
+@app.post("/api/atlas/agents/run")
+@_controlled_learning("/api/atlas/agents/run")
+async def atlas_learning_agent_run(body: Dict[str, Any]):
+    agent_id = body.get("agent_id")
+    if not isinstance(agent_id, str) or agent_id not in _LEARNING_AGENT_IDS:
+        raise HTTPException(status_code=400, detail="Choose an explicit agent from the learning catalog.")
+    return await run_agent(body)
 
 
 @app.get("/api/atlas/curricula")

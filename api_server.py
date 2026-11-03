@@ -4340,6 +4340,12 @@ def _controlled_learning(route):
                     result = await handler(*args, **kwargs)
                     check_cancelled()
                 status = "finished"
+                if isinstance(result, dict) and (
+                    result.get("status") in {"error", "failed"}
+                    or isinstance(result.get("result"), dict)
+                    and result["result"].get("status") in {"error", "failed"}
+                ):
+                    status = "failed"
                 return result
             except LearningCancelled:
                 status = "cancelled_at_boundary"
@@ -4361,6 +4367,12 @@ def _controlled_learning(route):
                         raise HTTPException(status_code=503, detail="Learning request completion could not be recorded. Check saved results before retrying.")
         return controlled
     return decorate
+
+
+_LEARNING_AGENT_IDS = frozenset({
+    "tutor_agent", "curriculum_agent", "research_agent",
+    "reflection_agent", "coding_agent", "browser_agent",
+})
 
 
 def _learning_workspace_path(state: Dict[str, Any]) -> Path:

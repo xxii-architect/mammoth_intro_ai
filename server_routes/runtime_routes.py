@@ -1132,6 +1132,7 @@ async def get_autonomous_runs():
 
 @app.post("/api/run")
 async def run_agent(body: Dict[str, Any]):
+    from mammoth_os.learning_controls import LearningCancelled, check_cancelled
     intent = str(body.get("intent", "")).strip()
     payload = body.get("payload") or {}
     if not payload:
@@ -1577,9 +1578,11 @@ async def run_agent(body: Dict[str, Any]):
                             "previous_failure": last_failure_detail,
                         }
                     _think("Dispatching to agent", f"attempt={attempt} runtime_agent={runtime_agent!r}")
-                    raw_result = await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: _with_llm_background(llm_background, registry_run_agent, runtime_agent, attempt_payload)
+                    check_cancelled()
+                    raw_result = await asyncio.to_thread(
+                        _with_llm_background, llm_background, registry_run_agent, runtime_agent, attempt_payload
                     )
+                    check_cancelled()
                     final_envelope = _normalize_agent_output(runtime_agent, raw_result)
                     verification = _verify_execution_contract(final_envelope, execution_policy)
                     attempts.append(
@@ -1659,18 +1662,22 @@ async def run_agent(body: Dict[str, Any]):
                         },
                         "mode": "coach" if intent == "lesson_coaching" else "tutor_hint",
                     }
-                    reasoning_result = await asyncio.get_event_loop().run_in_executor(
-                        None, lambda: _with_llm_background(llm_background, registry_run_agent, "reasoning", reasoning_payload)
+                    check_cancelled()
+                    reasoning_result = await asyncio.to_thread(
+                        _with_llm_background, llm_background, registry_run_agent, "reasoning", reasoning_payload
                     )
+                    check_cancelled()
                     _think("Reasoning guidance attached", f"preview={str(reasoning_result)[:120]!r}", "success")
                     result["reasoning"] = reasoning_result
         else:
             _think("Falling back to CortexRouter", f"intent={intent!r}  no matching AGENTS key", "warning")
             from mammoth_os.cortex.router import CortexRouter
             router = CortexRouter()
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _with_llm_background(llm_background, router.route, intent, payload)
+            check_cancelled()
+            result = await asyncio.to_thread(
+                _with_llm_background, llm_background, router.route, intent, payload
             )
+            check_cancelled()
             _think("CortexRouter returned", f"status={result.get('status','?')!r}  preview={str(result)[:120]!r}", "success")
 
         if manifest:
@@ -1680,6 +1687,7 @@ async def run_agent(body: Dict[str, Any]):
             manifest.metadata["last_intent"] = intent
             manifest.metadata["last_run_at"] = datetime.now(timezone.utc).isoformat()
 
+        check_cancelled()
         if result.get("status") == "pending_approval":
             task_status = "pending_approval"
         elif result.get("status") in {"error", "needs_context", "insufficient_evidence"}:
@@ -1749,6 +1757,20 @@ async def run_agent(body: Dict[str, Any]):
         # Determine response type from runtime_agent
         response_type = "coding" if runtime_agent == "coding" else "general"
         return _wrap_response_with_trust(response, endpoint="/api/run", response_type=response_type)
+    except LearningCancelled:
+        if manifest:
+            manifest.status = AgentStatus.IDLE
+            manifest.last_heartbeat = datetime.now(timezone.utc)
+        _upsert_task(
+            task_id, task["title"], status="cancelled", agent_id=tracked_agent_id,
+            description="Learning cancellation reached a safe boundary",
+            details={"intent": intent, "trace_id": trace_id},
+        )
+        _append_activity(
+            "Learning agent request cancelled at a safe boundary",
+            agent_id=tracked_agent_id, task_id=task_id, kind="task_cancelled", trace_id=trace_id,
+        )
+        raise
     except Exception as e:
         if manifest:
             manifest.status = AgentStatus.ERROR
