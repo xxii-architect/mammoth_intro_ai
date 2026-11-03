@@ -27,6 +27,8 @@ def isolate_learning_request_controls(monkeypatch, tmp_path):
             return LearningControls(tmp_path / f"controls-{key}.sqlite3")
 
         monkeypatch.setattr(api, "_learning_controls", controls)
+        monkeypatch.setattr(api, "_learner_storage_path",
+                            lambda user_id: str(tmp_path / "learner_models" / api._learner_storage_scope(user_id)["scope_key"]))
         return original
 
 # Create a single fake instance to reuse

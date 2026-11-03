@@ -37,6 +37,7 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
     current_exercise: { exercise_type: 'writing', prompt: 'Explain how you verify a claim.', starter_response: starterResponse },
     lesson_history: [], available_modules: [], learner: {}, comprehension_gate: {}, chat_history: chatHistory,
     learner_model: { onboarding }, learner_context: { starting_level: onboarding.experience_level, recommended_difficulty: onboarding.experience_level, adaptation_reason: 'Using your selected starting level until there is practice evidence.' },
+    learner_storage: { contract: 'mammoth.learner-storage.v1', legacy_imported: false, legacy_ownership: 'unverified_not_imported' },
     workspace_recovery: recovery(),
     last_submission: lastSubmission,
   })
@@ -611,6 +612,7 @@ test('mentions cannot target an unregistered learning agent', async ({ page }) =
 test('onboarding is visible, saves level independently of pace, and remains editable', async ({ page }) => {
   const { requests, errors } = await mountWorkspace(page, { profileComplete: false })
   const profile = page.getByRole('region', { name: 'Learning profile' })
+  await expect(profile.getByRole('note')).toContainText('Legacy shared mastery and profile data were not imported because ownership is unverified.')
   await expect(profile.getByRole('button', { name: 'Save learning profile' })).toBeVisible()
   await profile.getByRole('combobox', { name: 'Starting level', exact: true }).selectOption('expert')
   await profile.getByRole('combobox', { name: 'Pacing', exact: true }).selectOption('gentle')

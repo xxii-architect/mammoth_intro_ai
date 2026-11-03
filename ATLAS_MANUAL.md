@@ -239,6 +239,24 @@ ongoing provider work. Refresh explicitly to read the latest recorded status.
 Contextual-help dialogs can close their view while help runs; closing is not
 cancellation, and the pending help remains in same-tab memory.
 
+Hosted adaptation now lives in a separately hashed signed-in-user + learning-account
+directory. It stores onboarding, mastery/confidence, error patterns and memory
+graphs. The API supplies this scope; client user IDs cannot select another model.
+The additive `mammoth.learner-storage.v1` metadata identifies the scope and
+reports `legacy_imported: false`. Unverified global legacy models and unmarked
+cached adaptation are not imported. Existing lessons and conversations remain;
+learners may need to re-enter their starting preferences. Legacy files are left
+untouched for a future reviewed ownership/recovery workflow, never guessed into
+a tenant or erased automatically. Standalone adaptation remains outside the
+saved-learning export/deletion action described below.
+Corrupt/foreign model records produce explicit 503 failures without a reset.
+Confirmed model writes use atomic replacement, and onboarding/assessment changes
+serialize across workers so concurrent attempts are not lost. Evaluation probes
+use disposable storage rather than writing a learner's real adaptation.
+Local callers retain the existing `storage_path` option and model filename; use
+a distinct trusted directory per learner. Reading or overwriting a record belonging
+to a different `user_id` now fails explicitly instead of reassigning it.
+
 **Preview saved learning deletion** reviews the active account and exclusions.
 Type **DELETE SAVED LEARNING** to enable the destructive action. The preview
 fingerprint binds to the account, saved session and recovery revision; changed
