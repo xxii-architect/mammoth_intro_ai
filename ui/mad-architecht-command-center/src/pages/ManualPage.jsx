@@ -57,6 +57,7 @@ const liveNow = [
   'Both workspace SDK clients accept surface, task, conversation history and uploaded-document IDs on runs. Agent Workspace uses bounded supplied history, not private Mind history, and does not save into Mind threads. Document/repo access remains server-enforced; omitting a repo adds no repo context. Tokens are resolved per request, and backend error status/code/payload are retained without automatic retries.',
   'Notes and the build log are now private to each account and enforced on the server for Pro tier and above.',
   'Release readiness now includes fail-closed health and eval gates, so weak runtime or missing eval data blocks green status.',
+  'Pull requests now run a separate Chromium workspace interaction check alongside build/type and SDK checks. All four fixture-backed workspace suites must pass without skips, expected failures or retries. CI retains browser reports and failure traces for seven days. This is not a production-auth/provider test; repository branch protection must require the check to block merges.',
   'Usage warnings are now surfaced through the billing usage endpoint when tenants approach limits.',
 ]
 

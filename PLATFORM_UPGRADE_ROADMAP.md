@@ -235,6 +235,15 @@ double bill; anonymous users receive no private usage data.
   unmanageable legacy-wide gate without triage.
 - [ ] CI-02: add explicit frontend build and targeted interaction tests to PR
   validation; retain existing JavaScript SDK tests and release guardrails.
+  - Added an independent `ui-interactions` job alongside build/type checks for
+    every main-targeting PR and main push, without path filters that omit
+    test-only edits. All four fixture-backed Chromium workspace suites are
+    mandatory; skips, focused tests, missing suites, retries and expected
+    failures cannot yield behavior verification. JSON/HTML/failure traces are
+    retained for seven days. Unit and actual-Playwright CLI probes verify
+    fail-closed exit codes. Branch protection must separately require this
+    check; production auth/providers/proxies and other browsers remain outside
+    this bounded gate.
 - [ ] CI-03: classify sandbox failures as release-blocking vs environment
   diagnostics; pin MCP package versions and document verified launch commands.
 
