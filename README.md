@@ -702,8 +702,8 @@ it cannot substitute a successful build for behavior coverage.
 
 ```powershell
 # From the repository root, after dependencies are installed:
-npm run test:workspace-gate
-npm run test:workspace
+node --test tests/workspace-browser-reporter.test.cjs
+npx --no-install playwright test --config tests/workspace-ci.playwright.config.js
 ```
 
 For a fresh checkout, use `npm ci` at the root and in
@@ -721,6 +721,8 @@ independent acceptance. No model calls are required.
 Repository branch protection must separately require the `ui-interactions`
 check if merges must be blocked by it; a workflow alone cannot configure that
 repository setting. Existing build/type and SDK checks remain separate evidence.
+Package manifests are unchanged, preserving the existing owner validator's
+reviewed-image manifest checks without requiring a script-only image rebuild.
 
 ### Agent Workspace payload parity
 
