@@ -37,6 +37,7 @@ function LearningWorkspace({ setPage, onDeleted }) {
   const { user } = useAuth()
   const mobile = useIsMobile(COMPACT_WORKSPACE_QUERY)
   const [tutorOpen, setTutorOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
   const [advanced, setAdvanced] = useState(false)
   const [readingFocus, setReadingFocus] = useState(false)
   const [state, setState] = useState(null)
@@ -138,11 +139,12 @@ function LearningWorkspace({ setPage, onDeleted }) {
         {showLesson && !mobile && <button type="button" aria-expanded={tutorOpen} onClick={() => setTutorOpen(open => !open)}>
           {tutorOpen && !mobile ? 'Hide tutor' : 'Consult tutor'}
         </button>}
+        <button type="button" aria-expanded={profileOpen} aria-controls="atlas-learning-profile-panel" onClick={() => setProfileOpen(value => !value)}>{profileOpen ? 'Hide learning profile' : 'Learning profile'}</button>
         {view === 'tutor' && <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(value => !value)}>Advanced tutor tools</button>}
       </header>
-      <div className="atlas-workspace-profile" hidden={readingFocus && showLesson}>
-        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} setPage={setPage} onDeleted={onDeleted} />
-      </div>
+      {profileOpen && <div className="atlas-workspace-profile" id="atlas-learning-profile-panel" hidden={readingFocus && showLesson}>
+        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} setPage={setPage} onDeleted={onDeleted} open onToggle={() => setProfileOpen(false)} />
+      </div>}
       {error && <div role="alert" className="atlas-workspace-error">{error} <button onClick={() => loadState().catch(() => {})}>Retry</button></div>}
       <div className="atlas-workspace-save" role="status">
         {workspace.status}
