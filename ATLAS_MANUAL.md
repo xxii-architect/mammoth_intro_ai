@@ -153,7 +153,13 @@ permissions and duplicate-safe lecture commands remain planned.
 
 ### Learning export, privacy and spending
 
-Open **Edit learning profile**, then **Learning privacy & costs**. The disclosure
+Open **Learning profile** in the desktop workspace header (or **Edit learning profile**,
+including on mobile where the header avoids a duplicate control),
+then **Learning privacy & costs**. Closing the profile retains unsaved edits while
+the workspace stays mounted; it does not save them. **Not now** collapses the form,
+and successful saving collapses it while retaining the confirmation. Existing
+first-time desktop setup remains automatic; mobile setup remains opt-in.
+Switching signed-in users clears the prior user's local profile draft. The disclosure
 is on demand so the normal mobile lesson does not lose another toolbar row.
 **Export saved learning JSON** downloads `mammoth.learning-export.v1`: the active
 local account's saved lessons, exercises, full retained tutor/assistant messages,

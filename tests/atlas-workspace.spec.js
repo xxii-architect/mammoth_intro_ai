@@ -590,12 +590,36 @@ test('onboarding is visible, saves level independently of pace, and remains edit
   await profile.getByLabel('Goals', { exact: true }).fill('Understand nutrition evidence')
   await profile.getByRole('button', { name: 'Save learning profile' }).click()
   await expect(profile).toContainText('Learning profile saved.')
+  await expect(profile.getByRole('button', { name: 'Save learning profile' })).toBeHidden()
   await expect(profile).toContainText('Current recommendation: expert')
   expect(requests.find(request => request.path === '/api/atlas/onboard').body.experience_level).toBe('expert')
   await profile.getByRole('button', { name: 'Edit learning profile' }).click()
   await expect(profile.getByLabel('Goals', { exact: true })).toHaveValue('Understand nutrition evidence')
   expect(errors).toEqual([])
 })
+
+for (const width of [390, 1280]) {
+  test(`profile header preserves unsaved edits and dismissal works at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 844 })
+    const { requests, errors } = await mountWorkspace(page)
+    const profile = page.getByRole('region', { name: 'Learning profile' })
+    const openProfile = () => page.getByRole('button', { name: width === 390 ? 'Edit learning profile' : 'Learning profile', exact: true }).click()
+    await openProfile()
+    await profile.getByLabel('Goals', { exact: true }).fill('Unsaved learning goal')
+    await page.getByRole('button', { name: width === 390 ? 'Close profile' : 'Hide learning profile', exact: true }).click()
+    await expect(profile.getByLabel('Goals', { exact: true })).toBeHidden()
+    await openProfile()
+    await expect(profile.getByLabel('Goals', { exact: true })).toHaveValue('Unsaved learning goal')
+    await profile.getByRole('button', { name: 'Not now', exact: true }).click()
+    await expect(profile.getByLabel('Goals', { exact: true })).toBeHidden()
+    await expect(page.getByRole('button', { name: width === 390 ? 'Edit learning profile' : 'Learning profile', exact: true })).toHaveAttribute('aria-expanded', 'false')
+    expect(requests.filter(request => request.path === '/api/atlas/onboard')).toEqual([])
+    await page.evaluate(() => globalThis.changeTestAccount('another-learner'))
+    await openProfile()
+    await expect(profile.getByLabel('Goals', { exact: true })).toHaveValue('')
+    expect(errors).toEqual([])
+  })
+}
 
 async function generateCourse(page) {
   await page.getByRole('button', { name: 'Learning agents', exact: true }).click()

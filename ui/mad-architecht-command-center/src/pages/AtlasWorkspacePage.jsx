@@ -37,6 +37,7 @@ function LearningWorkspace({ setPage, onDeleted }) {
   const { user } = useAuth()
   const mobile = useIsMobile(COMPACT_WORKSPACE_QUERY)
   const [tutorOpen, setTutorOpen] = useState(false)
+  const [profileExpanded, setProfileExpanded] = useState(null)
   const [advanced, setAdvanced] = useState(false)
   const [readingFocus, setReadingFocus] = useState(false)
   const [state, setState] = useState(null)
@@ -119,6 +120,7 @@ function LearningWorkspace({ setPage, onDeleted }) {
   }
   const showTutor = view === 'tutor' || (view === 'lesson' && tutorOpen && !mobile)
   const showLesson = view === 'lesson'
+  const profileOpen = profileExpanded ?? (!mobile && !!state && !state.learner_model?.onboarding?.completed_at)
 
   return (
     <div className="atlas-workspace page-enter">
@@ -138,10 +140,11 @@ function LearningWorkspace({ setPage, onDeleted }) {
         {showLesson && !mobile && <button type="button" aria-expanded={tutorOpen} onClick={() => setTutorOpen(open => !open)}>
           {tutorOpen && !mobile ? 'Hide tutor' : 'Consult tutor'}
         </button>}
+        {!mobile && !(readingFocus && showLesson) && <button type="button" aria-expanded={profileOpen} aria-controls="atlas-learning-profile-panel" onClick={() => setProfileExpanded(!profileOpen)}>{profileOpen ? 'Hide learning profile' : 'Learning profile'}</button>}
         {view === 'tutor' && <button type="button" aria-pressed={advanced} onClick={() => setAdvanced(value => !value)}>Advanced tutor tools</button>}
       </header>
-      <div className="atlas-workspace-profile" hidden={readingFocus && showLesson}>
-        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} setPage={setPage} onDeleted={onDeleted} />
+      <div className="atlas-workspace-profile" id="atlas-learning-profile-panel" hidden={readingFocus && showLesson}>
+        <AtlasLearningProfile state={state} loadState={loadState} compact={mobile} setPage={setPage} onDeleted={onDeleted} open={profileOpen} onOpenChange={setProfileExpanded} />
       </div>
       {error && <div role="alert" className="atlas-workspace-error">{error} <button onClick={() => loadState().catch(() => {})}>Retry</button></div>}
       <div className="atlas-workspace-save" role="status">
