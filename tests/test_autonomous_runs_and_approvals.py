@@ -117,9 +117,9 @@ def test_get_autonomous_runs_exposes_lane_and_replay_details(monkeypatch):
 
 
 def test_execute_approval_record_supports_non_coding_mutation_ops(monkeypatch):
-    monkeypatch.setattr(api_server, "_apply_atlas_onboarding_update", lambda body: {"status": "ok", "kind": "onboard", "body": body})
-    monkeypatch.setattr(api_server, "_apply_atlas_learner_reset", lambda: {"status": "ok", "kind": "learner_reset"})
-    monkeypatch.setattr(api_server, "_apply_atlas_session_reset", lambda: {"status": "ok", "kind": "session_reset"})
+    monkeypatch.setattr(api_server, "_apply_atlas_onboarding_update", lambda body, **kwargs: {"status": "ok", "kind": "onboard", "body": body, **kwargs})
+    monkeypatch.setattr(api_server, "_apply_atlas_learner_reset", lambda **kwargs: {"status": "ok", "kind": "learner_reset", **kwargs})
+    monkeypatch.setattr(api_server, "_apply_atlas_session_reset", lambda **kwargs: {"status": "ok", "kind": "session_reset", **kwargs})
 
     onboard_result = api_server._execute_approval_record(
         {"operation": "atlas_onboard_update", "payload": {"onboarding": {"experience_level": "beginner"}}}
@@ -130,6 +130,7 @@ def test_execute_approval_record_supports_non_coding_mutation_ops(monkeypatch):
     assert onboard_result["kind"] == "onboard"
     assert learner_result["kind"] == "learner_reset"
     assert session_result["kind"] == "session_reset"
+    assert onboard_result["approval_guard"] == learner_result["approval_guard"] == session_result["approval_guard"] == {}
 
 
 def test_execute_approval_record_supports_custodial_cleanup_and_restore(monkeypatch, tmp_path):

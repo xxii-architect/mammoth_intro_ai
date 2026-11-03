@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { api } from '../api/client'
 import { downloadOutput } from './OutputActions'
 
-export default function LearningPrivacy({ setPage, onDeleted }) {
+export default function LearningPrivacy({ setPage, onDeleted, onAdaptationDeleted }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -11,6 +11,8 @@ export default function LearningPrivacy({ setPage, onDeleted }) {
   const [preview, setPreview] = useState(null)
   const [confirmation, setConfirmation] = useState('')
   const [adaptationReview, setAdaptationReview] = useState(null)
+  const [adaptationPreview, setAdaptationPreview] = useState(null)
+  const [adaptationConfirmation, setAdaptationConfirmation] = useState('')
 
   const action = async handler => {
     if (busy) return
@@ -80,12 +82,56 @@ export default function LearningPrivacy({ setPage, onDeleted }) {
       })}>Review private adaptation deletion scope</button>
       {adaptationReview && <section aria-label="Private adaptation scope review">
         <p>Account: {adaptationReview.account_id}. {adaptationReview.model_status === 'saved' ? 'A private adaptation record is saved.' : 'No private adaptation record is saved; no default was created.'}</p>
+        {adaptationReview.pending_deletion && <p role="status">Private adaptation deletion is incomplete. This is a read-only review of the remaining saved record, not a deletion receipt.</p>}
         {adaptationReview.model_status === 'saved' && <>
           <p>Saved fields: {adaptationReview.saved_fields.map(field => field.replaceAll('_', ' ')).join(', ')}.</p>
           <p>{adaptationReview.saved_record_counts.mastery_concepts} mastery concepts; {adaptationReview.saved_record_counts.confidence_concepts} confidence concepts; {adaptationReview.saved_record_counts.error_patterns} error patterns; {adaptationReview.saved_record_counts.retained_outcomes} retained outcomes; {adaptationReview.saved_record_counts.memory_nodes} memory nodes; {adaptationReview.saved_record_counts.memory_edges} memory edges. Counts describe saved records, not verified understanding.</p>
         </>}
-        <p>Review only. No data was deleted and no deletion receipt was issued. Private-model deletion is not enabled until stale-write protection is implemented. Use Export saved learning JSON to keep a copy.</p>
+        <p>Review only. No data was deleted and no deletion receipt was issued. Deletion requires the separate preview and exact confirmation below. Use Export saved learning JSON to keep a copy.</p>
         <p>Outside this review: {adaptationReview.retained_outside_scope.map(field => field.replaceAll('_', ' ')).join(', ')}. This list is not a future erasure promise. Legacy ownership is unverified; no legacy model was imported. This is not a full account inventory or an atomic snapshot of concurrent edits.</p>
+      </section>}
+      <button type="button" disabled={busy} onClick={() => action(async () => {
+        setAdaptationPreview(null)
+        setAdaptationConfirmation('')
+        const result = await api('/atlas/learner/deletion-preview')
+        if (result?.contract !== 'mammoth.learner-erasure.v1' ||
+            result.scope !== 'active_account_private_model_and_adaptation_caches' ||
+            typeof result.account_id !== 'string' || !result.account_id ||
+            typeof result.preview_token !== 'string' || !/^[a-f0-9]{64}$/.test(result.preview_token) ||
+            typeof result.deletion_available !== 'boolean' || !Array.isArray(result.excludes) ||
+            result.excludes.some(field => typeof field !== 'string')) {
+          throw new Error('The server did not confirm a private adaptation deletion preview.')
+        }
+        setAdaptationPreview(result)
+      })}>Preview private adaptation deletion</button>
+      {adaptationPreview && <section aria-label="Private adaptation deletion">
+        <p>Delete account {adaptationPreview.account_id}'s saved private model (onboarding preferences/goals, mastery/confidence, errors, outcomes and memory graph) and its learner model/context/profile/storage caches. Lessons, conversations and exercise drafts are preserved, including previously generated content that may reflect old adaptation.</p>
+        <p>NOT deleted: {adaptationPreview.excludes.map(field => field.replaceAll('_', ' ')).join(', ')}. Cancellation is requested for tracked Learning requests in this account; already-sent provider work may finish and bill. Older hosted model/state writes are rejected, but other tabs and downloads cannot be erased. Reload other tabs. New deliberate activity can create fresh adaptation.</p>
+        {adaptationPreview.pending_deletion && <p role="status">A previous deletion is incomplete. Adaptation hydration and writes are blocked until deletion succeeds; read-only export and review remain available. Review this scope before retrying.</p>}
+        {!adaptationPreview.deletion_available ? <p role="alert">Unknown model extensions require review. Deletion is unavailable; no data was removed.</p> : <>
+          <label>Type DELETE PRIVATE ADAPTATION to confirm
+            <input value={adaptationConfirmation} disabled={busy} autoComplete="off" onChange={event => setAdaptationConfirmation(event.target.value)} />
+          </label>
+          <button type="button" disabled={busy || adaptationConfirmation !== 'DELETE PRIVATE ADAPTATION'} onClick={() => action(async () => {
+            const reviewed = adaptationPreview
+            setAdaptationPreview(null)
+            setAdaptationConfirmation('')
+            const result = await api('/atlas/learner/adaptation', { method: 'DELETE', body: {
+              confirmation: adaptationConfirmation, preview_token: reviewed.preview_token,
+            } })
+            if (result?.contract !== 'mammoth.learner-erasure.v1' ||
+                result.scope !== reviewed.scope || result.account_id !== reviewed.account_id ||
+                result.status !== 'deleted_from_active_storage' ||
+                typeof result.receipt_id !== 'string' || !/^[a-f0-9]{32}$/.test(result.receipt_id)) {
+              throw new Error('The server did not confirm private adaptation deletion. Reload the preview before retrying.')
+            }
+            setAdaptationReview(null)
+            setControls(null)
+            setPreview(null)
+            setConfirmation('')
+            await onAdaptationDeleted?.(result)
+          })}>Delete private adaptation</button>
+        </>}
       </section>}
       <p>Model costs vary with provider, tokens, tools and retries; a reliable per-request price estimate is unavailable. Reading, restoring, exporting, and source-derived card previews make no model calls. Ask tutor, lesson/course generation and agent runs can use credits. A failed or interrupted request may already have incurred charges; do not retry automatically.</p>
       <button type="button" disabled={busy} onClick={() => action(loadControls)}>Refresh learning request controls</button>

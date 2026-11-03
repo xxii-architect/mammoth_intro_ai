@@ -51,17 +51,33 @@ can re-enter starting preferences; old mastery is not assigned to a tenant by
 guessing. Corrupt/mismatched storage fails explicitly rather than silently
 resetting. Writes are atomic, assessment/onboarding updates are serialized,
 and evaluation probes use temporary storage. Saved private adaptation is now
-exported; standalone model deletion and reviewed legacy ownership recovery remain
-open. Exporting is not erasure.
+exported. A separate reviewed deletion action now erases the active account's
+private model and four adaptation caches; unverified legacy ownership recovery
+remains open. Exporting is not erasure.
 
 Learning privacy also offers **Review private adaptation deletion scope**.
 The authenticated, no-store `/api/atlas/learner/privacy-review` endpoint reports
 saved field names and record counts for the active account, or explicit
 `not_saved`. It returns no lesson/model content and creates no default model.
 This is a read-only review, not a deletion preview authorizing execution:
-`deletion_available` is false until standalone stale-write protection exists.
+`deletion_available` is false for this read-only endpoint.
 No cancellation, deletion or receipt occurs; legacy models, other accounts and
 external copies remain outside scope. Counts are not mastery verification.
+
+**Preview private adaptation deletion** is a separate authenticated action.
+Review `/api/atlas/learner/deletion-preview`, then type
+`DELETE PRIVATE ADAPTATION` for `DELETE /api/atlas/learner/adaptation`.
+The preview binds to actual model/cache contents, owner, account and deletion
+generation. The verified receipt covers only active storage: lessons,
+conversations, drafts, notes, other accounts, legacy files and external copies
+remain. Unknown model extension fields block deletion for review. A durable
+pending/complete fence prevents older hosted model/state writes or approvals
+from restoring erased adaptation; interrupted deletion blocks hydration/writes
+until explicitly retried. Read-only review/export remain available and report
+`pending_deletion`, not a receipt. Fresh activity may create new adaptation. Tracked
+account requests receive cooperative cancellation, not a provider stop or refund.
+Old unbound learner approvals must be requested again. Local SDK storage APIs
+are unchanged; this is a hosted API safeguard, not a filesystem-wide erasure API.
 
 ATLAS reading preferences (text size, spacing, focused mode) survive same-tab
 page navigation and clear on signed-in account changes; they do not persist

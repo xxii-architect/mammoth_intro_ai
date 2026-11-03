@@ -1694,11 +1694,11 @@ def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
         return _execute_gitops_operation(operation, payload if isinstance(payload, dict) else {})
     if operation == "atlas_onboard_update":
         onboarding = payload.get("onboarding") if isinstance(payload.get("onboarding"), dict) else {}
-        return _apply_atlas_onboarding_update(onboarding)
+        return _apply_atlas_onboarding_update(onboarding, approval_guard=payload.get("learner_write_guard") or {})
     if operation == "atlas_learner_reset":
-        return _apply_atlas_learner_reset()
+        return _apply_atlas_learner_reset(approval_guard=payload.get("learner_write_guard") or {})
     if operation == "atlas_session_reset":
-        return _apply_atlas_session_reset()
+        return _apply_atlas_session_reset(approval_guard=payload.get("learner_write_guard") or {})
     if operation == "custodial_cleanup":
         return _run_custodial_cleanup_approval(payload if isinstance(payload, dict) else {}, str(record.get("id", "") or ""), str(record.get("agent_id", "") or ""))
     if operation == "custodial_restore":
@@ -4217,6 +4217,8 @@ def _save_atlas_state(state: Dict[str, Any]):
                 raise ValueError("Invalid saved state.")
             if latest.get("learning_erasure_epoch") != state.get("learning_erasure_epoch"):
                 raise HTTPException(status_code=409, detail="Saved learning was deleted while this request was running. Reload; stale content was not saved.")
+            if _learner_erasure_records(latest) != _learner_erasure_records(state):
+                raise HTTPException(status_code=409, detail="Private adaptation was deleted or deletion is pending. Reload; stale state was not saved.")
             check_cancelled()
             _persist_active_account_collections(state)
             _write_workspace(atlas_file, state, default=str)
@@ -4402,7 +4404,7 @@ def _validated_learning_selection(state: Dict[str, Any], payload: Any) -> Dict[s
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-def _load_learning_export_state() -> Dict[str, Any]:
+def _load_learning_export_state(*, normalize: bool = True) -> Dict[str, Any]:
     path = _atlas_state_file_for_request()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -4420,7 +4422,8 @@ def _load_learning_export_state() -> Dict[str, Any]:
     except (OSError, ValueError) as exc:
         logger.exception("Learning export state could not be read")
         raise HTTPException(status_code=503, detail="Saved learning state could not be read. No learning operation was confirmed.") from exc
-    return _ensure_account_collections(raw)
+    _learner_erasure_records(raw)
+    return _ensure_account_collections(raw) if normalize else raw
 
 
 def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -4469,6 +4472,7 @@ def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
             "model": saved_model,
             "storage_scope": _learner_storage_scope(learner_id),
             "unknown_extension_fields_included": False,
+            "pending_deletion": (_learner_erasure_records(state).get(account_id) or {}).get("status") == "pending",
         },
         "scope": {
             "saved_only": True, "active_account_only": True,
@@ -4563,10 +4567,151 @@ def _learner_storage_path(user_id: str) -> str:
     return str(_atlas_state_file_for_request().parent / "learner_models" / scope["scope_key"])
 
 
-def _learner_storage_action(action, scope_user_id: str, *args, **kwargs):
+def _learner_erasure_records(state: Dict[str, Any]) -> Dict[str, Any]:
+    records = state.get("learner_erasure", {})
+    if not isinstance(records, dict) or any(
+        not isinstance(key, str) or not isinstance(value, dict)
+        or set(value) != {"epoch", "status"}
+        or not isinstance(value["epoch"], str) or not re.fullmatch(r"[a-f0-9]{32}", value["epoch"])
+        or value["status"] not in ("pending", "complete")
+        for key, value in records.items()
+    ):
+        logger.error("Invalid private adaptation erasure state")
+        raise HTTPException(status_code=503, detail="Private adaptation deletion state is invalid. No write or deletion was confirmed.")
+    return records
+
+
+def _check_learner_write_state(state: Dict[str, Any], latest: Dict[str, Any]) -> None:
+    records = _learner_erasure_records(latest)
+    if records != _learner_erasure_records(state):
+        raise HTTPException(status_code=409, detail="Private adaptation changed after this work started. Reload; stale adaptation was not saved.")
+    if (records.get(_active_account_id(state)) or {}).get("status") == "pending":
+        raise HTTPException(status_code=503, detail="Private adaptation deletion is incomplete. Review and retry deletion before starting new adaptation.")
+
+
+def _learner_approval_guard(state: Dict[str, Any]) -> Dict[str, Any]:
+    return {"scope": _learner_storage_scope(_atlas_user_id(state)),
+            "erasure": deepcopy(_learner_erasure_records(state))}
+
+
+def _validate_learner_approval(state: Dict[str, Any], guard: Optional[Dict[str, Any]]) -> None:
+    if guard is not None and guard != _learner_approval_guard(state):
+        raise HTTPException(status_code=409, detail="This learner approval is unbound or predates an account change or deletion. Request a new approval.")
+
+
+_LEARNER_CACHE_FIELDS = ("learner_model", "learner_context", "learner_profile", "learner_storage")
+_LEARNER_ERASURE_EXCLUDES = [
+    "lesson_session_and_recovery", "linked_notes", "uploaded_files", "curriculum_library",
+    "other_accounts", "unverified_legacy_models", "lesson_telemetry",
+    "mammoth_mind_threads", "artifacts", "plans", "audit_logs", "usage_records",
+    "provider_records", "backups", "other_tabs_and_downloads",
+]
+
+
+def _learner_erasure_preview(state: Dict[str, Any]) -> Dict[str, Any]:
+    import hashlib
+    from mammoth_os.learner_model import DEFAULT_LEARNER_MODEL, _read_model_record
+
+    account = _active_account_id(state)
+    learner_id = _atlas_user_id(state)
+    model = _learner_storage_action(_read_model_record, learner_id, learner_id)
+    session = (state.get("account_sessions") or {}).get(account, {})
+    record = _learner_erasure_records(state).get(account)
+    identity = {
+        "scope": _learner_storage_scope(learner_id), "account_id": account,
+        "erasure": record, "model": model,
+        "root_cache": {key: state[key] for key in _LEARNER_CACHE_FIELDS if key in state},
+        "session_cache": {key: session[key] for key in _LEARNER_CACHE_FIELDS if key in session},
+    }
+    unsupported = model is not None and bool(set(model) - set(DEFAULT_LEARNER_MODEL))
+    return {
+        "contract": "mammoth.learner-erasure.v1", "account_id": account,
+        "scope": "active_account_private_model_and_adaptation_caches",
+        "preview_token": hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=True).encode()).hexdigest(),
+        "model_status": "saved" if model is not None else "not_saved",
+        "cached_fields": sorted(set(identity["root_cache"]) | set(identity["session_cache"])),
+        "deletion_available": not unsupported,
+        "deletion_blockers": ["unknown_model_extensions_require_review"] if unsupported else [],
+        "pending_deletion": bool(record and record["status"] == "pending"),
+        "erases": ["private_model_onboarding_mastery_confidence_errors_outcomes_and_memory_graph",
+                   "active_account_adaptation_caches"],
+        "excludes": _LEARNER_ERASURE_EXCLUDES,
+        "cancels_tracked_account_requests": True, "provider_work_may_continue": True,
+        "fresh_activity_can_create_new_adaptation": True,
+    }
+
+
+def _erase_private_adaptation(body: Dict[str, Any]) -> Dict[str, Any]:
+    from mammoth_os.learning_workspace import _workspace_lock, _write_workspace
+
+    if (set(body) != {"confirmation", "preview_token"}
+            or body.get("confirmation") != "DELETE PRIVATE ADAPTATION"
+            or not isinstance(body.get("preview_token"), str)):
+        raise HTTPException(status_code=400, detail="Review the scope and type DELETE PRIVATE ADAPTATION to confirm.")
+    path = _atlas_state_file_for_request()
+    try:
+        # All hosted model writers take the state lock before the model lock.
+        with _workspace_lock(path):
+            state = _load_learning_export_state(normalize=False)
+            account = _active_account_id(state)
+            model_path = Path(_learner_storage_path(_atlas_user_id(state))) / "atlas_learner_model.json"
+            with _workspace_lock(model_path):
+                preview = _learner_erasure_preview(state)
+                if body["preview_token"] != preview["preview_token"]:
+                    raise HTTPException(status_code=409, detail="The account, private model or adaptation caches changed. Review a new deletion preview.")
+                if not preview["deletion_available"]:
+                    raise HTTPException(status_code=409, detail="Unknown model extensions need review. No private adaptation was deleted.")
+                _learning_control_action("cancel_account", account)
+                epoch = uuid.uuid4().hex
+                records = _learner_erasure_records(state)
+                state["learner_erasure"] = {**records, account: {"epoch": epoch, "status": "pending"}}
+                for key in _LEARNER_CACHE_FIELDS:
+                    state.pop(key, None)
+                    session = (state.get("account_sessions") or {}).get(account)
+                    if session is not None:
+                        session.pop(key, None)
+                # Persist the fence before unlinking. An interrupted deletion blocks model access.
+                _write_workspace(path, state, default=str)
+                model_path.unlink(missing_ok=True)
+                verified = _load_learning_export_state(normalize=False)
+                session = (verified.get("account_sessions") or {}).get(account, {})
+                if (model_path.exists() or any(key in verified or key in session for key in _LEARNER_CACHE_FIELDS)
+                        or _learner_erasure_records(verified).get(account) != {"epoch": epoch, "status": "pending"}):
+                    raise ValueError("Private adaptation deletion verification failed.")
+                state["learner_erasure"][account]["status"] = "complete"
+                _write_workspace(path, state, default=str)
+                verified = _load_learning_export_state(normalize=False)
+                if (model_path.exists() or verified != state):
+                    raise ValueError("Private adaptation receipt verification failed.")
+                deleted_at = datetime.now(timezone.utc).isoformat()
+        return {
+            "contract": "mammoth.learner-erasure.v1",
+            "scope": preview["scope"], "account_id": account,
+            "status": "deleted_from_active_storage", "receipt_id": epoch,
+            "deleted_at": deleted_at,
+            "excludes": preview["excludes"], "tracked_account_cancellation_requested": True,
+            "provider_erasure_confirmed": False, "backup_erasure_confirmed": False,
+            "fresh_activity_can_create_new_adaptation": True,
+        }
+    except (OSError, ValueError) as exc:
+        logger.exception("Private adaptation deletion was not confirmed")
+        raise HTTPException(status_code=503, detail="Private adaptation deletion was not confirmed and may be partial. Reload the preview and retry explicitly; pending deletion blocks adaptation access. No receipt was issued.") from exc
+
+
+def _learner_storage_action(action, scope_user_id: str, *args, guard_state: Optional[Dict[str, Any]] = None, **kwargs):
     from mammoth_os.learner_model import LearnerStorageError
+    from mammoth_os.learning_controls import check_cancelled
+    from mammoth_os.learning_workspace import _workspace_lock
 
     try:
+        if guard_state is not None:
+            check_cancelled()
+            with _workspace_lock(_atlas_state_file_for_request()):
+                latest = _load_learning_export_state()
+                _check_learner_write_state(guard_state, latest)
+                if scope_user_id != _atlas_user_id(guard_state):
+                    raise HTTPException(status_code=409, detail="Private adaptation account changed. Reload before retrying.")
+                return action(*args, **kwargs, storage_path=_learner_storage_path(scope_user_id))
         return action(*args, **kwargs, storage_path=_learner_storage_path(scope_user_id))
     except (LearnerStorageError, OSError) as exc:
         logger.exception("Private learner adaptation storage failed")
@@ -4600,10 +4745,11 @@ def _learner_privacy_review(state: Dict[str, Any]) -> Dict[str, Any]:
         "account_id": _active_account_id(state),
         "model_status": "saved" if model is not None else "not_saved",
         "saved_fields": sorted(model) if model is not None else [],
+        "pending_deletion": (_learner_erasure_records(state).get(_active_account_id(state)) or {}).get("status") == "pending",
         "saved_record_counts": counts,
         "storage_scope": _learner_storage_scope(learner_id),
         "deletion_available": False,
-        "deletion_blockers": ["standalone_model_stale_write_protection_not_implemented"],
+        "deletion_blockers": ["separate_deletion_preview_and_confirmation_required"],
         "review_only": True, "model_calls": 0,
         "not_a_transactional_snapshot": True,
         "scope": "active_account_private_learner_adaptation",
@@ -4877,7 +5023,7 @@ def _normalize_agent_run_history_collection(raw_items: Any) -> List[Dict[str, An
     return normalized[:160]
 
 
-def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
+def _reset_learner_model_state(user_id: str = "default_user", *, state: Dict[str, Any]) -> Dict[str, Any]:
     from mammoth_os.learning_workspace import _workspace_lock
 
     def reset(*, storage_path: str):
@@ -4893,13 +5039,14 @@ def _reset_learner_model_state(user_id: str = "default_user") -> Dict[str, Any]:
                 "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
             })
             return save_learner_model(learner_state, storage_path=storage_path)
-    return _learner_storage_action(reset, user_id)
+    return _learner_storage_action(reset, user_id, guard_state=state)
 
 
-def _apply_atlas_onboarding_update(onboarding: Dict[str, Any]) -> Dict[str, Any]:
+def _apply_atlas_onboarding_update(onboarding: Dict[str, Any], *, approval_guard=None) -> Dict[str, Any]:
     state = _load_atlas_state()
+    _validate_learner_approval(state, approval_guard)
     learner_user_id = _atlas_user_id(state)
-    learner_state = _learner_storage_action(set_onboarding_profile, learner_user_id, state, user_id=learner_user_id, onboarding=onboarding)
+    learner_state = _learner_storage_action(set_onboarding_profile, learner_user_id, state, user_id=learner_user_id, onboarding=onboarding, guard_state=state)
     state["learner_storage"] = _learner_storage_scope(learner_user_id)
     _save_atlas_state(state)
     _append_audit_event(
@@ -4917,12 +5064,13 @@ def _apply_atlas_onboarding_update(onboarding: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
-def _apply_atlas_learner_reset() -> Dict[str, Any]:
+def _apply_atlas_learner_reset(*, approval_guard=None) -> Dict[str, Any]:
     from mammoth_os.learning_workspace import clear_workspace
 
     state = _load_atlas_state()
+    _validate_learner_approval(state, approval_guard)
     learner_user_id = _atlas_user_id(state)
-    learner_state = _reset_learner_model_state(learner_user_id)
+    learner_state = _reset_learner_model_state(learner_user_id, state=state)
     state["learner_model"] = learner_state
     state["learner_storage"] = _learner_storage_scope(learner_user_id)
     state["workspace_epoch"] = uuid.uuid4().hex
@@ -4938,12 +5086,13 @@ def _apply_atlas_learner_reset() -> Dict[str, Any]:
     return {"status": "ok", "learner_model": learner_state, "learner_context": state["learner_context"]}
 
 
-def _apply_atlas_session_reset() -> Dict[str, Any]:
+def _apply_atlas_session_reset(*, approval_guard=None) -> Dict[str, Any]:
     from mammoth_os.learning_workspace import clear_workspace
 
     state = _load_atlas_state()
+    _validate_learner_approval(state, approval_guard)
     learner_user_id = _atlas_user_id(state)
-    learner_state = _reset_learner_model_state(learner_user_id)
+    learner_state = _reset_learner_model_state(learner_user_id, state=state)
     state["status"] = "reset"
     state["workspace_epoch"] = uuid.uuid4().hex
     clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
@@ -4964,7 +5113,7 @@ def _apply_atlas_session_reset() -> Dict[str, Any]:
 
 def _hydrate_learner_state(state: Dict[str, Any], *, user_id: str = "default_user", lesson: Optional[Dict[str, Any]] = None, exercise: Optional[Dict[str, Any]] = None, result: Optional[Dict[str, Any]] = None, topic: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     user_id = _atlas_user_id(state)
-    learner_state = _learner_storage_action(load_learner_model, user_id, user_id)
+    learner_state = _learner_storage_action(load_learner_model, user_id, user_id, guard_state=state)
     if result is not None:
         learner_state = _learner_storage_action(
             update_learner_model, user_id, user_id,
@@ -4973,6 +5122,7 @@ def _hydrate_learner_state(state: Dict[str, Any], *, user_id: str = "default_use
             result=result,
             topic=topic,
             metadata=metadata,
+            guard_state=state,
         )
     learner_context = build_learner_context(learner_state, topic=topic or state.get("topic"))
     state["learner_model"] = learner_state

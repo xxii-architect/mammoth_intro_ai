@@ -245,8 +245,8 @@ feedback over adding more agents or permanent panels.
   Existing lessons/conversations and legacy files are preserved. Learners can
   re-enter starting preferences without assigning shared legacy mastery by guess.
   Atomic writes and serialized onboarding/assessment updates reject corrupt/foreign
-  records explicitly; evaluation probes use temporary storage. Standalone model
-  deletion and reviewed legacy recovery remain open. The additive
+  records explicitly; evaluation probes use temporary storage. Reviewed legacy
+  recovery remains open. The additive
   `learner_adaptation` export block now includes actual saved private-model
   supported fields (including untrimmed retained outcomes and memory graph), or
   explicit `not_saved`/null when absent. Learning and Account exports reuse it
@@ -257,8 +257,17 @@ feedback over adding more agents or permanent panels.
   Read-only adaptation scope review is available through
   `/api/atlas/learner/privacy-review`: private active-account supported field
   names and actual saved record counts, explicit absence, no model/default
-  creation or deletion. Standalone deletion remains disabled pending its own
-  stale-write protection; review provides no execution token or erasure receipt.
+  creation or deletion; this review provides no execution token or erasure receipt.
+  A separate `mammoth.learner-erasure.v1` preview and exact
+  `DELETE PRIVATE ADAPTATION` confirmation now erase only the active private model
+  and its four root/session adaptation caches. Durable pending/complete
+  generations serialize hosted model writers and reject stale envelopes/approvals.
+  Partial failures block hydration/writes until reviewed retry; read-only review/
+  export report `pending_deletion` without a receipt. Receipts require
+  verification. Unknown model extensions block deletion. Lessons/conversations/
+  drafts, other accounts, legacy files, usage and external copies are preserved.
+  This does not erase old adaptation from previously generated content or local
+  SDK storage. New deliberate activity can create fresh adaptation.
   This is not a compliance certification.
 
 Recommended sequence: LEARN-01 recovery, LEARN-02 contextual tutoring,

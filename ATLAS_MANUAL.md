@@ -276,14 +276,56 @@ return concept labels, goals, answers or filesystem paths. Corrupt/foreign
 records fail explicitly; responses are no-store and no model calls occur.
 
 This review is not an executable deletion preview: `deletion_available: false`
-and `review_only: true` are mandatory. Standalone stale-write protection is still
-a blocker; there is no confirmation token, deletion endpoint or receipt for this
-model action. No requests are cancelled. Lessons/recovery, notes, uploads,
+and `review_only: true` are mandatory for this endpoint. There is no confirmation
+token or receipt for this read-only action. No requests are cancelled. Lessons/recovery, notes, uploads,
 curricula, other accounts, legacy/unknown model extensions, telemetry, threads,
 artifacts/plans, audit/usage, provider copies, backups and other tabs/downloads
 remain outside this review, not promised retained by a future erasure flow.
 It is not a full inventory or atomic snapshot.
 Refreshing a failed review clears the old displayed result; no automatic retry.
+
+**Preview private adaptation deletion** is the separate destructive flow.
+Authenticated `GET /api/atlas/learner/deletion-preview` returns
+`mammoth.learner-erasure.v1`, the active account, model saved/absent status,
+cached field names, exclusions, blockers and a content-bound preview token.
+It can create lock files but never creates a default learner model. Unknown
+top-level model extension fields block deletion rather than being silently
+discarded. Corrupt, unreadable or foreign models fail explicitly and are not
+removed. An absent model can still have caches to erase.
+
+Type exactly **DELETE PRIVATE ADAPTATION**, then select **Delete private
+adaptation**. `DELETE /api/atlas/learner/adaptation` accepts only `confirmation`
+and `preview_token`; owner/account selectors cannot expand scope. Changed model,
+onboarding, caches, account, owner or deletion generation requires a new preview
+(409). This erases the current private model's onboarding/preferences/goals,
+mastery/confidence, errors, retained outcomes and memory graph, plus
+`learner_model`, `learner_context`, `learner_profile`, `learner_storage` in the
+active account's root/session caches. It preserves lesson/session/recovery
+content, conversations, drafts, linked notes, files, saved curricula, telemetry,
+other accounts, legacy files, threads, artifacts/plans, audit/usage, provider
+records, backups and other tabs/downloads. Previously generated lessons/plans
+may still reflect old adaptation; this is not semantic removal from all content.
+
+Hosted writers lock state before model storage and compare durable erasure
+generations. Older assessment/onboarding/reset work and cached state envelopes
+cannot recreate deleted adaptation. Pre-deletion or unbound learner mutation
+approvals are rejected; request a new approval. Deletion requests cancellation
+of tracked Learning operations for this account, not other accounts. Already-sent
+provider work may finish/bill; completed unrelated side effects are not undone
+and usage is not refunded. New deliberate activity can create fresh adaptation.
+Local SDK model APIs are unchanged; these guarantees cover hosted API writers.
+
+Deletion first saves a content-free pending fence and clears the four caches,
+then removes and verifies the model, and finally confirms the complete fence.
+The response has a receipt only after verification. A failure is explicit and
+may be partial: pending deletion blocks model hydration/writes. Read-only review
+and export remain available for recovery, explicitly marked `pending_deletion`;
+they are not receipts. Review and retry explicitly. Do not remove the fence to
+recover access. No retry is automatic.
+The UI clears its obsolete preview/confirmation after any delete attempt, clears
+profile edits on verified success and refreshes adaptation without deleting
+lesson drafts. Reload other tabs: their in-memory content cannot be remotely
+erased. A receipt does not verify provider, backup or download erasure.
 
 The existing **Preview saved learning deletion** action below still concerns only
 the lesson session/recovery, not the standalone learner model.
@@ -304,8 +346,9 @@ saved curricula, standalone learner models or cached learner context,
 onboarding/mastery, telemetry, other accounts, Mammoth Mind threads, artifacts,
 plans, audit/usage records, provider records, backups, other tabs or downloaded
 exports. Those need their own controls; do not describe this as an account wipe.
-The legacy standalone learner-model ownership must be resolved before claiming
-safe per-tenant erasure of that store. Deletion failures are explicit 503 with
+The unverified legacy learner-model ownership still needs separate review;
+the private adaptation flow above never imports or removes that file.
+Lesson-session deletion failures are explicit 503 with
 no success receipt; a recovery file may already have been removed before a
 failed state commit. Review a new preview before retrying.
 
