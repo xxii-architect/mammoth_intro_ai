@@ -125,6 +125,11 @@ body::before {
   );
 }
 
+/* Texture opt-out (Settings → Theme) */
+html.mm-no-texture body::before {
+  display: none;
+}
+
 /* ── Glass surfaces ── */
 .glass-card {
   background: rgba(13,17,23,0.7);
