@@ -3,7 +3,7 @@ const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 const agentIds = ['tutor_agent', 'curriculum_agent', 'research_agent', 'reflection_agent', 'coding_agent', 'browser_agent']
 
-async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonFailure = false, saveFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null } = {}) {
+async function mountWorkspace(page, { catalogFailure = false, agents = agentIds, regular = false, curriculumReady = true, profileComplete = true, activationFailure = false, lessonFailure = false, saveFailure = false, lessonContent = 'Compare primary sources before drawing conclusions.', agentOutput = null, agentLimitReached = false } = {}) {
   const requests = []
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
@@ -108,7 +108,11 @@ async function mountWorkspace(page, { catalogFailure = false, agents = agentIds,
       if (!body?.override) result = { status: 'gated', gate: { message: 'Practice first.', allowed: false } }
       else { lessonId = 'lesson-2'; result = { status: 'ok' } }
     }
-    if (path === '/api/run') result = { status: 'ok', result: { output: agentOutput || (body.agent_id === 'curriculum_agent' ? { curriculum: course } : {
+    if (path === '/api/atlas/agents/run' && agentLimitReached) {
+      return route.fulfill({ status: 429, contentType: 'application/json',
+        body: JSON.stringify({ detail: 'Your chosen daily learning request limit has been reached.' }) })
+    }
+    if (['/api/run', '/api/atlas/agents/run'].includes(path)) result = { status: 'ok', result: { output: agentOutput || (body.agent_id === 'curriculum_agent' ? { curriculum: course } : {
       artifact_type: 'long_form_research', title: 'Source validation report', abstract: 'Research findings from the lesson.',
       sections: [{ order: 0, heading: 'Evidence', content: 'Check primary evidence.' }],
       sources: [], docx_filename: 'lesson-research.docx',
@@ -219,7 +223,7 @@ test('reviewed notes and source-derived cards use existing stores without a mode
   await expect(dialog.getByRole('status')).toContainText('lesson flashcards')
   expect(requests.find(request => request.path === '/api/notes').body.reviewed).toBe(true)
   expect(requests.find(request => request.path === '/api/flashcards').body.authorship).toBe('learner')
-  expect(requests.some(request => ['/api/atlas/chat', '/api/run'].includes(request.path))).toBe(false)
+  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/agents/run', '/api/run'].includes(request.path))).toBe(false)
   expect(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Explain instructions', exact: true })).toBeFocused()
@@ -416,7 +420,7 @@ test('navigation while a save is pending restores the full draft and honest save
   release()
   await expect(page.getByText('Workspace saved', { exact: true })).toBeVisible()
   expect(requests.filter(request => request.path === '/api/atlas/workspace')).toHaveLength(1)
-  expect(requests.some(request => ['/api/run', '/api/atlas/submit', '/api/atlas/next'].includes(request.path))).toBe(false)
+  expect(requests.some(request => ['/api/run', '/api/atlas/agents/run', '/api/atlas/submit', '/api/atlas/next'].includes(request.path))).toBe(false)
   expect(errors).toEqual([])
 })
 
@@ -430,6 +434,23 @@ test('another tab cannot silently overwrite a draft or make an obsolete exercise
   await expect(page.getByRole('alert').filter({ hasText: 'Saved workspace changed in another tab' })).toBeVisible()
   await expect(response).toHaveValue('My full local conflicting edit')
   await expect(page.getByText('Workspace saved', { exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('Learning agent cap failure is visible with no general-route fallback or retry', async ({ page }) => {
+  const { requests, errors } = await mountWorkspace(page, { agentLimitReached: true })
+  await page.getByRole('button', { name: 'Learning agents', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Education agents' })
+  const composer = panel.locator('textarea').last()
+  await composer.fill('Compare evidence from this lesson')
+  await composer.press('Enter')
+  await expect(panel.getByText('Your chosen daily learning request limit has been reached.', { exact: true })).toBeVisible()
+  await expect(composer).toBeEnabled()
+  expect(requests.filter(request => request.path === '/api/atlas/agents/run')).toHaveLength(1)
+  expect(requests.some(request => request.path === '/api/run')).toBe(false)
+  await page.getByRole('button', { name: 'Lesson & practice', exact: true }).click()
+  await page.getByRole('button', { name: 'Learning agents', exact: true }).click()
+  expect(requests.filter(request => request.path === '/api/atlas/agents/run')).toHaveLength(1)
   expect(errors).toEqual([])
 })
 
@@ -447,8 +468,9 @@ test('lesson drafts survive tabs; research stays scoped and receives lesson cont
   const composer = page.getByRole('region', { name: 'Education agents' }).locator('textarea').last()
   await composer.fill('Find primary research on source validation')
   await composer.press('Enter')
-  await expect.poll(() => requests.some(request => request.path === '/api/run')).toBe(true)
-  const request = requests.find(request => request.path === '/api/run').body
+  await expect.poll(() => requests.some(request => request.path === '/api/atlas/agents/run')).toBe(true)
+  expect(requests.some(request => request.path === '/api/run')).toBe(false)
+  const request = requests.find(request => request.path === '/api/atlas/agents/run').body
   expect(request.agent_id).toBe('research_agent')
   expect(request.intent).toBe('research')
   expect(request.payload.prompt).toBe('Find primary research on source validation')
@@ -534,8 +556,8 @@ test('scoped workspace selects an available agent when research is absent', asyn
   const composer = page.getByRole('region', { name: 'Education agents' }).locator('textarea').last()
   await composer.fill('Explain the lesson')
   await composer.press('Enter')
-  await expect.poll(() => requests.some(request => request.path === '/api/run')).toBe(true)
-  expect(requests.find(request => request.path === '/api/run').body.agent_id).toBe('tutor_agent')
+  await expect.poll(() => requests.some(request => request.path === '/api/atlas/agents/run')).toBe(true)
+  expect(requests.find(request => request.path === '/api/atlas/agents/run').body.agent_id).toBe('tutor_agent')
   expect(errors).toEqual([])
 })
 
@@ -548,8 +570,8 @@ test('starting a lesson updates the tutor and learning-agent context immediately
   const composer = page.getByRole('region', { name: 'Education agents' }).locator('textarea').last()
   await composer.fill('Explain this new lesson')
   await composer.press('Enter')
-  await expect.poll(() => requests.some(request => request.path === '/api/run')).toBe(true)
-  expect(requests.find(request => request.path === '/api/run').body.payload.lesson_id).toBe('lesson-2')
+  await expect.poll(() => requests.some(request => request.path === '/api/atlas/agents/run')).toBe(true)
+  expect(requests.find(request => request.path === '/api/atlas/agents/run').body.payload.lesson_id).toBe('lesson-2')
   expect(errors).toEqual([])
 })
 
@@ -565,8 +587,13 @@ test('an advanced tutor exercise variant also refreshes the lesson pane', async 
 })
 
 test('the general Agent workspace retains its team-run control', async ({ page }) => {
-  const { errors } = await mountWorkspace(page, { regular: true })
+  const { requests, errors } = await mountWorkspace(page, { regular: true, agentLimitReached: true })
   await expect(page.getByRole('button', { name: /Team run/i })).toBeVisible()
+  const composer = page.locator('textarea').last()
+  await composer.fill('Compare general workspace evidence')
+  await composer.press('Enter')
+  await expect.poll(() => requests.some(request => request.path === '/api/run')).toBe(true)
+  expect(requests.some(request => request.path === '/api/atlas/agents/run')).toBe(false)
   expect(errors).toEqual([])
 })
 
@@ -577,7 +604,7 @@ test('mentions cannot target an unregistered learning agent', async ({ page }) =
   await region.locator('textarea').last().fill('@research Find a source')
   await region.locator('textarea').last().press('Enter')
   await expect(region.getByText('That learning agent is not registered. Choose one of the agents shown here.')).toBeVisible()
-  expect(requests.some(request => request.path === '/api/run')).toBe(false)
+  expect(requests.some(request => ['/api/run', '/api/atlas/agents/run'].includes(request.path))).toBe(false)
   expect(errors).toEqual([])
 })
 
@@ -737,7 +764,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }
     await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Save learning profile', exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Not now', exact: true }).click()
-    expect(requests.some(request => ['/api/run', '/api/atlas/lesson', '/api/atlas/onboard'].includes(request.path))).toBe(false)
+    expect(requests.some(request => ['/api/run', '/api/atlas/agents/run', '/api/atlas/lesson', '/api/atlas/onboard'].includes(request.path))).toBe(false)
     expect(errors).toEqual([])
   })
 }
@@ -767,7 +794,7 @@ test('reading controls, real progress and mobile modules preserve the exercise d
   await page.getByText('Learning progress & lesson flow', { exact: true }).click()
   await expect(page.getByText('Retention (spaced recall)', { exact: true })).toHaveCount(0)
   await expect(page.getByText('Time to competency', { exact: true })).toHaveCount(0)
-  expect(requests.some(request => ['/api/atlas/lesson', '/api/atlas/submit', '/api/atlas/next', '/api/run'].includes(request.path))).toBe(false)
+  expect(requests.some(request => ['/api/atlas/lesson', '/api/atlas/submit', '/api/atlas/next', '/api/run', '/api/atlas/agents/run'].includes(request.path))).toBe(false)
   expect(errors).toEqual([])
 })
 
@@ -794,7 +821,7 @@ test('reading preferences survive navigation but clear for another signed-in acc
   await page.evaluate(() => globalThis.changeTestAccount('another-reader'))
   await expect(page.locator('.atlas-lessons-page')).toHaveAttribute('data-reading-size', 'standard')
   await expect(page.locator('.atlas-lessons-page')).toHaveAttribute('data-reading-spacing', 'standard')
-  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/submit', '/api/run'].includes(request.path))).toBe(false)
+  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/submit', '/api/run', '/api/atlas/agents/run'].includes(request.path))).toBe(false)
   expect(errors).toEqual([])
 })
 
@@ -822,7 +849,7 @@ test('learning privacy exports confirmed saved data only without model calls or 
   expect(JSON.parse(content)).toEqual(saved)
   await expect(page.getByRole('status', { name: '' }).filter({ hasText: 'Export prepared' })).toBeVisible()
   expect(exports).toBe(1)
-  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/onboard', '/api/run'].includes(request.path))).toBe(false)
+  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/onboard', '/api/run', '/api/atlas/agents/run'].includes(request.path))).toBe(false)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
 })
@@ -880,7 +907,7 @@ test('learning caps are opt-in and cancellation stays requested until a recorded
   await expect(page.getByText(/Request state: cancellation_requested/)).toBeVisible()
   await expect(page.getByRole('listitem').filter({ hasText: '/api/atlas/chat' })).toContainText('cancellation_requested')
   await expect(page.getByRole('button', { name: /Request cancellation/ })).toHaveCount(0)
-  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/onboard', '/api/run'].includes(request.path))).toBe(false)
+  expect(requests.some(request => ['/api/atlas/chat', '/api/atlas/onboard', '/api/run', '/api/atlas/agents/run'].includes(request.path))).toBe(false)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   expect(errors).toEqual([])
 })

@@ -70,7 +70,7 @@ export default function LearningPrivacy({ setPage, onDeleted }) {
           setControls(result)
           setNotice('Learning request cap saved. Existing requests are not cancelled.')
         })}>Save learning request cap</button>
-        <p>The opt-in cap covers lesson creation, submissions, next exercises, saved-course activation, regeneration, tutor/assistant chat, ATLAS plans and the direct ATLAS agent route. Other agent runs (including Learning agents), SDK/local calls and Mammoth Mind are outside this cap. Zero pauses these routes; blank preserves uncapped behavior.</p>
+        <p>The opt-in cap covers lesson creation, submissions, next exercises, saved-course activation, regeneration, tutor/assistant chat, ATLAS plans, the direct ATLAS agent route and non-streaming Learning-panel agent requests. General workspace runs, repository/tool-loop runs, SDK/local calls and Mammoth Mind are outside this cap. This is not a platform-wide spending limit. Zero pauses covered routes; blank preserves uncapped behavior.</p>
         <p>Cancellation is cooperative: it stops at the next checked model/save boundary, not necessarily immediately. Already-sent provider work may finish and be billed; completed side effects are not undone. A running record after a server interruption is not proof the provider is still running. Refresh to check the latest recorded state.</p>
         <ul>{controls.operations.map(operation => <li key={operation.id}>
           {operation.route} · {operation.account_id} · {operation.status}

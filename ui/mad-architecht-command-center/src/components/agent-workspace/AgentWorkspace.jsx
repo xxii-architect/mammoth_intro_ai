@@ -455,7 +455,7 @@ function ChatView({ agentId, agents, temperature, approvalMode, onTrace, onRunCo
     const started = performance.now()
     let res = null
     try {
-      res = await api('/run', {
+      res = await api(allowedAgentIds ? '/atlas/agents/run' : '/run', {
         method: 'POST',
         body: {
           agent_id: target.id,

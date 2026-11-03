@@ -39,6 +39,16 @@ export function buildWsUrl(path) {
 
 function buildBackendErrorMessage(status, text, requestUrl = '') {
   const body = String(text || '').trim()
+  if (body.startsWith('{')) {
+    let payload
+    try {
+      payload = JSON.parse(body)
+    } catch (error) {
+      if (!(error instanceof SyntaxError)) throw error
+    }
+    const message = payload?.detail || payload?.error || payload?.message
+    if (typeof message === 'string' && message.trim()) return message
+  }
   const maybeHtml = body.startsWith('<') || /<!doctype html>|<html/i.test(body)
   if (maybeHtml) {
     let path = '/api'

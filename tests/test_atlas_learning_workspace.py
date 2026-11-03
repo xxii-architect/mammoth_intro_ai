@@ -32,6 +32,7 @@ def client(monkeypatch):
 
 def test_learning_catalog_requires_sign_in(client):
     assert client.get("/api/atlas/agents").status_code == 401
+    assert client.post("/api/atlas/agents/run", json={"agent_id": "research_agent"}).status_code == 401
     assert client.get("/api/atlas/lecture").status_code == 401
     for method, path in [("get", "/api/atlas/controls"), ("put", "/api/atlas/controls"),
                          ("get", "/api/atlas/history/preview"), ("delete", "/api/atlas/history"),
@@ -114,6 +115,123 @@ def test_learning_controls_and_cancel_are_private_to_request_user(client, learni
         assert client.put("/api/atlas/controls", headers=a, json=bad).status_code == 400
 
 
+@pytest.mark.parametrize("agent_id", sorted(api_server._LEARNING_AGENT_IDS))
+def test_zero_cap_blocks_learning_agent_before_dispatch(client, learning_export, monkeypatch, agent_id):
+    calls = []
+    async def dispatch(body):
+        calls.append(body)
+        return {"status": "ok"}
+    monkeypatch.setattr(api_server, "run_agent", dispatch)
+    headers = {"Authorization": "Bearer tenant-a"}
+    client.put("/api/atlas/controls", headers=headers, json={"daily_request_limit": 0})
+    response = client.post("/api/atlas/agents/run", headers=headers, json={"agent_id": agent_id})
+    assert response.status_code == 429
+    assert calls == []
+    assert client.get("/api/atlas/controls", headers=headers).json()["admitted_requests"] == 0
+
+
+@pytest.mark.parametrize("agent_id", ["shell_agent", "custodial_agent", "", None, []])
+def test_learning_agent_route_rejects_non_catalog_agents(client, learning_export, monkeypatch, agent_id):
+    async def dispatch(body):
+        pytest.fail("Invalid learning agent must not dispatch")
+    monkeypatch.setattr(api_server, "run_agent", dispatch)
+    response = client.post("/api/atlas/agents/run", headers={"Authorization": "Bearer tenant-a"},
+                           json={"agent_id": agent_id, "intent": "research"})
+    assert response.status_code == 400
+
+
+def test_learning_agent_admission_is_private_and_failures_count(client, learning_export, monkeypatch):
+    calls = []
+    async def dispatch(body):
+        calls.append(api_server._current_request_user_id())
+        return {"status": "ok", "result": {"status": "error"}}
+    monkeypatch.setattr(api_server, "run_agent", dispatch)
+    a = {"Authorization": "Bearer tenant-a"}
+    b = {"Authorization": "Bearer tenant-b"}
+    client.put("/api/atlas/controls", headers=a, json={"daily_request_limit": 1})
+    body = {"agent_id": "research_agent", "user_id": "tenant-b"}
+    assert client.post("/api/atlas/agents/run", headers=a, json=body).status_code == 200
+    assert client.post("/api/atlas/agents/run", headers=a, json=body).status_code == 429
+    snapshot = client.get("/api/atlas/controls", headers=a).json()
+    assert snapshot["admitted_requests"] == 1
+    assert snapshot["operations"][0]["status"] == "failed"
+    assert snapshot["operations"][0]["route"] == "/api/atlas/agents/run"
+    assert client.get("/api/atlas/controls", headers=b).json()["admitted_requests"] == 0
+    assert client.post("/api/atlas/agents/run", headers=b, json=body).status_code == 200
+    assert calls == ["tenant-a", "tenant-b"]
+
+
+def test_uncapped_learning_agent_preserves_request_and_records_success(client, learning_export, monkeypatch):
+    calls = []
+    async def dispatch(body):
+        calls.append(body)
+        return {"status": "ok", "result": {"status": "ok", "output": {"answer": "Grounded explanation"}}}
+    monkeypatch.setattr(api_server, "run_agent", dispatch)
+    headers = {"Authorization": "Bearer tenant-a"}
+    body = {"agent_id": "tutor_agent", "intent": "tutor",
+            "payload": {"prompt": "Explain evidence", "lesson_id": "tenant-a-lesson"}}
+    result = client.post("/api/atlas/agents/run", headers=headers, json=body)
+    assert result.status_code == 200
+    assert result.json()["result"]["output"]["answer"] == "Grounded explanation"
+    assert calls == [body]
+    snapshot = client.get("/api/atlas/controls", headers=headers).json()
+    assert snapshot["daily_request_limit"] is None
+    assert snapshot["admitted_requests"] == 1
+    assert snapshot["operations"][0]["status"] == "finished"
+
+
+@pytest.mark.parametrize("thread_checks", [False, True])
+def test_learning_agent_cancel_crosses_worker_and_discards_reply(client, learning_export, monkeypatch, thread_checks):
+    from concurrent.futures import ThreadPoolExecutor
+    import threading
+    from mammoth_os.learning_controls import check_cancelled, has_operation
+
+    started, release = threading.Event(), threading.Event()
+    calls, updates, activities = [], [], []
+    async def manifest(agent_id):
+        return None
+    monkeypatch.setattr(api_server.agent_registry, "get_agent", manifest)
+    monkeypatch.setattr(api_server, "AGENTS", {"research": object()})
+    monkeypatch.setattr(api_server, "_runtime_status_snapshot", lambda: {"state": "ready"})
+    monkeypatch.setattr(api_server, "_upsert_task",
+                        lambda task_id, title, **kwargs: updates.append(kwargs) or {"title": title})
+    monkeypatch.setattr(api_server, "_append_activity", lambda *args, **kwargs: activities.append(kwargs))
+    def run(agent, payload):
+        calls.append((agent, has_operation(), api_server._current_request_user_id()))
+        started.set()
+        assert release.wait(10)
+        if thread_checks:
+            check_cancelled()
+        return {"status": "ok", "output": {"answer": "Do not deliver this cancelled result."}}
+    monkeypatch.setattr(api_server, "registry_run_agent", run)
+    headers = {"Authorization": "Bearer tenant-a"}
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        request = pool.submit(client.post, "/api/atlas/agents/run", headers=headers,
+                              json={"agent_id": "research_agent", "intent": "research",
+                                    "payload": {"prompt": "Compare evidence."}})
+        try:
+            assert started.wait(10)
+            operation = client.get("/api/atlas/controls", headers=headers).json()["operations"][0]
+            assert client.post(f"/api/atlas/operations/{operation['id']}/cancel",
+                               headers={"Authorization": "Bearer tenant-b"}).status_code == 404
+            assert client.post(f"/api/atlas/operations/{operation['id']}/cancel",
+                               headers=headers).json()["status"] == "cancellation_requested"
+            assert not request.done()
+        finally:
+            release.set()
+        response = request.result(timeout=15)
+    assert response.status_code == 409
+    assert response.json()["status"] == "cancelled"
+    assert "Do not deliver" not in response.text
+    assert calls == [("research", True, "tenant-a")]
+    assert updates[-1]["status"] == "cancelled"
+    assert not any(update["status"] == "completed" for update in updates)
+    assert activities[-1]["kind"] == "task_cancelled"
+    snapshot = client.get("/api/atlas/controls", headers=headers).json()
+    assert snapshot["admitted_requests"] == 1
+    assert snapshot["operations"][0]["status"] == "cancelled_at_boundary"
+
+
 def test_corrupt_learning_controls_fail_closed_without_reset_or_generation(client, learning_export):
     token = api_server._REQUEST_USER_ID.set("tenant-a")
     try:
@@ -124,6 +242,8 @@ def test_corrupt_learning_controls_fail_closed_without_reset_or_generation(clien
     headers = {"Authorization": "Bearer tenant-a"}
     assert client.get("/api/atlas/controls", headers=headers).status_code == 503
     assert client.post("/api/atlas/chat", headers=headers, json={"message": "Do not generate."}).status_code == 503
+    assert client.post("/api/atlas/agents/run", headers=headers,
+                       json={"agent_id": "research_agent"}).status_code == 503
     assert path.read_bytes() == b"not-a-sqlite-database"
 
 
