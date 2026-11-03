@@ -61,7 +61,7 @@ def test_paths_package_keeps_the_recorded_clean_baseline():
         assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_dynamic_return_exception_does_not_apply_to_other_modules(tmp_path):
+def test_unchecked_dynamic_returns_are_rejected(tmp_path):
     target = tmp_path / "dynamic.py"
     target.write_text(
         "from typing import Any\n\ndef unchecked(value: Any) -> int:\n    return value\n",

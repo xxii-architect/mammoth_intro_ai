@@ -54,6 +54,18 @@ remain backend-controlled. No repo option means no repo context.
 owns token refresh. `PathsError` retains backend status, code and payload for JSON
 and streamed denials. These options add no automatic retries or new privileges.
 
+### JSON response guards
+
+JSON methods require object responses, except `listTasks`, `listNotes` and
+`listBuildLog`, which require arrays of objects. `getRun` and `listRuns` require
+object `run` and array-of-objects `runs` envelope fields. Malformed JSON, empty
+successful bodies, null/missing records or wrong containers throw `PathsError`
+with code `invalid_response` rather than becoming empty defaults. Valid empty
+arrays and extension fields are preserved. Malformed response messages do not
+echo raw body text. Usage hooks report HTTP status once, not payload validity.
+These are container guards, not full nested schemas; snapshot recovery retains
+its deeper validation. No retries, permission changes or dependency additions.
+
 ### Opt-in RecursiveMAS
 
 ```js

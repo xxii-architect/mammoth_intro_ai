@@ -20,9 +20,11 @@ from typing import (
     Iterable,
     Iterator,
     List,
+    Literal,
     Mapping,
     Optional,
     Union,
+    overload,
 )
 
 PATHS_CONTRACT_VERSION = "mammoth.paths.v1"
@@ -227,14 +229,26 @@ class MammothPaths:
         message = str(payload.get("error") or payload.get("detail") or payload.get("message") or exc.reason or "Request failed")
         return PathsError(message, status=exc.code, code=str(payload.get("code") or ""), payload=payload)
 
-    def _json(self, surface: str, method: str, path: str, body: Any = None, query: Optional[Mapping[str, Any]] = None) -> Any:
+    @overload
+    def _json(self, surface: str, method: str, path: str, body: Any = None,
+              query: Optional[Mapping[str, Any]] = None, *, list_response: Literal[False] = False,
+              member: Optional[str] = None) -> Dict[str, Any]: ...
+
+    @overload
+    def _json(self, surface: str, method: str, path: str, body: Any = None,
+              query: Optional[Mapping[str, Any]] = None, *, list_response: Literal[True],
+              member: Optional[str] = None) -> List[Dict[str, Any]]: ...
+
+    def _json(self, surface: str, method: str, path: str, body: Any = None,
+              query: Optional[Mapping[str, Any]] = None, *, list_response: bool = False,
+              member: Optional[str] = None) -> Union[Dict[str, Any], List[Dict[str, Any]]]:
         request = self._build_request(method, path, body, query, "application/json")
         started = time.monotonic()
         status = 0
         try:
             with self._opener.open(request, timeout=self.timeout) as response:
                 status = int(getattr(response, "status", 200) or 200)
-                raw = response.read().decode("utf-8")
+                raw = response.read()
         except urllib.error.HTTPError as exc:
             status = exc.code
             raise self._error_from_http(exc) from None
@@ -242,10 +256,24 @@ class MammothPaths:
             raise PathsError(f"Could not reach {self.base_url}: {exc.reason}") from None
         finally:
             self._meter(surface, method, path, status, started)
-        payload = json.loads(raw) if raw.strip() else {}
+        try:
+            payload: object = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            raise PathsError("Response is not valid UTF-8 JSON", status=status, code="invalid_response") from None
         if isinstance(payload, dict) and payload.get("status") == "error":
-            raise PathsError(str(payload.get("error") or "Request failed"), status=status, code=str(payload.get("code") or ""), payload=payload)
-        return payload
+            raise PathsError(str(payload.get("error") or payload.get("detail") or payload.get("message") or "Request failed"),
+                             status=status, code=str(payload.get("code") or ""), payload=payload)
+        if member is not None:
+            if not isinstance(payload, dict):
+                raise PathsError("Response envelope must be a JSON object", status=status, code="invalid_response")
+            payload = payload.get(member)
+        if list_response:
+            if isinstance(payload, list) and all(isinstance(item, dict) for item in payload):
+                return payload
+        elif isinstance(payload, dict):
+            return payload
+        raise PathsError("Response must be an array of objects" if list_response else "Response must be a JSON object",
+                         status=status, code="invalid_response")
 
     def _stream(self, path: str, body: Any) -> Iterator[RunEvent]:
         request = self._build_request("POST", path, body, None, "text/event-stream")
@@ -405,11 +433,11 @@ class MammothPaths:
         return self._json("mind", "POST", f"/mammoth/runs/{self._seg(run_id)}/cancel", body={})
 
     def get_run(self, run_id: str, *, after: int = 0) -> Dict[str, Any]:
-        payload = self._json("mind", "GET", f"/mammoth/runs/{self._seg(run_id)}", query={"after": after or None})
-        return payload.get("run") or {}
+        return self._json("mind", "GET", f"/mammoth/runs/{self._seg(run_id)}",
+                          query={"after": after or None}, member="run")
 
     def list_runs(self) -> List[Dict[str, Any]]:
-        return list(self._json("mind", "GET", "/mammoth/runs").get("runs") or [])
+        return self._json("mind", "GET", "/mammoth/runs", member="runs", list_response=True)
 
     def recover_run(self, run_id: str) -> RunResult:
         """Read a full saved snapshot; never execute, continue or approve work."""
@@ -462,7 +490,7 @@ class MammothPaths:
         )
 
     def list_tasks(self) -> List[Dict[str, Any]]:
-        return self._json("tasks", "GET", "/tasks")
+        return self._json("tasks", "GET", "/tasks", list_response=True)
 
     def save_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
         return self._json("tasks", "POST", "/tasks", body=task)
@@ -507,7 +535,7 @@ class MammothPaths:
     # ── Notes ─────────────────────────────────────────────────────────────
 
     def list_notes(self) -> List[Dict[str, Any]]:
-        return list(self._json("notes", "GET", "/notes") or [])
+        return self._json("notes", "GET", "/notes", list_response=True)
 
     def save_note(self, content: str, *, title: Optional[str] = None, note_id: Optional[str] = None, **fields: Any) -> Dict[str, Any]:
         body: Dict[str, Any] = {**fields, "content": content}
@@ -523,7 +551,7 @@ class MammothPaths:
     # ── Build log ─────────────────────────────────────────────────────────
 
     def list_build_log(self) -> List[Dict[str, Any]]:
-        return list(self._json("buildlog", "GET", "/buildlog") or [])
+        return self._json("buildlog", "GET", "/buildlog", list_response=True)
 
     def log_build(self, title: str, *, description: str = "", **fields: Any) -> Dict[str, Any]:
         return self._json("buildlog", "POST", "/buildlog", body={**fields, "title": title, "description": description})

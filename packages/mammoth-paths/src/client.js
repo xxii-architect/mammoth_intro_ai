@@ -65,9 +65,10 @@ export function createPathsClient(options = {}) {
       const response = await send(method, path, init)
       status = response.status
       const text = await response.text()
-      let payload = {}
-      if (text.trim()) {
-        try { payload = JSON.parse(text) } catch { payload = { error: text } }
+      let payload
+      try { payload = JSON.parse(text) } catch {
+        if (!response.ok) throw new PathsError(`Request failed (${status})`, { status })
+        throw new PathsError('Response is not valid JSON', { status, code: 'invalid_response' })
       }
       const failed = !response.ok || (payload && !Array.isArray(payload) && payload.status === 'error')
       if (failed) {
@@ -76,6 +77,17 @@ export function createPathsClient(options = {}) {
           code: String(payload?.code || ''),
           payload,
         })
+      }
+      const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+      if (init.listResponse ? !Array.isArray(payload) || !payload.every(object) : !object(payload)) {
+        throw new PathsError(init.listResponse ? 'Response must be an array of objects' : 'Response must be a JSON object',
+          { status, code: 'invalid_response' })
+      }
+      if (init.member) {
+        const value = payload[init.member]
+        if (init.member === 'runs' ? !Array.isArray(value) || !value.every(object) : !object(value)) {
+          throw new PathsError(`Response has an invalid ${init.member} field`, { status, code: 'invalid_response' })
+        }
       }
       return payload
     } finally {
@@ -189,7 +201,7 @@ export function createPathsClient(options = {}) {
     },
 
     cancelRun: (runId) => json('mind', 'POST', `/mammoth/runs/${seg(runId)}/cancel`, { body: {} }),
-    getRun: async (runId, { after = 0 } = {}) => (await json('mind', 'GET', `/mammoth/runs/${seg(runId)}`, { query: { after: after || undefined } })).run || null,
+    getRun: async (runId, { after = 0 } = {}) => (await json('mind', 'GET', `/mammoth/runs/${seg(runId)}`, { query: { after: after || undefined }, member: 'run' })).run,
     async recoverRun(runId) {
       const snapshot = await client.getRun(runId)
       if (snapshot?.id !== runId) throw new PathsError('Saved run identity does not match the request', { code: 'invalid_snapshot' })
@@ -199,7 +211,7 @@ export function createPathsClient(options = {}) {
         throw new PathsError(error.message, { code: 'invalid_snapshot' })
       }
     },
-    listRuns: async () => (await json('mind', 'GET', '/mammoth/runs')).runs || [],
+    listRuns: async () => (await json('mind', 'GET', '/mammoth/runs', { member: 'runs' })).runs,
 
     // ── Repositories (bring your own) ────────────────────────────────────
     listRepos: () => json('repos', 'GET', '/mammoth/repo-sources'),
@@ -209,7 +221,7 @@ export function createPathsClient(options = {}) {
     proposeChange: (sourceId, changes, { title = '' } = {}) =>
       json('repos', 'POST', `/mammoth/repo-sources/${seg(sourceId)}/propose`, { body: { changes, title } }),
 
-    listTasks: () => json('tasks', 'GET', '/tasks'),
+    listTasks: () => json('tasks', 'GET', '/tasks', { listResponse: true }),
     saveTask: (task) => json('tasks', 'POST', '/tasks', { body: task }),
     listArtifacts: () => json('artifacts', 'GET', '/workspace/artifacts'),
     saveArtifact: (artifact) => json('artifacts', 'POST', '/workspace/artifacts', { body: artifact }),
@@ -227,13 +239,13 @@ export function createPathsClient(options = {}) {
       json('owner_execution', 'POST', `/owner-executions/${seg(id)}/apply`, { body: { repo_context: { root: repo }, approval_digest: approvalDigest } }),
 
     // ── Notes ────────────────────────────────────────────────────────────
-    listNotes: () => json('notes', 'GET', '/notes'),
+    listNotes: () => json('notes', 'GET', '/notes', { listResponse: true }),
     saveNote: (content, { title, id, ...fields } = {}) =>
       json('notes', 'POST', '/notes', { body: { ...fields, content, ...(title !== undefined ? { title } : {}), ...(id ? { id } : {}) } }),
     deleteNote: (noteId) => json('notes', 'DELETE', `/notes/${seg(noteId)}`),
 
     // ── Build log ────────────────────────────────────────────────────────
-    listBuildLog: () => json('buildlog', 'GET', '/buildlog'),
+    listBuildLog: () => json('buildlog', 'GET', '/buildlog', { listResponse: true }),
     logBuild: (title, { description = '', ...fields } = {}) => json('buildlog', 'POST', '/buildlog', { body: { ...fields, title, description } }),
 
     // ── Terminal (owner/admin only) ──────────────────────────────────────

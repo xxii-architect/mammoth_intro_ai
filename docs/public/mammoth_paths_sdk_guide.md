@@ -78,6 +78,22 @@ authentication retry or provider retry is introduced by these options.
 
 Both clients accept a usage hook that reports each call (surface, status, duration) so you can meter usage in your own product.
 
+## JSON response validation
+
+Both clients raise `PathsError` with code `invalid_response` for malformed JSON,
+empty successful JSON bodies, wrong object/list containers, or missing/invalid
+saved-run envelope fields. Tasks, notes and build-log lists must be arrays of
+objects; other JSON methods return objects. Real empty lists and extension
+fields are preserved. Run listing/retrieval require `runs`/`run` fields; missing
+or null fields do not silently become empty results. Custom transports should
+return the documented container, not null or an empty body.
+
+Malformed-body messages do not echo raw upstream text. HTTP/application error
+objects retain backend code, status and payload. Usage hooks still report
+transport status, not response validity or authoritative billing. These guards
+check containers, not all nested domain fields; recovery adds its existing deeper
+snapshot checks. No retries or new permissions are introduced.
+
 ## Coding routing and planning
 
 Both clients reach the same backend route: the coding lane and

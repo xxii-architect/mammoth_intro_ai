@@ -126,6 +126,58 @@ function fakeFetch(routes) {
   return { impl, calls }
 }
 
+test('JSON object endpoints reject malformed success payloads without echoing bodies', async () => {
+  const usage = []
+  for (const payload of [null, false, 0, 'private text', [], [{}]]) {
+    const { impl } = fakeFetch({ 'GET /api/mammoth/tools': { body: payload } })
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: impl, usageHook: item => usage.push(item) }).tools(),
+      error => error instanceof PathsError && error.status === 200 && error.code === 'invalid_response' &&
+        !error.message.includes('private text'))
+  }
+  assert.equal(usage.length, 6)
+  assert.ok(usage.every(item => item.status === 200))
+  const payload = { tools: [], extension: { zero: 0 } }
+  const { impl } = fakeFetch({ 'GET /api/mammoth/tools': { body: payload } })
+  assert.deepEqual(await createPathsClient({ baseUrl: 'https://x.test', fetch: impl }).tools(), payload)
+})
+
+test('list endpoints require arrays of objects but preserve real empty lists and extensions', async () => {
+  for (const [path, method] of [['tasks', 'listTasks'], ['notes', 'listNotes'], ['buildlog', 'listBuildLog']]) {
+    for (const payload of [null, {}, '', [null], ['record'], [1], [[]]]) {
+      const { impl } = fakeFetch({ [`GET /api/${path}`]: { body: payload } })
+      await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: impl })[method](),
+        error => error instanceof PathsError && error.code === 'invalid_response')
+    }
+    for (const payload of [[], [{ id: 'one', extra: false }]]) {
+      const { impl } = fakeFetch({ [`GET /api/${path}`]: { body: payload } })
+      assert.deepEqual(await createPathsClient({ baseUrl: 'https://x.test', fetch: impl })[method](), payload)
+    }
+  }
+})
+
+test('invalid JSON and empty successful bodies fail explicitly without body disclosure', async () => {
+  for (const raw of ['', ' ', '{"unfinished":', 'private upstream failure']) {
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: async () => new Response(raw) }).tools(),
+      error => error instanceof PathsError && error.status === 200 && error.code === 'invalid_response' &&
+        !error.message.includes('private upstream failure'))
+  }
+})
+
+test('run envelopes reject missing and invalid records instead of defaulting empty', async () => {
+  for (const payload of [{}, { run: null }, { run: [] }, { run: 'record' }]) {
+    const { impl } = fakeFetch({ 'GET /api/mammoth/runs/run-one': { body: payload } })
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: impl }).getRun('run-one'),
+      error => error instanceof PathsError && error.code === 'invalid_response')
+  }
+  for (const payload of [{}, { runs: null }, { runs: {} }, { runs: [null] }]) {
+    const { impl } = fakeFetch({ 'GET /api/mammoth/runs': { body: payload } })
+    await assert.rejects(createPathsClient({ baseUrl: 'https://x.test', fetch: impl }).listRuns(),
+      error => error instanceof PathsError && error.code === 'invalid_response')
+  }
+  const { impl } = fakeFetch({ 'GET /api/mammoth/runs': { body: { runs: [] } } })
+  assert.deepEqual(await createPathsClient({ baseUrl: 'https://x.test', fetch: impl }).listRuns(), [])
+})
+
 test('workspace run context is additive and preserves explicit empty values', async () => {
   const { impl, calls } = fakeFetch({ 'POST /api/mammoth/runs': { sse: [ev(1, 'run.completed')] } })
   const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
