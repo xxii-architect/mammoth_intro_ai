@@ -1705,9 +1705,10 @@ $env:MAMMOTH_LLM_ADAPTER = "hermes"
 $env:MAMMOTH_LLM_ADAPTER = "ollama"
 ```
 
-## Sandbox fallback (until kernel update)
+## Legacy sandbox fallback and CI evidence
 
-If Docker sandboxing is unavailable, force subprocess mode:
+For trusted local development only, legacy `SandboxRunner` can use host Python
+when Docker is unavailable. This is not a security sandbox. Force that mode with:
 
 ```powershell
 $env:FORCE_SUBPROCESS_FALLBACK = "1"
@@ -1715,7 +1716,32 @@ $env:FORCE_SUBPROCESS_FALLBACK = "1"
 $env:SANDBOX_RUNNER_MODE = "subprocess"
 ```
 
-This keeps development moving but is less isolated than Docker sandboxing.
+`SANDBOX_RUNNER_REQUIRE_DOCKER=1` overrides both development switches and prohibits
+host fallback, including after Docker namespace/startup failures. An unavailable
+Docker executable returns a failed `docker-unavailable` result. Existing
+development fallback behavior is unchanged when Docker is not required.
+
+CI's `sandbox-diagnostics` job now uses Docker-required execution and emits
+`runtime_evidence.json` (`mammoth.sandbox-evidence.v1`), stdout and stderr artifacts
+plus an explicit step summary:
+
+- `verified`: the Docker smoke assertion passed, with observed seccomp filter,
+  zero effective capabilities and no-new-privileges on the runtime shell.
+- `failed`: an observed smoke assertion or hardening check failed; the job fails.
+- `not_verified`: Docker/runtime evidence is unavailable or incomplete. Diagnostic
+  CI may continue, but this is **not isolation verification**.
+
+The probe defaults to strict exit codes; only explicit `--diagnostic` permits
+`not_verified` without failure. Both modes reject `failed`. Regression tests
+exercise actual CLI exits as part of the ordinary test gate. The diagnostic job
+has read-only repository permissions and no longer attempts automatic seccomp
+patch PRs. Suggestions remain review-only artifacts. The renamed check replaces
+`docker-tests-linux`; update any external branch rule referencing that old name.
+
+This legacy smoke does not validate the owner execution service, reviewed UI
+images, the test process's user identity, or hostile-code/production isolation.
+Owner execution uses its separate pinned-image, approval-bound validator and
+never uses this host fallback. Broader isolation acceptance remains open.
 
 ## Detailed manuals
 

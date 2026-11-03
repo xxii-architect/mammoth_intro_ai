@@ -6,6 +6,7 @@ API (simple):
 Behavior:
 - If Docker is available, run inside a python:3.11-slim container with network disabled and memory limit.
 - Otherwise, fallback to running the test script with the system Python in a temporary directory (best-effort).
+- With SANDBOX_RUNNER_REQUIRE_DOCKER=1, never fall back to host execution.
 
 This is a pragmatic, testable implementation suitable for local dev and unit testing.
 """
@@ -28,11 +29,11 @@ class SandboxRunner:
     def _docker_available(self) -> bool:
         # Docker may be installed but unusable in some environments (WSL kernel issues).
         # Respect an environment override to force subprocess fallback for development or broken kernels.
+        if os.environ.get("SANDBOX_RUNNER_REQUIRE_DOCKER") == "1":
+            return shutil.which("docker") is not None
         force = os.environ.get('FORCE_SUBPROCESS_FALLBACK') or os.environ.get('SANDBOX_RUNNER_MODE')
         if force and (force == '1' or str(force).lower() == 'subprocess'):
             return False
-        if os.environ.get("SANDBOX_RUNNER_REQUIRE_DOCKER") == "1":
-            return shutil.which("docker") is not None
 
         if shutil.which("docker") is None:
             return False
@@ -86,6 +87,12 @@ class SandboxRunner:
             result = self._run_in_docker(code, test_script, timeout, memory_limit_mb, project_files)
             result.setdefault("method", "docker")
             result["duration_ms"] = int((time.time() - start) * 1000)
+        elif os.environ.get("SANDBOX_RUNNER_REQUIRE_DOCKER") == "1":
+            result = {
+                "passed": False, "stdout": "", "stderr": "Docker is required but its executable is unavailable; host execution was not attempted.",
+                "returncode": -3, "method": "docker-unavailable", "failure_code": "docker_unavailable",
+                "duration_ms": int((time.time() - start) * 1000),
+            }
         else:
             result = self._run_in_subprocess(code, test_script, timeout, project_files)
             result.setdefault("method", "subprocess")
@@ -254,7 +261,8 @@ class SandboxRunner:
                     "fsmount:fscontext:proc",
                     "get safe /proc/thread-self/fd handle",
                 ]
-                if any(marker in combined for marker in fallback_markers):
+                if (os.environ.get("SANDBOX_RUNNER_REQUIRE_DOCKER") != "1"
+                        and any(marker in combined for marker in fallback_markers)):
                     fallback = self._run_in_subprocess(code, test_script, timeout, project_files)
                     fallback["method"] = "subprocess-fallback-after-docker"
                     fallback["docker_stdout"] = proc.stdout
