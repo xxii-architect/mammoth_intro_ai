@@ -500,6 +500,18 @@ class AtlasFAB:
             getattr(self.session, "curriculum", None),
         )
 
+    def lesson_lecture(self) -> Dict[str, Any]:
+        """Read transcript sections with stable IDs; audio remains unconfigured."""
+        builder = getattr(self.session, "lesson_lecture", None)
+        if callable(builder):
+            return builder()
+        from mammoth_os.tutor_delivery import build_lesson_lecture
+
+        return build_lesson_lecture(
+            getattr(self.session, "current_lesson", None),
+            lesson_id=str(getattr(self.session, "_lesson_id", "") or self._last_lesson_id or ""),
+        )
+
     def stall_status(self) -> Dict[str, Any]:
         """Whether the learner looks stuck on the active lesson, with one suggested intervention."""
         checker = getattr(self.session, "stall_status", None)

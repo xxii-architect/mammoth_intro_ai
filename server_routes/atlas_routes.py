@@ -37,6 +37,16 @@ async def atlas_save_workspace(body: Dict[str, Any]):
         raise HTTPException(status_code=409, detail="Your lesson or saved workspace changed. Reload the saved workspace before replacing it.")
     return {"status": "saved", **saved}
 
+@app.get("/api/atlas/lecture")
+async def atlas_lesson_lecture():
+    blocked = _require_signed_in_api()
+    if blocked is not None:
+        return blocked
+    state = _load_atlas_state()
+    return tutor_delivery.build_lesson_lecture(
+        state.get("current_lesson"), lesson_id=str(state.get("lesson_id") or ""),
+    )
+
 @app.get("/api/atlas/modules")
 async def atlas_modules():
     state = _load_atlas_state()

@@ -235,6 +235,10 @@ class ATLASSession:
         """Whether the learner looks stuck on the active lesson, with one suggested intervention."""
         return tutor_delivery.stall_signal(self.lesson_telemetry.get(self._lesson_id or ""))
 
+    def lesson_lecture(self) -> Dict[str, Any]:
+        """Read revision-bound lesson transcripts; no narration/provider calls."""
+        return tutor_delivery.build_lesson_lecture(self.current_lesson, lesson_id=self._lesson_id or "")
+
     def gate_status(self, override: bool = False) -> Dict[str, Any]:
         """Comprehension gate for advancing past the active lesson."""
         return tutor_delivery.comprehension_gate(

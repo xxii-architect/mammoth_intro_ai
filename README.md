@@ -48,6 +48,14 @@ and pending help survive page navigation in the same account/tab, not refresh.
 Failed saves keep the draft and require explicit retry; ambiguous retries can
 duplicate a saved item. See the [ATLAS manual](ATLAS_MANUAL.md) for the API shapes.
 
+The lecture foundation is read-only: signed-in `GET /api/atlas/lecture`,
+`ATLASSession.lesson_lecture()` and `MammothMind.lesson_lecture()` return the shared
+`mammoth.lesson_lecture.v1` transcript/section contract. Stable section IDs and a
+whole-lesson revision support future commands. No audio or voice provider is
+enabled, all playback timing is null, and reading the contract makes no model
+call or mastery change. See the [ATLAS manual](ATLAS_MANUAL.md) for identity and
+duplicate-section limitations. Existing `AtlasFAB` aliases remain unchanged.
+
 Idea Shaper assesses the supplied idea and context without assuming the owner's
 brand, industry, or location. Structured output is checked before success:
 invalid or cut-off assessments receive at most one corrective model call, which

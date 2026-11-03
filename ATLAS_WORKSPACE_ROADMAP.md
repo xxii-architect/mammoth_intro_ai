@@ -75,8 +75,17 @@ routes. This is not a live textbook factual benchmark or enabled OCR.
 - [ ] PLAN-01: fix irrelevant planning steps and structured-response failures.
   An education-design request must not produce community publishing or custodial
   restore actions. This remains separate from the workspace UI delivery.
-- [ ] AUDIO-01: add versioned lesson sections/narration contract. Use durable
-  section IDs and actual audio durations; never fabricate timestamps.
+- [x] AUDIO-01: add versioned lesson sections/narration contract. Read-only
+  `mammoth.lesson_lecture.v1` derives Markdown transcript sections from actual
+  lesson content/summary, teaching points and examples. Section IDs persist
+  across unrelated insertions; changed text/title/lesson identity changes the
+  relevant ID, and the full lesson revision changes. Repeated identical
+  sections have occurrence suffixes (their individual identity is ambiguous
+  when identical copies are inserted/deleted). Code fences are not headings.
+  The authenticated `/api/atlas/lecture`, `ATLASSession.lesson_lecture()` and
+  `MammothMind.lesson_lecture()` share the pure builder. Narration is explicitly
+  not configured; durations and starts are null, never estimated timestamps.
+  No playback, paid provider, microphone, mastery change or model call.
 - [ ] AUDIO-02: choose a licensed TTS provider after operator review of quality,
   cost, retention, and usage rights. Implement one-lesson cached narration,
   playback, speed controls, seeking, and transcript fallback.
@@ -87,6 +96,8 @@ routes. This is not a live textbook factual benchmark or enabled OCR.
   Always-listening interruption is an optional later feature, not a prerequisite.
 - [ ] SDK-01: expose validated lecture/session APIs additively through the
   tutor SDK; retain AtlasFAB aliases and unchanged mastery defaults.
+  The read-only transcript foundation is available now; playback/session
+  controls and revision-bound commands remain pending AUDIO-02/03.
 
 ## Additional learning-workspace recommendations
 

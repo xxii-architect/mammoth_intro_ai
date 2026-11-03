@@ -110,6 +110,37 @@ draft. `POST /api/atlas/chat` accepts that selection plus `action` inside
 derives `mammoth.learning-selection.v1` provenance and ownership; clients cannot
 choose another user's context. Standalone tutor SDK behavior is unchanged.
 
+### Lecture transcript foundation (no audio playback yet)
+
+`GET /api/atlas/lecture` requires sign-in and reads only the request user's
+active lesson. `ATLASSession.lesson_lecture()` and
+`MammothMind.lesson_lecture()` expose the same additive
+`mammoth.lesson_lecture.v1` contract. `AtlasFAB` is still the same class alias.
+Reads generate no text/audio, change no exercise/mastery, and incur no model
+call. This is an integration foundation, not a visible lecture player.
+
+The response contains `lesson_id`, `lesson_title`, `lesson_revision`,
+`status` (`transcript_only` or `empty`), ordered `sections`, `narration`,
+and `model_calls: 0`. Each section has `section_id`, `title`,
+`content_markdown`, `audio_start_seconds: null`, and
+`audio_duration_seconds: null`. Content comes from the actual lesson
+body (or summary when there is no body), teaching points and examples.
+Objectives are not substituted as a lecture. Reasoning tags are removed.
+Markdown is source text, not trusted HTML; consumers must sanitize rendering.
+
+IDs are deterministic hashes of lesson identity, section heading and content,
+plus an occurrence suffix for identical duplicates. An unrelated section
+insertion preserves existing IDs; editing section text/heading changes its ID.
+Inserting/deleting identical duplicates can change their occurrence identity.
+The whole-lesson revision binds the ordered content and title; future commands
+must carry the revision as well as a section ID. A transcript without a lesson
+ID is not sufficient to target a persisted playback session.
+
+`narration.status` is `not_configured`; provider, voice and duration are null.
+There are no fabricated durations or seek positions. Voice/provider selection,
+licensed usage review, cached audio, playback/seek/speed controls, microphone
+permissions and duplicate-safe lecture commands remain planned.
+
 The website uses a dark semantic palette: brass/copper primary actions and agent
 identity, blue keyboard focus/links/secondary interaction, and grey/white text.
 Runtime health and success/warning/failure colors remain meaningful; destructive

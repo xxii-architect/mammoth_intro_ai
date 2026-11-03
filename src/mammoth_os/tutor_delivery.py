@@ -21,12 +21,83 @@ from mammoth_os.research_quality import dedupe_items, strip_reasoning
 
 MANIFEST_CONTRACT = "mammoth.lesson_manifest.v1"
 TELEMETRY_CONTRACT = "mammoth.lesson_telemetry.v1"
+LECTURE_CONTRACT = "mammoth.lesson_lecture.v1"
 
 STALL_FAILURE_STREAK = 3
 STALL_REPEAT_ERROR_STREAK = 2
 STALL_IDLE_MINUTES = 20
 
 _MAX_ITEMS = 5
+
+
+def build_lesson_lecture(lesson: Any, *, lesson_id: str = "") -> Dict[str, Any]:
+    """Derive revision-bound transcript sections without generating audio or text."""
+    lesson = lesson if isinstance(lesson, dict) else {}
+    identity = str(lesson_id or lesson.get("lesson_id") or "")
+    title = str(lesson.get("title") or lesson.get("lesson_title") or "")
+    content = lesson.get("content") or lesson.get("summary")
+    passages = [content] if isinstance(content, str) and content.strip() else []
+    for field in ("teaching_points", "examples"):
+        items = lesson.get(field)
+        if isinstance(items, list):
+            passages.extend(item for item in items if isinstance(item, str) and item.strip())
+    groups: List[Dict[str, str]] = []
+    for passage in passages:
+        clean, _ = strip_reasoning(passage)
+        current_title = ""
+        lines: List[str] = []
+        fence = None
+        for line in clean.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+            if marker:
+                token, suffix = marker.groups()
+                if fence is None:
+                    fence = (token[0], len(token))
+                elif token[0] == fence[0] and len(token) >= fence[1] and not suffix.strip():
+                    fence = None
+                lines.append(line)
+                continue
+            heading = re.match(r"^ {0,3}#{1,3}\s+(.+?)\s*#*\s*$", line) if fence is None else None
+            teaching_heading = re.fullmatch(
+                r"(?:\*\*)?(Introduction|Key concepts|Worked examples|Guided practice|Recap and next step)(?:\*\*)?:?",
+                line.strip(), re.IGNORECASE,
+            ) if fence is None and not line.startswith("    ") else None
+            if heading or teaching_heading:
+                if "\n".join(lines).strip():
+                    groups.append({"title": current_title, "content_markdown": "\n".join(lines).strip()})
+                current_title = (heading or teaching_heading)[1]
+                lines = []
+            else:
+                lines.append(line)
+        if "\n".join(lines).strip():
+            groups.append({"title": current_title, "content_markdown": "\n".join(lines).strip()})
+    sections = []
+    occurrences: Dict[str, int] = {}
+    for group in groups:
+        fingerprint = hashlib.sha256(json.dumps(
+            [identity, group["title"], group["content_markdown"]], ensure_ascii=True,
+        ).encode()).hexdigest()
+        occurrences[fingerprint] = occurrences.get(fingerprint, 0) + 1
+        sections.append({
+            "section_id": f"section-{fingerprint}-{occurrences[fingerprint]}",
+            **group,
+            "audio_start_seconds": None,
+            "audio_duration_seconds": None,
+        })
+    revision = hashlib.sha256(json.dumps(
+        [identity, title, groups], ensure_ascii=True, sort_keys=True,
+    ).encode()).hexdigest()
+    return {
+        "contract": LECTURE_CONTRACT,
+        "lesson_id": identity,
+        "lesson_title": title,
+        "lesson_revision": revision,
+        "status": "transcript_only" if sections else "empty",
+        "sections": sections,
+        "narration": {"status": "not_configured", "provider": None, "voice": None,
+                      "duration_seconds": None},
+        "model_calls": 0,
+    }
 
 
 CONTEXT_ACTIONS = {

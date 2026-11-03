@@ -43,6 +43,99 @@ def _failing(stderr="AssertionError: assert 4 == 5"):
 
 # --- manifest -----------------------------------------------------------------
 
+def test_lecture_sections_are_real_revision_bound_transcripts_without_audio():
+    lesson = {"lesson_id": "lesson-2", "title": "Evidence", "content":
+              "Introduction\n\nCompare original records.\n\n## Sources\n\nPrefer primary evidence."}
+    before = json.dumps(lesson)
+    lecture = tutor_delivery.build_lesson_lecture(lesson)
+    assert lecture["contract"] == "mammoth.lesson_lecture.v1"
+    assert lecture["status"] == "transcript_only" and lecture["model_calls"] == 0
+    assert [section["title"] for section in lecture["sections"]] == ["Introduction", "Sources"]
+    assert [section["content_markdown"] for section in lecture["sections"]] == [
+        "Compare original records.", "Prefer primary evidence.",
+    ]
+    assert all(section["audio_start_seconds"] is None and section["audio_duration_seconds"] is None
+               for section in lecture["sections"])
+    assert lecture["narration"] == {"status": "not_configured", "provider": None, "voice": None, "duration_seconds": None}
+    assert json.dumps(lesson) == before
+    assert tutor_delivery.build_lesson_lecture(lesson) == lecture
+
+
+def test_lecture_identity_survives_unrelated_insertions_but_revision_does_not():
+    lesson = {"lesson_id": "one", "content": "## A\n\nFirst concept.\n\n## B\n\nSecond concept."}
+    original = tutor_delivery.build_lesson_lecture(lesson)
+    lesson["content"] = "## New\n\nInserted concept.\n\n" + lesson["content"]
+    updated = tutor_delivery.build_lesson_lecture(lesson)
+    assert original["lesson_revision"] != updated["lesson_revision"]
+    assert [section["section_id"] for section in original["sections"]] == [
+        section["section_id"] for section in updated["sections"][1:]
+    ]
+    lesson["content"] = lesson["content"].replace("Second concept.", "Changed concept.")
+    changed = tutor_delivery.build_lesson_lecture(lesson)
+    assert updated["sections"][-1]["section_id"] != changed["sections"][-1]["section_id"]
+    assert updated["sections"][1]["section_id"] == changed["sections"][1]["section_id"]
+    assert tutor_delivery.build_lesson_lecture(lesson, lesson_id="other")["lesson_revision"] != changed["lesson_revision"]
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~~"])
+def test_lecture_does_not_treat_code_fence_contents_as_sections(fence):
+    content = f"## Code\n\n{fence}python\n# Not a section\nIntroduction\n{fence}\n\n## Recap\n\nDone."
+    sections = tutor_delivery.build_lesson_lecture({"content": content})["sections"]
+    assert len(sections) == 2
+    assert "# Not a section\nIntroduction" in sections[0]["content_markdown"]
+
+
+def test_lecture_has_unique_duplicate_sections_and_no_invented_missing_content():
+    assert tutor_delivery.build_lesson_lecture(None)["status"] == "empty"
+    assert tutor_delivery.build_lesson_lecture({"title": "Only title", "objectives": ["Learn everything."]})["sections"] == []
+    lecture = tutor_delivery.build_lesson_lecture({
+        "content": "## Same\n\nRepeated passage.\n\n## Same\n\nRepeated passage.",
+        "teaching_points": None, "examples": 42,
+    })
+    assert len({section["section_id"] for section in lecture["sections"]}) == 2
+    assert lecture["sections"][0]["content_markdown"] == lecture["sections"][1]["content_markdown"]
+
+
+def test_lecture_strips_reasoning_and_preserves_real_summary_teaching_points_and_examples():
+    lecture = tutor_delivery.build_lesson_lecture({
+        "summary": "<think>Not learner-facing.</think>Actual summary.",
+        "teaching_points": ["Original records retain evidence.", None],
+        "examples": ["A field log.", {"not": "a passage"}],
+    })
+    assert [section["content_markdown"] for section in lecture["sections"]] == [
+        "Actual summary.", "Original records retain evidence.", "A field log.",
+    ]
+    assert "Not learner-facing" not in json.dumps(lecture)
+
+
+def test_lecture_ignores_unverified_audio_metadata_and_normalizes_line_endings():
+    lesson = {"lesson_id": "one", "content": "## Source\r\n\r\nA real passage.\r\n",
+              "audio_duration_seconds": 99, "narration": {"status": "ready", "voice": "unreviewed"}}
+    lecture = tutor_delivery.build_lesson_lecture(lesson)
+    lesson["content"] = lesson["content"].replace("\r\n", "\n")
+    assert lecture == tutor_delivery.build_lesson_lecture(lesson)
+    assert lecture["narration"]["duration_seconds"] is None
+    assert lecture["narration"]["voice"] is None
+
+
+def test_lecture_reads_do_not_change_session_mastery_or_sdk_usage():
+    from mammoth_os import AtlasFAB, MammothMind
+
+    session = ATLASSession(user_id="lecture-reader")
+    session._lesson_id = "lesson-2"
+    session.current_lesson = {"title": "Evidence", "content": "## Sources\n\nUse original records."}
+    session.current_exercise = dict(CODE_EXERCISE)
+    session.lesson_telemetry = {"lesson-2": {"attempts": 2}}
+    sdk = MammothMind(session=session)
+    before = json.dumps(session.__dict__, sort_keys=True)
+    usage = sdk.get_usage()
+    assert MammothMind is AtlasFAB
+    assert sdk.lesson_lecture() == session.lesson_lecture()
+    assert sdk.lesson_lecture()["lesson_id"] == "lesson-2"
+    assert sdk.get_usage() == usage
+    assert json.dumps(session.__dict__, sort_keys=True) == before
+
+
 def test_manifest_derives_examples_criteria_and_prereqs_from_real_data():
     lesson = CURRICULUM["modules"][0]["lessons"][1]
     manifest = tutor_delivery.build_lesson_manifest(lesson, CODE_EXERCISE, CURRICULUM)

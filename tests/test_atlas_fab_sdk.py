@@ -90,6 +90,17 @@ def test_package_exports_sdk_surface():
     assert __version__ == "0.6.0"
 
 
+def test_custom_session_lecture_fallback_is_read_only():
+    session = DummySession()
+    session.current_lesson = {"lesson_id": "custom", "title": "Custom", "content": "Real teaching content."}
+    fab = AtlasFAB(session=session)
+    lecture = fab.lesson_lecture()
+    assert lecture["contract"] == "mammoth.lesson_lecture.v1"
+    assert lecture["lesson_id"] == "custom"
+    assert lecture["sections"][0]["content_markdown"] == "Real teaching content."
+    assert session.started is None and session.submitted is None
+
+
 def test_atlas_fab_start_lesson_returns_richer_snapshot():
     session = DummySession()
     fab = AtlasFAB(
