@@ -1,4 +1,4 @@
-import { createPathsClient, type RunOptions, type UsageRecord } from '../src/index.js'
+import { createPathsClient, readRunEventStream, type RunOptions, type RunSnapshot, type UsageRecord } from '../src/index.js'
 
 const options: RunOptions = {
   surface: 'agent_workspace',
@@ -13,6 +13,12 @@ void client.streamRun('Review', options)
 const tasks: Promise<Array<Record<string, unknown>>> = client.listTasks()
 const savedRun: Promise<Record<string, unknown>> = client.getRun('run-id')
 void [tasks, savedRun]
+const snapshot: RunSnapshot = {
+  id: 'run-id', status: 'partial', events: [], can_continue: true,
+  failure_code: 'step_limit', recursive: { stage: 'critic' },
+}
+void snapshot
+void readRunEventStream(new Response(), event => { void event }, { runId: 'run-id' })
 const surface: UsageRecord['surface'] = 'owner_execution'
 void surface
 

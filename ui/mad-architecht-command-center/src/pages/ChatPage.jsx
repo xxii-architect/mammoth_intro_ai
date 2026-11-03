@@ -1042,7 +1042,9 @@ export default function ChatPage({ setPage }) {
         run: item.run ? {
           ...item.run,
           decision_pending: '',
-          status: item.run.status === 'running' ? (e?.name === 'AbortError' ? 'cancelled' : 'failed') : item.run.status,
+          status: e?.name === 'AbortError' ? 'cancelled' : 'failed',
+          approval: null,
+          can_continue: false,
           error: e?.name === 'AbortError' ? '' : (e instanceof Error ? e.message : 'Agent run failed'),
         } : item.run,
       }))

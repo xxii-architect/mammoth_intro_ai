@@ -95,7 +95,7 @@ export function createPathsClient(options = {}) {
     }
   }
 
-  const stream = async (path, body, { onEvent, signal } = {}) => {
+  const stream = async (path, body, { onEvent, signal, runId } = {}) => {
     const started = Date.now()
     let status = 0
     const events = []
@@ -106,7 +106,7 @@ export function createPathsClient(options = {}) {
         await readRunEventStream(response, (event) => {
           events.push(event)
           if (onEvent) onEvent(event)
-        })
+        }, { runId })
       } catch (error) {
         if (error instanceof PathsError) throw error
         throw new PathsError(error.message, { status: error.status || status, code: error.code || '', payload: error.payload || {} })
@@ -165,11 +165,11 @@ export function createPathsClient(options = {}) {
 
     decide(runId, approvalId, decision, { note = '', onEvent, signal } = {}) {
       if (!['approve', 'reject'].includes(decision)) throw new TypeError("decision must be 'approve' or 'reject'")
-      return stream(`/mammoth/runs/${seg(runId)}/approval`, { approval_id: approvalId, decision, note }, { onEvent, signal })
+      return stream(`/mammoth/runs/${seg(runId)}/approval`, { approval_id: approvalId, decision, note }, { onEvent, signal, runId })
     },
 
     continueRun: (runId, { onEvent, signal } = {}) =>
-      stream(`/mammoth/runs/${seg(runId)}/continue`, {}, { onEvent, signal }),
+      stream(`/mammoth/runs/${seg(runId)}/continue`, {}, { onEvent, signal, runId }),
 
     /**
      * Drive a run to a terminal state. `approve(approvalData)` may return true/'approve' or false/'reject'.

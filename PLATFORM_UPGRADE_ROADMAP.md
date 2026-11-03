@@ -230,6 +230,14 @@ double bill; anonymous users receive no private usage data.
     SSE: live proxy timing/disconnects, paid providers, real attachment retrieval,
     and wider endpoint/release coverage remain open. These items stay unchecked
     until their broader acceptance is met.
+  - Three follow-up slices harden SSE decoding, live event envelopes/identity/
+    sequence, and saved recovery metadata in both clients and the app's shared
+    run-state path. Invalid data fails explicitly before callbacks; readers close/
+    cancel on failure; full snapshots require complete envelopes/history.
+    Unknown event types/extensions and valid resumed sequences remain supported.
+    Regression tests cover malformed data, cleanup, metadata, read-only recovery
+    and visible app failure without false completion/retry. These are bounded
+    checks, not full nested schemas or production proxy/disconnect validation.
 - [ ] CI-01: establish a lint/type baseline and fail on newly introduced
   violations; expand enforcement incrementally instead of turning on an
   unmanageable legacy-wide gate without triage.
