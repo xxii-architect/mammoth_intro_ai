@@ -256,6 +256,10 @@ privacy/compliance certification.
 
 The website uses a dark semantic palette: brass/copper primary actions and agent
 identity, blue keyboard focus/links/secondary interaction, and grey/white text.
+Settings > Theme includes a Texture lines toggle for the scan-line overlay.
+Its preference is saved in this browser, not synchronized to the account.
+The control keeps a stable accessible name, exposes its pressed state, supports
+Space/Enter, and has a minimum 44px by 44px touch target.
 Runtime health and success/warning/failure colors remain meaningful; destructive
 actions stay red. Decorative purple/pink/teal accents are removed, not emoji or
 logo artwork. Mammoth Mind's lane/task controls retain their choices with themed

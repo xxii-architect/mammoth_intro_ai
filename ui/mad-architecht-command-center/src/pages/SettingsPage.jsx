@@ -289,9 +289,10 @@ export default function SettingsPage() {
             </div>
             <button
               type="button"
+              aria-label="Texture lines"
               onClick={() => setTexturePreference(!textureOn)}
               aria-pressed={textureOn}
-              style={{ background: textureOn ? 'rgba(255,255,255,0.10)' : 'transparent', border: '1px solid var(--border)', borderRadius: 999, color: textureOn ? 'var(--txt-pri)' : 'var(--txt-sec)', cursor: 'pointer', padding: '5px 14px', fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+              style={{ minWidth: 44, minHeight: 44, flexShrink: 0, background: textureOn ? 'rgba(255,255,255,0.10)' : 'transparent', border: '1px solid var(--border)', borderRadius: 999, color: textureOn ? 'var(--txt-pri)' : 'var(--txt-sec)', cursor: 'pointer', padding: '5px 14px', fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}
             >
               {textureOn ? 'On' : 'Off'}
             </button>
