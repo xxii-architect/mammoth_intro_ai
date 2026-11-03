@@ -187,16 +187,13 @@ def test_actual_cli_exit_codes_cannot_hide_smoke_failures(tmp_path, diagnostic, 
 
 
 def test_workflow_labels_diagnostics_and_does_not_ignore_smoke_failures():
-    import yaml
+    import re
 
-    jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())["jobs"]
-    assert "docker-tests-linux" not in jobs
-    job = jobs["sandbox-diagnostics"]
-    assert job["permissions"] == {"contents": "read"}
-    smoke = next(step for step in job["steps"] if "run_sandbox_test.py" in step.get("run", ""))
-    assert "--diagnostic" in smoke["run"] and "|| true" not in smoke["run"]
-    assert not smoke.get("continue-on-error")
-    assert not any("apply_suggestion" in step.get("run", "") for step in job["steps"])
-    artifacts = next(step for step in job["steps"] if step.get("with", {}).get("name") == "sandbox-runtime-info")
-    assert "runtime_evidence.json" in artifacts["with"]["path"]
-    assert "runtime_error.txt" in artifacts["with"]["path"]
+    workflow = (ROOT / ".github" / "workflows" / "ci.yml").read_text()
+    assert "\n  docker-tests-linux:" not in workflow
+    job = re.search(r"(?ms)^  sandbox-diagnostics:\n(.*?)(?=^  [\w-]+:\n|\Z)", workflow).group(1)
+    assert "permissions:\n      contents: read" in job
+    assert "run_sandbox_test.py --diagnostic" in job
+    assert "|| true" not in job and "continue-on-error" not in job
+    assert "apply_suggestion" not in job
+    assert "runtime_evidence.json" in job and "runtime_error.txt" in job
