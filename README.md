@@ -19,8 +19,11 @@ downloads; it remains supplemental to the active lesson.
 Under Edit learning profile, **Learning privacy & costs** exports the current
 account's saved learning JSON without model calls. Retained conversations,
 lessons/exercises/cards, owned linked notes and confirmed recovery are also added
-to Account's existing export. This excludes unsaved tab edits, uploads, other
-accounts, standalone learner-model data, telemetry, Artifacts, Mammoth Mind
+to Account's existing export. The additive `learner_adaptation` block includes
+supported fields of the actual saved tenant/account-scoped model, or
+`status: "not_saved"` with `model: null` if no private model exists. Export does
+not create a default model or trim retained outcomes. This excludes unsaved tab edits, uploads, other
+accounts, unverified legacy models, unknown learner extension fields, telemetry, Artifacts, Mammoth Mind
 threads and external/provider/backups; it is not a full archive. Corrupt storage
 fails explicitly, and exports over 8 MiB are rejected rather than shortened.
 The panel explains count-based retention, unavailable price estimates, and
@@ -47,8 +50,9 @@ files remain untouched and existing lessons/conversations are preserved. Learner
 can re-enter starting preferences; old mastery is not assigned to a tenant by
 guessing. Corrupt/mismatched storage fails explicitly rather than silently
 resetting. Writes are atomic, assessment/onboarding updates are serialized,
-and evaluation probes use temporary storage. Standalone model export/deletion
-and reviewed legacy ownership recovery remain open; this is not verified erasure.
+and evaluation probes use temporary storage. Saved private adaptation is now
+exported; standalone model deletion and reviewed legacy ownership recovery remain
+open. Exporting is not erasure.
 
 ATLAS reading preferences (text size, spacing, focused mode) survive same-tab
 page navigation and clear on signed-in account changes; they do not persist

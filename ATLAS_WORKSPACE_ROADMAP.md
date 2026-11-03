@@ -210,7 +210,8 @@ feedback over adding more agents or permanent panels.
   lessons/exercises/cards, explicitly owned linked notes and confirmed recovery,
   and also appear in Account's existing data export. The
   `mammoth.learning-export.v1` contract excludes unsaved tab edits, uploaded files,
-  other accounts, standalone learner-model data, telemetry, Artifacts, Mammoth
+  other accounts, unverified legacy learner models, unknown learner extension
+  fields, telemetry, Artifacts, Mammoth
   Mind threads, provider copies and backups. It is not a full archive or an
   atomic snapshot during concurrent edits. No model calls, no-store responses,
   explicit corrupt-storage failures, and an 8 MiB ASCII-JSON limit without
@@ -245,7 +246,12 @@ feedback over adding more agents or permanent panels.
   re-enter starting preferences without assigning shared legacy mastery by guess.
   Atomic writes and serialized onboarding/assessment updates reject corrupt/foreign
   records explicitly; evaluation probes use temporary storage. Standalone model
-  export/deletion and reviewed legacy recovery remain open.
+  deletion and reviewed legacy recovery remain open. The additive
+  `learner_adaptation` export block now includes actual saved private-model
+  supported fields (including untrimmed retained outcomes and memory graph), or
+  explicit `not_saved`/null when absent. Learning and Account exports reuse it
+  without model calls/default creation; corrupt/foreign records fail before
+  success, and the complete export retains its exact 8 MiB bound.
   Full-platform limits/cancellation, age-based retention, reliable paid-action
   estimates and erasure of excluded stores remain open; LEARN-06 stays unchecked.
   This is not a compliance certification.

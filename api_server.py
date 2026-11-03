@@ -4427,6 +4427,10 @@ def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
     """Export the active account's saved learning data, never the state envelope."""
     user_id = _current_request_user_id()
     account_id = _active_account_id(state)
+    from mammoth_os.learner_model import read_saved_learner_model
+
+    learner_id = _atlas_user_id(state)
+    saved_model = _learner_storage_action(read_saved_learner_model, learner_id, learner_id)
     fields = (
         "topic", "curriculum_topic", "module_id", "active_module",
         "curriculum_id", "curriculum", "curriculum_origin", "lesson_id",
@@ -4459,11 +4463,19 @@ def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
         "saved_learning": {key: deepcopy(state[key]) for key in fields if key in state},
         "workspace_recovery": _learning_workspace_snapshot(state),
         "linked_notes": notes,
+        "learner_adaptation": {
+            "contract": "mammoth.learner-export.v1",
+            "status": "saved" if saved_model is not None else "not_saved",
+            "model": saved_model,
+            "storage_scope": _learner_storage_scope(learner_id),
+            "unknown_extension_fields_included": False,
+        },
         "scope": {
             "saved_only": True, "active_account_only": True,
             "excludes": ["unsaved_tab_drafts", "uploaded_files", "other_accounts",
                          "mammoth_mind_threads", "artifacts", "provider_records", "backups",
-                         "standalone_learner_model", "lesson_telemetry"],
+                         "unverified_legacy_learner_models", "lesson_telemetry",
+                         "unknown_learner_extension_fields"],
             "not_a_transactional_snapshot": True,
         },
         "retention": {

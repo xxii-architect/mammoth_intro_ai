@@ -835,7 +835,11 @@ test('learning privacy exports confirmed saved data only without model calls or 
   let exports = 0
   const saved = { contract: 'mammoth.learning-export.v1', saved_learning: {
     chat_history: [{ role: 'assistant', message: 'A complete saved answer, not a summary.' }],
-  }, workspace_recovery: { values: { lesson_response: 'Server-confirmed response.' } } }
+  }, workspace_recovery: { values: { lesson_response: 'Server-confirmed response.' } },
+  learner_adaptation: { contract: 'mammoth.learner-export.v1', status: 'saved',
+    model: { user_id: 'workspace:default', mastery: { evidence: 0.8 },
+      recent_outcomes: Array.from({ length: 24 }, (_, i) => ({ concept: `evidence-${i}` })),
+      memory_graph: { nodes: [{ id: 'real-concept', label: 'Saved concept' }], edges: [] } } } }
   await page.route('**/api/atlas/export', route => {
     exports += 1
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(saved) })
@@ -844,6 +848,7 @@ test('learning privacy exports confirmed saved data only without model calls or 
   await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
   await page.getByText('Learning privacy & costs', { exact: true }).click()
   await expect(page.getByText(/Resetting progress is not a privacy wipe/)).toBeVisible()
+  await expect(page.getByText(/Standalone adaptation is still outside saved-learning deletion/)).toBeVisible()
   expect(exports).toBe(0)
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Export saved learning JSON', exact: true }).click()

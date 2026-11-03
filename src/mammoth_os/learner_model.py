@@ -367,13 +367,19 @@ def _model_path(storage_path: Optional[str] = None) -> str:
     return os.path.join(root, "atlas_learner_model.json")
 
 
-def load_learner_model(user_id: str = "default_user", storage_path: Optional[str] = None) -> Dict[str, Any]:
+def read_saved_learner_model(user_id: str, storage_path: str) -> Optional[Dict[str, Any]]:
+    """Read validated saved fields without creating, normalizing or trimming records."""
+    raw = _read_model_record(user_id, storage_path)
+    return None if raw is None else {key: raw[key] for key in DEFAULT_LEARNER_MODEL if key in raw}
+
+
+def _read_model_record(user_id: str, storage_path: Optional[str]) -> Optional[Dict[str, Any]]:
     path = _model_path(storage_path)
-    if not os.path.exists(path):
-        return _ensure_model_shape(DEFAULT_LEARNER_MODEL, user_id)
     try:
         with open(path, 'r', encoding='utf-8') as fh:
             raw = json.load(fh)
+    except FileNotFoundError:
+        return None
     except (OSError, ValueError) as exc:
         logging.getLogger(__name__).exception("Learner model could not be read")
         raise LearnerStorageError("Saved learner adaptation could not be read; it has not been reset.") from exc
@@ -382,10 +388,16 @@ def load_learner_model(user_id: str = "default_user", storage_path: Optional[str
         state = _ensure_model_shape(raw, user_id)
         if any(not math.isfinite(value) for field in ("mastery", "confidence") for value in state[field].values()):
             raise ValueError("Learner scores must be finite.")
-        return state
+        json.dumps(raw, allow_nan=False)
+        return raw
     except (ValueError, TypeError, AttributeError, OverflowError) as exc:
         logging.getLogger(__name__).exception("Learner model shape or ownership is invalid")
         raise LearnerStorageError("Saved learner adaptation is invalid or belongs to another learner; it has not been reset.") from exc
+
+
+def load_learner_model(user_id: str = "default_user", storage_path: Optional[str] = None) -> Dict[str, Any]:
+    raw = _read_model_record(user_id, storage_path)
+    return _ensure_model_shape(raw if raw is not None else DEFAULT_LEARNER_MODEL, user_id)
 
 
 def save_learner_model(state: Dict[str, Any], storage_path: Optional[str] = None) -> Dict[str, Any]:

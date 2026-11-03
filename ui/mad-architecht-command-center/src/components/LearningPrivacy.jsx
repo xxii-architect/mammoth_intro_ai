@@ -50,12 +50,12 @@ export default function LearningPrivacy({ setPage, onDeleted }) {
   return <details className="atlas-learning-privacy">
     <summary>Learning privacy &amp; costs</summary>
     <div>
-      <p>Export the active account's saved lessons, exercises, tutor/assistant conversations, study cards, linked notes and confirmed recovery draft. Unsaved tab edits, uploads, other accounts, standalone learner-model data, telemetry, Artifacts and Mammoth Mind threads are not included. This is not a full account archive or an atomic snapshot of concurrent edits.</p>
+      <p>Export the active account's saved lessons, exercises, tutor/assistant conversations, study cards, linked notes, confirmed recovery draft and saved private learner adaptation (onboarding, mastery/confidence, error patterns and memory graph). Missing adaptation is marked not saved, not invented. Unsaved tab edits, uploads, other accounts, unverified legacy models, unknown learner extension fields, telemetry, Artifacts and Mammoth Mind threads are not included. This is not a full account archive or an atomic snapshot of concurrent edits.</p>
       <button type="button" disabled={busy} onClick={exportLearning}>{busy ? 'Preparing learning export...' : 'Export saved learning JSON'}</button>
       {error && <p role="alert">{error} No automatic retry was made.</p>}
       {notice && <p role="status">{notice}</p>}
       <p>Current retained windows: 80 lesson-history records, 120 study-aid records, 60 messages per tutor/assistant history, and one current recovery draft. These are count limits, not automatic age-based deletion. Previously trimmed records cannot be recovered by export.</p>
-      <p>New learner adaptation is stored separately for each signed-in user and learning account. Legacy shared models are left untouched and are not automatically imported. Standalone adaptation storage, including mastery and memory graphs, is still outside saved-learning export and deletion; this is not full erasure.</p>
+      <p>New learner adaptation is stored separately for each signed-in user and learning account. Legacy shared models are left untouched and are not automatically imported. Saved-learning export includes the current private model's supported fields without generating or trimming saved history. Standalone adaptation is still outside saved-learning deletion; exporting it does not erase it.</p>
       <p>Model costs vary with provider, tokens, tools and retries; a reliable per-request price estimate is unavailable. Reading, restoring, exporting, and source-derived card previews make no model calls. Ask tutor, lesson/course generation and agent runs can use credits. A failed or interrupted request may already have incurred charges; do not retry automatically.</p>
       <button type="button" disabled={busy} onClick={() => action(loadControls)}>Refresh learning request controls</button>
       {controls && <section aria-label="Learning request controls">

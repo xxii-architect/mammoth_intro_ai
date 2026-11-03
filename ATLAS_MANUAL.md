@@ -165,11 +165,17 @@ is on demand so the normal mobile lesson does not lose another toolbar row.
 **Export saved learning JSON** downloads `mammoth.learning-export.v1`: the active
 local account's saved lessons, exercises, full retained tutor/assistant messages,
 study-aid records, explicitly owned lesson-linked notes, saved learner profile,
-and recovery snapshot. The same payload is included as `learning_workspace` in
+and recovery snapshot. The additive `learner_adaptation` block
+(`mammoth.learner-export.v1`) includes the actual saved private model's supported
+fields: onboarding, mastery/confidence, attempts/streak, error patterns, retained
+outcomes and memory graph. It returns `status: saved` and `model`, or
+`status: not_saved` and `model: null` when no scoped record exists. It never
+creates a default model, imports legacy data or trims saved outcomes.
+The same payload is included as `learning_workspace` in
 Account's existing data export. It does not generate content or call a model.
 
-The export excludes unsaved tab drafts, uploads, other accounts, standalone
-learner-model data, telemetry, Artifacts, Mammoth Mind threads, provider records
+The export excludes unsaved tab drafts, uploads, other accounts, unverified legacy
+learner models, unknown top-level learner extension fields, telemetry, Artifacts, Mammoth Mind threads, provider records
 and backups. It is not a full account archive or an atomic snapshot of concurrent
 edits. Recovery values with `saved_at: null` have no confirmed server draft.
 Previously trimmed history is not recoverable. Exported notes preserve the
@@ -178,7 +184,8 @@ Downloaded files contain private content and must be managed on your device.
 
 `POST /api/atlas/export` requires sign-in; there is no client-supplied user/account
 selector. Success uses `Cache-Control: no-store`. Corrupt/unreadable state,
-linked-note storage or recovery fails explicitly (503). Up to 8 MiB of
+linked-note storage, private learner adaptation or recovery fails explicitly (503).
+Invalid ownership also fails without a partial success or reset. Up to 8 MiB of
 ASCII-serialized JSON is accepted; larger exports fail (413) without a shortened
 success result. Individual Notes and curricula exports remain alternatives.
 
@@ -248,8 +255,9 @@ reports `legacy_imported: false`. Unverified global legacy models and unmarked
 cached adaptation are not imported. Existing lessons and conversations remain;
 learners may need to re-enter their starting preferences. Legacy files are left
 untouched for a future reviewed ownership/recovery workflow, never guessed into
-a tenant or erased automatically. Standalone adaptation remains outside the
-saved-learning export/deletion action described below.
+a tenant or erased automatically. The saved private model's supported fields now
+appear in learning/Account exports. Standalone adaptation remains outside the
+saved-learning deletion action described below; export does not erase it.
 Corrupt/foreign model records produce explicit 503 failures without a reset.
 Confirmed model writes use atomic replacement, and onboarding/assessment changes
 serialize across workers so concurrent attempts are not lost. Evaluation probes
