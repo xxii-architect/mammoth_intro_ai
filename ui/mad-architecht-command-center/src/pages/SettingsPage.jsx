@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { api } from '../api/client'
 
+const TEXTURE_STORAGE_KEY = 'mammoth-texture'
 const emptyProfile = { display_name: '', email: '', organization: '' }
 const emptyWorkspaceAccount = { display_name: '', email: '', organization: '', account_id: '' }
 
@@ -38,6 +39,13 @@ export default function SettingsPage() {
     user_id: '',
   })
   const [masked, setMasked] = useState(true)
+  const [textureOn, setTextureOn] = useState(() => {
+    try {
+      return window.localStorage.getItem(TEXTURE_STORAGE_KEY) !== 'off'
+    } catch {
+      return true
+    }
+  })
   const [resetting, setResetting] = useState(false)
   const [resetMsg, setResetMsg] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
@@ -46,6 +54,16 @@ export default function SettingsPage() {
   const [profileMsg, setProfileMsg] = useState('')
   const [tierMsg, setTierMsg] = useState('')
   const [workspaceMsg, setWorkspaceMsg] = useState('')
+
+  const setTexturePreference = (enabled) => {
+    setTextureOn(enabled)
+    try {
+      window.localStorage.setItem(TEXTURE_STORAGE_KEY, enabled ? 'on' : 'off')
+    } catch {
+      // Ignore restricted browser storage errors.
+    }
+    document.documentElement.classList.toggle('mm-no-texture', !enabled)
+  }
 
   const refreshAll = async () => {
     const [s, h, m, e, p, w] = await Promise.all([
@@ -262,6 +280,23 @@ export default function SettingsPage() {
           <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--txt-sec)', lineHeight: 1.6 }}>
             Dark is currently the only supported appearance while the platform is being polished. Older saved theme preferences are migrated automatically.
           </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+            <div>
+              <p style={{ fontSize: '0.85rem', color: 'var(--txt-pri)', margin: 0 }}>Texture lines</p>
+              <p style={{ margin: '2px 0 0', fontSize: '0.74rem', color: 'var(--txt-mut)', lineHeight: 1.5 }}>
+                Horizontal scan-line overlay across the platform.
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="Texture lines"
+              onClick={() => setTexturePreference(!textureOn)}
+              aria-pressed={textureOn}
+              style={{ minWidth: 44, minHeight: 44, flexShrink: 0, background: textureOn ? 'rgba(255,255,255,0.10)' : 'transparent', border: '1px solid var(--border)', borderRadius: 999, color: textureOn ? 'var(--txt-pri)' : 'var(--txt-sec)', cursor: 'pointer', padding: '5px 14px', fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}
+            >
+              {textureOn ? 'On' : 'Off'}
+            </button>
+          </div>
         </div>
 
         <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--photon)' }}>

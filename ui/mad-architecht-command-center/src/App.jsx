@@ -71,6 +71,7 @@ function LogoMark({ src, alt, fallback, size = 20, style = {} }) {
 }
 
 const THEME_STORAGE_KEY = 'mammoth-theme'
+const TEXTURE_STORAGE_KEY = 'mammoth-texture'
 
 const THEME_COLOR_KEYS = [
   '--shell', '--card', '--card-hover', '--photon', '--cyan', '--violet',
@@ -836,6 +837,10 @@ export default function App() {
     document.documentElement.style.colorScheme = 'dark'
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, 'dark')
+      document.documentElement.classList.toggle(
+        'mm-no-texture',
+        window.localStorage.getItem(TEXTURE_STORAGE_KEY) === 'off'
+      )
     } catch {
       // Ignore restricted browser storage errors.
     }

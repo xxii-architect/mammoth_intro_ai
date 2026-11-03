@@ -83,6 +83,32 @@ async function mount(page, component, payloads = {}, { authFailure = false, stal
 }
 
 const ownerPanel = 'components/agent-workspace/OwnerExecutionPanel'
+
+for (const width of [320, 1280]) {
+  test(`texture toggle has a stable name and touch target with keyboard operation at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 })
+    const errors = await mount(page, 'pages/SettingsPage')
+    const toggle = page.getByRole('button', { name: 'Texture lines', exact: true })
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    const bounds = await toggle.boundingBox()
+    expect(bounds.width).toBeGreaterThanOrEqual(44)
+    expect(bounds.height).toBeGreaterThanOrEqual(44)
+    await toggle.focus()
+    await page.keyboard.press('Space')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await expect(toggle).toHaveText('Off')
+    expect(await page.evaluate(() => localStorage.getItem('mammoth-texture'))).toBe('off')
+    expect(await page.evaluate(() => getComputedStyle(document.body, '::before').display)).toBe('none')
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    await expect(toggle).toHaveText('On')
+    expect(await page.evaluate(() => localStorage.getItem('mammoth-texture'))).toBe('on')
+    if (width === 1280) {
+      expect(await page.evaluate(() => getComputedStyle(document.body, '::before').display)).toBe('block')
+    }
+    expect(errors).toEqual([])
+  })
+}
 const ownerCapabilities = { status: 'ok', enabled: true, isolation: { ready: true, reason: 'Pinned Linux image available.', profiles: { python_unittest: true, python_pytest: false, node_test: false } }, profiles: ['python_unittest', 'python_pytest', 'node_test'], base_sha: 'a'.repeat(40) }
 const ownerJob = { id: `exec-${'a'.repeat(24)}`, status: 'pending_approval', patch: '--- a/app.py\n+++ b/app.py\n-return 0\n+return 1\n', base_sha: 'a'.repeat(40), profile: 'python_unittest', approval_digest: 'b'.repeat(64), expires_at: 1999999999 }
 
