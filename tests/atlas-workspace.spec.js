@@ -863,6 +863,82 @@ test('learning privacy exports confirmed saved data only without model calls or 
   expect(errors).toEqual([])
 })
 
+test('adaptation scope review is explicit read-only metadata without deletion or model calls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const { requests, errors } = await mountWorkspace(page)
+  let reviews = 0
+  await page.route('**/api/atlas/learner/privacy-review', route => {
+    reviews += 1
+    return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+      contract: 'mammoth.learner-privacy-review.v1', account_id: 'default',
+      review_only: true, deletion_available: false, model_status: 'saved',
+      saved_fields: ['mastery', 'recent_outcomes', 'memory_graph'],
+      saved_record_counts: { mastery_concepts: 3, confidence_concepts: 2,
+        error_patterns: 1, retained_outcomes: 24, memory_nodes: 4, memory_edges: 2 },
+      retained_outside_scope: ['unverified_legacy_models', 'other_accounts', 'backups'],
+    }) })
+  })
+  await page.getByRole('button', { name: 'Edit learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  expect(reviews).toBe(0)
+  await page.getByRole('button', { name: 'Review private adaptation deletion scope', exact: true }).click()
+  const review = page.getByRole('region', { name: 'Private adaptation scope review' })
+  await expect(review).toContainText('24 retained outcomes')
+  await expect(review).toContainText('No data was deleted and no deletion receipt was issued')
+  await expect(review).toContainText('unverified legacy models, other accounts, backups')
+  expect(reviews).toBe(1)
+  expect(requests.some(request => request.path === '/api/atlas/history' ||
+    ['/api/atlas/chat', '/api/atlas/agents/run', '/api/atlas/onboard'].includes(request.path))).toBe(false)
+  await expect(review.getByRole('button')).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.evaluate(() => globalThis.changeTestAccount('another-learner'))
+  await expect(page.getByRole('region', { name: 'Private adaptation scope review' })).toHaveCount(0)
+  expect(reviews).toBe(1)
+  expect(errors).toEqual([])
+})
+
+for (const invalid of ['contract', 'counts', 'absence']) {
+  test(`adaptation scope review rejects unconfirmed ${invalid}`, async ({ page }) => {
+    const { errors } = await mountWorkspace(page)
+    await page.route('**/api/atlas/learner/privacy-review', route => route.fulfill({
+      contentType: 'application/json', body: JSON.stringify({
+        contract: invalid === 'contract' ? 'unknown' : 'mammoth.learner-privacy-review.v1',
+        account_id: 'default', review_only: true, deletion_available: false, model_status: invalid === 'absence' ? 'not_saved' : 'saved',
+        saved_fields: ['mastery'], saved_record_counts: null, retained_outside_scope: ['backups'],
+      }),
+    }))
+    await page.getByRole('button', { name: 'Learning profile', exact: true }).click()
+    await page.getByText('Learning privacy & costs', { exact: true }).click()
+    await page.getByRole('button', { name: 'Review private adaptation deletion scope', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('The server did not confirm')
+    await expect(page.getByRole('region', { name: 'Private adaptation scope review' })).toHaveCount(0)
+    expect(errors).toEqual([])
+  })
+}
+
+test('failed adaptation scope refresh clears stale review without retry', async ({ page }) => {
+  const { errors } = await mountWorkspace(page)
+  let reviews = 0
+  await page.route('**/api/atlas/learner/privacy-review', route => {
+    reviews += 1
+    return route.fulfill(reviews === 1 ? { contentType: 'application/json', body: JSON.stringify({
+      contract: 'mammoth.learner-privacy-review.v1', account_id: 'default',
+      review_only: true, deletion_available: false, model_status: 'not_saved',
+      saved_fields: [], saved_record_counts: null, retained_outside_scope: ['backups'],
+    }) } : { status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'Private learner adaptation is unavailable.' }) })
+  })
+  await page.getByRole('button', { name: 'Learning profile', exact: true }).click()
+  await page.getByText('Learning privacy & costs', { exact: true }).click()
+  const button = page.getByRole('button', { name: 'Review private adaptation deletion scope', exact: true })
+  await button.click()
+  await expect(page.getByRole('region', { name: 'Private adaptation scope review' })).toContainText('No private adaptation record is saved')
+  await button.click()
+  await expect(page.getByRole('alert')).toContainText('Private learner adaptation is unavailable.')
+  await expect(page.getByRole('region', { name: 'Private adaptation scope review' })).toHaveCount(0)
+  expect(reviews).toBe(2)
+  expect(errors).toEqual([])
+})
+
 test('learning export failures stay explicit and are not retried automatically', async ({ page }) => {
   const { errors } = await mountWorkspace(page)
   let calls = 0

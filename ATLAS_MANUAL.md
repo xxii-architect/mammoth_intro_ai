@@ -266,7 +266,27 @@ Local callers retain the existing `storage_path` option and model filename; use
 a distinct trusted directory per learner. Reading or overwriting a record belonging
 to a different `user_id` now fails explicitly instead of reassigning it.
 
-**Preview saved learning deletion** reviews the active account and exclusions.
+For the separately stored model, **Review private adaptation deletion scope**
+calls authenticated `GET /api/atlas/learner/privacy-review`. Its
+`mammoth.learner-privacy-review.v1` result lists saved supported field names and
+counts of mastery/confidence concepts, error patterns, retained outcomes and
+memory nodes/edges. It returns explicit `not_saved`/null counts if absent,
+without creating defaults or reading the unverified legacy model. It does not
+return concept labels, goals, answers or filesystem paths. Corrupt/foreign
+records fail explicitly; responses are no-store and no model calls occur.
+
+This review is not an executable deletion preview: `deletion_available: false`
+and `review_only: true` are mandatory. Standalone stale-write protection is still
+a blocker; there is no confirmation token, deletion endpoint or receipt for this
+model action. No requests are cancelled. Lessons/recovery, notes, uploads,
+curricula, other accounts, legacy/unknown model extensions, telemetry, threads,
+artifacts/plans, audit/usage, provider copies, backups and other tabs/downloads
+remain outside this review, not promised retained by a future erasure flow.
+It is not a full inventory or atomic snapshot.
+Refreshing a failed review clears the old displayed result; no automatic retry.
+
+The existing **Preview saved learning deletion** action below still concerns only
+the lesson session/recovery, not the standalone learner model.
 Type **DELETE SAVED LEARNING** to enable the destructive action. The preview
 fingerprint binds to the account, saved session and recovery revision; changed
 content or an account switch requires a new preview (409). Successful

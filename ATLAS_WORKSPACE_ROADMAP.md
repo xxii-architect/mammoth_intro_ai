@@ -254,6 +254,11 @@ feedback over adding more agents or permanent panels.
   success, and the complete export retains its exact 8 MiB bound.
   Full-platform limits/cancellation, age-based retention, reliable paid-action
   estimates and erasure of excluded stores remain open; LEARN-06 stays unchecked.
+  Read-only adaptation scope review is available through
+  `/api/atlas/learner/privacy-review`: private active-account supported field
+  names and actual saved record counts, explicit absence, no model/default
+  creation or deletion. Standalone deletion remains disabled pending its own
+  stale-write protection; review provides no execution token or erasure receipt.
   This is not a compliance certification.
 
 Recommended sequence: LEARN-01 recovery, LEARN-02 contextual tutoring,

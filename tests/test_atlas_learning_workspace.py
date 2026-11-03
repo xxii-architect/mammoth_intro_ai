@@ -466,6 +466,115 @@ def _saved_adaptation(uid, account="default"):
     return path, model
 
 
+def test_adaptation_review_requires_auth_and_is_read_only_private(client, learning_export, monkeypatch):
+    states, _ = learning_export
+    assert client.get("/api/atlas/learner/privacy-review").status_code == 401
+    path, _ = _saved_adaptation("tenant-a")
+    other, _ = _saved_adaptation("tenant-b")
+    second, _ = _saved_adaptation("tenant-a", "second")
+    before = {p: p.read_bytes() for p in (path, other, second, *states.values())}
+    def forbidden(*args, **kwargs):
+        pytest.fail("Scope review must not hydrate, generate, save or cancel")
+    monkeypatch.setattr(api_server, "_hydrate_learner_state", forbidden)
+    monkeypatch.setattr(api_server, "_learning_control_action", forbidden)
+    response = client.get("/api/atlas/learner/privacy-review?user_id=tenant-b&account_id=second",
+                          headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    result = response.json()
+    assert result["contract"] == "mammoth.learner-privacy-review.v1"
+    assert result["account_id"] == "default"
+    assert result["model_status"] == "saved"
+    assert result["saved_record_counts"] == {
+        "mastery_concepts": 1, "confidence_concepts": 1, "error_patterns": 0,
+        "retained_outcomes": 24, "memory_nodes": 1, "memory_edges": 0,
+    }
+    assert result["review_only"] is True
+    assert result["deletion_available"] is False
+    assert result["model_calls"] == 0
+    assert "receipt_id" not in result and "preview_token" not in result
+    assert "unverified_legacy_models" in result["retained_outside_scope"]
+    assert "tenant-b" not in response.text
+    assert "tenant-a-default goal" not in response.text
+    assert "never-export-this-extension" not in response.text
+    assert {p: p.read_bytes() for p in before} == before
+
+
+def test_absent_adaptation_review_creates_nothing(client, learning_export):
+    from pathlib import Path
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        root = Path(api_server._learner_storage_path("workspace:default"))
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+    response = client.get("/api/atlas/learner/privacy-review", headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 200
+    assert response.json()["model_status"] == "not_saved"
+    assert response.json()["saved_record_counts"] is None
+    assert response.json()["saved_fields"] == []
+    assert not root.exists()
+
+
+def test_adaptation_review_follows_server_account_and_authenticated_owner(client, learning_export):
+    states, _ = learning_export
+    _saved_adaptation("tenant-a")
+    other, _ = _saved_adaptation("tenant-b", "second")
+    record = json.loads(other.read_text(encoding="utf-8"))
+    record["recent_outcomes"] = []
+    other.write_text(json.dumps(record), encoding="utf-8")
+    state = json.loads(states["tenant-b"].read_text(encoding="utf-8"))
+    state["active_account_id"] = "second"
+    state["accounts"]["second"] = {"profile": {}}
+    states["tenant-b"].write_text(json.dumps(state), encoding="utf-8")
+    response = client.get("/api/atlas/learner/privacy-review?user_id=tenant-a&account_id=default",
+                          headers={"Authorization": "Bearer tenant-b"})
+    assert response.status_code == 200
+    result = response.json()
+    assert result["account_id"] == "second"
+    assert result["saved_record_counts"]["retained_outcomes"] == 0
+    token = api_server._REQUEST_USER_ID.set("tenant-b")
+    try:
+        assert result["storage_scope"] == api_server._learner_storage_scope("workspace:second")
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+
+
+def test_adaptation_review_never_imports_legacy_or_masks_unreadable_storage(client, learning_export, monkeypatch, tmp_path):
+    from mammoth_os import learner_model
+    legacy = tmp_path / "ambiguous-legacy.json"
+    legacy.write_text('{"user_id":"workspace:default","mastery":{"private-legacy":1}}', encoding="utf-8")
+    before = legacy.read_bytes()
+    original = learner_model._model_path
+    def scoped_only(storage_path=None):
+        assert storage_path is not None, "Review must never open the shared legacy model"
+        return original(storage_path)
+    monkeypatch.setattr(learner_model, "_model_path", scoped_only)
+    response = client.get("/api/atlas/learner/privacy-review", headers={"Authorization": "Bearer tenant-a"})
+    assert response.json()["model_status"] == "not_saved"
+    assert "private-legacy" not in response.text
+    assert legacy.read_bytes() == before
+    path, _ = _saved_adaptation("tenant-a")
+    path.unlink()
+    path.mkdir()
+    response = client.get("/api/atlas/learner/privacy-review", headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 503
+    assert "not_saved" not in response.text
+    assert path.is_dir()
+    assert legacy.read_bytes() == before
+
+
+@pytest.mark.parametrize("record", ["bad-json", '{"user_id":"workspace:second"}',
+                                     '{"user_id":"workspace:default","memory_graph":{"nodes":{}}}'])
+def test_adaptation_review_storage_errors_are_not_empty_success(client, learning_export, record):
+    path, _ = _saved_adaptation("tenant-a")
+    path.write_text(record, encoding="utf-8")
+    before = path.read_bytes()
+    response = client.get("/api/atlas/learner/privacy-review", headers={"Authorization": "Bearer tenant-a"})
+    assert response.status_code == 503
+    assert path.read_bytes() == before
+    assert "model_status" not in response.json()
+
+
 def test_learning_export_contains_only_saved_active_private_adaptation(client, learning_export, monkeypatch):
     a_path, a_model = _saved_adaptation("tenant-a")
     b_path, _ = _saved_adaptation("tenant-b")
