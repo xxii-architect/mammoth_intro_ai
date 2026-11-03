@@ -689,6 +689,32 @@ The `AtlasFAB*` names are permanent aliases for `MammothMind*` (same classes), a
 
 ## Mammoth Paths workspace SDK
 
+### Python SDK quality gate
+
+The separate `paths-sdk-quality` CI job enforces a zero-diagnostic baseline for
+the stdlib-only Python Paths package using pinned Ruff/mypy tools. Ruff checks
+correctness rules (`E4`, `E7`, `E9`, `F`), not a legacy-wide style rewrite. Mypy
+uses strict checks within the package while skipping imported implementation
+bodies outside it. The client module's existing dynamic HTTP JSON return
+boundaries explicitly exempt `no-any-return`; this is not runtime response-shape
+validation or a claim that every payload is typed. Other modules retain that
+check. Nine real-tool tests verify clean code passes and undefined names, unused
+imports, wrong return types, untyped functions and bare generics fail.
+
+```powershell
+python -m pip install -r scripts\quality\requirements.txt pytest
+python -m ruff check --config scripts\quality\paths-ruff.toml src\mammoth_os\paths
+python -m mypy --config-file scripts\quality\paths-mypy.ini
+python -m pytest tests\test_paths_quality_gate.py --noconftest -q
+```
+
+Repository-wide lint/type steps remain explicitly labeled non-blocking legacy
+diagnostics. The new job fails normally, with no `|| true`, and requires the probe
+tools rather than skipping them. This does not replace SDK behavioral tests,
+JavaScript public type checks or browser coverage. Branch protection/rulesets
+must separately require `paths-sdk-quality` to block merges. Runtime dependencies,
+SDK response behavior and reviewed owner-image manifests are unchanged.
+
 ### Browser release gate
 
 The UI workflow runs build/type checks and a separate `ui-interactions` job on

@@ -45,14 +45,14 @@ jobs:
           if (Test-Path requirements.txt) { pip install -r requirements.txt }
         shell: pwsh
 
-      - name: Lint (ruff)
+      - name: Legacy lint diagnostics (not a release gate)
         env:
           PYTHONPATH: src
         run: |
           ruff check src || true
         shell: bash
 
-      - name: Type-check (mypy)
+      - name: Legacy type diagnostics (not a release gate)
         env:
           PYTHONPATH: src
         run: |
@@ -85,6 +85,32 @@ jobs:
             pytest.xml
             test.log
             coverage.xml
+
+  paths-sdk-quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install pinned quality tools
+        run: python -m pip install -r scripts/quality/requirements.txt pytest
+
+      - name: Enforce Paths correctness lint
+        run: python -m ruff check --config scripts/quality/paths-ruff.toml src/mammoth_os/paths
+
+      - name: Enforce Paths bounded strict typing
+        run: python -m mypy --config-file scripts/quality/paths-mypy.ini
+
+      - name: Verify gates reject regressions
+        env:
+          MAMMOTH_REQUIRE_QUALITY_TESTS: '1'
+        run: python -m pytest tests/test_paths_quality_gate.py --noconftest -q
 
   paths-sdk-js:
     runs-on: ubuntu-latest
