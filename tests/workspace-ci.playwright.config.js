@@ -9,7 +9,8 @@ if (process.env.ATLAS_UI_URL) {
 
 const output = process.env.MAMMOTH_BROWSER_REPORT_DIR || path.join(os.tmpdir(), `mammoth-workspace-gate-${process.pid}`)
 
-module.exports = defineConfig(base, {
+module.exports = defineConfig({
+  ...base,
   forbidOnly: true,
   retries: 0,
   failOnFlakyTests: true,
@@ -25,5 +26,12 @@ module.exports = defineConfig(base, {
     browserName: 'chromium',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+  },
+  webServer: {
+    ...base.webServer,
+    env: {
+      ...base.webServer.env,
+      VITE_MONACO_BASE_URL: 'http://127.0.0.1:5194/node_modules/monaco-editor/min/vs',
+    },
   },
 })

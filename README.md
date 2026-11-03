@@ -694,7 +694,8 @@ The `AtlasFAB*` names are permanent aliases for `MammothMind*` (same classes), a
 The UI workflow runs build/type checks and a separate `ui-interactions` job on
 every PR targeting `main` and every push to `main`, including test-only changes.
 The browser job installs locked root/UI dependencies and Chromium, starts its own
-fixture-configured Vite server, and runs all four workspace suites: ATLAS,
+fixture-configured Vite server with locked local Monaco assets (not the editor
+CDN), and runs all four workspace suites: ATLAS,
 artifacts, document uploads and workspace reliability. It fails on focused tests,
 missing/empty suites, skipped tests, expected failures, retries or failed tests;
 it cannot substitute a successful build for behavior coverage.

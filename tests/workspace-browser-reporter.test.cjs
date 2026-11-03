@@ -100,3 +100,12 @@ test('release config refuses an externally supplied server before any browser wo
   assert.equal(result.status, 1)
   assert.match(result.stderr, /must start its own fixture-configured Vite server/)
 })
+
+test('release config uses locked local editor assets, not an external CDN', () => {
+  const config = require('./workspace-ci.playwright.config')
+  assert.equal(config.webServer.env.VITE_MONACO_BASE_URL,
+    'http://127.0.0.1:5194/node_modules/monaco-editor/min/vs')
+  assert.equal(config.webServer.reuseExistingServer, false)
+  assert.equal(config.retries, 0)
+  assert.equal(config.forbidOnly, true)
+})
