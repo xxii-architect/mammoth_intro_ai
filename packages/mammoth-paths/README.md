@@ -10,6 +10,18 @@
 
 ### Runtime usage controls
 
+Optional shared tenant admission adds `runtimeTenants()`,
+`tenantRuntimeUsage(tenantId)` and
+`setTenantRuntimeLimits(tenantId, { dailyTokenLimit, dailyUsdLimitMicros })`.
+Limits are null or non-negative integer tokens/microUSD; 1 USD = 1,000,000
+microUSD. Backend active membership and owner/admin policy checks apply.
+Set the `X-Mammoth-Tenant-ID` client header when multiple memberships exist.
+These versioned-price estimates are not invoices. Private login ceilings remain
+additive; unknown calls retain reservations and are not replayed.
+Python exposes matching snake_case methods. See the
+[operator rollout guide](../../docs/shared_runtime_operations.md) for migration,
+exact expiring prices and the current single-writer runtime boundary.
+
 `await paths.runtimeUsage()` reads `mammoth.runtime-usage.v1`.
 `await paths.setRuntimeTokenLimit(100000)` sets an optional UTC daily ceiling
 across the caller's workspace accounts; `0` blocks new covered completion calls,

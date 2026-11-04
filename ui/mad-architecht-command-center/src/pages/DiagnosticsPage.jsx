@@ -422,7 +422,7 @@ export default function DiagnosticsPage() {
                 {approvalStream.length > 0 ? approvalStream.slice(0, 5).map(item => (
                   <div key={item.id} style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
                     <div style={{ fontSize: '0.76rem', color: 'var(--txt-pri)', marginBottom: 4 }}>{item.operation} • {item.target}</div>
-                    <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{item.status} • {item.agent_id || 'system'} • {item.created_at ? new Date(item.created_at).toLocaleString() : 'unknown'}</div>
+                    <div style={{ fontSize: '0.66rem', color: 'var(--txt-mut)' }}>{item.status === 'executing' ? 'Claimed - outcome unconfirmed; no replay' : item.status} • {item.agent_id || 'system'} • {item.created_at ? new Date(item.created_at).toLocaleString() : 'unknown'}</div>
                   </div>
                 )) : <div style={{ fontSize: '0.78rem', color: 'var(--txt-mut)' }}>No approvals waiting.</div>}
               </div>

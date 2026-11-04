@@ -705,6 +705,7 @@ export default function AgentPage({ setPage }) {
   }
 
   const pendingApprovals = approvals.filter(a => a.status === 'pending')
+  const claimedApprovals = approvals.filter(a => a.status === 'executing')
   const sectionLabel = { fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.12em', color: 'var(--txt-sec)', marginBottom: 8 }
 
   const approvalsSection = (
@@ -722,6 +723,13 @@ export default function AgentPage({ setPage }) {
           <div style={{ color: 'var(--txt-sec)', fontSize: '0.7rem', marginTop: 4 }}>{approval.target}</div>
         </div>
       )) : <MammothEmpty context="approvals" compact />}
+      {claimedApprovals.map(approval => (
+        <div key={approval.id} role="status" style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+          <div>{approval.operation} - claimed, outcome unconfirmed</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--txt-sec)' }}>{approval.target}</div>
+          <p>Inspect recorded and external evidence. This action cannot be replayed or discarded automatically.</p>
+        </div>
+      ))}
     </div>
   )
 

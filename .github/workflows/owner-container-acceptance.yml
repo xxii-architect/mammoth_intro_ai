@@ -3,8 +3,13 @@ name: Owner Container Acceptance
 on:
   workflow_dispatch:
     inputs:
+      target:
+        description: Runner diagnostics or actual deployed production service
+        type: choice
+        default: runner
+        options: [runner, production]
       image:
-        description: Operator-reviewed image@sha256 digest (Python 3.11.8+)
+        description: Reviewed image@sha256 digest, or configured for production live-process image only
         required: true
         type: string
       pull_reviewed_image:
@@ -17,6 +22,7 @@ permissions:
 
 jobs:
   owner-container-acceptance:
+    if: inputs.target != 'production'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -49,3 +55,61 @@ jobs:
           path: owner-container-evidence/owner_container_evidence.json
           if-no-files-found: warn
           retention-days: 7
+
+  hosted-owner-container-acceptance:
+    if: inputs.target == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+    concurrency: hosted-owner-container-acceptance
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Pinned SSH acceptance only (no deployment or image pulls)
+        env:
+          DO_HOST: ${{ secrets.DO_HOST }}
+          DO_USER: ${{ secrets.DO_USER }}
+          DO_PORT: ${{ secrets.DO_PORT }}
+          DO_APP_PATH: ${{ secrets.DO_APP_PATH }}
+          DO_KNOWN_HOSTS: ${{ secrets.DO_KNOWN_HOSTS }}
+          DO_SSH_PRIVATE_KEY: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          DO_SSH_PRIVATE_KEY_B64: ${{ secrets.DO_SSH_PRIVATE_KEY_B64 }}
+          REVIEWED_IMAGE: ${{ inputs.image }}
+          PULL_REVIEWED_IMAGE: ${{ inputs.pull_reviewed_image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for var in DO_HOST DO_USER DO_APP_PATH DO_KNOWN_HOSTS; do
+            test -n "${!var}" || { echo "::error::Missing pinned production SSH configuration: $var"; exit 1; }
+          done
+          test "$PULL_REVIEWED_IMAGE" != true || { echo "::error::Production acceptance never pulls images"; exit 1; }
+          [[ "$DO_APP_PATH" =~ ^/[a-zA-Z0-9_./-]+$ ]]
+          [[ "$REVIEWED_IMAGE" == configured || "$REVIEWED_IMAGE" =~ ^[a-zA-Z0-9][a-zA-Z0-9._:/-]*@sha256:[a-f0-9]{64}$ ]]
+          mkdir -p "$RUNNER_TEMP/hosted-ssh" hosted-container-evidence
+          chmod 700 "$RUNNER_TEMP/hosted-ssh"
+          if [ -n "$DO_SSH_PRIVATE_KEY_B64" ]; then
+            printf '%s' "$DO_SSH_PRIVATE_KEY_B64" | base64 -d > "$RUNNER_TEMP/hosted-ssh/key"
+          else
+            test -n "$DO_SSH_PRIVATE_KEY"
+            printf '%s\n' "$DO_SSH_PRIVATE_KEY" | tr -d '\r' > "$RUNNER_TEMP/hosted-ssh/key"
+          fi
+          printf '%s\n' "$DO_KNOWN_HOSTS" > "$RUNNER_TEMP/hosted-ssh/known_hosts"
+          chmod 600 "$RUNNER_TEMP/hosted-ssh/key"
+          ssh -i "$RUNNER_TEMP/hosted-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosted-ssh/known_hosts" \
+            -p "${DO_PORT:-22}" "${DO_USER}@${DO_HOST}" \
+            "python3 - '$DO_APP_PATH' '$REVIEWED_IMAGE' '$GITHUB_SHA'" \
+            < scripts/quality/check_hosted_owner_container.py \
+            > hosted-container-evidence/hosted_container_evidence.json
+      - name: Upload actual-host acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hosted-container-evidence
+          path: hosted-container-evidence/hosted_container_evidence.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Remove per-job SSH key
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/hosted-ssh/key" "$RUNNER_TEMP/hosted-ssh/known_hosts"

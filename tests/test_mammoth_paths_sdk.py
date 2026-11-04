@@ -75,6 +75,26 @@ def test_public_names_and_aliases():
     assert "MammothMind" in mammoth_os.__all__
 
 
+def test_tenant_usage_limits_and_scope_header(backend):
+    memberships = {"enabled": True, "tenants": [{"tenant_id": "tenant", "name": "Fixture", "role": "owner"}]}
+    snapshot = {"contract": "mammoth.tenant-usage.v1", "invoice_verified": False}
+    backend.route("GET", "/api/runtime/tenants", body=memberships)
+    backend.route("GET", "/api/runtime/tenant-usage", body=snapshot)
+    backend.route("PUT", "/api/runtime/tenant-usage/policy", body=snapshot)
+    client = MammothPaths(backend.url, headers={"X-Mammoth-Tenant-ID": "tenant"})
+    assert client.runtime_tenants() == memberships
+    assert client.tenant_runtime_usage("tenant") == snapshot
+    assert backend.requests[-1]["path"] == "/api/runtime/tenant-usage?tenant_id=tenant"
+    assert client.set_tenant_runtime_limits("tenant", daily_token_limit=0, daily_usd_limit_micros=1) == snapshot
+    assert backend.requests[-1]["body"] == {"tenant_id": "tenant", "daily_token_limit": 0, "daily_usd_limit_micros": 1}
+    count = len(backend.requests)
+    for value in (True, -1, 0.1, "1", 1_000_000_000_001):
+        with pytest.raises(ValueError):
+            client.set_tenant_runtime_limits("tenant", daily_token_limit=None, daily_usd_limit_micros=value)
+    assert len(backend.requests) == count
+    assert all(row["headers"]["X-Mammoth-Tenant-Id"] == "tenant" for row in backend.requests)
+
+
 def test_runtime_usage_and_ceiling_match_wire_contract(backend):
     snapshot = {"contract": "mammoth.runtime-usage.v1", "daily_token_limit": 0}
     backend.route("GET", "/api/runtime/usage", body=snapshot)

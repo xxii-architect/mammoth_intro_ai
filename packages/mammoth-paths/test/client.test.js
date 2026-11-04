@@ -16,6 +16,26 @@ const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
+test('tenant usage and integer microUSD ceilings preserve explicit scope without retries', async () => {
+  const body = { contract: 'mammoth.tenant-usage.v1', invoice_verified: false }
+  const memberships = { enabled: true, tenants: [{ tenant_id: 'tenant', name: 'Fixture', role: 'owner' }] }
+  const { impl, calls } = fakeFetch({
+    'GET /api/runtime/tenants': { body: memberships },
+    'GET /api/runtime/tenant-usage': { body },
+    'PUT /api/runtime/tenant-usage/policy': { body },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl, headers: { 'X-Mammoth-Tenant-ID': 'tenant' } })
+  assert.deepEqual(await client.runtimeTenants(), memberships)
+  assert.deepEqual(await client.tenantRuntimeUsage('tenant'), body)
+  assert.deepEqual(await client.setTenantRuntimeLimits('tenant', { dailyTokenLimit: 0, dailyUsdLimitMicros: 1 }), body)
+  assert.deepEqual(calls.at(-1).body, { tenant_id: 'tenant', daily_token_limit: 0, daily_usd_limit_micros: 1 })
+  const count = calls.length
+  for (const value of [true, -1, 0.1, '1', 1000000000001, undefined]) {
+    assert.throws(() => client.setTenantRuntimeLimits('tenant', { dailyTokenLimit: null, dailyUsdLimitMicros: value }), TypeError)
+  }
+  assert.equal(calls.length, count)
+})
+
 test('runtime usage and explicit ceilings use matching wire fields without retries', async () => {
   const body = { contract: 'mammoth.runtime-usage.v1', daily_token_limit: 0 }
   const { impl, calls } = fakeFetch({

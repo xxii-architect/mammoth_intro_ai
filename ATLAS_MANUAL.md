@@ -30,6 +30,26 @@ retries, provider invoices and calls outside the hosted request context remain
 outside separate accounting. This is not dollar/Copilot-credit spend or
 authoritative multi-member tenant billing. All workers must share durable disk.
 
+### Shared state and tenant estimated-dollar controls
+
+The optional shared backend adds atomic compare-and-swap for generic JSON
+collections, preserving independent keyed appends and rejecting conflicting
+record edits with HTTP 409. Corrupt records return a storage error rather than
+an empty success. Legacy approvals are durably claimed before execution; an
+interrupted claim is an unknown outcome, not permission to replay the action.
+Local learner saves also reject conflicting changes and retain deletion fences.
+
+Settings > Tenant usage controls exposes verified active memberships and shared
+UTC-day token/estimated-USD ceilings. Only tenant owners/admins can change policy;
+changes are audited. Private login ceilings remain additive. Exact expiring
+operator-reviewed prices are required when a dollar ceiling is active. Unknown
+usage retains reservations; unknown historical prices block dollar-capped
+admission. Reported overruns are retained and block later calls, not hidden.
+These are conservative estimates, not invoices, Copilot credits or full paid
+service coverage. See [shared runtime operations](docs/shared_runtime_operations.md).
+Full independent-replica readiness and production migration remain explicit
+rollout gates; this release does not automatically change host configuration.
+
 ### Detailed explanations and Guide freshness
 
 The [MammothOS Feature Handbook](docs/public/mammothos_feature_handbook.md)

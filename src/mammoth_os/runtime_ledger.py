@@ -57,7 +57,7 @@ class RuntimeLedger:
             db.execute("UPDATE policy SET daily_tokens=? WHERE id=1", (limit,))
         return self.snapshot()
 
-    def reserve(self, provider: str, model: str, tokens: int) -> str:
+    def reserve(self, provider: str, model: str, tokens: int, *, input_tokens=None, output_tokens=None) -> str:
         if type(tokens) is not int or tokens < 1:
             raise ValueError("A positive conservative token reservation is required.")
         now = datetime.now(timezone.utc).isoformat()

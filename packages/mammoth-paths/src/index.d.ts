@@ -150,6 +150,9 @@ export declare class PathsError extends Error {
 export interface PathsClient {
   contract: 'mammoth.paths.v1'
   runtimeUsage(): Promise<RuntimeUsage>
+  runtimeTenants(): Promise<{ enabled: boolean; tenants: Array<{ tenant_id: string; name: string; role: 'owner' | 'admin' | 'member' | 'viewer' }> }>
+  tenantRuntimeUsage(tenantId: string): Promise<TenantRuntimeUsage>
+  setTenantRuntimeLimits(tenantId: string, limits: { dailyTokenLimit: number | null; dailyUsdLimitMicros: number | null }): Promise<TenantRuntimeUsage>
   setRuntimeTokenLimit(dailyTokenLimit: number | null): Promise<RuntimeUsage>
   tools(options?: { repo?: string }): Promise<Record<string, unknown>>
   streamRun(message: string, options?: RunOptions): Promise<RunEvent[]>
@@ -193,6 +196,23 @@ export interface PathsClient {
   listBuildLog(): Promise<Array<Record<string, unknown>>>
   logBuild(title: string, options?: { description?: string; [field: string]: unknown }): Promise<Record<string, unknown>>
   execTerminal(cmd: string): Promise<Record<string, unknown>>
+}
+
+export interface TenantRuntimeUsage {
+  contract: 'mammoth.tenant-usage.v1'
+  tenant_id: string
+  day_utc: string
+  daily_token_limit: number | null
+  daily_usd_limit_micros: number | null
+  attempts: number
+  reported_tokens: number
+  unresolved_reserved_tokens: number
+  unknown_attempts: number
+  estimated_usd_micros: number
+  unknown_price_attempts: number
+  invoice_verified: false
+  cost_basis: 'versioned_estimate_not_invoice'
+  coverage: 'hosted_completion_admission_not_all_paid_services'
 }
 
 export interface RuntimeUsage {

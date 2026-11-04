@@ -32,6 +32,29 @@ Refreshing health does not perform a paid probe.
 
 ## Runtime usage controls: when to use them
 
+### Optional shared tenant controls
+
+Settings > Tenant usage controls is separate from your private login ceiling.
+When enabled by the deployment operator, it shows your active tenant
+memberships. Select the intended billing tenant before generating content.
+Only its owner/admin can set shared daily token and estimated-USD ceilings;
+backend membership checks enforce access, not just disabled form fields.
+Private login ceilings remain additive.
+
+Use this before multi-member workflows, not as an invoice report. Estimates
+use exact, expiring operator-reviewed provider/model prices. Missing prices or
+unknown earlier costs block new dollar-capped calls; missing usage retains the
+full allowance. Changing a ceiling never clears unknown work or retries it.
+Zero blocks new covered calls; empty means uncapped. Already-started calls may
+overrun estimates, and reported overruns remain visible.
+
+These controls cover hosted completion admission, not embeddings, all internal
+SDK retries, custom paid paths, external clients or provider invoices.
+Shared-state RPCs do not make all runtime components independently replica-safe.
+Concurrent conflicting saved edits now require a reload instead of silently
+overwriting another request. A retained executing approval after worker loss
+is an unknown outcome to inspect, not an action to replay.
+
 Use Settings > Runtime usage controls before long runs or indexed reviews to
 choose an optional daily token-admission ceiling across your login's workspace
 accounts. Days are UTC. Blank is uncapped; zero prevents new covered calls.

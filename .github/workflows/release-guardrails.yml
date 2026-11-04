@@ -41,5 +41,32 @@ jobs:
             src/mammoth_os/test_learner_model.py \
             tests/test_runtime_resilience.py \
             tests/test_runtime_state_usage.py \
+            tests/test_shared_state_admission.py \
             tests/test_server_routes_layout.py \
             -q
+
+  shared-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: src
+      MAMMOTH_TEST_POSTGRES_CONTAINER: mammoth-admission-ci
+      MAMMOTH_REQUIRE_POSTGRES_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -r requirements.txt pytest
+      - name: Start dedicated ephemeral PostgreSQL
+        run: |
+          docker run --name mammoth-admission-ci -e POSTGRES_PASSWORD=fixture-only -d postgres:16
+          for attempt in $(seq 1 30); do
+            if docker exec mammoth-admission-ci pg_isready -U postgres; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - run: python -m pytest tests/test_shared_state_admission.py -q
+      - name: Stop dedicated fixture database
+        if: always()
+        run: docker rm -f mammoth-admission-ci

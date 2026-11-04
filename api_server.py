@@ -153,6 +153,7 @@ _AUTH_OPTIONAL_PATHS = {
     "/api/agents",
 }
 _REQUEST_USER_ID: ContextVar[str] = ContextVar("mammoth_request_user_id", default="local")
+_REQUEST_TENANT_ID: ContextVar[str] = ContextVar("mammoth_request_tenant_id", default="")
 _REQUEST_USER_EMAIL: ContextVar[str] = ContextVar("mammoth_request_user_email", default="")
 _REQUEST_IS_ADMIN: ContextVar[bool] = ContextVar("mammoth_request_is_admin", default=False)
 _LATEST_RUNTIME_STATUS: Dict[str, Any] = {}
@@ -689,14 +690,20 @@ ATLAS_MODULE_TRACKS: List[Dict[str, Any]] = [
 def _read_json(path: Path, default=None):
     if default is None:
         default = []
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
+    return _json_store().read(path, default)
 
 
 def _write_json(path: Path, data):
-    path.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    _json_store().write(path, data)
+
+
+def _json_store():
+    from mammoth_os.shared_state import JsonStateStore, service_rpc
+
+    backend = os.environ.get("MAMMOTH_STATE_BACKEND", "local")
+    if backend not in {"local", "supabase"}:
+        raise HTTPException(status_code=503, detail="Invalid shared-state backend; no fallback is permitted.")
+    return JsonStateStore(MAMMOTH_DIR, rpc=service_rpc if backend == "supabase" else None)
 
 
 def _normalize_user_storage_key(user_id: str) -> str:
@@ -1715,15 +1722,31 @@ def _approve_record(record_id: str) -> Dict[str, Any]:
         if item.get("id") == record_id:
             if item.get("status") == "approved":
                 return {"status": "ok", "approval": item, "result": item.get("last_result")}
-            item["status"] = "approved"
+            if item.get("status") != "pending":
+                from mammoth_os.shared_state import StateConflict
+                raise StateConflict("Approval is already claimed or no longer pending; unknown actions are never replayed.")
+            item["status"] = "executing"
+            item["claim_id"] = uuid.uuid4().hex
             item["approved_at"] = datetime.now(timezone.utc).isoformat()
             updated = item
             break
     if updated is None:
         return {"status": "error", "message": "approval not found"}
+    # Commit the claim before any external action. A crash leaves an explicit
+    # unknown outcome, not a pending approval another worker can replay.
+    _write_json(MAMMOTH_DIR / "approvals.json", approvals)
     result = _execute_approval_record(updated)
+    updated["status"] = "approved"
     updated["last_result"] = result
     updated["completed_at"] = datetime.now(timezone.utc).isoformat()
+    latest = _read_json(MAMMOTH_DIR / "approvals.json", default=[])
+    if not any(item.get("id") == record_id and item.get("status") == "executing"
+               and item.get("claim_id") == updated["claim_id"] for item in latest):
+        from mammoth_os.shared_state import StateConflict
+        raise StateConflict("Approval changed after execution; the action must not be replayed.")
+    _write_json(MAMMOTH_DIR / "approvals.json", [
+        updated if item.get("id") == record_id else item for item in latest
+    ])
     task_id = str(updated.get("task_id") or "").strip()
     if task_id:
         operation = str(updated.get("operation") or "approval")
@@ -1744,7 +1767,6 @@ def _approve_record(record_id: str) -> Dict[str, Any]:
         kind="approval_executed",
         details={"approval_id": record_id, "status": result.get("status", "unknown")},
     )
-    _write_json(MAMMOTH_DIR / "approvals.json", approvals)
     return {"status": "ok", "approval": updated, "result": result}
 
 
@@ -1754,6 +1776,9 @@ def _delete_approval_record(record_id: str, *, reason: str = "deleted_by_user") 
     deleted = None
     for item in approvals:
         if item.get("id") == record_id:
+            if item.get("status") == "executing":
+                from mammoth_os.shared_state import StateConflict
+                raise StateConflict("An executing or unknown-outcome approval cannot be discarded.")
             deleted = dict(item)
             deleted["status"] = "deleted"
             deleted["deleted_at"] = datetime.now(timezone.utc).isoformat()
@@ -2199,6 +2224,19 @@ def _runtime_ledger(user_id=None):
     from mammoth_os.repo_access import user_storage_key
 
     return RuntimeLedger(MAMMOTH_DIR / "runtime_usage" / f"{user_storage_key(user_id or _current_request_user_id())}.sqlite3")
+
+
+def _completion_ledger(user_id=None, tenant_id=None):
+    from mammoth_os.shared_state import StateUnavailable
+    from mammoth_os.tenant_admission import CombinedLedger, TenantLedger
+
+    private = _runtime_ledger(user_id)
+    backend = os.environ.get("MAMMOTH_USAGE_BACKEND", "local")
+    if backend == "local":
+        return private
+    if backend != "supabase":
+        raise StateUnavailable("Invalid usage backend; no fallback is permitted.")
+    return CombinedLedger(private, TenantLedger(user_id or _current_request_user_id(), tenant_id or _REQUEST_TENANT_ID.get()))
 
 
 def _runtime_status_snapshot() -> Dict[str, Any]:
@@ -4223,12 +4261,12 @@ def _verify_execution_contract(envelope: Dict[str, Any], policy: Dict[str, Any])
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _load_atlas_state() -> Dict[str, Any]:
+    from mammoth_os.shared_state import JsonStateStore
+
     atlas_file = _atlas_state_file_for_request()
-    if atlas_file.exists():
+    state = JsonStateStore(MAMMOTH_DIR).read(atlas_file, {})
+    if state:
         try:
-            state = json.loads(atlas_file.read_text(encoding="utf-8"))
-            if not isinstance(state, dict):
-                return _ensure_account_collections({"status": "no_session", "active_account_id": "default"})
             normalized_history: List[Dict[str, Any]] = []
             for idx, raw in enumerate(state.get("lesson_history") or []):
                 entry = _normalize_lesson_history_entry(raw, idx)
@@ -4246,14 +4284,16 @@ def _load_atlas_state() -> Dict[str, Any]:
             state["agent_run_history"] = _normalize_agent_run_history_collection(state.get("agent_run_history"))
             _sync_resume_packet(state)
             return state
-        except Exception:
-            pass
+        except (ValueError, TypeError, KeyError) as exc:
+            logger.exception("Saved learning state could not be normalized")
+            raise HTTPException(status_code=503, detail="Saved learning is invalid. No empty reset or overwrite was performed.") from exc
     return _ensure_account_collections({"status": "no_session", "active_account_id": "default"})
 
 
 def _save_atlas_state(state: Dict[str, Any]):
     from mammoth_os.learning_controls import check_cancelled
-    from mammoth_os.learning_workspace import _workspace_lock, _write_workspace
+    from mammoth_os.learning_workspace import _workspace_lock
+    from mammoth_os.shared_state import JsonStateStore, StateConflict
 
     check_cancelled()
     atlas_file = _atlas_state_file_for_request()
@@ -4271,7 +4311,9 @@ def _save_atlas_state(state: Dict[str, Any]):
                 raise HTTPException(status_code=409, detail="Private adaptation was deleted or deletion is pending. Reload; stale state was not saved.")
             check_cancelled()
             _persist_active_account_collections(state)
-            _write_workspace(atlas_file, state, default=str)
+            JsonStateStore(MAMMOTH_DIR).write(atlas_file, state, strict=True)
+    except StateConflict as exc:
+        raise HTTPException(status_code=409, detail="Saved learning changed during this request. Reload; stale content was not saved.") from exc
     except (OSError, ValueError) as exc:
         logger.exception("Learning state save failed")
         raise HTTPException(status_code=503, detail="Saved learning could not be written. No save was confirmed.") from exc
@@ -7704,7 +7746,7 @@ def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "", lease=
         from mammoth_os.runtime_ledger import ledger_context
 
         try:
-            with ledger_context(_runtime_ledger(run.user_id)):
+            with ledger_context(_completion_ledger(run.user_id, run.request.get("_tenant_id"))):
                 async for event in events_iter:
                     # Agent-page runs live in that page's own threads, not Mammoth Mind's chat history.
                     save_recursive_pause = bool(run.recursive and event.type == "run.awaiting_approval")

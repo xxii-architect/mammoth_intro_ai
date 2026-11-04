@@ -3,6 +3,51 @@ const fs = require('node:fs')
 const path = require('node:path')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
+test('Tenant ceilings use exact microUSD, backend membership and explicit errors', async ({ page }) => {
+  const requests = []
+  let fail = false
+  const snapshot = { contract: 'mammoth.tenant-usage.v1', daily_token_limit: null, daily_usd_limit_micros: null,
+    estimated_usd_micros: 123, reported_tokens: 2, unresolved_reserved_tokens: 10, unknown_attempts: 1, unknown_price_attempts: 0 }
+  const errors = await mount(page, 'components/TenantUsageControls', {
+    '/api/runtime/tenants': { enabled: true, tenants: [{ tenant_id: 'tenant-one', name: 'Fixture', role: 'owner' }] },
+    '/api/runtime/tenant-usage': snapshot,
+    '/api/runtime/tenant-usage/policy': request => {
+      requests.push(request.postDataJSON())
+      return fail ? { status: 403, body: JSON.stringify({ error: 'Tenant administrator required' }) }
+        : { ...snapshot, ...request.postDataJSON() }
+    },
+  })
+  await expect(page.getByRole('status')).toContainText('0.000123')
+  await page.getByLabel('Daily tenant token ceiling').fill('0')
+  await page.getByLabel('Daily estimated USD ceiling').fill('1.000001')
+  await page.getByRole('button', { name: 'Save tenant ceilings' }).click()
+  await expect.poll(() => requests.length).toBe(1)
+  expect(requests[0]).toEqual({ tenant_id: 'tenant-one', daily_token_limit: 0, daily_usd_limit_micros: 1000001 })
+  await expect(page.getByRole('button', { name: 'Save tenant ceilings' })).toBeEnabled()
+  fail = true
+  await page.getByLabel('Daily estimated USD ceiling').fill('')
+  await page.getByRole('button', { name: 'Save tenant ceilings' }).click()
+  await expect(page.getByRole('alert')).toContainText('Tenant administrator required')
+  expect(requests).toHaveLength(2)
+  expect(requests[1].daily_usd_limit_micros).toBeNull()
+  await page.evaluate(async () => {
+    const { getTenantScope } = await import('/src/api/client.js')
+    if (getTenantScope('reader') !== 'tenant-one' || getTenantScope('other-user') !== '') throw new Error('Tenant scope leaked across users')
+  })
+  expect(errors).toEqual([])
+})
+
+test('Tenant member cannot edit administrative ceilings', async ({ page }) => {
+  await mount(page, 'components/TenantUsageControls', {
+    '/api/runtime/tenants': { enabled: true, tenants: [{ tenant_id: 'tenant-one', name: 'Fixture', role: 'member' }] },
+    '/api/runtime/tenant-usage': { estimated_usd_micros: 0, unknown_price_attempts: 0, unknown_attempts: 0,
+      reported_tokens: 0, unresolved_reserved_tokens: 0, daily_token_limit: 0, daily_usd_limit_micros: 0 },
+  })
+  await expect(page.getByRole('status')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save tenant ceilings' })).toBeDisabled()
+  await expect(page.getByLabel('Daily tenant token ceiling')).toBeDisabled()
+})
+
 test('Runtime token ceiling is explicit, preserves zero and surfaces errors without retries', async ({ page }) => {
   const requests = []
   let fail = false
