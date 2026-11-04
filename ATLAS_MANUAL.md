@@ -48,6 +48,11 @@ unowned files remain admin-only. Failed publication preserves draft text, marks
 the document unit failed and omits the download link without rerunning the model.
 The local backend remains the default; use the documented backup/import/rollback
 procedure before changing production storage.
+Optional shared chat-thread storage commits metadata/messages together and
+retains deletion fences so late replies cannot recreate deleted threads. A
+failed save is reported in the stream without rerunning the model. The local
+default and global learner-backed history remain separate; review legacy owner
+mapping and use the checksummed migration/rollback procedure before activation.
 
 Settings > Tenant usage controls exposes verified active memberships and shared
 UTC-day token/estimated-USD ceilings. Only tenant owners/admins can change policy;

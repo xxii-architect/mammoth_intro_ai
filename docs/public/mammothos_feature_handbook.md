@@ -60,6 +60,12 @@ storage, including both bytes and immutable ownership. Downloads retain owner
 or admin checks across workers. Storage failure leaves the draft readable but
 marks the document unit failed and removes its link; the model is not rerun.
 Local storage remains the default, and this alone does not enable replicas.
+Chat threads can also use private PostgreSQL storage. Metadata and messages
+commit together; concurrent whole-history edits conflict instead of overwriting.
+Deletion clears content and retains a minimal fence against late replies.
+Stream results explicitly report save failures without rerunning model work.
+Legacy ownership requires review before migration; global history and learner
+recovery are still separate rollout gates.
 Concurrent conflicting saved edits now require a reload instead of silently
 overwriting another request. A retained executing approval after worker loss
 is an unknown outcome to inspect, not an action to replay.

@@ -7038,6 +7038,19 @@ ATLAS_FILES_DIR = MAMMOTH_DIR / "atlas_files"
 ATLAS_FILES_DIR.mkdir(exist_ok=True)
 
 
+def _chat_thread_store(user_id: str):
+    from mammoth_os.chat_threads import PostgresChatThreads
+    from mammoth_os.shared_state import StateUnavailable
+
+    backend = os.environ.get("MAMMOTH_CHAT_BACKEND", "local").strip().lower()
+    if backend == "local":
+        return None
+    if backend != "postgres":
+        raise StateUnavailable("Invalid chat backend; no local fallback is permitted.")
+    return PostgresChatThreads(os.environ.get("MAMMOTH_POSTGRES_DSN", ""),
+                               os.environ.get("MAMMOTH_STATE_NAMESPACE", ""), user_id)
+
+
 def _thread_dir(user_id: str) -> Path:
     safe = re.sub(r"[^a-z0-9_-]", "-", str(user_id or "local").strip().lower()).strip("-") or "local"
     d = CHAT_THREADS_DIR / safe
@@ -7054,7 +7067,14 @@ def _thread_msg_path(user_id: str, thread_id: str) -> Path:
     return _thread_dir(user_id) / f"{safe_tid}.json"
 
 
+def _restored_thread_deleted(user_id, thread_id):
+    return thread_id in _read_json(_thread_dir(user_id) / "_deleted.json", default={})
+
+
 def _load_thread_index(user_id: str) -> List[Dict[str, Any]]:
+    store = _chat_thread_store(user_id)
+    if store is not None:
+        return store.list()
     p = _thread_index_path(user_id)
     if not p.exists():
         return []
@@ -7066,10 +7086,19 @@ def _load_thread_index(user_id: str) -> List[Dict[str, Any]]:
 
 
 def _save_thread_index(user_id: str, index: List[Dict[str, Any]]) -> None:
+    if _chat_thread_store(user_id) is not None:
+        from mammoth_os.shared_state import StateUnavailable
+        raise StateUnavailable("Shared chat metadata must be updated through atomic thread operations.")
     _thread_index_path(user_id).write_text(json.dumps(index, indent=2, default=str), encoding="utf-8")
 
 
 def _load_thread_messages(user_id: str, thread_id: str) -> List[Dict[str, Any]]:
+    store = _chat_thread_store(user_id)
+    if store is not None:
+        record = store.get(thread_id)
+        return record["messages"] if record is not None else []
+    if _restored_thread_deleted(user_id, thread_id):
+        return []
     p = _thread_msg_path(user_id, thread_id)
     if not p.exists():
         return []
@@ -7081,6 +7110,12 @@ def _load_thread_messages(user_id: str, thread_id: str) -> List[Dict[str, Any]]:
 
 
 def _save_thread_messages(user_id: str, thread_id: str, messages: List[Dict[str, Any]]) -> None:
+    if _chat_thread_store(user_id) is not None:
+        from mammoth_os.shared_state import StateUnavailable
+        raise StateUnavailable("Shared chat messages require a coordinated revision-checked save.")
+    if _restored_thread_deleted(user_id, thread_id):
+        from mammoth_os.shared_state import StateConflict
+        raise StateConflict("This thread was deleted before rollback and cannot be recreated.")
     _thread_msg_path(user_id, thread_id).write_text(json.dumps(messages, indent=2, default=str), encoding="utf-8")
 
 
@@ -7138,6 +7173,13 @@ def _load_message_feedback() -> List[Dict[str, Any]]:
 
 
 def _upsert_thread_index_entry(user_id: str, thread_id: str, *, title: str = "", agent_id: str = "assistant", message_count: int = 0) -> None:
+    store = _chat_thread_store(user_id)
+    if store is not None:
+        store.create(thread_id, title or "New conversation", agent_id)
+        return
+    if _restored_thread_deleted(user_id, thread_id):
+        from mammoth_os.shared_state import StateConflict
+        raise StateConflict("This thread was deleted before rollback and cannot be recreated.")
     index = _load_thread_index(user_id)
     now_iso = datetime.now(timezone.utc).isoformat()
     entry = next((t for t in index if t.get("id") == thread_id), None)
@@ -7774,7 +7816,9 @@ def _client_history_text(history: Any, *, turns: int = 8, chars: int = 800) -> s
     return "\n".join(lines)
 
 
-def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
+def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = ""):
+    from mammoth_os.shared_state import StateConflict, StateUnavailable
+
     state = _load_atlas_state()
     account_id = _active_account_id(state)
     all_history = state.get("mammoth_chat_history") if isinstance(state.get("mammoth_chat_history"), list) else []
@@ -7802,6 +7846,10 @@ def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
     _save_atlas_state(state)
     if thread_id:
         try:
+            store = _chat_thread_store(run.user_id)
+            if store is not None:
+                store.save_exchange(thread_id, exchange)
+                return {"status": "saved"}
             messages = _load_thread_messages(run.user_id, thread_id)
             existing = next((i for i, item in enumerate(messages) if item.get("role") == "assistant" and item.get("run_id") == run.id), None)
             if existing is not None:
@@ -7812,13 +7860,16 @@ def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
             first_user = next((m.get("message", "") for m in messages if m.get("role") == "user"), "")
             title = (first_user.strip()[:60] + "…") if len(first_user.strip()) > 60 else first_user.strip()
             _upsert_thread_index_entry(run.user_id, thread_id, title=title or "Conversation", agent_id=run.agent_id, message_count=len(messages))
-        except (OSError, ValueError, TypeError):
+        except (OSError, StateConflict, StateUnavailable, ValueError, TypeError):
             logger.exception("Could not persist agent run %s to its thread", run.id)
+            return {"status": "failed", "error_code": "thread_storage_failed"}
+    return {"status": "saved"}
 
 
 def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "", lease=None) -> StreamingResponse:
     async def event_stream():
         from mammoth_os.runtime_ledger import ledger_context
+        from mammoth_os.shared_state import StateUnavailable
 
         try:
             with ledger_context(_completion_ledger(run.user_id, run.request.get("_tenant_id"))):
@@ -7827,9 +7878,12 @@ def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "", lease=
                     save_recursive_pause = bool(run.recursive and event.type == "run.awaiting_approval")
                     if ((event.type in {"run.completed", "run.partial", "run.failed"} and run.reply) or save_recursive_pause) and run.request.get("surface") != "agent_workspace":
                         try:
-                            _persist_agent_run_exchange(run, thread_id=thread_id)
-                        except (OSError, ValueError, TypeError):
+                            saved = await asyncio.to_thread(_persist_agent_run_exchange, run, thread_id=thread_id)
+                            if saved is not None:
+                                event.data["chat_save"] = saved
+                        except (OSError, ValueError, TypeError, StateUnavailable):
                             logger.exception("Could not persist agent run %s to chat history", run.id)
+                            event.data["chat_save"] = {"status": "failed", "error_code": "chat_storage_failed"}
                     yield event.to_sse()
         finally:
             try:
