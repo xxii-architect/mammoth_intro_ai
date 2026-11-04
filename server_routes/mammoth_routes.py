@@ -784,6 +784,10 @@ async def mammoth_chat(body: Dict[str, Any]):
         if lane_agent == "mammoth_guide":
             lane_payload["message"] = message
             lane_payload["repo_context"] = repo_context
+            lane_payload["guide_context"] = (
+                repo_context if repo_context.get("scope") == "public_docs"
+                else _collect_public_docs_context(message, tool_context=_agent_tool_context(body.get("repo_context"))[0])
+            )
         thought_steps.append({"ts": _ts(), "label": "Routing through the herd", "detail": f"intent={lane_intent} agent={lane_agent}", "status": "info"})
         lane_run = await run_agent({
             "agent_id": lane_agent,

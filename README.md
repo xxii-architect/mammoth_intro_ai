@@ -6,6 +6,13 @@ The current agent-readable reliability backlog is
 [Platform upgrade roadmap](PLATFORM_UPGRADE_ROADMAP.md). It separates confirmed
 gaps from investigation candidates and defines phased acceptance criteria.
 
+For detailed feature explanations and use/avoid examples, download the
+[MammothOS Feature Handbook](docs/public/mammothos_feature_handbook.md).
+The Guide reads bundled public docs per request and receives relevant excerpts,
+a documentation fingerprint and timestamped caller-filtered capability metadata.
+Anonymous callers get public docs only. Configured availability is not verified
+health; updates still require deployment. No platform repository sync occurs.
+
 ATLAS now combines the lesson/practice renderer and tutor in a learning workspace.
 Use **Lesson & practice**, **ATLAS Tutor**, or **Learning agents** without leaving
 the page; the optional desktop tutor pane sits alongside the lesson. The old

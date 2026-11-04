@@ -1089,6 +1089,10 @@ async def atlas_chat(body: Dict[str, Any]):
         guide_payload = {
             "message": guide_message,
             "repo_context": repo_context,
+            "guide_context": (
+                repo_context if repo_context.get("scope") == "public_docs"
+                else _collect_public_docs_context(guide_message, tool_context=_agent_tool_context(body.get("repo_context"))[0])
+            ),
             "page_context": page_context,
             "lesson_context": {
                 "current_lesson": current_lesson,

@@ -2,6 +2,14 @@
 
 This guide is published content. The MammothOS Guide (`/guide`) answers from it, so keep it accurate and free of internal details.
 
+For detailed explanations, feature choices, recursive-review examples and
+troubleshooting, read the [MammothOS Feature Handbook](./mammothos_feature_handbook.md).
+The Guide reads bundled public docs per request and includes a timestamped,
+caller-filtered capability snapshot for signed-in users. Documentation fingerprints
+are not release versions; configured availability is not verified health.
+Updates require deployment, not just a merge. No private platform checkout is
+shared or automatically synced to answer Guide questions.
+
 ## What Mammoth Mind is
 
 Mammoth Mind is the MammothOS chat workspace. You pick an agent lane, optionally pick a repository, and ask for help with planning, debugging, coding, or learning.
