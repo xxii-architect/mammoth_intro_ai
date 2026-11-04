@@ -83,9 +83,18 @@ acknowledgment, not automatic verification of local state.
 Use Desktop's Publish branch / Push origin and Create Pull Request, then review
 checks and merge on GitHub. Nothing launches on card refresh, pushes or merges
 automatically. If Mammoth runs remotely, its unpublished branch is not on your
-laptop: an operator-assisted transfer is still required. Downloading a patch
-alone does not import it into Desktop or preserve the backend commit. Private
-patches contain source; do not share them casually. If no valid GitHub identity
+laptop. Use **Confirm private branch bundle download (no push)** to transfer
+the exact applied commit. Its checksum is verified before download; it contains
+only the delta and requires the recorded base in your existing clone. Follow
+the card's Git bundle verify/fetch/commit-comparison instructions with a local
+Git-capable tool/operator. No commands run from the card, and the current checkout
+stays unchanged. Desktop does not directly import bundles; fully terminal-free
+import still needs a local helper. A checksum is not a signature or code review.
+Downloading a patch alone does not preserve the backend commit. Private
+bundles/patches contain source; do not share them casually.
+**View approved branch on GitHub (after publishing)** opens the exact branch as
+a website fallback; it does not push and may show not-found before publishing
+or without access. If no valid GitHub identity
 was recorded, no repository link is invented. If the browser cannot open Desktop,
 open it manually and select the correct clone.
 

@@ -7,6 +7,7 @@ application creates a new local branch containing only the validated changes.
 from __future__ import annotations
 
 import difflib
+import base64
 import hashlib
 import io
 import json
@@ -54,6 +55,7 @@ MAX_BYTES = 32 * 1024 * 1024
 MAX_FILES = 3000
 MAX_CHANGE_BYTES = 500_000
 MAX_PATCH_BYTES = 1_000_000
+MAX_BUNDLE_BYTES = 8 * 1024 * 1024
 LOG_BYTES = 16_000
 APPROVAL_TTL = 900
 JOB_RE = re.compile(r"^exec-[a-f0-9]{24}$")
@@ -172,7 +174,8 @@ def frontend_profile_reason(files: dict[str, bytes] | None, profile: str, readin
 def git(root: Path, *args: str, input_bytes: bytes | None = None, index_path: Path | None = None) -> bytes:
     # Do not inherit git credentials, alternate object directories, or injected config.
     env = {key: os.environ[key] for key in ("PATH", "SystemRoot", "TEMP", "TMP", "HOME") if key in os.environ}
-    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0")
+    env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull, GIT_TERMINAL_PROMPT="0",
+               GIT_NO_REPLACE_OBJECTS="1", GIT_NO_LAZY_FETCH="1")
     if index_path is not None:
         env["GIT_INDEX_FILE"] = str(index_path)
     result = subprocess.run(
@@ -762,6 +765,68 @@ class OwnerExecution:
                     raise ExecutionError(f"Branch application did not finish cleanly; inspect saved execution before retrying: {exc}",
                                          "application_failed", 503) from exc
                 return self.public(record)
+            finally:
+                lease.close()
+
+    def export_branch(self, job_id: str, user_id: str, root: Path, expected_commit: str) -> dict[str, Any]:
+        """Export only the approved commit; the recipient must already have its base."""
+        if not self.enabled or self.recovery_error:
+            raise ExecutionError(self.recovery_error or "Owner execution pilot is disabled.", "export_unavailable", 503)
+        with self.lock:
+            lease = ExecutionLease(self.storage)
+            try:
+                record = self._load(job_id, user_id)
+                application = record.get("application", {})
+                branch = f"mammoth/owner/{job_id}"
+                base, commit = record.get("base_sha"), application.get("commit_sha")
+                if (record["root"] != str(root) or record["status"] != "validated"
+                        or record.get("candidate", {}).get("passed") is not True or record.get("regression") is True
+                        or application.get("status") != "applied" or application.get("branch") != branch
+                        or not isinstance(commit, str) or re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", commit) is None
+                        or commit != expected_commit
+                        or not isinstance(base, str) or re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", base) is None):
+                    raise ExecutionError("Applied commit no longer matches this export request.", "stale_export", 409)
+                ref = f"refs/heads/{branch}"
+                if (git(root, "rev-parse", "--verify", ref).decode().strip() != commit
+                        or git(root, "rev-list", "--parents", "-n", "1", commit).decode().split() != [commit, base]):
+                    raise ExecutionError("Applied branch moved or its parent changed.", "stale_export", 409)
+                keys = ("repo", "base_sha", "profile", "changes", "image", "snapshot_digest")
+                if "acceptance" in record:
+                    keys += ("acceptance",)
+                if record["approval_digest"] != fingerprint({key: record[key] for key in keys}):
+                    raise ExecutionError("Approved proposal changed.", "stale_export", 409)
+                files = snapshot(root, base)
+                if fingerprint({key: hashlib.sha256(value).hexdigest() for key, value in files.items()}) != record["snapshot_digest"]:
+                    raise ExecutionError("Approved base changed.", "stale_export", 409)
+                patch = patch_text(files, validate_changes(record["changes"], root))
+                if patch != record["patch"]:
+                    raise ExecutionError("Approved patch changed.", "stale_export", 409)
+                with tempfile.TemporaryDirectory(prefix="mammoth-branch-export-") as directory:
+                    index = Path(directory) / "index"
+                    git(root, "read-tree", base, index_path=index)
+                    git(root, "apply", "--cached", "--whitespace=nowarn", "-", input_bytes=patch.encode(), index_path=index)
+                    tree = git(root, "write-tree", index_path=index).decode().strip()
+                    if git(root, "rev-parse", f"{commit}^{{tree}}").decode().strip() != tree:
+                        raise ExecutionError("Applied tree differs from the approved patch.", "stale_export", 409)
+                    bundle = Path(directory) / "approved.bundle"
+                    version = "--version=3" if len(commit) == 64 else "--version=2"
+                    git(root, "bundle", "create", version, str(bundle), ref, f"^{base}")
+                    if not 0 < bundle.stat().st_size <= MAX_BUNDLE_BYTES:
+                        raise ExecutionError("Approved bundle exceeds the export size limit.", "export_too_large", 413)
+                    # Check the packed tip, not only the mutable branch before packing.
+                    heads = git(root, "bundle", "list-heads", str(bundle)).decode().splitlines()
+                    if heads != [f"{commit} {ref}"]:
+                        raise ExecutionError("Branch moved during export.", "stale_export", 409)
+                    git(root, "bundle", "verify", str(bundle))
+                    data = bundle.read_bytes()
+                return {"contract": "mammoth.owner-branch-export.v1", "execution_id": job_id,
+                        "repo": record["repo"], "branch": branch, "base_sha": base, "commit_sha": commit,
+                        "filename": f"{job_id}.bundle", "size_bytes": len(data),
+                        "sha256": hashlib.sha256(data).hexdigest(), "encoding": "base64",
+                        "bundle_base64": base64.b64encode(data).decode("ascii"),
+                        "requires_base": True, "automatic_push": False}
+            except (OSError, subprocess.SubprocessError) as exc:
+                raise ExecutionError("Branch export failed; no bundle was delivered.", "export_failed", 503) from exc
             finally:
                 lease.close()
 

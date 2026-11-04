@@ -8,6 +8,22 @@
 
 > The package is `private: true` and consumed from source by the MammothOS app. Remove `private` when you are ready to publish.
 
+### Applied branch export
+
+`await paths.exportOwnerBranch(id, {repo: 'owner/repo', expectedCommit: commit,
+confirmPrivateExport: true})` returns an `export` receipt for the owner-approved
+applied commit. Admin/owner/repository checks remain backend-enforced. Both SDKs
+share `mammoth.owner-branch-export.v1`; the delta bundle requires the existing
+base and never pushes, imports or runs code. Maximum 8 MiB of decoded bytes.
+Identity/size/header/SHA-256 checks reject malformed receipts without retry.
+Use `await decodeOwnerBranchExport(receipt, {executionId: id, expectedCommit:
+commit})` for verified `Uint8Array` bytes. Web Crypto in a secure context is
+required; absence raises `verification_unavailable`, never unverified success.
+Node embedders whose runtime lacks global Web Crypto must supply it.
+Keep source bundles private. Import/verify with a local Git tool and compare
+the commit before selecting it in Desktop. GitHub's exact branch fallback link
+only works after an explicit push; neither link transfers unpublished work.
+
 ## Quick start
 
 ```js

@@ -5,6 +5,7 @@
 
 import { hydrateRun, readRunEventStream, reduceRunEvent } from './runState.js'
 import { validateDocumentReview } from './documentReview.js'
+import { decodeOwnerBranchExport } from './branchExport.js'
 
 export const PATHS_CONTRACT_VERSION = 'mammoth.paths.v1'
 
@@ -273,6 +274,19 @@ export function createPathsClient(options = {}) {
       json('owner_execution', 'POST', '/owner-executions', { body: { repo_context: { root: repo }, changes, base_sha: baseSha, profile,
         ...(acceptance === undefined ? {} : { acceptance }) } }),
     getOwnerExecution: (id) => json('owner_execution', 'GET', `/owner-executions/${seg(id)}`),
+    exportOwnerBranch: async (id, { repo, expectedCommit, confirmPrivateExport = false }) => {
+      if (confirmPrivateExport !== true) throw new TypeError('Explicit private source export confirmation is required')
+      const payload = await json('owner_execution', 'POST', `/owner-executions/${seg(id)}/export`, {
+        body: { repo_context: { root: repo }, expected_commit: expectedCommit, confirm_private_export: true },
+      })
+      try {
+        await decodeOwnerBranchExport(payload.export, { executionId: id, expectedCommit })
+      } catch (error) {
+        if (!['invalid_response', 'verification_unavailable'].includes(error.code)) throw error
+        throw new PathsError(error.message, { code: error.code, status: 200 })
+      }
+      return payload
+    },
     approveOwnerExecution: (id, { repo, approvalDigest }) =>
       json('owner_execution', 'POST', `/owner-executions/${seg(id)}/approve`, { body: { repo_context: { root: repo }, approval_digest: approvalDigest } }),
     cancelOwnerExecution: (id) => json('owner_execution', 'POST', `/owner-executions/${seg(id)}/cancel`, { body: {} }),

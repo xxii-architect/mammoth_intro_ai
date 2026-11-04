@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { decodeOwnerBranchExport } from '@mammothos/paths'
 
 function githubRepository(value) {
   if (typeof value !== 'string') return null
@@ -13,6 +14,7 @@ export default function DesktopHandoff({ executionId }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [localBranch, setLocalBranch] = useState(false)
+  const [exportReceipt, setExportReceipt] = useState(null)
   const generation = useRef(0)
   useEffect(() => {
     generation.current += 1
@@ -20,6 +22,7 @@ export default function DesktopHandoff({ executionId }) {
     setError('')
     setBusy(false)
     setLocalBranch(false)
+    setExportReceipt(null)
     return () => { generation.current += 1 }
   }, [executionId])
   const prepare = async () => {
@@ -28,6 +31,7 @@ export default function DesktopHandoff({ executionId }) {
     setError('')
     setJob(null)
     setLocalBranch(false)
+    setExportReceipt(null)
     try {
       if (typeof executionId !== 'string' || executionId.length !== 29
           || !/^exec-[a-f0-9]{24}$/.test(executionId)) throw new Error('Invalid execution identity.')
@@ -60,6 +64,33 @@ export default function DesktopHandoff({ executionId }) {
     anchor.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
+  const exportBranch = async () => {
+    const request = ++generation.current
+    setBusy(true)
+    setError('')
+    setExportReceipt(null)
+    try {
+      const result = await api(`/owner-executions/${encodeURIComponent(executionId)}/export`, {
+        method: 'POST', body: { repo_context: { root: job.repo },
+          expected_commit: job.application.commit_sha, confirm_private_export: true },
+      })
+      const receipt = result?.export
+      const bytes = await decodeOwnerBranchExport(receipt, { executionId, expectedCommit: job.application.commit_sha })
+      if (receipt.base_sha !== job.base_sha || receipt.repo !== job.repo) throw new Error('Export source does not match the recorded application.')
+      if (request !== generation.current) return
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }))
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = receipt.filename
+      anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setExportReceipt(receipt)
+    } catch (cause) {
+      if (request === generation.current) setError(cause.message || 'Branch export failed. No automatic retry.')
+    } finally {
+      if (request === generation.current) setBusy(false)
+    }
+  }
   return <section aria-label="GitHub Desktop handoff">
     <button type="button" disabled={busy} onClick={prepare}>
       {busy ? 'Loading applied branch…' : 'Prepare GitHub Desktop handoff (no push)'}
@@ -72,9 +103,29 @@ export default function DesktopHandoff({ executionId }) {
       <button type="button" onClick={downloadPatch}>Download approved patch</button>
       <p>The patch contains private source changes. Keep it private. A patch is not a Git bundle:
         it does not install the branch or preserve its commit identity.</p>
+      <button type="button" disabled={busy} onClick={exportBranch}>Confirm private branch bundle download (no push)</button>
+      <p>The bundle preserves the applied commit, not the full repository. It requires the exact base
+        <code> {job.base_sha}</code> in your local clone. It contains private source. Downloading does not import it or run code.</p>
+      {exportReceipt && <details open>
+        <summary>Verify and import the downloaded bundle</summary>
+        <p>SHA-256: <code>{exportReceipt.sha256}</code>. {exportReceipt.size_bytes} bytes.
+          Transport checksum verified; not a signature or independent code review.</p>
+        <p>In the correct existing clone, a Git-capable tool/operator must verify prerequisites and create
+          the new branch. These commands do not execute here; replace the download path. They do not
+          switch your current checkout or push. Do not force an existing branch.</p>
+        <pre style={{ whiteSpace: 'pre-wrap' }}>{`git bundle verify "<download-path>/${exportReceipt.filename}"\ngit fetch --no-tags "<download-path>/${exportReceipt.filename}" "refs/heads/${exportReceipt.branch}:refs/heads/${exportReceipt.branch}"\ngit rev-parse --verify "refs/heads/${exportReceipt.branch}"`}</pre>
+        <p>Compare the last output to <code>{exportReceipt.commit_sha}</code>, then select the branch in Desktop.
+          If the base is missing, sync the correct repository first. GitHub Desktop does not directly import bundles;
+          fully terminal-free import still needs a local helper.</p>
+      </details>}
       {desktop ? <>
         <p><a href={desktop}>Open repository in GitHub Desktop</a>
           {' · '}<a href={repository} target="_blank" rel="noopener noreferrer">Open repository on GitHub</a></p>
+        <p><a href={`${repository}/tree/${encodeURIComponent(job.application.branch)}`} target="_blank" rel="noopener noreferrer">
+          View approved branch on GitHub (after publishing)
+        </a></p>
+        <p>This website fallback does not publish the branch. GitHub may show “not found” until you push it
+          and sign into an account with repository access.</p>
         <label><input type="checkbox" checked={localBranch} onChange={event => setLocalBranch(event.target.checked)} />
           I have this branch in my local clone (or it is already published), and will check its commit in Desktop.
         </label>
@@ -83,7 +134,7 @@ export default function DesktopHandoff({ executionId }) {
           launch Desktop manually and choose the repository and branch. No successful launch is assumed.</p>
         <p>Review the diff and commit, then use Push origin / Publish branch and Create Pull Request in Desktop.
           Review checks and merge on GitHub. If Mammoth runs on a different computer and the branch is
-          unpublished, it first needs an operator-assisted transfer; this button cannot fetch it from the backend.</p>
+          unpublished, download and import the verified bundle first; this launch link alone cannot transfer it.</p>
       </> : <p>No unambiguous GitHub repository was recorded. No Desktop or GitHub link is generated.
         Open the correct clone manually; Mammoth never selects a default repository.</p>}
     </>}

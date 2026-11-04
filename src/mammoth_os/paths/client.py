@@ -29,6 +29,7 @@ from typing import (
 )
 
 from .document_review import validate_document_review
+from .branch_export import decode_branch_export
 
 PATHS_CONTRACT_VERSION = "mammoth.paths.v1"
 RUN_CONTRACT_VERSION = "mammoth.run.v1"
@@ -646,6 +647,21 @@ class MammothPaths:
 
     def get_owner_execution(self, execution_id: str) -> Dict[str, Any]:
         return self._json("owner_execution", "GET", f"/owner-executions/{self._seg(execution_id)}")
+
+    def export_owner_branch(self, execution_id: str, *, repo: str, expected_commit: str,
+                            confirm_private_export: bool = False) -> Dict[str, Any]:
+        """Export the applied commit, never push, import or execute it."""
+        if confirm_private_export is not True:
+            raise ValueError("Explicit private source export confirmation is required")
+        payload = self._json("owner_execution", "POST", f"/owner-executions/{self._seg(execution_id)}/export",
+                             body={"repo_context": {"root": repo}, "expected_commit": expected_commit,
+                                   "confirm_private_export": True})
+        try:
+            decode_branch_export(payload.get("export"), execution_id, expected_commit)
+        except ValueError:
+            raise PathsError("Invalid branch export receipt, checksum or size",
+                             code="invalid_response", status=200) from None
+        return payload
 
     def approve_owner_execution(self, execution_id: str, *, repo: str, approval_digest: str) -> Dict[str, Any]:
         return self._json("owner_execution", "POST", f"/owner-executions/{self._seg(execution_id)}/approve",

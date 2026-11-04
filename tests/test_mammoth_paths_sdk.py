@@ -1,5 +1,7 @@
 import json
 import threading
+import base64
+import hashlib
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -71,6 +73,37 @@ def test_public_names_and_aliases():
     assert MammothMind is AtlasFAB
     assert "MammothPaths" in mammoth_os.__all__
     assert "MammothMind" in mammoth_os.__all__
+
+
+def test_owner_branch_export_validates_bytes_confirmation_and_single_request(backend):
+    id_ = "exec-" + "a" * 24
+    commit = "b" * 40
+    data = b"# v2 git bundle\nfixture"
+    receipt = {"contract": "mammoth.owner-branch-export.v1", "execution_id": id_, "repo": "owner/repo",
+               "branch": f"mammoth/owner/{id_}", "filename": f"{id_}.bundle", "base_sha": "c" * 40,
+               "commit_sha": commit, "requires_base": True, "automatic_push": False, "encoding": "base64",
+               "size_bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+               "bundle_base64": base64.b64encode(data).decode()}
+    path = f"/api/owner-executions/{id_}/export"
+    client = MammothPaths(backend.url)
+    with pytest.raises(ValueError, match="confirmation"):
+        client.export_owner_branch(id_, repo="owner/repo", expected_commit=commit)
+    assert backend.requests == []
+    backend.route("POST", path, body={"export": receipt})
+    assert client.export_owner_branch(id_, repo="owner/repo", expected_commit=commit,
+                                      confirm_private_export=True)["export"] == receipt
+    assert backend.requests[-1]["body"] == {"repo_context": {"root": "owner/repo"}, "expected_commit": commit,
+                                          "confirm_private_export": True}
+    for mutation in ({"sha256": "f" * 64}, {"size_bytes": True}, {"size_bytes": 8388609},
+                     {"commit_sha": "d" * 40}, {"branch": "another"}, {"bundle_base64": "private-body-sentinel"},
+                     {"bundle_base64": "===="}, {"requires_base": False}, {"automatic_push": True}):
+        backend.route("POST", path, body={"export": {**receipt, **mutation}})
+        before = len(backend.requests)
+        with pytest.raises(PathsError) as error:
+            client.export_owner_branch(id_, repo="owner/repo", expected_commit=commit, confirm_private_export=True)
+        assert error.value.code == "invalid_response" and error.value.payload == {}
+        assert "private-body-sentinel" not in str(error.value)
+        assert len(backend.requests) == before + 1
 
 
 def test_document_paging_preserves_offsets_scope_and_backend_evidence(backend):
