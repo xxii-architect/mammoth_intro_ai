@@ -237,13 +237,14 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
 """)
         for migration in ("supabase_tenant_auth.sql", "supabase_runtime_state.sql", "supabase_tenant_admission.sql",
                           "supabase_agent_runs.sql", "supabase_private_admission.sql", "supabase_learning_controls.sql",
-                          "supabase_documents.sql", "supabase_generated_artifacts.sql"):
+                          "supabase_documents.sql", "supabase_generated_artifacts.sql", "supabase_chat_threads.sql"):
             sql((ROOT / ".mammoth" / migration).read_text(encoding="utf-8"))
         # Reapplication is safe and does not erase existing operational records.
         sql((ROOT / ".mammoth" / "supabase_runtime_state.sql").read_text())
         sql((ROOT / ".mammoth" / "supabase_tenant_admission.sql").read_text())
         sql((ROOT / ".mammoth" / "supabase_agent_runs.sql").read_text())
         sql((ROOT / ".mammoth" / "supabase_generated_artifacts.sql").read_text())
+        sql((ROOT / ".mammoth" / "supabase_chat_threads.sql").read_text())
         sql.database = database
         sql.container = container
         yield sql

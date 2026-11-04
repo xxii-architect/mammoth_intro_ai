@@ -266,6 +266,12 @@ and full multi-replica readiness are not certified):
   publication preserves draft text and archives no broken download link. Local
   remains default; chat, learner and host-side storage plus production activation
   remain gates. No full independent-replica claim.
+- Chat-thread refinement: optional exact-owner PostgreSQL metadata/messages,
+  serialized quotas and keyed run exchanges, revision-checked whole-history
+  saves, content-clearing deletion fences, explicit streaming save results,
+  reviewed/checksummed owner migration and fence-preserving rollback. Global
+  learner-backed history, learner recovery and host-state gates remain; local
+  remains default and independent replicas stay disabled.
 
 Runtime reliability/admission refinement (bounded delivery, not closure of every
 DATA/HEALTH/BILL item):

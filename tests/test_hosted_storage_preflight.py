@@ -51,6 +51,7 @@ def test_hosted_storage_preflight_reports_presence_not_values(tmp_path, monkeypa
     assert report["credential_presence"]["MAMMOTH_POSTGRES_DSN"] is False
     assert report["configured_backends"]["MAMMOTH_RUN_BACKEND"] == "postgres"
     assert report["configured_backends"]["MAMMOTH_GENERATED_ARTIFACT_BACKEND"] == "local"
+    assert report["configured_backends"]["MAMMOTH_CHAT_BACKEND"] == "local"
     assert report["replica_count"] == "invalid"
     assert "private-fixture" not in json.dumps(report)
     assert len(commands) == 3

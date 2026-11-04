@@ -3,6 +3,14 @@
 
 @app.post("/api/mammoth/chat/stream")
 async def mammoth_chat_stream(body: Dict[str, Any]):
+    from mammoth_os.shared_state import StateUnavailable
+
+    _thread_id = str(body.get("thread_id") or "").strip()
+    _uid = _current_request_user_id()
+    _store = _chat_thread_store(_uid) if _thread_id else None
+    _thread = _store.get(_thread_id) if _store is not None else None
+    if _store is not None and _thread is None:
+        return JSONResponse({"status": "error", "error": "Thread not found"}, status_code=404)
     result = await mammoth_chat(body)
 
     # Persist to thread file if thread_id provided
@@ -11,12 +19,17 @@ async def mammoth_chat_stream(body: Dict[str, Any]):
         try:
             _uid = _current_request_user_id()
             _msgs = result["chat_history"]
-            _save_thread_messages(_uid, _thread_id, _msgs[-120:])
             _first_user = next((m.get("message", "") for m in _msgs if m.get("role") == "user"), "")
             _auto_title = (_first_user.strip()[:60] + "…") if len(_first_user.strip()) > 60 else _first_user.strip()
-            _upsert_thread_index_entry(_uid, _thread_id, title=_auto_title or "Conversation", agent_id=str(body.get("agent_id") or "assistant"), message_count=len(_msgs))
-        except Exception:
-            pass
+            if _store is not None:
+                _store.save_messages(_thread_id, _msgs[-120:], revision=_thread["revision"], title=_auto_title or "Conversation")
+            else:
+                _save_thread_messages(_uid, _thread_id, _msgs[-120:])
+                _upsert_thread_index_entry(_uid, _thread_id, title=_auto_title or "Conversation", agent_id=str(body.get("agent_id") or "assistant"), message_count=len(_msgs))
+            result["thread_save"] = {"status": "saved"}
+        except (OSError, ValueError, TypeError, StateUnavailable):
+            logger.exception("Chat response generated but thread save failed; response is not replayed")
+            result["thread_save"] = {"status": "failed", "error_code": "thread_storage_failed"}
 
     async def event_stream():
         meta_payload = {k: result.get(k) for k in ("agent_id", "adapter", "model", "mode", "task_id", "trace_id", "dispatched", "runtime_status", "runtime_notice")}
@@ -110,6 +123,10 @@ async def get_thread_history(thread_id: str):
 @app.delete("/api/mammoth/chat/threads/{thread_id}")
 async def delete_chat_thread(thread_id: str):
     user_id = _current_request_user_id()
+    store = _chat_thread_store(user_id)
+    if store is not None:
+        store.delete(thread_id)
+        return {"status": "ok", "deleted": thread_id}
     index = _load_thread_index(user_id)
     index = [t for t in index if t.get("id") != thread_id]
     _save_thread_index(user_id, index)
@@ -121,6 +138,12 @@ async def delete_chat_thread(thread_id: str):
 @app.patch("/api/mammoth/chat/threads/{thread_id}")
 async def rename_chat_thread(thread_id: str, body: Dict[str, Any] = {}):
     user_id = _current_request_user_id()
+    store = _chat_thread_store(user_id)
+    if store is not None:
+        new_title = str(body.get("title") or "").strip()[:120]
+        if not store.rename(thread_id, new_title):
+            return JSONResponse({"status": "error", "error": "Thread not found"}, status_code=404)
+        return {"status": "ok", "thread_id": thread_id, "title": new_title}
     index = _load_thread_index(user_id)
     entry = next((t for t in index if t.get("id") == thread_id), None)
     if not entry:
@@ -354,6 +377,11 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
     if notice:
         return JSONResponse({"status": "error", **notice}, status_code=403)
     user_id = ctx.user_id
+    thread_id = str(body.get("thread_id") or "")
+    if str(body.get("surface") or "mind").strip().lower() == "mind" and thread_id:
+        thread_store = _chat_thread_store(user_id)
+        if thread_store is not None and thread_store.get(thread_id) is None:
+            return JSONResponse({"status": "error", "error": "Thread not found"}, status_code=404)
     account_id = _active_account_id(_load_atlas_state())
     approval_mode = str(body.get("approval_mode") or "tools").lower()
     completion_goal = str(body.get("completion_goal") or "answer")

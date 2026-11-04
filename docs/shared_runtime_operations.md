@@ -375,13 +375,74 @@ reviewed local locations and selecting `local`. Do not activate a partial
 restore or merge a rollback into existing files. Missing original binaries or
 owner references block migration instead of silently omitting data.
 
+## Shared chat threads (optional)
+
+`MAMMOTH_CHAT_BACKEND=postgres` stores thread metadata and up to 120 messages
+together under exact namespace/user/thread identities. Apply
+`.mammoth\supabase_chat_threads.sql` first; use the existing private
+`MAMMOTH_POSTGRES_DSN` and explicit `MAMMOTH_STATE_NAMESPACE`. `local` remains
+the default; invalid/unavailable configuration never falls back to disk.
+Legacy local ownership paths still use lossy normalization: do not infer an
+owner from their directory names or silently activate shared storage over them.
+
+Thread operations serialize per owner. The active limit is 200 threads; create
+fails at the limit rather than silently pruning conversations. Each combined
+metadata/message record is limited to 4 MiB of ASCII-escaped JSON. Metadata and
+messages commit together. Whole-history replacement checks its pre-generation
+revision; run exchanges are keyed by run ID and merge without duplicating
+prompts. Renames survive run-exchange writes.
+
+Deletion clears metadata/messages but retains a minimal identity/revision
+tombstone. Missing/deleted thread IDs cannot be auto-created by a late model
+completion, continuation or restored request. These fences are not message
+content, are retained without automatic expiry, and must be included in backup
+and rollback capacity planning. This is not a full account-erasure certificate.
+Stream completion payloads add `thread_save` (legacy chat) or `chat_save`
+(agent-run terminal event) so a generated response can explicitly report a
+failed save without replaying paid work. Existing event fields are unchanged.
+Global learner-backed chat history still requires its separate migration.
+
+### Chat migration and rollback
+
+Stop chat/run/continuation/deletion writers. Explicitly review the legacy
+directory and owner: normalization collisions, unindexed messages or missing
+message files block export rather than silently assigning or omitting data.
+Supply `--confirm-legacy-owner` only after that review:
+
+```powershell
+python scripts\migrate_chat_threads.py local-export --user-id REVIEWED_OWNER --local-dir C:\private\reviewed-chat-owner --backup C:\private\chat-before --confirm-quiesced --confirm-legacy-owner
+python scripts\migrate_chat_threads.py import --user-id REVIEWED_OWNER --namespace REVIEWED_NAMESPACE --backup C:\private\chat-before --confirm-quiesced
+python scripts\migrate_chat_threads.py export --user-id REVIEWED_OWNER --namespace REVIEWED_NAMESPACE --backup C:\private\chat-after --confirm-quiesced
+```
+
+Backups use `mammoth.chat-threads-backup.v1`, a SHA-256 checksum, explicit owner,
+revisions and deletion fences; the manifest is written last. Import validates
+the full backup before its single transaction and refuses existing records or
+fences. Verify re-exported metadata, messages and identities before selecting
+the PostgreSQL backend. Local imports assign revision 1; shared re-exports
+preserve subsequent revisions.
+
+For rollback, stop writers, export the latest shared state and restore to a new
+directory:
+
+```powershell
+python scripts\migrate_chat_threads.py restore-local --user-id REVIEWED_OWNER --backup C:\private\chat-latest --local-dir C:\private\chat-restored --confirm-quiesced
+```
+
+Only a completed restore has `restore-complete.json`. Verify its re-export
+before installing it into the explicitly reviewed legacy owner directory and
+selecting `local`. The local reader honors restored `_deleted.json` fences.
+Rollback refuses identities that would collide under legacy filename
+normalization. Do not activate partial restores or discard fences to bypass a
+conflict. Backups contain private conversation content; protect them accordingly.
+
 ## Replica boundary and verification
 
 This release is **not independent-replica readiness**. Generic JSON RPCs and the
 tenant admission ledger coordinate via Postgres, with new optional PostgreSQL
 run leases/checkpoints, private login ceilings, learning controls and document
-libraries, plus optional generated-document ownership/bytes. Unmigrated chat,
-host-side stores and learner erasure/recovery still need a
+libraries, plus optional generated-document ownership/bytes and chat threads.
+Unmigrated global chat history, host-side stores and learner erasure/recovery still need a
 single-writer/shared-disk deployment. The request gate refuses
 `MAMMOTH_REPLICA_COUNT` values other than `1`; it does not discover undeclared
 replicas. Do not autoscale the backend to independent disks yet.
@@ -394,7 +455,7 @@ unknown costs, settlement and completion wiring. Local equivalent:
 $env:PYTHONPATH="$PWD\src"
 $env:MAMMOTH_TEST_POSTGRES_CONTAINER="your-dedicated-test-container"
 $env:MAMMOTH_REQUIRE_POSTGRES_TESTS="1"
-python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_store.py tests\test_postgres_documents.py tests\test_generated_artifacts.py -q
+python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_store.py tests\test_postgres_documents.py tests\test_generated_artifacts.py tests\test_postgres_chat_threads.py -q
 ```
 
 The named container must be dedicated test infrastructure. Tests create/drop a

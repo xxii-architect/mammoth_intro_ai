@@ -59,6 +59,9 @@ Generated research DOCX ownership and download bytes also have an opt-in private
 PostgreSQL backend, with immutable ownership, serialized quotas and checksummed
 migration/rollback. Local generation remains the default; this does not certify
 all runtime stores for independent replicas.
+Chat threads also have opt-in PostgreSQL metadata/message transactions,
+revision-checked saves and deletion fences. Legacy migration requires explicit
+owner review; global learner-backed history is a separate remaining gate.
 See [shared runtime operations](docs/shared_runtime_operations.md) for migration,
 price configuration and the production-host acceptance workflow.
 Run checkpoints/leases and private login admission now have optional service-only
