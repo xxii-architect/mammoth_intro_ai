@@ -242,7 +242,11 @@ and full multi-replica readiness are not certified):
   backend. Explicit per-owner migration/export/rollback preserves pending and
   unknown work; defaults stay local. Read-only hosted storage preflight does not
   deploy or imply connectivity/schema readiness.
-- Still open: learning-control SQLite, uploads/artifact binaries and learner
+- Learning request controls also have an optional PostgreSQL backend for
+  serialized request ceilings and shared cancellation; the explicit runtime
+  backup/import/export/rollback includes their counts and pending operations.
+  Learner state/erasure/recovery remains a separate filesystem transaction.
+- Still open: unmigrated local controls, uploads/artifact binaries and learner
   erasure/recovery transactions; backend
   migration/price catalog activation; invoice reconciliation and full paid-path
   coverage. Declared multiple replicas are rejected until those gates close.

@@ -4329,6 +4329,17 @@ def _save_atlas_state(state: Dict[str, Any]):
 def _learning_controls():
     from mammoth_os.learning_controls import LearningControls
 
+    backend = os.environ.get("MAMMOTH_LEARNING_CONTROLS_BACKEND", "local")
+    if backend != "local":
+        from mammoth_os.postgres_learning_controls import PostgresLearningControls
+        from mammoth_os.shared_state import StateUnavailable
+
+        if backend != "postgres":
+            raise StateUnavailable("Invalid learning-controls backend; no fallback is permitted.")
+        return PostgresLearningControls(
+            os.environ.get("MAMMOTH_POSTGRES_DSN"), os.environ.get("MAMMOTH_STATE_NAMESPACE"),
+            _current_request_user_id(),
+        )
     path = _atlas_state_file_for_request()
     return LearningControls(path.with_name(f"{path.stem}_controls.sqlite3"))
 

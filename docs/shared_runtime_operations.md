@@ -205,12 +205,42 @@ Presence of a DSN does not prove database connectivity, privileges or schema
 readiness. Without an authorized database administration/session connection,
 production migration is blocked; do not improvise a replacement database.
 
+## Shared learning request controls
+
+`MAMMOTH_LEARNING_CONTROLS_BACKEND=postgres` additionally replaces the private
+per-login learning-controls SQLite database, after applying the service-only
+`supabase_learning_controls.sql`. It uses the same private DSN and deployment
+namespace. Default is `local`; invalid settings/database errors never fall back.
+
+Request-count ceilings serialize per owner across workers. Cancellation is
+shared across worker/thread safe boundaries, including account-specific
+cancellation; it does not cancel an already-sent provider call or refund the
+admission. Unknown/running operations remain retained without automatic replay.
+The latest 100 finished operations are retained alongside **all** unfinished
+operations. The public `mammoth.learning-controls.v1` payload is unchanged.
+These counts are still admitted HTTP requests, not tokens or dollars.
+
+Include each reviewed owner's existing controls database in the quiesced runtime
+backup using `--learning-controls-file C:\private\REVIEWED_CONTROLS.sqlite3`.
+The same import transaction then preserves its limit, daily admission counts,
+operation/account ownership, completion evidence and pending cancellations.
+Export includes controls when present. For rollback, add
+`--learning-controls-file C:\private\restored-controls.sqlite3` to `restore-local`;
+it must be a new output path. A backup containing controls cannot be restored
+without this explicit path, and an absent controls backup cannot create an empty
+policy. Apply all documented schemas before running the combined exporter.
+Verify the restored payload before selecting local storage again.
+
+This removes one local-disk component, **not** the learner state/draft/model
+erasure and recovery transaction boundary. Their filesystem locks remain
+required, so this setting does not authorize independent replicas.
+
 ## Replica boundary and verification
 
 This release is **not independent-replica readiness**. Generic JSON RPCs and the
 tenant admission ledger coordinate via Postgres, with new optional PostgreSQL
 run leases/checkpoints and private login ceilings. Uploads/artifact binaries,
-learning-control SQLite and learner erasure/recovery still need a
+local learning controls (unless explicitly migrated) and learner erasure/recovery still need a
 single-writer/shared-disk deployment. The request gate refuses
 `MAMMOTH_REPLICA_COUNT` values other than `1`; it does not discover undeclared
 replicas. Do not autoscale the backend to independent disks yet.

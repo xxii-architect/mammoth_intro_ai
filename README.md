@@ -57,8 +57,10 @@ See [shared runtime operations](docs/shared_runtime_operations.md) for migration
 price configuration and the production-host acceptance workflow.
 Run checkpoints/leases and private login admission now have optional service-only
 PostgreSQL backends, with explicit per-owner migration/export/rollback.
+Learning request controls also have an optional PostgreSQL backend, preserving
+ceilings, cancellation and pending-operation evidence through explicit migration.
 These are not enabled automatically. This is **not full multi-replica readiness**:
-uploads, learning-control SQLite and learner recovery still require
+Uploads, unmigrated local controls and learner recovery still require
 single-writer/shared-disk storage. A declared
 `MAMMOTH_REPLICA_COUNT` other than `1` is rejected, not silently enabled.
 
