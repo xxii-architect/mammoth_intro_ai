@@ -1,6 +1,5 @@
 # Route fragment loaded by api_server._load_route_fragments().
 # Not importable on its own: handlers execute in api_server globals, so keep helpers there.
-from mammoth_os.agent_loop.lease import RunBusyError
 
 @app.post("/api/mammoth/chat/stream")
 async def mammoth_chat_stream(body: Dict[str, Any]):
@@ -405,6 +404,8 @@ async def mammoth_agent_run_list():
 
 @app.get("/api/mammoth/runs/{run_id}")
 async def mammoth_agent_run_get(run_id: str, after: int = 0):
+    from mammoth_os.agent_loop.lease import RunBusyError
+
     run = _AGENT_RUNS.get(run_id, _current_request_user_id())
     if run is None:
         return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)
@@ -520,6 +521,8 @@ async def mammoth_agent_run_approval(run_id: str, body: Dict[str, Any]):
 
 @app.post("/api/mammoth/runs/{run_id}/cancel")
 async def mammoth_agent_run_cancel(run_id: str):
+    from mammoth_os.agent_loop.lease import RunBusyError
+
     run = _AGENT_RUNS.get(run_id, _current_request_user_id())
     if run is None:
         return JSONResponse({"status": "error", "error": "Run not found."}, status_code=404)

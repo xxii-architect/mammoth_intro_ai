@@ -41,4 +41,5 @@ jobs:
             src/mammoth_os/test_learner_model.py \
             tests/test_runtime_resilience.py \
             tests/test_runtime_state_usage.py \
+            tests/test_server_routes_layout.py \
             -q
