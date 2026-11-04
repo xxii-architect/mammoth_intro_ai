@@ -704,13 +704,28 @@ async def clear_user_audit_data(user_id: str):
 
 @app.get('/api/download-docx/{filename:path}')
 def download_docx_file(filename: str):
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, Response
+    from urllib.parse import quote
+    from mammoth_os.generated_artifacts import validate_filename, MEDIA_TYPE
+
+    try:
+        validate_filename(filename)
+    except ValueError:
+        return JSONResponse({"status": "error", "error": "Invalid document name."}, status_code=400)
     safe = os.path.basename(str(filename or ""))
     if not safe.endswith('.docx') or '..' in safe or safe != filename:
         return JSONResponse({"status": "error", "error": "Invalid document name."}, status_code=400)
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
+    store = _generated_artifact_store()
+    if store is not None:
+        raw = store.get(safe, _current_request_user_id(""), admin=_request_is_admin())
+        if raw is None:
+            return JSONResponse({"status": "error", "error": "Document not found."}, status_code=404)
+        return Response(raw, media_type=MEDIA_TYPE, headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{quote(safe, safe='')}",
+        })
     path = GENERATED_DOCS_DIR / safe
     # Same 404 for "missing" and "not yours" so filenames can't be probed.
     if not _generated_doc_visible(safe) or not path.is_file():

@@ -55,6 +55,11 @@ Onboarding, notifications, execution logs and account-deletion requests now use
 the same shared backend. Corrupt records are errors rather than empty resets;
 conflicting edits require reloading. A deletion request is not an erasure
 certificate for backups, provider records or all stored content.
+Generated research DOCX files can optionally live in private shared PostgreSQL
+storage, including both bytes and immutable ownership. Downloads retain owner
+or admin checks across workers. Storage failure leaves the draft readable but
+marks the document unit failed and removes its link; the model is not rerun.
+Local storage remains the default, and this alone does not enable replicas.
 Concurrent conflicting saved edits now require a reload instead of silently
 overwriting another request. A retained executing approval after worker loss
 is an unknown outcome to inspect, not an action to replay.

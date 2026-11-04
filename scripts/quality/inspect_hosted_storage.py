@@ -33,7 +33,7 @@ print(json.dumps({
  'psycopg_installed':importlib.util.find_spec('psycopg') is not None,
  'configured_backends':{key:config.get(key,'local') if config.get(key,'local') in ['local','postgres','supabase'] else 'invalid' for key in [
   'MAMMOTH_RUN_BACKEND','MAMMOTH_STATE_BACKEND','MAMMOTH_USAGE_BACKEND','MAMMOTH_PRIVATE_USAGE_BACKEND',
-  'MAMMOTH_LEARNING_CONTROLS_BACKEND','MAMMOTH_DOCUMENT_BACKEND']},
+  'MAMMOTH_LEARNING_CONTROLS_BACKEND','MAMMOTH_DOCUMENT_BACKEND','MAMMOTH_GENERATED_ARTIFACT_BACKEND']},
  'replica_count':config.get('MAMMOTH_REPLICA_COUNT','1') if config.get('MAMMOTH_REPLICA_COUNT','1').isdigit() else 'invalid',
 }))
 """
