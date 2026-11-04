@@ -9,6 +9,10 @@ Concurrent disjoint keyed records merge; competing edits are rejected, not
 last-write-wins. An unkeyed collection cannot be safely merged and returns a
 conflict. A 409 requires reloading and an explicit new decision, never blindly
 retrying a side effect. Corrupt records produce 503 without resetting data.
+Activity events use a separate atomic append-and-retain operation: local locking
+or a fresh bounded CAS computation keeps the latest 250 entries without turning
+normal retention contention into a failed workflow. Only the pure event append
+is recomputed, never the action that produced it; ordinary edits retain conflicts.
 
 Legacy approvals commit a unique `executing` claim before running an action.
 Only pending approvals execute. A lost worker leaves a retained unknown outcome

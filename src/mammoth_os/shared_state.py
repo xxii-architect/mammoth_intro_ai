@@ -154,10 +154,36 @@ class JsonStateStore:
                 raise StateConflict("Saved state changed during this request; reload before retrying.")
             return _merge(base, proposed, current)
 
+        self._update(path, type(proposed)(), reconcile)
+
+    def append(self, path, entry, *, keep):
+        """Append one stable event and trim retention in the same commit."""
+        if (not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not entry["id"]
+                or type(keep) is not int or keep < 1):
+            raise ValueError("A keyed event and a positive retention bound are required.")
+
+        def append_current(current):
+            if not isinstance(current, list) or any(
+                not isinstance(item, dict) or not isinstance(item.get("id"), str) for item in current
+            ):
+                raise StateUnavailable("Saved event collection is invalid; operator repair is required.")
+            identities = {item["id"] for item in current}
+            if len(identities) != len(current):
+                raise StateUnavailable("Saved event identities are duplicated; operator repair is required.")
+            existing = next((item for item in current if item["id"] == entry["id"]), None)
+            if existing is not None and existing != entry:
+                raise StateConflict("An event with this identity already has different content.")
+            return deepcopy((current if existing is not None else current + [entry])[-keep:])
+
+        self._update(path, [], append_current)
+
+    def _update(self, path, default, transform):
+        key = self._identity(path)
+        identity = (str(self.root.absolute()), key)
         if self.rpc:
             for _ in range(8):
-                current, revision = self._read(path, key, type(proposed)())
-                merged = reconcile(current)
+                current, revision = self._read(path, key, default)
+                merged = transform(current)
                 result = self.rpc("mammoth_state_cas", {"p_key": key, "p_revision": revision, "p_payload": merged})
                 if result.get("saved") is True:
                     _record_snapshot(identity, merged, result["revision"])
@@ -168,8 +194,8 @@ class JsonStateStore:
         lease = RunLease(Path(path).with_suffix(".transaction.lock"), blocking=True)
         temporary = None
         try:
-            current, _ = self._read(path, key, type(proposed)())
-            merged = reconcile(current)
+            current, _ = self._read(path, key, default)
+            merged = transform(current)
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder, delete=False) as stream:
                 temporary = Path(stream.name)
                 json.dump(merged, stream, indent=2, default=str)

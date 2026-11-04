@@ -1309,7 +1309,6 @@ def _save_activity_events(entries: List[Dict[str, Any]]):
 
 
 def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kind: str = "event", details: Optional[Dict[str, Any]] = None, trace_id: str = "") -> Dict[str, Any]:
-    entries = _load_activity_events()
     entry = {
         "id": str(uuid.uuid4()),
         "kind": kind,
@@ -1320,10 +1319,7 @@ def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kin
         "details": details or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    entries.append(entry)
-    if len(entries) > 250:
-        entries = entries[-250:]
-    _save_activity_events(entries)
+    _json_store().append(AGENT_ACTIVITY_FILE, entry, keep=250)
     return entry
 
 
