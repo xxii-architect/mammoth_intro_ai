@@ -1,4 +1,15 @@
-import { getAccessToken } from '../lib/supabase'
+import { getSession } from '../lib/supabase'
+
+const tenantScopes = new Map()
+export function setTenantScope(userId, tenantId) {
+  if (!userId) return
+  if (tenantId) tenantScopes.set(userId, tenantId)
+  else tenantScopes.delete(userId)
+}
+export function getTenantScope(userId) {
+  if (!userId) return ''
+  return tenantScopes.get(userId) || ''
+}
 
 function normalizePath(path) {
   return path.startsWith('/') ? path : `/${path}`
@@ -94,8 +105,11 @@ export async function parseApiResponse(res) {
 }
 
 export async function authorizedFetch(path, options = {}) {
-  const token = await getAccessToken()
+  const session = await getSession()
+  const token = session?.access_token
   const headers = new Headers(options.headers || {})
+  const tenantId = getTenantScope(session?.user?.id)
+  if (tenantId && !headers.has('X-Mammoth-Tenant-ID')) headers.set('X-Mammoth-Tenant-ID', tenantId)
   if (token) {
     headers.set('Authorization', `Bearer ${token}`)
   }

@@ -49,6 +49,7 @@ coverage/
 # Runtime data / local session state
 .mammoth/*.json
 .mammoth/*.jsonl
+.mammoth/**/*.transaction.lock
 .mammoth/seccomp.json
 src/.mammoth/
 test-approval.txt

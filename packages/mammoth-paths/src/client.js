@@ -230,6 +230,18 @@ export function createPathsClient(options = {}) {
     },
     listRuns: async () => (await json('mind', 'GET', '/mammoth/runs', { member: 'runs' })).runs,
     runtimeUsage: () => json('usage', 'GET', '/runtime/usage'),
+    runtimeTenants: () => json('usage', 'GET', '/runtime/tenants'),
+    tenantRuntimeUsage: tenantId => json('usage', 'GET', '/runtime/tenant-usage', { query: { tenant_id: tenantId } }),
+    setTenantRuntimeLimits: (tenantId, { dailyTokenLimit, dailyUsdLimitMicros }) => {
+      for (const [value, maximum] of [[dailyTokenLimit, 1000000000], [dailyUsdLimitMicros, 1000000000000]]) {
+        if (value !== null && (!Number.isSafeInteger(value) || value < 0 || value > maximum)) {
+          throw new TypeError('Tenant limits must be null or bounded non-negative whole numbers')
+        }
+      }
+      return json('usage', 'PUT', '/runtime/tenant-usage/policy', { body: {
+        tenant_id: tenantId, daily_token_limit: dailyTokenLimit, daily_usd_limit_micros: dailyUsdLimitMicros,
+      } })
+    },
     setRuntimeTokenLimit: (dailyTokenLimit) => {
       if (dailyTokenLimit !== null && (!Number.isSafeInteger(dailyTokenLimit) || dailyTokenLimit < 0 || dailyTokenLimit > 100000000)) {
         throw new TypeError('dailyTokenLimit must be null or an integer from 0 to 100000000')

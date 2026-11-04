@@ -366,6 +366,23 @@ class MammothPaths:
         """Durable private token admission; excludes invoices and uninstrumented calls."""
         return self._json("usage", "GET", "/runtime/usage")
 
+    def runtime_tenants(self) -> Dict[str, Any]:
+        """Active backend-verified billing memberships; disabled on local-only hosts."""
+        return self._json("usage", "GET", "/runtime/tenants")
+
+    def tenant_runtime_usage(self, tenant_id: str) -> Dict[str, Any]:
+        return self._json("usage", "GET", "/runtime/tenant-usage", query={"tenant_id": tenant_id})
+
+    def set_tenant_runtime_limits(self, tenant_id: str, *, daily_token_limit: Optional[int],
+                                  daily_usd_limit_micros: Optional[int]) -> Dict[str, Any]:
+        for value, maximum in ((daily_token_limit, 1_000_000_000), (daily_usd_limit_micros, 1_000_000_000_000)):
+            if value is not None and (type(value) is not int or not 0 <= value <= maximum):
+                raise ValueError("Tenant limits must be null or bounded non-negative whole numbers.")
+        return self._json("usage", "PUT", "/runtime/tenant-usage/policy", body={
+            "tenant_id": tenant_id, "daily_token_limit": daily_token_limit,
+            "daily_usd_limit_micros": daily_usd_limit_micros,
+        })
+
     def set_runtime_token_limit(self, daily_token_limit: Optional[int]) -> Dict[str, Any]:
         """Set a UTC daily user ceiling; null removes the ceiling without erasing usage."""
         if daily_token_limit is not None and (

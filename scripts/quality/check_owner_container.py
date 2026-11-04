@@ -157,7 +157,7 @@ def collect(image, *, timeout=10):
                 evidence.update(status="failed", reason="Fixture evidence has wrong runtime identity or incomplete logs.")
                 return evidence
             if phase == "runtime":
-                markers = [line[len(MARKER):] for line in result["log"].splitlines() if line.startswith(MARKER)]
+                markers = [line.partition(MARKER)[2] for line in result["log"].splitlines() if MARKER in line]
                 if not markers:
                     evidence["reason"] = "The trusted test process produced no complete runtime evidence."
                     # A discovered test that fails is observed failure, not unavailable infrastructure.

@@ -213,6 +213,34 @@ Connected SDK/recovery slice (bounded local checks; final release evidence in PR
 
 Remaining infrastructure/platform gates:
 
+Shared-state/tenant admission refinement (bounded, opt-in; production cutover
+and full multi-replica readiness are not certified):
+
+- Generic JSON collections use atomic/fsynced writes with read/modify/write
+  conflict detection. Independent keyed records merge; competing edits return
+  409. Corruption is explicit. Legacy approvals save unique claims before side
+  effects and cannot replay unknown outcomes. Local learner saves retain
+  deletion fences and reject competing updates.
+- Optional service-only Supabase/Postgres RPCs coordinate generic records across
+  processes/disks. Migration is explicit and refuses overwrites; never import
+  legacy operator records into another tenant automatically.
+- Tenant-wide UTC token and estimated-dollar admission uses active memberships,
+  owner/admin policy checks, audited changes, serialized reservations,
+  settlement idempotency, exact versioned expiring price snapshots and retained
+  unknown outcomes. Private login limits stay additive. Settings and both SDKs
+  expose matching surfaces. No claim of provider-invoice reconciliation or
+  metering embeddings/internal retries/custom paid paths.
+- A mandatory real PostgreSQL CI gate checks concurrent cap admission, unknown
+  prices/outcomes, settlement and denied anonymous/authenticated SQL access.
+- Manual production acceptance uses pinned SSH and the live service UID,
+  checkout, Python environment and locally cached reviewed digest. It does not
+  deploy, pull, restart, loosen sandbox policy or fall back to host execution.
+  Only an actual-host verified receipt can close the hosted trusted-fixture gate.
+- Still open: independently replicated run leases/checkpoints, private SQLite,
+  uploads/artifact binaries and learner erasure/recovery transactions; backend
+  migration/price catalog activation; invoice reconciliation and full paid-path
+  coverage. Declared multiple replicas are rejected until those gates close.
+
 Runtime reliability/admission refinement (bounded delivery, not closure of every
 DATA/HEALTH/BILL item):
 

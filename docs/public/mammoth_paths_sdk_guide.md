@@ -29,6 +29,23 @@ Mammoth Paths is separate from the **Mammoth Mind tutor SDK** (formerly ATLAS FA
 
 ## Runtime usage and ceilings
 
+### Optional shared tenant admission
+
+Python `runtime_tenants()`, `tenant_runtime_usage(tenant_id)` and
+`set_tenant_runtime_limits(tenant_id, daily_token_limit=..., daily_usd_limit_micros=...)`
+match JS `runtimeTenants()`, `tenantRuntimeUsage(tenantId)` and
+`setTenantRuntimeLimits(tenantId, { dailyTokenLimit, dailyUsdLimitMicros })`.
+The shared response contract is `mammoth.tenant-usage.v1`.
+Use an `X-Mammoth-Tenant-ID` client header for covered generation requests when
+the caller has multiple active memberships. Membership and policy authority
+are checked by the backend; headers never grant access.
+
+USD limits are integer microUSD (1 USD = 1,000,000), or null for uncapped.
+Only tenant owners/admins may change them. Private login ceilings remain
+additive. Unknown outcomes retain reservations; missing/expired exact prices
+block dollar-capped admission. Estimates are not invoices or complete paid-path
+metering. Configuration/migration is an operator action, not an SDK action.
+
 Python `runtime_usage()` / JavaScript `runtimeUsage()` reads the private
 `mammoth.runtime-usage.v1` ledger. `set_runtime_token_limit(100000)` /
 `setRuntimeTokenLimit(100000)` sets a UTC daily login-wide admission ceiling;

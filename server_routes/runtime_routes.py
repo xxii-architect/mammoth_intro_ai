@@ -3,6 +3,8 @@
 
 @app.middleware("http")
 async def auth_guard_middleware(request: Request, call_next):
+    from mammoth_os.shared_state import StateConflict, StateUnavailable, state_session
+
     if not (request.url.path.startswith("/api/") or request.url.path.startswith("/agent/")):
         return await call_next(request)
 
@@ -19,13 +21,30 @@ async def auth_guard_middleware(request: Request, call_next):
         effective_user = {"id": "anonymous", "email": "", "is_admin": False}
     else:
         effective_user = {"id": "local", "email": "", "is_admin": True}
+    if request.headers.get("X-Mammoth-Tenant-ID"):
+        try:
+            uuid.UUID(request.headers["X-Mammoth-Tenant-ID"])
+        except ValueError:
+            return JSONResponse({"status": "error", "error": "X-Mammoth-Tenant-ID must be a tenant UUID."}, status_code=400)
     token_user, token_email, token_admin = _set_request_auth_context(request, effective_user)
+    token_tenant = _REQUEST_TENANT_ID.set(request.headers.get("X-Mammoth-Tenant-ID", ""))
     try:
         from mammoth_os.runtime_ledger import ledger_context
 
-        with ledger_context(_runtime_ledger() if effective_user["id"] != "anonymous" else None):
-            return await call_next(request)
+        with state_session():
+            try:
+                if os.environ.get("MAMMOTH_REPLICA_COUNT", "1") != "1":
+                    raise StateUnavailable("Multi-replica mode is not enabled: run leases, uploads and learner state still require single-writer storage.")
+                with ledger_context(_completion_ledger() if effective_user["id"] != "anonymous" else None):
+                    return await call_next(request)
+            except StateConflict:
+                logger.warning("Concurrent saved-state update rejected for %s", request.url.path)
+                return JSONResponse({"status": "error", "error": "Saved state changed. Reload before retrying.", "code": "state_conflict"}, status_code=409)
+            except StateUnavailable:
+                logger.exception("Saved-state storage unavailable for %s", request.url.path)
+                return JSONResponse({"status": "error", "error": "Saved storage is unavailable; no reset or local fallback was used.", "code": "storage_unavailable"}, status_code=503)
     finally:
+        _REQUEST_TENANT_ID.reset(token_tenant)
         _REQUEST_USER_ID.reset(token_user)
         _REQUEST_USER_EMAIL.reset(token_email)
         _REQUEST_IS_ADMIN.reset(token_admin)
@@ -43,6 +62,47 @@ async def runtime_usage_policy(body: Dict[str, Any]):
     try:
         return _runtime_ledger().set_limit(body["daily_token_limit"])
     except ValueError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
+
+
+@app.get("/api/runtime/tenants")
+async def runtime_tenants():
+    from mammoth_os.tenant_admission import memberships
+
+    if os.environ.get("MAMMOTH_USAGE_BACKEND", "local") != "supabase":
+        return {"enabled": False, "tenants": []}
+    try:
+        return {"enabled": True, **memberships(_current_request_user_id())}
+    except ValueError:
+        return JSONResponse({"status": "error", "error": "An authenticated hosted user is required."}, status_code=401)
+
+
+@app.get("/api/runtime/tenant-usage")
+async def runtime_tenant_usage(tenant_id: str):
+    from mammoth_os.tenant_admission import TenantLedger
+    from mammoth_os.runtime_ledger import RuntimeLimitReached
+
+    try:
+        return TenantLedger(_current_request_user_id(), tenant_id).snapshot()
+    except RuntimeLimitReached as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=403)
+    except ValueError:
+        return JSONResponse({"status": "error", "error": "Valid authenticated user and tenant UUIDs are required."}, status_code=400)
+
+
+@app.put("/api/runtime/tenant-usage/policy")
+async def runtime_tenant_usage_policy(body: Dict[str, Any]):
+    from mammoth_os.tenant_admission import TenantLedger
+    from mammoth_os.runtime_ledger import RuntimeLimitReached
+
+    if set(body) != {"tenant_id", "daily_token_limit", "daily_usd_limit_micros"}:
+        return JSONResponse({"status": "error", "error": "Provide tenant_id, daily_token_limit and daily_usd_limit_micros only."}, status_code=400)
+    try:
+        return TenantLedger(_current_request_user_id(), body["tenant_id"]).set_limits(
+            body["daily_token_limit"], body["daily_usd_limit_micros"])
+    except RuntimeLimitReached as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=403)
+    except (ValueError, TypeError, AttributeError) as exc:
         return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
 
 @app.get("/api/status")

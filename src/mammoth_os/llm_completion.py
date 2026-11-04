@@ -39,7 +39,8 @@ async def complete(client: Any, prompt: str, **kwargs: Any) -> Completion:
             raise ValueError("A positive output token limit is required for metered calls.")
         kwargs["max_tokens"] = output_limit
         identity = ledger.reserve(_client_label(client), str(getattr(client, "model", "unknown")),
-                                  allowance.tokens + allowance.overhead + output_limit)
+                                  allowance.tokens + allowance.overhead + output_limit,
+                                  input_tokens=allowance.tokens + allowance.overhead, output_tokens=output_limit)
     try:
         method = getattr(client, "generate_completion", None)
         if callable(method):

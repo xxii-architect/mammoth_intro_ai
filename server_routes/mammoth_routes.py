@@ -376,6 +376,7 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
         message=message,
         agent_id=str(body.get("agent_id") or "assistant").strip()[:64] or "assistant",
         request={
+            "_tenant_id": _completion_ledger().tenant._tenant() if os.environ.get("MAMMOTH_USAGE_BACKEND", "local") == "supabase" else "",
             "repo_context": {"root": (body.get("repo_context") or {}).get("root")} if isinstance(body.get("repo_context"), dict) else None,
             "approval_mode": approval_mode if approval_mode in {"tools", "always"} else "tools",
             "completion_goal": completion_goal,

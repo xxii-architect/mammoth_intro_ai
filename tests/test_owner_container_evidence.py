@@ -71,6 +71,22 @@ def test_acceptance_exercises_real_profile_with_trusted_fixtures_and_bounded_rec
     assert "not hostile-code" in evidence["scope"]
 
 
+@pytest.mark.parametrize("prefix", [
+    "",
+    "test_runtime_contract (test_acceptance.RuntimeChecks.test_runtime_contract) ... ",
+])
+def test_unittest_progress_prefix_does_not_hide_complete_runtime_marker(executor, prefix):
+    executor.result_override = {0: {"log": prefix + probe.MARKER + json.dumps(runtime()) + "\nok\n"}}
+    evidence = probe.collect(IMAGE)
+    assert evidence["status"] == "verified" and evidence["runtime"] == runtime()
+
+
+def test_duplicate_markers_remain_ambiguous_even_with_unittest_prefix(executor):
+    marker = probe.MARKER + json.dumps(runtime())
+    executor.result_override = {0: {"log": "test ... " + marker + "\n" + marker}}
+    assert probe.collect(IMAGE)["status"] == "failed"
+
+
 @pytest.mark.parametrize("image", ["python:latest", "-e", "python@sha256:abc", ""])
 def test_unpinned_input_never_reaches_docker(executor, image):
     assert probe.collect(image)["status"] == "not_verified"

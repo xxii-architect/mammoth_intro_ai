@@ -10,14 +10,10 @@ class RunBusyError(ValueError):
 class RunLease:
     def __init__(self, path, *, blocking=False):
         path.parent.mkdir(parents=True, exist_ok=True)
-        self.file = path.open("a+b")
+        self.file = path.open("a+b", buffering=0)
         try:
             if os.name == "nt":
                 import msvcrt
-                self.file.seek(0)
-                if not self.file.read(1):
-                    self.file.write(b"\0")
-                    self.file.flush()
                 self.file.seek(0)
                 msvcrt.locking(self.file.fileno(), msvcrt.LK_LOCK if blocking else msvcrt.LK_NBLCK, 1)
             else:

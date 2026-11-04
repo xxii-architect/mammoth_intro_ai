@@ -39,6 +39,25 @@ This is not dollar spend, Copilot credits, an invoice, hosted tenant billing,
 embedding metering or a guarantee about custom paths/internal SDK retries.
 Shared disk is required; separate server disks do not coordinate.
 
+**Settings > Tenant usage controls** adds optional shared Postgres admission.
+Only active tenant owners/admins can set token/estimated-USD ceilings; backend
+membership checks apply on every admission. Estimates use operator-reviewed,
+expiring exact-provider/model prices. Unknown outcomes keep reservations;
+missing prices block dollar-capped calls. These controls are not invoices or
+complete metering of every paid service. Both Paths clients expose the same API.
+
+Generic JSON collections now use atomic local writes and conflict-aware
+read/modify/write, or explicitly selected Supabase compare-and-swap RPCs.
+Disjoint keyed appends survive concurrency; competing edits return 409 rather
+than silently dropping data. Legacy approvals persist a unique claim before
+executing; interrupted/unknown actions are never automatically replayed.
+Learner-state corruption no longer silently becomes an empty session.
+See [shared runtime operations](docs/shared_runtime_operations.md) for migration,
+price configuration and the production-host acceptance workflow.
+This is **not full multi-replica readiness**: run leases, uploads, private SQLite
+and learner recovery still require single-writer/shared-disk storage. A declared
+`MAMMOTH_REPLICA_COUNT` other than `1` is rejected, not silently enabled.
+
 Under Edit learning profile, **Learning privacy & costs** exports the current
 account's saved learning JSON without model calls. Retained conversations,
 lessons/exercises/cards, owned linked notes and confirmed recovery are also added

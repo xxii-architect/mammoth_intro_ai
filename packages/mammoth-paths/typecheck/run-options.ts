@@ -9,6 +9,11 @@ const options: RunOptions = {
 }
 const client = createPathsClient({ baseUrl: 'https://example.invalid' })
 void client.runtimeUsage()
+void client.runtimeTenants()
+void client.tenantRuntimeUsage('tenant-id')
+void client.setTenantRuntimeLimits('tenant-id', { dailyTokenLimit: null, dailyUsdLimitMicros: 1000000 })
+// @ts-expect-error Dollar limits use integer microUSD, not strings.
+void client.setTenantRuntimeLimits('tenant-id', { dailyTokenLimit: null, dailyUsdLimitMicros: '1' })
 void client.setRuntimeTokenLimit(null)
 void client.setRuntimeTokenLimit(0)
 // @ts-expect-error Limits cannot be strings.
