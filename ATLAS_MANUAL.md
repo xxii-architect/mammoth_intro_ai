@@ -1162,6 +1162,24 @@ approval steps with recorded patch/test evidence. Repository test success is not
 acceptance verification. Cancellation and restart cleanup are job-scoped; failed
 cleanup blocks further owner execution, not the whole platform.
 
+Operators can run `scripts\quality\check_owner_container.py --image
+<reviewed-image@sha256:digest> --output-dir <private-evidence-directory>` with
+`PYTHONPATH=src`. It exercises the real owner executor with bundled trusted
+fixtures, not user code: actual non-root test-process controls, a rejected
+failing test, timeout enforcement and specifically named container cleanup.
+It never pulls images, changes policy, enables the pilot or falls back to the
+host. `verified`, `failed` and `not_verified` receipts are host/image/profile/
+timestamp-specific; both nonverified outcomes exit nonzero. Logs require review
+before sharing. The manual Owner Container Acceptance workflow offers the same
+strict check with a separate operator-approved digest pull (default off).
+
+Local acceptance passed for the existing reviewed Python digest on Linux Docker
+29.6.2 on 2026-11-03. It does not validate frontend profiles, arbitrary repository
+dependencies, deployed infrastructure or hostile-code isolation. Hosted legacy
+Docker smoke still lacks runtime evidence after namespace/mount startup failure.
+That failure now has an actionable classification and does not produce speculative
+seccomp relaxation suggestions; repair runner infrastructure, not isolation flags.
+
 The profile picker uses `isolation.profiles` from a bounded offline image probe.
 Unavailable tools are rejected before freezing a proposal; installed tools do
 not imply installed project dependencies or relevant coverage. Excluded

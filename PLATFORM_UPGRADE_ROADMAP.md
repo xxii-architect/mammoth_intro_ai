@@ -133,7 +133,7 @@ Delivered in merged #25:
   automatically retried. Exact original-source character coverage and
   authoritative charges from failed provider attempts are not invented.
 
-Current follow-up slice (source; awaiting this slice's release gate):
+Delivered in merged #26:
 
 - Explicit synthesis after complete indexed assessment, up to three model units
   per confirmed batch, groups of at most eight saved assessments/intermediate
@@ -170,6 +170,29 @@ platform checkout/sync. Deployment remains necessary. This does not close the
 tokenization, exhaustive-review or container-evidence work.
 
 Subsequent infrastructure/platform gates:
+
+Current container evidence slice (source; awaiting release gate):
+
+- Separate strict operator acceptance command runs bundled trusted Python
+  fixtures through the actual owner executor. Observes non-root test-process
+  identity, capabilities/seccomp/no-new-privileges, mounts/storage/network
+  interfaces and resource limits, plus negative-test rejection, timeout and
+  named-container removal. No image pulls, host fallback, policy changes,
+  production enablement, user code or tenant access.
+- Manual workflow has a digest-only operator input and separate explicit image
+  pull option (default off); strict failed/not_verified exits and receipt upload.
+  Adding a workflow does not constitute a hosted run or production acceptance.
+- Local fixture acceptance passed on 2026-11-03 for the existing Python digest
+  `db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93`
+  and Docker Engine 29.6.2. This is a bounded host/image/Python-profile observation,
+  not hostile-code, frontend, repository-dependency or deployed-infrastructure
+  acceptance. The hosted legacy diagnostic still lacks runtime evidence.
+- Missing-runtime receipts now classify namespace/mount startup separately from
+  daemon/image/timeout failures. Seccomp diagnostics no longer guess relaxations
+  from startup/generic permission errors; only recognized named denials with a
+  bounded runtime receipt are manual review candidates. No automatic policy edits.
+
+Remaining infrastructure/platform gates:
 
 1. Establish reviewed owner-container infrastructure evidence and compatible
    per-repository validators (CI-03); a green diagnostics job is insufficient.
