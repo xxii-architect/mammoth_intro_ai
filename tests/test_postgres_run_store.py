@@ -208,7 +208,8 @@ def test_postgres_run_configuration_is_opt_in_and_never_uses_transaction_pooling
 
 def test_postgres_run_tables_deny_public_clients(postgres):
     for role in ("anon", "authenticated"):
-        for table in ("mammoth_agent_runs", "mammoth_private_runtime_policy", "mammoth_private_runtime_attempts"):
+        for table in ("mammoth_agent_runs", "mammoth_private_runtime_policy", "mammoth_private_runtime_attempts",
+                      "mammoth_learning_policy", "mammoth_learning_usage", "mammoth_learning_operations"):
             result = postgres(f"SET ROLE {role}; SELECT * FROM public.{table}", check=False)
             assert result.returncode != 0 and "permission denied" in result.stderr
 
@@ -285,16 +286,141 @@ def test_postgres_private_overrun_unknowns_and_definitively_rejected_tenant_admi
 
 
 def test_missing_postgres_driver_is_explicit_and_never_uses_local_storage(monkeypatch, tmp_path):
+    from mammoth_os.postgres_learning_controls import PostgresLearningControls
     from mammoth_os.postgres_ledger import PostgresRuntimeLedger
 
     monkeypatch.setitem(sys.modules, "psycopg", None)
     store = PostgresRunStore("fixture-unavailable", "fixture")
     run = AgentRun(AgentRun.new_id(), "alice", "fixture")
     for action in (lambda: store.save(run), lambda: store.reserve(run),
+                   lambda: PostgresLearningControls("fixture-unavailable", "fixture", "alice").snapshot(),
                    lambda: PostgresRuntimeLedger("fixture-unavailable", "fixture", "alice").snapshot()):
         with pytest.raises(StateUnavailable, match="package extra"):
             action()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_postgres_learning_controls_coordinate_limits_scope_and_thread_cancellation(stores):
+    from mammoth_os.learning_controls import LearningCancelled, LearningLimitReached, check_cancelled, operation_context
+    from mammoth_os.postgres_learning_controls import PostgresLearningControls
+
+    store, _ = stores
+    first = PostgresLearningControls(store.dsn, store.namespace, "alice")
+    second = PostgresLearningControls(store.dsn, store.namespace, "alice")
+    other = PostgresLearningControls(store.dsn, store.namespace, "bob")
+    first.set_limit(5)
+
+    def admit(index):
+        try:
+            return second.begin("/api/atlas/chat", str(index % 2))
+        except LearningLimitReached:
+            return None
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        identities = [identity for identity in pool.map(admit, range(16)) if identity]
+    assert len(identities) == first.snapshot()["admitted_requests"] == 5
+    assert first.snapshot()["remaining_requests"] == 0
+    assert other.snapshot()["admitted_requests"] == 0
+    assert PostgresLearningControls(store.dsn, store.namespace + "-other", "alice").snapshot()["operations"] == []
+    with pytest.raises(LookupError):
+        other.cancel(identities[0])
+    with pytest.raises(RuntimeError, match="missing"):
+        other.is_cancelled(identities[0])
+    with pytest.raises(RuntimeError, match="missing"):
+        other.finish(identities[0], "finished")
+    second.cancel(identities[0])
+
+    async def verify():
+        with pytest.raises(LearningCancelled):
+            with operation_context(first, identities[0]):
+                await asyncio.to_thread(check_cancelled)
+        with operation_context(first, identities[1]):
+            second.cancel(identities[1])
+            with pytest.raises(LearningCancelled):
+                await asyncio.to_thread(check_cancelled)
+
+    asyncio.run(verify())
+    second.cancel_account("0")
+    for operation in first.snapshot()["operations"]:
+        if operation["account_id"] == "0":
+            assert operation["status"] == "cancellation_requested"
+    first.finish(identities[0], "cancelled_at_boundary")
+    assert second.cancel(identities[0]) == "cancelled_at_boundary"
+    assert first.snapshot()["admitted_requests"] == 5
+    first.set_limit(0)
+    with pytest.raises(LearningLimitReached):
+        second.begin("/api/atlas/chat", "account")
+    for value in (True, -1, 1.5, "2", 100001):
+        with pytest.raises(ValueError):
+            first.set_limit(value)
+
+
+def test_learning_controls_backend_factory_and_snapshot_match_local(
+    stores, tmp_path, monkeypatch, isolate_learning_request_controls,
+):
+    import api_server
+    from mammoth_os.learning_controls import LearningControls
+    from mammoth_os.postgres_learning_controls import PostgresLearningControls
+
+    store, _ = stores
+    monkeypatch.setenv("MAMMOTH_LEARNING_CONTROLS_BACKEND", "postgres")
+    monkeypatch.setenv("MAMMOTH_POSTGRES_DSN", store.dsn)
+    monkeypatch.setenv("MAMMOTH_STATE_NAMESPACE", store.namespace)
+    monkeypatch.setattr(api_server, "_current_request_user_id", lambda: "alice")
+    if isolate_learning_request_controls is not None:
+        monkeypatch.setattr(api_server, "_learning_controls", isolate_learning_request_controls)
+    remote = api_server._learning_controls()
+    assert isinstance(remote, PostgresLearningControls)
+    local = LearningControls(tmp_path / "controls.sqlite3")
+    assert remote.snapshot() == local.snapshot()
+    assert remote.set_limit(0) == local.set_limit(0)
+    monkeypatch.setattr(api_server, "_require_signed_in_api", lambda: None)
+    import json
+
+    response = asyncio.run(api_server.atlas_set_learning_controls({"daily_request_limit": 3}))
+    assert json.loads(response.body)["daily_request_limit"] == 3
+    identity = remote.begin("/api/atlas/chat", "account")
+    response = asyncio.run(api_server.atlas_cancel_learning(identity))
+    payload = json.loads(response.body)
+    assert payload["status"] == "cancellation_requested" and payload["prior_effects_undone"] is False
+    response = asyncio.run(api_server.atlas_learning_controls())
+    assert response.headers["cache-control"] == "no-store"
+    assert json.loads(response.body)["admitted_requests"] == 1
+    monkeypatch.setenv("MAMMOTH_LEARNING_CONTROLS_BACKEND", "invalid")
+    with pytest.raises(StateUnavailable, match="no fallback"):
+        api_server._learning_controls()
+
+
+def test_learning_control_retention_never_prunes_active_or_pending_cancellation(stores):
+    from mammoth_os.postgres import database
+    from mammoth_os.postgres_learning_controls import PostgresLearningControls
+
+    store, _ = stores
+    controls = PostgresLearningControls(store.dsn, store.namespace, "alice")
+    pending = controls.begin("/api/atlas/chat", "account")
+    controls.cancel(pending)
+    with database(store.dsn) as connection:
+        connection.execute(
+            "INSERT INTO public.mammoth_learning_operations "
+            "SELECT %s,%s,'finished-' || i,'/fixture','account','finished',"
+            "'2000-01-01T00:00:00+00:00','2000-01-01T00:00:00+00:00' FROM generate_series(1,110) i",
+            (store.namespace, "alice"),
+        )
+        connection.execute(
+            "INSERT INTO public.mammoth_learning_usage VALUES(%s,%s,'2000-01-01',100)",
+            (store.namespace, "alice"),
+        )
+    active = controls.begin("/api/atlas/chat", "other")
+    snapshot = controls.snapshot()
+    assert snapshot["admitted_requests"] == 2
+    assert len(snapshot["operations"]) == 102
+    assert {row["id"] for row in snapshot["operations"] if row["finished_at"] is None} == {pending, active}
+    assert controls.is_cancelled(pending)
+    with database(store.dsn) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM public.mammoth_learning_usage WHERE namespace=%s AND user_id=%s AND day='2000-01-01'",
+            (store.namespace, "alice"),
+        ).fetchone()[0] == 0
 
 
 def test_runtime_storage_migration_preserves_runs_usage_cancellation_and_rollback(stores, tmp_path):
@@ -339,3 +465,37 @@ def test_runtime_storage_migration_preserves_runs_usage_cancellation_and_rollbac
     assert restored.snapshot()["unresolved_reserved_tokens"] == 30
     with pytest.raises(ValueError, match="never overwritten"):
         migration["restore_local"]("alice", restored_runs, restored_ledger, exported)
+
+
+def test_runtime_storage_migration_preserves_learning_limits_usage_and_pending_cancellation(stores, tmp_path):
+    import runpy
+    from pathlib import Path
+    from mammoth_os.learning_controls import LearningControls
+    from mammoth_os.runtime_ledger import RuntimeLedger
+    from mammoth_os.postgres_learning_controls import PostgresLearningControls
+
+    migration = runpy.run_path(str(Path(__file__).parents[1] / "scripts" / "migrate_runtime_storage.py"))
+    store, _ = stores
+    runs_dir, ledger_file = tmp_path / "runs", tmp_path / "usage.sqlite3"
+    runs_dir.mkdir()
+    RuntimeLedger(ledger_file).set_limit(100)
+    controls_file = tmp_path / "controls.sqlite3"
+    local = LearningControls(controls_file)
+    local.set_limit(7)
+    cancelled = local.begin("/api/atlas/chat", "account")
+    local.cancel(cancelled)
+    finished = local.begin("/api/atlas/chat", "other")
+    local.finish(finished, "finished")
+    snapshot = migration["local_snapshot"]("alice", runs_dir, ledger_file, controls_file)
+    migration["import_snapshot"](store.dsn, store.namespace, "alice", snapshot)
+    assert migration["export_snapshot"](store.dsn, store.namespace, "alice") == snapshot
+    shared = PostgresLearningControls(store.dsn, store.namespace, "alice")
+    assert shared.snapshot() == local.snapshot()
+    assert shared.is_cancelled(cancelled)
+    with pytest.raises(ValueError, match="learning-controls"):
+        migration["restore_local"]("alice", tmp_path / "bad-runs", tmp_path / "bad.sqlite3", snapshot)
+    assert not (tmp_path / "bad-runs").exists()
+    restored_runs, restored_ledger, restored_controls = tmp_path / "restored", tmp_path / "restored.sqlite3", tmp_path / "restored-controls.sqlite3"
+    migration["restore_local"]("alice", restored_runs, restored_ledger, snapshot, restored_controls)
+    assert migration["local_snapshot"]("alice", restored_runs, restored_ledger, restored_controls) == snapshot
+    assert LearningControls(restored_controls).snapshot() == shared.snapshot()

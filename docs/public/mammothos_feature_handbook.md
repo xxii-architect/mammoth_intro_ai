@@ -76,7 +76,10 @@ Workers sharing the same durable disk coordinate by default. Optional PostgreSQL
 run checkpoints/session leases and private login admission coordinate across
 disks after an explicit reviewed migration. Worker loss does not authorize
 replaying unknown work, and database failure does not fall back to local state.
-Uploads, learning-control SQLite and learner erasure/recovery are still separate
+Learning request ceilings and cancellation also have an optional PostgreSQL
+backend with explicit migration of usage and pending operations. This is not a
+refund/replay mechanism or learner-state migration.
+Uploads, unmigrated local controls and learner erasure/recovery are still separate
 replica-readiness gates; backend autoscaling is not enabled by these options.
 
 ## How the Guide stays current

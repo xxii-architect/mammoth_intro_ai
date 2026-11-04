@@ -6,11 +6,15 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 import sqlite3
-from typing import Any, Iterator
+from typing import Any, Iterator, Protocol
 import uuid
 
 
-_CURRENT: ContextVar[tuple["LearningControls", str] | None] = ContextVar("learning_generation", default=None)
+class LearningCancellation(Protocol):
+    def is_cancelled(self, operation_id: str) -> bool: ...
+
+
+_CURRENT: ContextVar[tuple[LearningCancellation, str] | None] = ContextVar("learning_generation", default=None)
 
 
 class LearningCancelled(asyncio.CancelledError):
@@ -32,7 +36,7 @@ def has_operation() -> bool:
 
 
 @contextmanager
-def operation_context(store: "LearningControls", operation_id: str) -> Iterator[None]:
+def operation_context(store: LearningCancellation, operation_id: str) -> Iterator[None]:
     token = _CURRENT.set((store, operation_id))
     try:
         check_cancelled()
@@ -71,13 +75,7 @@ class LearningControls:
                 UNION ALL SELECT * FROM (
                     SELECT * FROM operations WHERE finished_at IS NOT NULL ORDER BY started_at DESC LIMIT 100
                 ) ORDER BY started_at DESC""")]
-        return {
-            "contract": "mammoth.learning-controls.v1", "day_utc": day,
-            "daily_request_limit": limit, "admitted_requests": used,
-            "remaining_requests": None if limit is None else max(0, limit - used),
-            "operations": operations, "price_estimate": None,
-            "unit": "admitted_http_requests_not_model_calls_or_dollars",
-        }
+        return controls_snapshot(day, limit, used, operations)
 
     def set_limit(self, limit: int | None) -> dict[str, Any]:
         if limit is not None and (type(limit) is not int or not 0 <= limit <= 100_000):
@@ -129,3 +127,13 @@ class LearningControls:
         now = datetime.now(timezone.utc).isoformat()
         with self._db() as db:
             db.execute("UPDATE operations SET status=?, finished_at=? WHERE id=?", (status, now, operation_id))
+
+
+def controls_snapshot(day, limit, used, operations):
+    return {
+        "contract": "mammoth.learning-controls.v1", "day_utc": day,
+        "daily_request_limit": limit, "admitted_requests": used,
+        "remaining_requests": None if limit is None else max(0, limit - used),
+        "operations": operations, "price_estimate": None,
+        "unit": "admitted_http_requests_not_model_calls_or_dollars",
+    }
