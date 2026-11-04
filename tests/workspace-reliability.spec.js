@@ -155,24 +155,30 @@ test('recursive trace shows actual stage and budgets with a synthesis-only appro
   expect(errors).toEqual([])
 })
 
-test('a capped recursive review distinguishes conservative reservation from reported usage and retains its unverified draft', async ({ page }) => {
+for (const [inputEstimation, expectedLabel] of [
+  ['utf8_byte_upper_bound', 'UTF-8 byte upper bound'],
+  ['model_tokenizer_with_byte_envelope', 'model_tokenizer_with_byte_envelope'],
+  [undefined, 'not reported'],
+]) {
+test(`a capped recursive review distinguishes conservative reservation from reported usage and retains its unverified draft (${expectedLabel})`, async ({ page }) => {
   const recursive = { stage: 'critic', iteration: 0, limits: { max_iterations: 2, max_tokens: 33000, max_tool_calls: 12 },
     usage: { tokens: 30100, tool_calls: 0 }, stop_reason: 'max_tokens', completed_stages: ['0:planner', '0:executor'],
     partial_output: 'Saved source-grounded draft, not reviewed.',
-    budget: { remaining_tokens: 2900, input_token_upper_bound: 4000, output_token_limit: 0,
+    budget: { remaining_tokens: 2900, input_token_upper_bound: 4000, input_estimation: inputEstimation, output_token_limit: 0,
       synthesis_headroom: 4096, stop_detail: 'insufficient_call_allowance' } }
   const errors = await mount(page, 'components/RunTimeline', {}, { runOverride: {
     id: 'run-0123456789abcdef', status: 'failed', events: [], plan: [], recursive, can_continue: false,
   } })
   await page.getByRole('button', { name: /Failed/ }).click()
   await expect(page.getByLabel('Recursive usage')).toContainText('30100/33000 reported tokens')
-  await expect(page.getByLabel('Recursive usage')).toContainText('UTF-8 byte upper bound, not measured tokens')
+  await expect(page.getByLabel('Recursive usage')).toContainText(`${expectedLabel}, not billed usage`)
   await expect(page.getByLabel('Recursive usage')).toContainText('insufficient_call_allowance')
   await page.getByText('Saved draft — recursive review incomplete, not verified', { exact: true }).click()
   await expect(page.getByText('Saved source-grounded draft, not reviewed.', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Continue task' })).toHaveCount(0)
   expect(errors).toEqual([])
 })
+}
 
 for (const status of ['awaiting_approval', 'cancelled']) {
 test(`Mammoth Mind restores recursive checkpoints from authoritative saved state (${status})`, async ({ page }) => {
