@@ -1301,6 +1301,9 @@ test('required coding result demands explicit repo then reaches the run API with
       if (repo === 'owner/repo' || repo.startsWith('https://github.com/')) {
         await expect(handoff.getByRole('link', { name: 'Open repository in GitHub Desktop', exact: true }))
           .toHaveAttribute('href', 'x-github-client://openRepo/https://github.com/owner/repo')
+        await expect(handoff.getByRole('link', { name: 'View approved branch on GitHub (after publishing)' }))
+          .toHaveAttribute('href', `https://github.com/owner/repo/tree/${encodeURIComponent(branch)}`)
+        await expect(handoff).toContainText('This website fallback does not publish the branch')
         await expect(handoff.getByRole('link', { name: 'Open prepared branch in GitHub Desktop' })).toHaveCount(0)
         await handoff.getByRole('checkbox').check()
         await expect(handoff.getByRole('link', { name: 'Open prepared branch in GitHub Desktop' }))
@@ -1339,6 +1342,56 @@ test('required coding result demands explicit repo then reaches the run API with
     await expect(handoff.getByRole('link', { name: 'Open repository in GitHub Desktop', exact: true })).toBeVisible()
     expect(attempts).toBe(2)
   })
+for (const corrupt of [false, true]) {
+  test(`approved bundle download verifies checksum and never imports or retries (${corrupt})`, async ({ page }) => {
+    const crypto = require('node:crypto')
+    const id = `exec-${'e'.repeat(24)}`
+    const branch = `mammoth/owner/${id}`
+    const commit = 'f'.repeat(40)
+    const base = 'a'.repeat(40)
+    const data = Buffer.from('# v2 git bundle\nfixture')
+    let exports = 0
+    const receipt = { contract: 'mammoth.owner-branch-export.v1', execution_id: id, repo: 'owner/repo',
+      branch, filename: `${id}.bundle`, base_sha: base, commit_sha: commit, requires_base: true, automatic_push: false,
+      encoding: 'base64', size_bytes: data.length, bundle_base64: data.toString('base64'),
+      sha256: corrupt ? '0'.repeat(64) : crypto.createHash('sha256').update(data).digest('hex') }
+    const errors = await mount(page, 'components/RunTimeline', {
+      [`/api/owner-executions/${id}`]: { execution: { id, repo: 'owner/repo', status: 'validated',
+        base_sha: base, patch: 'approved', application: { status: 'applied', branch, commit_sha: commit } } },
+      [`/api/owner-executions/${id}/export`]: request => {
+        exports++
+        expect(request.postDataJSON()).toEqual({ repo_context: { root: 'owner/repo' },
+          expected_commit: commit, confirm_private_export: true })
+        return { export: receipt }
+      },
+    }, { runOverride: { id: 'run-test', status: 'completed', events: [], plan: [],
+      progress: { goal: 'applied', stage: 'applied', executions: [
+        { id, status: 'validated', application: { status: 'applied', branch, commit_sha: commit } },
+      ] } } })
+    const handoff = page.getByRole('region', { name: 'GitHub Desktop handoff' })
+    await handoff.getByRole('button', { name: 'Prepare GitHub Desktop handoff (no push)' }).click()
+    await expect(handoff.getByRole('button', { name: 'Confirm private branch bundle download (no push)' })).toBeVisible()
+    expect(exports).toBe(0)
+    if (corrupt) {
+      const downloads = []
+      page.on('download', download => downloads.push(download))
+      await handoff.getByRole('button', { name: 'Confirm private branch bundle download (no push)' }).click()
+      await expect(handoff.getByRole('alert')).toContainText('Invalid branch export receipt, checksum or size')
+      await expect(handoff.getByText('Verify and import the downloaded bundle')).toHaveCount(0)
+      expect(downloads).toEqual([])
+    } else {
+      const downloadPromise = page.waitForEvent('download')
+      await handoff.getByRole('button', { name: 'Confirm private branch bundle download (no push)' }).click()
+      const download = await downloadPromise
+      expect(download.suggestedFilename()).toBe(`${id}.bundle`)
+      expect(fs.readFileSync(await download.path())).toEqual(data)
+      await expect(handoff).toContainText('Transport checksum verified')
+      await expect(handoff).toContainText('fully terminal-free import still needs a local helper')
+    }
+    expect(exports).toBe(1)
+    expect(errors).toEqual([])
+  })
+}
 test('Coding approval works after a terminal event even when the response transport stays open', async ({ page }) => {
   const errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
     '/api/mammoth/repo-sources': { options: [{ value: 'owner/repo', label: 'Owner repo' }] },

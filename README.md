@@ -847,10 +847,14 @@ the caller-authorized execution; it never launches an app on refresh. The card
 can download the recorded approved patch and open an unambiguous recorded GitHub
 repository in Desktop. Branch-specific launching requires the user to confirm
 that the branch is already in their local clone or published, then verify its
-commit in Desktop. No default repository, automatic push/merge or backend-to-
-laptop transfer is introduced. An unpublished branch on a remote Mammoth host
-still requires operator-assisted transfer; a patch download does not install
-a branch or preserve the backend commit identity. Desktop installation and
+commit in Desktop. No default repository, automatic push/merge or automatic
+backend-to-laptop import is introduced. **Confirm private branch bundle download
+(no push)** exports the applied commit with a required existing base and a
+verified SHA-256 transport checksum. The card shows explicit local verify/fetch/
+commit-comparison instructions; it never imports, switches branches or runs code.
+A patch download alone does not preserve the commit. **View approved branch on
+GitHub (after publishing)** is a website fallback; it can show not-found until
+pushed or without access. Desktop installation and
 browser protocol-handler permission are required; launch success is not assumed.
 
 **Workspace > Run Review** lists the current account's saved runs and reopens

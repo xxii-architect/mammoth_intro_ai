@@ -14,6 +14,7 @@ from mammoth_os.paths.client import (
     RunResult,
     iter_sse,
 )
+from mammoth_os.paths.branch_export import decode_branch_export as decode_owner_branch_export
 
 __all__ = [
     "PATHS_CONTRACT_VERSION",
@@ -23,4 +24,5 @@ __all__ = [
     "RunEvent",
     "RunResult",
     "iter_sse",
+    "decode_owner_branch_export",
 ]

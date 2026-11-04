@@ -243,6 +243,40 @@ are separate and unchanged.
 
 ## Owner-only isolated validation
 
+### Portable applied-branch export
+
+After separate application approval, Python
+`export_owner_branch(id, repo="owner/repo", expected_commit=commit,
+confirm_private_export=True)` and JavaScript
+`exportOwnerBranch(id, {repo: 'owner/repo', expectedCommit: commit,
+confirmPrivateExport: true})` explicitly export private source without a model,
+push, merge or import. The route rechecks admin membership, execution ownership
+and selected repository access. This remains an owner pilot, not tenant write
+permission.
+
+The `export` envelope uses `mammoth.owner-branch-export.v1`: execution/repository,
+branch, base and commit, bounded size (8 MiB), SHA-256 and base64 bundle bytes,
+`requires_base: true`, `automatic_push: false`. Clients check identity, bounds,
+encoding/header and checksum; malformed evidence is `invalid_response`, never
+an automatic retry. JS requires Web Crypto in a secure context (Node embedders
+must supply Web Crypto if their runtime lacks it); otherwise
+`verification_unavailable` is explicit. Python is still stdlib-only.
+
+Python `from mammoth_os.paths import decode_owner_branch_export` returns bytes
+from `(receipt, execution_id, expected_commit)`; JS
+`await decodeOwnerBranchExport(receipt, {executionId, expectedCommit})` returns
+`Uint8Array`. Store downloaded source privately. A checksum is transport
+consistency, not a signature, factual check or independent review.
+
+The backend verifies the unchanged applied branch, exactly one approved parent
+and the approved tree, then exports only that commit relative to its base.
+It preserves your selected checkout/index; the recipient must already have the
+base. Use a local Git-capable tool to `git bundle verify` the file, fetch its
+explicit branch without force, then compare the imported commit before selecting
+it in Desktop and explicitly publishing. GitHub Desktop does not directly import
+bundles. Neither SDK executes import commands or grants GitHub write access.
+The UI's exact GitHub branch link works only once published and accessible.
+
 The disabled-by-default owner pilot adds matching Python/JS methods:
 
 | Python | JavaScript |

@@ -181,6 +181,7 @@ export interface PathsClient {
   ownerExecutionCapabilities(repo?: string): Promise<Record<string, unknown>>
   prepareOwnerExecution(repo: string, changes: OwnerExecutionChange[], options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' | 'ui_build' | 'ui_component' | 'ui_browser'; acceptance?: { expected_behavior: string[]; regression_tests: string[] } }): Promise<Record<string, unknown>>
   getOwnerExecution(id: string): Promise<Record<string, unknown>>
+  exportOwnerBranch(id: string, options: { repo: string; expectedCommit: string; confirmPrivateExport: true }): Promise<Record<string, unknown>>
   approveOwnerExecution(id: string, options: { repo: string; approvalDigest: string }): Promise<Record<string, unknown>>
   cancelOwnerExecution(id: string): Promise<Record<string, unknown>>
   applyOwnerExecution(id: string, options: { repo: string; approvalDigest: string }): Promise<Record<string, unknown>>
@@ -204,3 +205,4 @@ export declare function createRunStore(initial?: RunState | null): {
   reset(value?: RunState | null): void
 }
 export function validateDocumentReview(value: unknown, identity?: { reviewId?: string; fileId?: string; scope?: 'chat' | 'atlas' }): Record<string, unknown>
+export function decodeOwnerBranchExport(value: unknown, identity: { executionId: string; expectedCommit: string }): Promise<Uint8Array>

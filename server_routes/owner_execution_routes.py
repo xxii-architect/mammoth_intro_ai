@@ -81,3 +81,22 @@ async def apply_owner_execution(execution_id: str, body: Dict[str, Any]):
                                  str(body.get("approval_digest") or ""))
     await _record_owner_execution(job)
     return {"status": "ok", "execution": job}
+
+
+@app.post("/api/owner-executions/{execution_id}/export")
+async def export_owner_branch(execution_id: str, body: Dict[str, Any]):
+    blocked = _require_admin_api()
+    if blocked is not None:
+        return blocked
+    ctx, notice = _agent_tool_context(body.get("repo_context"))
+    if notice or not ctx.has_repo:
+        raise ExecutionError("Select the original accessible repository explicitly.", "repo_required", 403)
+    if body.get("confirm_private_export") is not True:
+        raise ExecutionError("Confirm the private source export explicitly.", "confirmation_required", 400)
+    result = await asyncio.to_thread(_OWNER_EXECUTION.export_branch, execution_id, ctx.user_id,
+                                    ctx.repo_root, body.get("expected_commit"))
+    _append_activity("Approved branch exported", agent_id="coding_agent", task_id=execution_id,
+                     kind="owner_branch_exported",
+                     details={"repo": result["repo"], "branch": result["branch"], "commit_sha": result["commit_sha"],
+                              "sha256": result["sha256"], "size_bytes": result["size_bytes"]})
+    return JSONResponse({"status": "ok", "export": result}, headers={"Cache-Control": "no-store"})

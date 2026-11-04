@@ -308,10 +308,22 @@ and launch success is never presumed. Review/push/create a PR in Desktop; review
 checks and merge on GitHub yourself.
 
 Important: Mammoth's backend and your laptop may be different computers. Opening
-Desktop cannot transfer an unpublished backend branch. That case still needs an
-operator-assisted transfer; the patch download is portable source evidence, not
-an automatic import or Git bundle. There is no automatic app launch, push, merge,
-repository sync or default repository. Keep downloaded source patches private.
+Desktop's launch link cannot transfer an unpublished backend branch.
+**Confirm private branch bundle download (no push)** downloads the exact applied
+commit after verifying a transport SHA-256 checksum. It is a delta bundle, not
+the full repository, and requires the recorded base in your existing local clone.
+The card shows Git verify/fetch/commit-comparison instructions for your local
+tool/operator; it never runs those commands, switches your checkout or imports
+automatically. Desktop itself does not directly import bundles; fully
+terminal-free import still needs a local helper. A checksum is not a signature
+or independent correctness review. The separate patch download is portable
+source evidence, not commit preservation.
+
+**View approved branch on GitHub (after publishing)** is a simpler website
+fallback for already pushed work. It may show not-found until published or
+without repository access; it does not push anything. There is no automatic
+app launch, push, merge, repository sync or default repository. Keep downloaded
+source bundles and patches private.
 
 No repository selected means **no repository context**. Select a repository you
 connected when you want source-aware help. A repository name in a prompt is not

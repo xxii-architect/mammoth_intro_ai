@@ -221,11 +221,16 @@ Desktop handoff refinement:
 - Branch-specific launching requires the user's local/published-branch
   acknowledgment, not a fabricated check of their computer. Missing/ambiguous
   GitHub identity never falls back to the platform repository.
-- Backend-only unpublished branches still need operator-assisted transfer.
-  Automatic remote-to-local branch transport/local helper distribution is not
-  implemented; patch download is not branch import. Push, PR and merge remain
-  explicit user operations. Browser protocol-handler links are covered by
-  fixture tests, not certified against an installed Desktop app.
+- Explicit owner-only branch export now returns a bounded delta Git bundle
+  for the exact applied commit, requiring its base. Recheck current repository
+  access, record owner, caller confirmation, expected commit, branch tip, sole
+  parent and exact approved tree; checksum-verify before downloading. Both SDKs
+  expose matching confirmed export calls. No provider/model calls.
+- A GitHub website branch fallback complements Desktop, explicitly only available
+  after publishing. It never pushes. A local Git tool/operator still performs
+  import; no local helper, automatic commands, checkout, push or merge. Actual
+  clone import/commit identity and missing-base rejection are tested; native
+  Desktop launch/fully terminal-free import are not certified.
 
 1. Establish reviewed owner-container infrastructure evidence and compatible
    per-repository validators (CI-03); a green diagnostics job is insufficient.
