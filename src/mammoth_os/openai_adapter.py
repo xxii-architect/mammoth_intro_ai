@@ -47,9 +47,8 @@ class OpenAIAdapter:
     async def generate(self, prompt: str, **kwargs) -> str:
         return (await self.generate_completion(prompt, **kwargs)).text
 
-    async def generate_completion(self, prompt: str, **kwargs) -> Completion:
-        client = self._ensure_client()
-        timeout = kwargs.pop("timeout", int(os.getenv("OPENAI_TIMEOUT", "60")))
+    def completion_payload(self, prompt: str, options: Dict[str, Any]) -> tuple[Dict[str, Any], str]:
+        kwargs = dict(options)
         decision_json = kwargs.pop("decision_json", False)
         decision_schema = kwargs.pop("decision_schema", None)
         decision_protocol = "text"
@@ -101,14 +100,18 @@ class OpenAIAdapter:
                 ),
             })
 
+        params: Dict[str, Any] = {"model": self.model, "messages": _messages}
+        for key in ("temperature", "max_tokens", "response_format"):
+            if key in kwargs:
+                params[key] = kwargs[key]
+        return params, decision_protocol
+
+    async def generate_completion(self, prompt: str, **kwargs) -> Completion:
+        client = self._ensure_client()
+        timeout = kwargs.pop("timeout", int(os.getenv("OPENAI_TIMEOUT", "60")))
+        params, decision_protocol = self.completion_payload(prompt, kwargs)
+
         def _sync_call():
-            params: Dict[str, Any] = {
-                "model": self.model,
-                "messages": _messages,
-            }
-            for k in ("temperature", "max_tokens", "response_format"):
-                if k in kwargs:
-                    params[k] = kwargs[k]
             return client.chat.completions.create(**params)
 
         try:

@@ -301,6 +301,7 @@ class DocumentLibrary:
         connection = sqlite3.connect(self.folder / "library.sqlite3", timeout=30)
         connection.execute("CREATE TABLE IF NOT EXISTS files (file_id TEXT PRIMARY KEY, scope TEXT NOT NULL, payload TEXT NOT NULL)")
         connection.execute("CREATE TABLE IF NOT EXISTS migrations (scope TEXT PRIMARY KEY)")
+        connection.execute("CREATE TABLE IF NOT EXISTS document_reviews (id TEXT PRIMARY KEY, scope TEXT NOT NULL, file_id TEXT NOT NULL, payload TEXT NOT NULL)")
         try:
             for scope, folder in self.legacy_folders.items():
                 if connection.execute("SELECT 1 FROM migrations WHERE scope=?", (scope,)).fetchone():
@@ -470,6 +471,7 @@ class DocumentLibrary:
                         raise DocumentError("Stored file location is invalid; operator repair is required.", 500)
                     path.unlink(missing_ok=True)
             connection.execute("DELETE FROM files WHERE file_id=?", (file_id,))
+            connection.execute("DELETE FROM document_reviews WHERE file_id=?", (file_id,))
             connection.commit()
         finally:
             connection.close()

@@ -220,9 +220,33 @@ Extraction warnings/limits remain relevant even after every indexed section is
 retrieved. Requests are read-only and use the `documents` metering surface.
 
 Recursive snapshots also expose additive `budget`, `completed_stages` and
-`partial_output` metadata. Input reservations are labeled conservative UTF-8 byte
-upper bounds, not actual token usage. A saved draft after failure is unverified;
+`partial_output` metadata. Input allowances identify local model-text tokenization
+plus byte envelopes for supported official models, or conservative byte fallback,
+not actual billed usage. A saved draft after failure is unverified;
 it must never be treated as a completed recursive review or automatically retried.
+
+### Saved indexed-section review
+
+| Python | JavaScript |
+| --- | --- |
+| `create_document_review(file_id, goal, scope="chat")` | `createDocumentReview(fileId, goal, {scope: 'chat'})` |
+| `list_document_reviews(file_id, scope="chat")` | `listDocumentReviews(fileId, {scope: 'chat'})` |
+| `get_document_review(id)` | `getDocumentReview(id)` |
+| `advance_document_review(id, confirm_model_usage=True)` | `advanceDocumentReview(id, {confirmModelUsage: true})` |
+| `delete_document_review(id)` | `deleteDocumentReview(id)` |
+
+Methods preserve server envelopes (`review` / `reviews`) on the `documents` usage
+surface. Create/get/list/delete never invoke models. Advance requires explicit
+confirmation for each batch of up to three sections and never retries itself.
+Set the Python transport timeout above 180 seconds for a full batch; if a proxy
+or client disconnects sooner, reload saved state instead of resending blindly.
+The lifetime ceiling is 64,000 reported tokens, not a per-batch reset.
+`mammoth.document-review.v1` stores source-hashed, sequential indexed assessments
+with literal quotes, warnings, usage and precise stop status. Completion means
+all indexed sections have assessments, not factual verification, original-file
+coverage or combined synthesis. Unknown calls, failed outputs and cap stops are
+blocked; completed section calls are not replayed. Source deletion removes its
+reviews. Up to 20 reviews are retained per private library; delete unused reviews.
 
 ## Owner isolated execution pilot
 

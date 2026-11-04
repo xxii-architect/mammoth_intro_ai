@@ -78,10 +78,15 @@ that a future synthesis prompt fits. Overall configured limits are unchanged.
 `budget` in public snapshots/events records the latest call's role, remaining
 tokens before admission, conservative input bound, overhead allowance, output
 limit, synthesis headroom, current reservation and reported call usage when known.
-`input_estimation: utf8_byte_upper_bound` is deliberately not a measured token
-count. It can stop a call below the reported-token ceiling; an admission refusal
-records `stop_detail: insufficient_call_allowance`. Provider-aware tokenizer
-admission remains open. Missing/unknown provider usage still fails closed.
+Admission is recalculated at each actual leaf provider attempt, including fallback
+and conversation-background expansion. Known official OpenAI models use local
+`tiktoken` text counts and a byte bound for the actual shared request envelope/
+schema, plus overhead. `model_tokenizer_with_byte_envelope` labels this hybrid,
+not exact server chat tokenization. Compatible endpoints, unrecognized models and
+missing tokenizer assets retain `utf8_byte_upper_bound`. Neither is billed usage.
+Admission can stop below the reported-token ceiling and records
+`stop_detail: insufficient_call_allowance`. Missing provider usage still fails
+closed. Failed/fallback-attempt charges remain unknown unless reported.
 
 Planner revisions receive earlier execution evidence but not a duplicate draft;
 the executor still receives that draft for revision. Role source/draft contexts
@@ -91,7 +96,9 @@ Contexts that cannot fit stop rather than silently dropping source conclusions.
 latest completed executor draft and the timeline labels it unverified; it is not
 a passed critique, synthesis, application receipt or automatic retry.
 Cap stops do not gain additional allowance or a continuation button. Explicit
-budget extensions and exhaustive document-review checkpoints remain future work.
+budget extensions remain future work. The separate explicit indexed-document
+review workflow checkpoints section assessments in the private document library;
+it does not automatically make recursive runs exhaustive or resume their cap stops.
 
 Runs, cached typed role outputs and human checkpoints use the existing user-scoped
 RunStore. A nonblocking OS lease prevents competing consumers across workers and

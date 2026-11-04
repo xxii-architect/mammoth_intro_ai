@@ -31,6 +31,14 @@ while True:
     start = page["next_start"]
 assert indices == list(range(page["total_chunks"]))
 assert "BEGIN_SOURCE" in source and "END_SOURCE" in source
+review = client.create_document_review(file_id, "Assess all indexed sections.")["review"]
+assert review["status"] == "ready" and review["usage"]["tokens"] == 0
+assert client.get_document_review(review["id"])["review"]["assessments"] == []
+while review["status"] in {"ready", "partial"}:
+    review = client.advance_document_review(review["id"], confirm_model_usage=True)["review"]
+assert review["status"] == "completed" and review["review_complete"]
+assert [item["chunk_index"] for item in review["assessments"]] == list(range(review["total_sections"]))
+assert client.list_document_reviews(file_id)["reviews"][0]["id"] == review["id"]
 for options, status in [({"count": 11}, 400), ({"scope": "atlas"}, 404)]:
     try:
         client.read_document(file_id, **options)
@@ -39,6 +47,12 @@ for options, status in [({"count": 11}, 400), ({"scope": "atlas"}, 404)]:
     else:
         raise AssertionError("Invalid document page or scope succeeded")
 token = "tenant-b"
+try:
+    client.get_document_review(review["id"])
+except PathsError as error:
+    assert error.status == 404
+else:
+    raise AssertionError("Another tenant read this review")
 try:
     client.read_document(file_id)
 except PathsError as error:
@@ -68,6 +82,12 @@ assert cancelled.status == "awaiting_approval"
 client.cancel_run(cancelled.run_id)
 assert client.recover_run(cancelled.run_id).status == "cancelled"
 token = None
+try:
+    client.get_document_review(review["id"])
+except PathsError as error:
+    assert error.status == 401
+else:
+    raise AssertionError("Anonymous review read succeeded")
 try:
     client.read_document(file_id)
 except PathsError as error:

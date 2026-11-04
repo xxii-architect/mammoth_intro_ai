@@ -27,9 +27,21 @@ while (true) {
 }
 assert.deepEqual(indices, Array.from({ length: total }, (_, index) => index))
 assert.ok(source.includes('BEGIN_SOURCE') && source.includes('END_SOURCE'))
+let review = (await client.createDocumentReview(fileId, 'Assess all indexed sections.')).review
+assert.equal(review.status, 'ready')
+assert.equal(review.usage.tokens, 0)
+assert.deepEqual((await client.getDocumentReview(review.id)).review.assessments, [])
+while (['ready', 'partial'].includes(review.status)) {
+  review = (await client.advanceDocumentReview(review.id, { confirmModelUsage: true })).review
+}
+assert.equal(review.status, 'completed')
+assert.equal(review.review_complete, true)
+assert.deepEqual(review.assessments.map(item => item.chunk_index), Array.from({ length: review.total_sections }, (_, index) => index))
+assert.equal((await client.listDocumentReviews(fileId)).reviews[0].id, review.id)
 await assert.rejects(client.readDocument(fileId, { count: 11 }), error => error instanceof PathsError && error.status === 400)
 await assert.rejects(client.readDocument(fileId, { scope: 'atlas' }), error => error instanceof PathsError && error.status === 404)
 token = 'tenant-b'
+await assert.rejects(client.getDocumentReview(review.id), error => error instanceof PathsError && error.status === 404)
 await assert.rejects(client.readDocument(fileId), error => error instanceof PathsError && error.status === 404)
 await assert.rejects(client.getRun(result.runId), error => error instanceof PathsError && error.status === 404)
 token = 'tenant-a'
@@ -45,6 +57,7 @@ assert.equal(cancelled.status, 'awaiting_approval')
 await client.cancelRun(cancelled.runId)
 assert.equal((await client.recoverRun(cancelled.runId)).status, 'cancelled')
 token = null
+await assert.rejects(client.getDocumentReview(review.id), error => error instanceof PathsError && error.status === 401)
 await assert.rejects(client.readDocument(fileId), error => error instanceof PathsError && error.status === 401)
 await assert.rejects(client.run('Anonymous'), error => error instanceof PathsError && error.status === 401)
 console.log(JSON.stringify({ context_run: result.runId, cancelled_run: cancelled.runId }))

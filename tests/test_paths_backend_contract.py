@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 import api_server
 from mammoth_os.agent_loop import AgentRunner, RunStore, ToolRegistry, ToolSpec
 from mammoth_os.documents import DocumentLibrary
+from mammoth_os.llm_completion import Completion
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,6 +87,7 @@ def contract_backend(monkeypatch, tmp_path):
     })
     exchanges, documents, prompts, tool_calls, requests = [], [], [], [], []
     monkeypatch.setattr(api_server, "_persist_agent_run_exchange", lambda run, **kwargs: exchanges.append(run.id))
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
     def attached(user, ids, message):
         documents.append((user, ids))
         return "Fixture document context." if ids == ["fixture-file"] else ""
@@ -107,8 +109,14 @@ def contract_backend(monkeypatch, tmp_path):
                 {"tool": "contract_read", "args": {}},
             ])
         async def generate(self, prompt, **kwargs):
+            if prompt.startswith("Assess exactly this indexed source section"):
+                source = json.loads(prompt.split("\n", 1)[1])
+                return json.dumps({"summary": "A section assessment.", "quote": source["text"][:80]})
             prompts.append(prompt)
             return json.dumps(next(self.responses))
+        async def generate_completion(self, prompt, **kwargs):
+            return Completion(await self.generate(prompt, **kwargs), finish_reason="stop",
+                              usage={"total_tokens": 100}, model=self.model)
     model = Model()
     monkeypatch.setattr(api_server, "_AGENT_RUNS", store)
     monkeypatch.setattr(api_server, "_AGENT_TOOLS", registry)
@@ -127,7 +135,7 @@ def contract_backend(monkeypatch, tmp_path):
                 self.send_header("Content-Length", str(len(response.content)))
                 self.end_headers()
                 self.wfile.write(response.content)
-            do_GET = do_POST = handle_request
+            do_GET = do_POST = do_DELETE = handle_request
             def log_message(self, *args):
                 pass
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

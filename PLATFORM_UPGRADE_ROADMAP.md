@@ -25,6 +25,8 @@ Recent merged passes:
 - #23: retained final overview samples, private document paging across both SDKs
   and UI, recursive role allowances, budget diagnostics and unverified draft
   retention.
+- #24: detailed feature handbook, source-grounded Guide responses and per-request
+  docs fingerprints/caller-filtered capability snapshots.
 
 These are merged source changes, not proof of deployment or complete production
 acceptance. The latest release had nine successful checks and 182 fixture-backed
@@ -108,14 +110,36 @@ Implemented bounded first batch (not closure of the items above):
 
 #### Order after the context/review batch
 
-Next connected implementation order:
+Current connected implementation (source; awaiting this slice's release gate):
 
-1. Provider-aware admission with explicit counted/estimated/reserved/reported
-   semantics and conservative fallback when the exact provider/model cannot be
-   counted. No chars-per-token guess or silent cap expansion.
-2. Explicit bounded exhaustive indexed-document review with durable per-section
-   coverage, evidence and safe resume. Keep cap extension separate from ordinary
-   recovery, and never replay unknown side effects or completed paid stages.
+- Admission now runs at each leaf provider attempt, including fallback and
+  conversation-background expansion. Known official OpenAI models use local
+  tokenizer text counts plus byte allowances for the shared request envelope/
+  schema and overhead. Unknown models/endpoints and unavailable tokenizer assets
+  use explicit byte fallback. Estimates/reservations remain distinct from actual
+  reported usage. This is not exact provider-side chat tokenization or a billing
+  guarantee; the original overall recursive caps are unchanged.
+- Explicit read-only indexed review persists source-hashed assessments and
+  literal quote provenance per section in the private document library. Creation/
+  recovery/listing/deletion run no models. Each confirmed advance assesses up to
+  three sections within 180 seconds and a lifetime 64,000 reported-token ceiling.
+  Reloaded batches resume only known unassessed indices; concurrent work,
+  unknown provider outcomes, changed/deleted sources and cap stops block replay.
+  Completion requires every indexed section, while extraction warnings remain.
+  SDK parity and file-preview controls expose these same limits. Deleting the
+  source purges the review; an explicit delete frees the 20-review private quota.
+- This is not automatic recursive exhaustive critique or combined cross-section
+  synthesis. Unknown active work after a process restart remains blocked, not
+  automatically retried. Exact original-source character coverage and
+  authoritative charges from failed provider attempts are not invented.
+
+Next remaining context work:
+
+1. Evaluate supported model/envelope admission against real reported usage; do
+   not substitute a chars-per-token guess for unsupported provider tokenization.
+2. Design separately bounded cross-section synthesis and explicit budget
+   extension if required. Neither can silently replay completed paid work or
+   make an extraction-limited original file complete.
 3. Use authorized saved receipts to reproduce the two hosted failures when
    available; they remain uninspected, not implicitly fixed by local fixtures.
 

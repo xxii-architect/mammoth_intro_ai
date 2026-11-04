@@ -11,6 +11,10 @@ const client = createPathsClient({ baseUrl: 'https://example.invalid' })
 void client.run('Review', options)
 void client.streamRun('Review', options)
 void client.readDocument('file-id', { scope: 'chat', start: 6, count: 6 })
+void client.createDocumentReview('file-id', 'Assess the appendix.', { scope: 'atlas' })
+void client.advanceDocumentReview('review-id', { confirmModelUsage: true })
+// @ts-expect-error Paid document review requires explicit confirmation.
+void client.advanceDocumentReview('review-id')
 // @ts-expect-error Document scopes cannot address arbitrary API surfaces.
 void client.readDocument('file-id', { scope: 'operator' })
 const tasks: Promise<Array<Record<string, unknown>>> = client.listTasks()

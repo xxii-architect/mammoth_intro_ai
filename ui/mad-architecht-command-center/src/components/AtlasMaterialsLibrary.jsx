@@ -3,6 +3,7 @@ import { Upload, Trash2, BookOpen, ClipboardList, FileText, Tag, Loader, Graduat
 import { api } from '../api/client'
 import useDocumentUpload from './useDocumentUpload'
 import DocumentUploadStatus from './DocumentUploadStatus'
+import DocumentReviewPanel from './DocumentReviewPanel'
 import { useAuth } from '../lib/authContext'
 
 const TAG_META = {
@@ -205,6 +206,7 @@ function MaterialsLibrary({ attached = [], onToggleAttach, scope = 'atlas', onLi
           </form>
           {preview.sections?.map((section, index) => <div key={index}><strong>{section.location}</strong><pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>{section.text}</pre></div>)}
           {!preview.sections?.length && <div>No usable text. {preview.warnings?.join(' ')}</div>}
+          <DocumentReviewPanel key={preview.file_id} fileId={preview.file_id} scope={scope === 'mammoth' ? 'chat' : scope} />
         </section>
       )}
 

@@ -4,8 +4,8 @@
 
 This is the explanation-first companion to the in-app Manual: what each main
 workspace feature is for, how to choose it, and what its results do **not** prove.
-Its behavior baseline is merged PR #23 (2026-11-03); the Guide refresh additions
-describe the source in this edition and require deployment too. This is not a
+Its merged baseline includes PR #24 (2026-11-03); provider-admission and saved
+indexed-review additions describe this source edition and require deployment too. This is not a
 certification of the version currently running on your server. Availability also
 depends on your account, plan, operator configuration and connected providers.
 
@@ -154,9 +154,12 @@ The planner and critic each have a 2,048-token output ceiling. Other stages keep
 their own output allowances, subject to remaining budget. The runtime also leaves
 bounded headroom for synthesis; it cannot guarantee the later prompt will fit.
 
-Input admission still uses a conservative **UTF-8 byte upper bound**, plus an
-overhead allowance, rather than exact provider tokenization. A prompt can therefore
-be refused while reported usage remains below the overall cap. An output cap, an
+Input admission is recomputed for the actual provider attempt, including fallback
+and conversation background. Known official OpenAI models use local tokenizer
+text counts plus byte allowances for the shared request envelope/schema and
+overhead. Other models/endpoints or unavailable tokenizer assets use a labeled
+**UTF-8 byte upper bound**. This is not exact server-side chat tokenization.
+A prompt can still be refused while reported usage remains below the overall cap. An output cap, an
 input-admission refusal and a provider failure are different problems.
 `insufficient_call_allowance` identifies an admission refusal; missing provider
 usage stops accounting explicitly. Estimates are never actual billed usage.
@@ -215,9 +218,28 @@ not a faithful rendering of every chart, table, image or layout.
 
 In Agent mode, document search/read tools can inspect further indexed sections.
 Ask the agent to cite locations and explicitly identify unread or missing
-material. Tool availability alone does not establish complete review. Automatic
-exhaustive-review orchestration and resumable section-by-section coverage remain
-planned work, not a feature to assume is running.
+material. Tool availability alone does not establish complete review.
+
+For explicit saved coverage, use **Indexed document review** in the preview.
+Enter a bounded goal and create a review: this step calls no model. Each
+**Review next batch (uses model credits)** click assesses up to three sections.
+Each assessment stores its source index/location/hash, model summary, a quote
+checked literally against that source, and reported usage. The workflow resumes
+at the next unassessed index rather than repeating completed calls.
+
+The review is read-only and separate from recursive critique. Its 64,000
+reported-token ceiling spans all batches; each batch is limited to 180 seconds.
+Reopening/reloading only reads saved progress. Network/proxy timeout does not
+establish that a call failed: reload saved state before doing more work.
+Unknown provider outcomes remain blocked rather than being replayed. A process
+restart with active work likewise cannot authorize automatic replay.
+
+All indexed sections assessed means exactly that, not recovered OCR, verified
+facts, a combined cross-section argument or a guarantee of correct interpretation.
+Warnings remain visible even at full indexed coverage. Source changes invalidate
+continuation; deleting the source deletes its reviews. Saved reviews can also be
+deleted explicitly. The private library retains up to 20 reviews. Budget
+extension and cross-section synthesis are not automatic.
 
 Legacy uploads with only preview text cannot recover their missing original
 content through paging; re-uploading may be needed. No amount of recursive
@@ -373,11 +395,13 @@ accounting systems. Measure what is actually reported and label unknown values.
 
 ## What remains planned, not promised
 
-The next context/review workstream is provider-aware token admission, followed
-by explicit bounded whole-document review with durable section coverage and safe
-resume. A review must either account for every required indexed section or
-clearly remain partial. Budget extension requires deliberate design; it must not
-silently replay paid stages, duplicate tools or bypass approvals.
+Provider-aware local admission now distinguishes tokenizer text plus conservative
+request-envelope allowances from byte fallback; exact server-side billing counts
+remain provider-reported after the call. Explicit indexed review now checkpoints
+bounded section assessments and resumes known completed work without replay.
+It is not automatic recursive whole-file critique or combined synthesis.
+Budget extension requires further design; it must not silently replay paid stages,
+duplicate tools or bypass approvals.
 
 The two reported hosted token-cap failures have not been independently reproduced
 from their original run receipts. Deterministic tests verify specific behaviors,
@@ -397,4 +421,4 @@ tenant spend controls also remain roadmap work.
 
 For a useful Guide question, try: "Explain recursive review costs and token-cap
 stops, then help me decide whether my task needs it. Distinguish current behavior
-from planned exhaustive-review and resume features."
+from indexed-review coverage and future budget-extension features."

@@ -7073,6 +7073,12 @@ def _document_content(scope: str, file_id: str, query: str, start: Optional[int]
             "text": "\n\n".join(f"[{section['location']}] {section['text']}" for section in content["sections"])}
 
 
+def _document_reviews():
+    from mammoth_os.document_review import DocumentReviews
+
+    return DocumentReviews(_document_library(_current_request_user_id()))
+
+
 def _attached_chat_document_context(user_id: str, file_ids: Any, query: str) -> str:
     if not isinstance(file_ids, list) or not file_ids:
         return ""
@@ -7184,6 +7190,7 @@ def _guide_platform_status(tool_context=None) -> Dict[str, Any]:
         return {"observed_at": observed_at, "scope": "public_only",
                 "verification": "configuration_only_not_health"}
     from mammoth_os.agent_registry import recursive_workflow_capability
+    from mammoth_os.document_review import capability as document_review_capability
 
     ctx = tool_context if tool_context is not None else _agent_tool_context(None)[0]
     return {
@@ -7191,6 +7198,7 @@ def _guide_platform_status(tool_context=None) -> Dict[str, Any]:
         "verification": "configuration_only_not_health",
         "run_contract": EVENT_CONTRACT_VERSION,
         "recursive": recursive_workflow_capability("assistant"),
+        "document_review": document_review_capability(),
         "repository_scope": ctx.repo_scope,
         "tools": [{key: tool[key] for key in ("name", "tier", "requires_approval")}
                   for tool in _AGENT_TOOLS.catalog(ctx)],

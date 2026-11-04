@@ -1,16 +1,36 @@
 const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
-async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false, pagingFailure = false, pagingDelay = false } = {}) {
+async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false, pagingFailure = false, pagingDelay = false, reviewFailure = false } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   let records = []
   let account = 'reader'
+  let review = null
   await page.route('**/src/main.jsx', route => route.fulfill({ contentType: 'application/javascript', body: '' }))
   await page.route(url => url.pathname.startsWith('/api/'), async route => {
     const path = new URL(route.request().url()).pathname
     let result = {}
-    if (path.endsWith('/capabilities')) result = { extensions: ['.pdf', '.docx', '.pptx', '.xlsx', '.txt'], max_file_bytes: 50 * 1048576, max_storage_bytes: 500 * 1048576, usage: { storage_bytes: 0 } }
+    if (path.includes('/document-reviews')) {
+      if (path.endsWith('/advance')) {
+        expect(route.request().postDataJSON()).toEqual({ confirm_model_usage: true })
+        if (reviewFailure) return route.fulfill({ status: 504, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Review gateway timeout.' }) })
+        const start = review.assessments.length
+        review.assessments.push(...Array.from({ length: Math.min(3, 4 - start) }, (_, index) => ({
+          chunk_index: start + index, location: `section ${start + index + 1}`,
+          summary: 'A source-grounded assessment.', quote: 'An exact source quote.',
+        })))
+        review.status = review.assessments.length === 4 ? 'completed' : 'partial'
+        review.usage.tokens += 300
+      } else if (route.request().method() === 'POST') {
+        review = { id: 'review-one', goal: route.request().postDataJSON().goal, file_id: 'atlas-book',
+          total_sections: 4, assessments: [], status: 'ready', usage: { tokens: 0 }, max_tokens: 64000,
+          warnings: ['One scanned page needs OCR.'] }
+      } else if (route.request().method() === 'DELETE') review = null
+      result = path.endsWith('/document-reviews') && route.request().method() === 'GET'
+        ? { status: 'ok', reviews: review ? [review] : [] } : { status: 'ok', review }
+    }
+    else if (path.endsWith('/capabilities')) result = { extensions: ['.pdf', '.docx', '.pptx', '.xlsx', '.txt'], max_file_bytes: 50 * 1048576, max_storage_bytes: 500 * 1048576, usage: { storage_bytes: 0 } }
     else if (path.endsWith('/upload')) {
       if (delayed) await new Promise(resolve => setTimeout(resolve, 1200))
       if (uploadFailure) return route.fulfill({ status: 413, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Private upload quota reached.' }) })
@@ -82,6 +102,44 @@ test('failed upload remains explicit and retryable without a success record', as
   await expect(page.getByRole('alert')).toContainText('Private upload quota reached.')
   await expect(page.getByRole('button', { name: 'Retry failed uploads' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toHaveCount(0)
+})
+
+test('indexed review is explicitly paid per batch and recovers saved coverage without a model call', async ({ page }) => {
+  const errors = await mountLibrary(page)
+  let advances = 0
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/advance')) advances += 1 })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByLabel('Review goal', { exact: false }).fill('Assess the indexed explanation.')
+  await page.getByRole('button', { name: 'Create saved review (no model call)' }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('0/4')
+  expect(advances).toBe(0)
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('3/4')
+  await page.getByRole('button', { name: 'Close preview', exact: true }).click()
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('3/4')
+  expect(advances).toBe(1)
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('4/4')
+  await expect(page.getByLabel('Saved review coverage')).toContainText('completed')
+  await expect(page.getByRole('button', { name: 'Review next batch (uses model credits)' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Indexed document review' })).toContainText('facts verified')
+  expect(advances).toBe(2)
+  expect(errors).toEqual([])
+})
+
+test('failed review batch requires saved-state reload instead of an automatic paid retry', async ({ page }) => {
+  await mountLibrary(page, { reviewFailure: true })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByLabel('Review goal', { exact: false }).fill('Assess the indexed explanation.')
+  await page.getByRole('button', { name: 'Create saved review (no model call)' }).click()
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await expect(page.getByRole('alert')).toContainText('Review gateway timeout.')
+  await expect(page.getByRole('button', { name: 'Review next batch (uses model credits)' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reload saved review (no model call)' }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('0/4')
 })
 
 test('indexed text browsing reaches the final section and keeps coverage distinct from model review', async ({ page }) => {

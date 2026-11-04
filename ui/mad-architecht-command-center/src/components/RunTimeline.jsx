@@ -200,7 +200,7 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
               {run.recursive.stop_reason && <div>Stopped: {run.recursive.stop_reason}</div>}
               {run.recursive.budget && <div>
                 Last call budget: {run.recursive.budget.remaining_tokens} tokens remaining before the call
-                {' · '}{run.recursive.budget.input_token_upper_bound} conservative input allowance (UTF-8 byte upper bound, not measured tokens)
+                {' · '}{run.recursive.budget.input_token_upper_bound} input allowance ({run.recursive.budget.input_estimation === 'utf8_byte_upper_bound' ? 'UTF-8 byte upper bound' : run.recursive.budget.input_estimation || 'not reported'}, not billed usage)
                 {' · '}{run.recursive.budget.output_token_limit} output limit
                 {' · '}{run.recursive.budget.synthesis_headroom} synthesis headroom.
                 {run.recursive.budget.stop_detail && <> Budget stop: {run.recursive.budget.stop_detail}.</>}

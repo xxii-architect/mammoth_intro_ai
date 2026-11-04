@@ -570,6 +570,27 @@ class MammothPaths:
         return self._json("documents", "GET", f"/{surface}/files/{self._seg(file_id)}/content",
                           query={"start": start, "count": count})
 
+    def create_document_review(self, file_id: str, goal: str, *, scope: str = "chat") -> Dict[str, Any]:
+        """Create a saved review without running a model."""
+        return self._json("documents", "POST", "/mammoth/document-reviews",
+                          body={"file_id": file_id, "scope": scope, "goal": goal})
+
+    def list_document_reviews(self, file_id: str, *, scope: str = "chat") -> Dict[str, Any]:
+        return self._json("documents", "GET", "/mammoth/document-reviews", query={"file_id": file_id, "scope": scope})
+
+    def get_document_review(self, review_id: str) -> Dict[str, Any]:
+        return self._json("documents", "GET", f"/mammoth/document-reviews/{self._seg(review_id)}")
+
+    def advance_document_review(self, review_id: str, *, confirm_model_usage: bool = False) -> Dict[str, Any]:
+        """Explicit paid next batch, never an automatic retry or budget extension."""
+        if confirm_model_usage is not True:
+            raise ValueError("Explicit model-usage confirmation is required")
+        return self._json("documents", "POST", f"/mammoth/document-reviews/{self._seg(review_id)}/advance",
+                          body={"confirm_model_usage": True})
+
+    def delete_document_review(self, review_id: str) -> Dict[str, Any]:
+        return self._json("documents", "DELETE", f"/mammoth/document-reviews/{self._seg(review_id)}")
+
     def owner_execution_capabilities(self, repo: str = "") -> Dict[str, Any]:
         return self._json("owner_execution", "GET", "/owner-executions/capabilities", query={"repo": repo})
 
