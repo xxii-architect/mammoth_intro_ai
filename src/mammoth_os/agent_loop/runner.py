@@ -645,6 +645,7 @@ class AgentRunner:
             max_tokens=output_limit,
             decision_json=not final,
             decision_schema=schema,
+            _admission=self._completion_admission(run),
         )
         meta = {
             **_client_meta(client),
@@ -652,7 +653,8 @@ class AgentRunner:
             "usage": result.usage,
             "phase": "final" if final else "decision",
             "decision_protocol": result.decision_protocol or "text",
-            "output_token_limit": output_limit,
+            "output_token_limit": result.admission.get("output_limit", output_limit),
+            **({"input_admission": result.admission} if result.admission else {}),
         }
         if result.model:
             meta["model"] = result.model
@@ -662,6 +664,9 @@ class AgentRunner:
 
     def _output_budget(self, run: AgentRun, prompt: str, requested: int) -> int:
         return requested
+
+    def _completion_admission(self, run: AgentRun):
+        return None
 
     async def _decide(self, run: AgentRun, ctx: ToolContext) -> Dict[str, Any]:
         tools = self._decision_tools(run, ctx)

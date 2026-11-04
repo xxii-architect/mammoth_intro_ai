@@ -87,6 +87,28 @@ def test_document_paging_preserves_offsets_scope_and_backend_evidence(backend):
         client.read_document("file-one", scope="other")
 
 
+def test_document_review_methods_require_explicit_paid_batch_and_preserve_evidence(backend):
+    payload = {"status": "ok", "review": {"id": "review-one", "review_complete": False, "assessments": []}}
+    for method, path in [("POST", "/api/mammoth/document-reviews"),
+                         ("GET", "/api/mammoth/document-reviews"),
+                         ("GET", "/api/mammoth/document-reviews/review-one"),
+                         ("POST", "/api/mammoth/document-reviews/review-one/advance"),
+                         ("DELETE", "/api/mammoth/document-reviews/review-one")]:
+        backend.route(method, path, body=payload)
+    client = MammothPaths(backend.url)
+    assert client.create_document_review("file-one", "Check appendix.", scope="atlas") == payload
+    assert backend.requests[-1]["body"] == {"file_id": "file-one", "goal": "Check appendix.", "scope": "atlas"}
+    assert client.list_document_reviews("file-one", scope="atlas") == payload
+    assert client.get_document_review("review-one") == payload
+    before = len(backend.requests)
+    with pytest.raises(ValueError, match="confirmation"):
+        client.advance_document_review("review-one")
+    assert len(backend.requests) == before
+    assert client.advance_document_review("review-one", confirm_model_usage=True) == payload
+    assert backend.requests[-1]["body"] == {"confirm_model_usage": True}
+    assert client.delete_document_review("review-one") == payload
+
+
 def test_json_object_endpoints_reject_invalid_success_payloads(backend):
     usage = []
     client = MammothPaths(backend.url, usage_hook=usage.append)

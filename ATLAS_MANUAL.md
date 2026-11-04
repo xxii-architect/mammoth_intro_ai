@@ -31,8 +31,21 @@ the configured token ceiling. Its timeline separates reported usage from the
 conservative byte-based input allowance and explains admission stops. A completed
 executor draft survives a later review failure under an explicitly unverified
 disclosure. Oversized role context stops instead of silently clipping its tail.
-Exact tokenizer admission, automated exhaustive review and budget extensions
-remain roadmap work; no fix for an uninspected hosted run is claimed.
+Known official OpenAI models now use local tokenizer text counts with conservative
+envelope/schema allowances, per actual provider attempt; other models/endpoints
+retain a labeled byte bound. These are admission allowances, not billed usage or
+exact server-side chat counts. No fix for an uninspected hosted run is claimed.
+
+**Indexed document review** in a file preview creates a saved review without
+model calls. **Review next batch (uses model credits)** explicitly assesses up to
+three sections. Source-hashed summaries and exact source quotes persist per
+section; reopening/reloading does not call models. Repeat deliberate batches
+until all indexed sections are assessed or the review clearly stops partial/
+blocked. A 64,000 reported-token ceiling is shared across batches; each batch is
+limited to 180 seconds. Unknown provider outcomes and hard-cap stops are not
+replayed. Deleting the source removes its reviews. This is indexed coverage,
+not factual verification, original-file completeness or recursive critique;
+cross-section synthesis and budget extensions remain deferred.
 
 ### Focused ATLAS workspace
 

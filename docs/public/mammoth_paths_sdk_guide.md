@@ -169,9 +169,33 @@ not model comprehension or full original-file extraction. Retain warnings.
 No model runs or automatic retries occur; usage hooks identify `documents`.
 
 Recursive snapshots/events add `budget`, `completed_stages` and `partial_output`.
-Actual reported usage remains distinct from conservative UTF-8 byte input
-allowances. A failed review's saved draft is explicitly unverified; do not infer
+Actual reported usage remains distinct from hybrid model-text/byte-envelope
+allowances or conservative byte fallback. A failed review's saved draft is explicitly unverified; do not infer
 completion, auto-continue or raise a budget merely because a draft exists.
+
+### Explicit saved indexed review
+
+Both clients expose create/list/get/advance/delete document review methods:
+Python `create_document_review(file_id, goal, scope="chat")`,
+`list_document_reviews(file_id, scope="chat")`, `get_document_review(id)`,
+`advance_document_review(id, confirm_model_usage=True)` and
+`delete_document_review(id)`; JavaScript uses `createDocumentReview`,
+`listDocumentReviews`, `getDocumentReview`, `advanceDocumentReview` and
+`deleteDocumentReview`, with camelCase `confirmModelUsage: true` and `{scope}`.
+Creation is model-free. Each advance explicitly permits up to three section
+assessments, never an automatic retry. Allow over 180 seconds of transport time
+for a batch, or recover saved state after a gateway timeout before further work.
+
+Envelopes contain `review` or `reviews`. The additive
+`mammoth.document-review.v1` record contains indexed coverage, source hash, literal
+quotes, model summaries, extraction warnings, reported usage and stop reasons.
+The 64,000 reported-token ceiling spans all batches; it is not renewed on resume.
+Unknown inflight outcomes, changed/deleted sources and cap stops block replay.
+Reading saved state never spends model credits. Source deletion purges reviews;
+explicit review deletion frees the private library's 20-review quota.
+Completion is indexed assessment coverage, not original extraction, factual
+verification or cross-section synthesis. Ordinary recursive review remains
+a separate opt-in workflow.
 
 ## Owner-only isolated validation
 

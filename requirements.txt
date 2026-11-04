@@ -1,5 +1,6 @@
 fastapi
 openai
+tiktoken>=0.8,<1
 pydantic
 python-dotenv
 requests

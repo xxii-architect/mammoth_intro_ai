@@ -233,11 +233,13 @@ async def mammoth_agent_tools(repo: str = ""):
     from mammoth_os.weather import weather_status
     from mammoth_os.web_search import web_search_status
     from mammoth_os.agent_registry import recursive_workflow_capability
+    from mammoth_os.document_review import capability as document_review_capability
 
     return {
         "status": "ok",
         "contract": EVENT_CONTRACT_VERSION,
         "recursive": recursive_workflow_capability("assistant"),
+        "document_review": document_review_capability(),
         "tools": _AGENT_TOOLS.catalog(ctx),
         "mcp_servers": _AGENT_MCP.describe(ctx),
         "web_search": {k: v for k, v in web_search_status().items() if k in {"configured", "provider"}},
@@ -245,6 +247,59 @@ async def mammoth_agent_tools(repo: str = ""):
         "repo": {"scope": ctx.repo_scope, "slug": ctx.repo_slug} if ctx.has_repo else None,
         "repo_access_notice": notice or None,
     }
+
+
+@app.post("/api/mammoth/document-reviews")
+async def document_review_create(body: Dict[str, Any]):
+    try:
+        review = await asyncio.to_thread(_document_reviews().create, body.get("scope", "chat"),
+                                         body.get("file_id"), body.get("goal"))
+        return {"status": "ok", "review": review}
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+
+
+@app.get("/api/mammoth/document-reviews")
+async def document_review_list(file_id: str, scope: str = "chat"):
+    if scope not in {"chat", "atlas"}:
+        return JSONResponse({"status": "error", "error": "Use chat or atlas scope."}, status_code=400)
+    try:
+        reviews = await asyncio.to_thread(_document_reviews().list, scope, file_id)
+        return {"status": "ok", "reviews": reviews}
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+
+
+@app.get("/api/mammoth/document-reviews/{review_id}")
+async def document_review_get(review_id: str):
+    try:
+        return {"status": "ok", "review": await asyncio.to_thread(_document_reviews().get, review_id)}
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+
+
+@app.delete("/api/mammoth/document-reviews/{review_id}")
+async def document_review_delete(review_id: str):
+    try:
+        return {"status": "ok", **await asyncio.to_thread(_document_reviews().delete, review_id)}
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+
+
+@app.post("/api/mammoth/document-reviews/{review_id}/advance")
+async def document_review_advance(review_id: str, body: Dict[str, Any]):
+    if body.get("confirm_model_usage") is not True:
+        return JSONResponse({"status": "error", "error": "Explicit model-usage confirmation is required."}, status_code=400)
+    try:
+        reviews = _document_reviews()
+        # Record intent before any model call; failure to audit never starts work.
+        await asyncio.to_thread(reviews.get, review_id)
+        _append_audit_event(kind="document_review_advance", message="Reviewing the next bounded indexed sections",
+                            details={"review_id": review_id}, source="mammoth_mind", actor=_current_request_user_id())
+        review = await reviews.advance(review_id, _AGENT_RUNNER.llm_factory)
+        return {"status": "ok", "review": review}
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
 
 @app.post("/api/mammoth/runs")
 async def mammoth_agent_run_start(body: Dict[str, Any]):

@@ -15,6 +15,27 @@ const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
+test('document reviews preserve evidence and require explicit paid batch confirmation', async () => {
+  const body = { status: 'ok', review: { id: 'review-one', review_complete: false, assessments: [] } }
+  const { impl, calls } = fakeFetch({
+    'POST /api/mammoth/document-reviews': { body },
+    'GET /api/mammoth/document-reviews': { body },
+    'GET /api/mammoth/document-reviews/review-one': { body },
+    'POST /api/mammoth/document-reviews/review-one/advance': { body },
+    'DELETE /api/mammoth/document-reviews/review-one': { body },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  assert.deepEqual(await client.createDocumentReview('file-one', 'Check appendix.', { scope: 'atlas' }), body)
+  assert.deepEqual(calls[0].body, { file_id: 'file-one', scope: 'atlas', goal: 'Check appendix.' })
+  assert.deepEqual(await client.listDocumentReviews('file-one', { scope: 'atlas' }), body)
+  assert.deepEqual(await client.getDocumentReview('review-one'), body)
+  assert.throws(() => client.advanceDocumentReview('review-one'), /confirmation/)
+  assert.equal(calls.length, 3)
+  assert.deepEqual(await client.advanceDocumentReview('review-one', { confirmModelUsage: true }), body)
+  assert.deepEqual(calls[3].body, { confirm_model_usage: true })
+  assert.deepEqual(await client.deleteDocumentReview('review-one'), body)
+})
+
 test('document paging preserves offsets, scope and unverified coverage evidence', async () => {
   const body = { status: 'ok', sections: [{ chunk_index: 12, text: 'last appendix' }], total_chunks: 13,
     next_start: null, selection: { mode: 'sequential', selected_chunks: 1, total_chunks: 13, review_complete: false } }

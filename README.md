@@ -1557,10 +1557,26 @@ while execution still receives it for revision. Role contexts no longer blindly
 clip a serialized source/draft tail; oversized contexts stop explicitly.
 The timeline/saved snapshot separates reported usage from conservative input
 reservations and preserves the latest completed executor draft on failure,
-clearly labeled unverified. UTF-8 bytes remain a conservative input upper bound,
-not a provider tokenizer: early stops can still occur and are now diagnosable.
-Tokenizer-aware admission, automatic exhaustive review and budget-extension
-continuation remain open; the two reported hosted failures were not inspected here.
+clearly labeled unverified. Admission now runs at each actual provider attempt,
+including fallback and expanded conversation background. Known official OpenAI
+models use local `tiktoken` text counts plus conservative byte envelope/schema
+allowances and overhead; unknown models, compatible endpoints and unavailable
+tokenizers use an explicitly labeled byte bound. This is not exact server-side
+chat tokenization or billed usage. Caps are unchanged and early stops remain possible.
+The two reported hosted failures were not inspected here.
+
+An explicit **Indexed document review** in either file-library preview creates a
+saved, read-only review without model calls. Each **Review next batch** click
+confirms model usage for up to three sections, with 180 seconds per batch and a
+64,000 reported-token ceiling across the entire review. Model summaries and
+literal source quotes are checkpointed per section against a source hash. Reload
+is read-only; the next batch resumes at the first unassessed index without
+replaying completed work. Concurrent calls, changed/deleted sources, unknown
+provider outcomes, invalid outputs and cap stops cannot silently retry or extend
+the ceiling. Extraction warnings persist even when all indexed sections have
+assessments. That state does not establish original-file completeness, factual
+verification or cross-section synthesis. Reviews are private, retained with
+uploads (up to 20), explicitly deletable and removed with their source.
 
 The UI shows transfer progress, processing, extraction warnings, cancellation,
 and retry. ATLAS offers searchable section previews; chat's **Manage saved files**

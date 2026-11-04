@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 
 import pytest
 
@@ -7,6 +8,7 @@ from mammoth_os.agent_loop import AgentRun, AgentRunner, RunStore
 from mammoth_os.agent_loop.tools import ToolContext, ToolRegistry, ToolSpec
 from mammoth_os.llm_completion import Completion
 from mammoth_os.recursive.runtime import RecursiveRuntime, recursive_limits
+from mammoth_os.token_admission import InputAllowance
 
 
 class Model:
@@ -59,6 +61,26 @@ def test_full_production_roles_and_honest_usage(tmp_path):
     assert all(e["contract"] == "mammoth.run.v1" for e in events)
     assert "cache" not in run.public()["recursive"]
     assert events[-1]["data"]["fact_verification"] == "not_performed"
+
+
+@pytest.mark.parametrize("available,allowed", [(127, False), (128, True)])
+def test_provider_allowance_exact_admission_floor_without_counting_estimate_as_usage(tmp_path, available, allowed):
+    _, base, run, ctx = setup(tmp_path, [])
+    run.recursive = {"limits": recursive_limits(True), "usage": {"tokens": 0, "seconds": 0},
+                     "stage": "planner"}
+    runtime = RecursiveRuntime(base, run, ctx)
+    runtime.started = time.monotonic()
+    allowance = InputAllowance(500, "model_tokenizer_with_byte_envelope", "gpt-4o-mini")
+    headroom = 4096
+    run.recursive["usage"]["tokens"] = 64000 - allowance.tokens - allowance.overhead - headroom - available
+    before = run.recursive["usage"]["tokens"]
+    if allowed:
+        assert runtime.executor._admit(run, allowance, 2048) == 128
+    else:
+        with pytest.raises(ValueError, match="max_tokens"):
+            runtime.executor._admit(run, allowance, 2048)
+    assert run.recursive["usage"]["tokens"] == before
+    assert run.recursive["budget"]["input_estimation"] == "model_tokenizer_with_byte_envelope"
 
 
 def test_failed_critique_replans_with_findings(tmp_path):

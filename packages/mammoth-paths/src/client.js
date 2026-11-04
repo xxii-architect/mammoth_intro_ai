@@ -232,6 +232,16 @@ export function createPathsClient(options = {}) {
       if (!['chat', 'atlas'].includes(scope)) throw new TypeError('Document scope must be chat or atlas')
       return json('documents', 'GET', `/${scope === 'chat' ? 'mammoth' : 'atlas'}/files/${seg(fileId)}/content`, { query: { start, count } })
     },
+    createDocumentReview: (fileId, goal, { scope = 'chat' } = {}) =>
+      json('documents', 'POST', '/mammoth/document-reviews', { body: { file_id: fileId, scope, goal } }),
+    listDocumentReviews: (fileId, { scope = 'chat' } = {}) =>
+      json('documents', 'GET', '/mammoth/document-reviews', { query: { file_id: fileId, scope } }),
+    getDocumentReview: (id) => json('documents', 'GET', `/mammoth/document-reviews/${seg(id)}`),
+    advanceDocumentReview: (id, { confirmModelUsage = false } = {}) => {
+      if (confirmModelUsage !== true) throw new TypeError('Explicit model-usage confirmation is required')
+      return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/advance`, { body: { confirm_model_usage: true } })
+    },
+    deleteDocumentReview: (id) => json('documents', 'DELETE', `/mammoth/document-reviews/${seg(id)}`),
     ownerExecutionCapabilities: (repo = '') => json('owner_execution', 'GET', '/owner-executions/capabilities', { query: { repo } }),
     prepareOwnerExecution: (repo, changes, { baseSha, profile, acceptance }) =>
       json('owner_execution', 'POST', '/owner-executions', { body: { repo_context: { root: repo }, changes, base_sha: baseSha, profile,

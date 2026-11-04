@@ -171,6 +171,11 @@ export interface PathsClient {
   deleteArtifact(id: string): Promise<Record<string, unknown>>
   clearArtifacts(): Promise<Record<string, unknown>>
   readDocument(fileId: string, options?: { scope?: 'chat' | 'atlas'; start?: number; count?: number }): Promise<Record<string, unknown>>
+  createDocumentReview(fileId: string, goal: string, options?: { scope?: 'chat' | 'atlas' }): Promise<Record<string, unknown>>
+  listDocumentReviews(fileId: string, options?: { scope?: 'chat' | 'atlas' }): Promise<Record<string, unknown>>
+  getDocumentReview(id: string): Promise<Record<string, unknown>>
+  advanceDocumentReview(id: string, options: { confirmModelUsage: true }): Promise<Record<string, unknown>>
+  deleteDocumentReview(id: string): Promise<Record<string, unknown>>
   ownerExecutionCapabilities(repo?: string): Promise<Record<string, unknown>>
   prepareOwnerExecution(repo: string, changes: OwnerExecutionChange[], options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' | 'ui_build' | 'ui_component' | 'ui_browser'; acceptance?: { expected_behavior: string[]; regression_tests: string[] } }): Promise<Record<string, unknown>>
   getOwnerExecution(id: string): Promise<Record<string, unknown>>

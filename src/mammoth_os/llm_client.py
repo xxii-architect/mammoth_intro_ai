@@ -218,6 +218,7 @@ class FallbackAdapter(LLMClient):
     """Adapter that tries a preferred client and falls back gracefully."""
 
     contract_version = "v2"
+    delegates_admission = True
 
     def __init__(
         self,
@@ -401,6 +402,8 @@ def _build_coding_chain(cfg: Dict[str, Any]) -> LLMClient | None:
 
 class ContextualClient(LLMClient):
     """Carry conversation background and cooperative learning cancellation."""
+
+    delegates_admission = True
 
     def __init__(self, inner: Any, background: str):
         self._inner = inner

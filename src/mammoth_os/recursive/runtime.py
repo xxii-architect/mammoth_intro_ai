@@ -16,6 +16,7 @@ from mammoth_os.agent_loop import events as ev
 from mammoth_os.agent_loop.runner import AgentRun, AgentRunner, describe_repo, render_observation
 from mammoth_os.analysis_contract import REASONING_GUIDANCE, validate_analysis
 from mammoth_os.research_quality import strip_reasoning
+from mammoth_os.token_admission import reported_tokens
 
 from .budget import Budget, BudgetTracker
 from .contracts import Critique, Execution, HumanGateDecision, HumanGateRequest, Plan, RunnerDeps, Synthesis
@@ -93,19 +94,21 @@ class ProductionExecutor(AgentRunner):
     def _cancel_requested(self, run):
         return self.owner.is_cancelled()
 
-    def _output_budget(self, run, prompt, requested):
+    def _completion_admission(self, run):
+        return lambda allowance, requested: self._admit(run, allowance, requested)
+
+    def _admit(self, run, allowance, requested):
         self.owner.check()
         state = run.recursive
         remaining = state["limits"]["max_tokens"] - state["usage"]["tokens"]
         role = state.get("stage")
         requested = min(requested, 2048) if role in {"planner", "critic"} else requested
-        # Without a provider tokenizer, retain the conservative byte ceiling rather than invent token counts.
-        input_bound = len(prompt.encode("utf-8"))
+        input_bound = allowance.tokens
         headroom = min(4096, state["limits"]["max_tokens"] // 8) if role != "synthesizer" else 0
-        output = min(requested, remaining - input_bound - 1024 - headroom)
+        output = min(requested, remaining - input_bound - allowance.overhead - headroom)
         state["budget"] = {
-            "role": role, "input_estimation": "utf8_byte_upper_bound",
-            "input_token_upper_bound": input_bound, "overhead_allowance": 1024,
+            "role": role, "input_estimation": allowance.method, "admission_model": allowance.model,
+            "input_token_upper_bound": input_bound, "overhead_allowance": allowance.overhead,
             "remaining_tokens": remaining, "synthesis_headroom": headroom,
             "output_token_limit": max(0, output), "reserved_tokens": 0,
         }
@@ -114,7 +117,7 @@ class ProductionExecutor(AgentRunner):
             state["budget"]["stop_detail"] = "insufficient_call_allowance"
             self.store.save(run)
             raise RecursiveBudgetError("max_tokens")
-        state["reservation"] = output + input_bound + 1024
+        state["reservation"] = output + input_bound + allowance.overhead
         state["budget"]["reserved_tokens"] = state["reservation"]
         self.store.save(run)
         return output
@@ -128,11 +131,9 @@ class ProductionExecutor(AgentRunner):
                 self.store.save(run)
             raise
         usage = meta.get("usage") or {}
-        total = usage.get("total_tokens")
-        if total is None and all(type(usage.get(key)) is int and usage[key] >= 0
-                                 for key in ("prompt_tokens", "completion_tokens")):
-            total = usage["prompt_tokens"] + usage["completion_tokens"]
-        if isinstance(total, bool) or not isinstance(total, int) or total < 1:
+        try:
+            total = reported_tokens(usage)
+        except ValueError:
             run.recursive["usage"]["accounting_status"] = "unavailable"
             run.recursive["stop_reason"] = "provider_usage_unavailable"
             self.store.save(run)
