@@ -63,8 +63,32 @@ successful bodies, null/missing records or wrong containers throw `PathsError`
 with code `invalid_response` rather than becoming empty defaults. Valid empty
 arrays and extension fields are preserved. Malformed response messages do not
 echo raw body text. Usage hooks report HTTP status once, not payload validity.
-These are container guards, not full nested schemas; snapshot recovery retains
-its deeper validation. No retries, permission changes or dependency additions.
+Most methods use container guards, not full nested schemas; snapshot recovery
+and document reviews have the deeper checks described below. No retries,
+permission changes or dependency additions.
+
+### Saved document-review evidence
+
+Review methods additionally validate `mammoth.document-review.v1` identity,
+source hashes, sequential assessment coverage, safe-integer reported usage,
+inflight markers, budget-extension history and hierarchical synthesis traversal/
+citation lineage. Get/mutation receipts must match the requested review; create/
+list must match the selected file and scope; deletion must name the requested ID.
+Malformed evidence throws `PathsError` with `code: 'invalid_response'`, without
+echoing the response body or retrying. Valid empty lists, additive fields,
+partial/active/blocked states and reported usage over the ceiling are preserved.
+
+Custom transports and the app can share `validateDocumentReview(record,
+{ reviewId, fileId, scope })`; it returns the original record or throws an error
+with `code: 'invalid_response'`. This is a structural guard, not authorization,
+live source-freshness checking, factual verification or a billing ledger.
+
+After any timeout or malformed mutation response, call `getDocumentReview(id)`
+before deciding what to do next. Never infer that a failed HTTP response means
+the provider did no work. Each new paid batch needs explicit confirmation;
+reading saved state does not reclaim an active/unknown call. Configure custom
+fetch timeouts above the 180-second batch ceiling plus transport overhead when
+appropriate. Neither client automatically reconnects/retries these operations.
 
 ### Run stream and recovery guards
 

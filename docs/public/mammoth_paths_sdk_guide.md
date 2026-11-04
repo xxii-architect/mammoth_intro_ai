@@ -91,8 +91,9 @@ return the documented container, not null or an empty body.
 Malformed-body messages do not echo raw upstream text. HTTP/application error
 objects retain backend code, status and payload. Usage hooks still report
 transport status, not response validity or authoritative billing. These guards
-check containers, not all nested domain fields; recovery adds its existing deeper
-snapshot checks. No retries or new permissions are introduced.
+check containers, not all nested domain fields; saved-run recovery and document
+reviews add the deeper checks described below. No retries or new permissions
+are introduced.
 
 ## Stream and saved-run validation
 
@@ -196,6 +197,28 @@ explicit review deletion frees the private library's 20-review quota.
 Completion is indexed assessment coverage, not original extraction, factual
 verification or cross-section synthesis. Ordinary recursive review remains
 a separate opt-in workflow.
+
+Both clients guard nested saved-review evidence, not just its JSON container:
+identity/file/scope, sequential coverage and source hashes, safe-integer usage,
+inflight markers, budget history and hierarchical synthesis/citation lineage.
+Malformed evidence raises `PathsError` with `invalid_response` without exposing
+raw response content or retrying. Valid empty lists, additive fields, blocked/
+active checkpoints and reported usage above the ceiling are retained. The app
+shares the JavaScript `validateDocumentReview` guard for its custom transport.
+These checks do not authorize access, prove live source freshness, verify facts
+or validate every unrelated SDK domain.
+
+On timeout, disconnect or invalid mutation evidence, read the saved review
+before considering another explicit batch. A failed HTTP response is not proof
+the provider did no work. A separate local loopback acceptance harness exercises
+both installed clients over real sockets with an offline scripted model:
+timeout during an inflight section, abrupt worker termination, SQLite restart,
+GET-only recovery and refusal to replay/unlock unknown work; a known partial
+checkpoint resumes only at the next section after explicit confirmation.
+This is not production proxy timing, paid-provider, synthesis-disconnect or
+general agent SSE restart acceptance. Python's default transport timeout is
+120 seconds; set `timeout` above 180 seconds plus overhead when appropriate.
+JavaScript embedders control timeouts through their supplied `fetch`.
 
 After assessment completes, call
 `synthesize_document_review(id, confirm_model_usage=True)` or

@@ -824,6 +824,21 @@ production proxy timing/disconnects or hostile-code isolation. CI requires these
 package tests rather than silently skipping missing Node/npm, and checks the
 public JavaScript run-option types.
 
+Document-review methods now also guard nested identity/source/coverage, usage,
+inflight markers, budget history and synthesis traversal/citation lineage in
+both clients. The preview shares the JavaScript guard; invalid evidence hides
+paid actions until a model-free reload succeeds. Extension fields and legitimate
+active/blocked/over-ceiling records remain intact. Structural validation is not
+factual verification, authorization or a billing ledger.
+
+A separate loopback HTTP worker acceptance test uses both installed packages,
+real socket timeouts and abrupt process termination/restart over the same
+SQLite library. It proves saved assessment checkpoints survive, unknown inflight
+calls cannot be replayed or budget-unlocked, and known partial work resumes only
+at the next section after explicit confirmation. Models are scripted/offline;
+this is not production proxy, paid-provider, synthesis-disconnect or general
+agent SSE restart acceptance. See the [recovery guidance](docs/public/mammoth_paths_sdk_guide.md#explicit-saved-indexed-review).
+
 ### Saved-run recovery and review
 
 **Workspace > Run Review** lists the current account's saved runs and reopens

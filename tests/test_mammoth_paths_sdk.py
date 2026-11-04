@@ -1,5 +1,6 @@
 import json
 import threading
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
@@ -88,7 +89,9 @@ def test_document_paging_preserves_offsets_scope_and_backend_evidence(backend):
 
 
 def test_document_review_methods_require_explicit_paid_batch_and_preserve_evidence(backend):
-    payload = {"status": "ok", "review": {"id": "review-one", "review_complete": False, "assessments": []}}
+    review = json.loads((Path(__file__).parent / "fixtures" / "document-review-contract.json").read_text())["review"]
+    payload = {"status": "ok", "review": review, "deleted": review["id"]}
+    review_id = review["id"]
     for method, path in [("POST", "/api/mammoth/document-reviews"),
                          ("GET", "/api/mammoth/document-reviews"),
                          ("GET", "/api/mammoth/document-reviews/review-one"),
@@ -96,31 +99,32 @@ def test_document_review_methods_require_explicit_paid_batch_and_preserve_eviden
                          ("POST", "/api/mammoth/document-reviews/review-one/synthesize"),
                          ("POST", "/api/mammoth/document-reviews/review-one/budget"),
                          ("DELETE", "/api/mammoth/document-reviews/review-one")]:
-        backend.route(method, path, body=payload)
+        backend.route(method, path.replace("review-one", review_id),
+                      body={"status": "ok", "reviews": [review]} if method == "GET" and path.endswith("document-reviews") else payload)
     client = MammothPaths(backend.url)
     assert client.create_document_review("file-one", "Check appendix.", scope="atlas") == payload
     assert backend.requests[-1]["body"] == {"file_id": "file-one", "goal": "Check appendix.", "scope": "atlas"}
-    assert client.list_document_reviews("file-one", scope="atlas") == payload
-    assert client.get_document_review("review-one") == payload
+    assert client.list_document_reviews("file-one", scope="atlas")["reviews"] == [review]
+    assert client.get_document_review(review_id) == payload
     before = len(backend.requests)
     with pytest.raises(ValueError, match="confirmation"):
-        client.advance_document_review("review-one")
+        client.advance_document_review(review_id)
     assert len(backend.requests) == before
-    assert client.advance_document_review("review-one", confirm_model_usage=True) == payload
+    assert client.advance_document_review(review_id, confirm_model_usage=True) == payload
     assert backend.requests[-1]["body"] == {"confirm_model_usage": True}
     before = len(backend.requests)
     with pytest.raises(ValueError, match="confirmation"):
-        client.synthesize_document_review("review-one")
+        client.synthesize_document_review(review_id)
     with pytest.raises(ValueError, match="confirmation"):
-        client.extend_document_review_budget("review-one", expected_max_tokens=64000, max_tokens=128000)
+        client.extend_document_review_budget(review_id, expected_max_tokens=64000, max_tokens=128000)
     assert len(backend.requests) == before
-    assert client.synthesize_document_review("review-one", confirm_model_usage=True) == payload
+    assert client.synthesize_document_review(review_id, confirm_model_usage=True) == payload
     assert backend.requests[-1]["body"] == {"confirm_model_usage": True}
-    assert client.extend_document_review_budget("review-one", expected_max_tokens=64000, max_tokens=128000,
+    assert client.extend_document_review_budget(review_id, expected_max_tokens=64000, max_tokens=128000,
                                                confirm_budget_extension=True) == payload
     assert backend.requests[-1]["body"] == {"expected_max_tokens": 64000, "max_tokens": 128000,
                                            "confirm_budget_extension": True}
-    assert client.delete_document_review("review-one") == payload
+    assert client.delete_document_review(review_id) == payload
 
 
 def test_json_object_endpoints_reject_invalid_success_payloads(backend):

@@ -28,6 +28,8 @@ from typing import (
     overload,
 )
 
+from .document_review import validate_document_review
+
 PATHS_CONTRACT_VERSION = "mammoth.paths.v1"
 RUN_CONTRACT_VERSION = "mammoth.run.v1"
 
@@ -572,40 +574,63 @@ class MammothPaths:
 
     def create_document_review(self, file_id: str, goal: str, *, scope: str = "chat") -> Dict[str, Any]:
         """Create a saved review without running a model."""
-        return self._json("documents", "POST", "/mammoth/document-reviews",
-                          body={"file_id": file_id, "scope": scope, "goal": goal})
+        return self._review_json("POST", "/mammoth/document-reviews",
+                                 body={"file_id": file_id, "scope": scope, "goal": goal}, file_id=file_id, scope=scope)
 
     def list_document_reviews(self, file_id: str, *, scope: str = "chat") -> Dict[str, Any]:
-        return self._json("documents", "GET", "/mammoth/document-reviews", query={"file_id": file_id, "scope": scope})
+        payload = self._json("documents", "GET", "/mammoth/document-reviews", query={"file_id": file_id, "scope": scope})
+        try:
+            reviews = payload.get("reviews")
+            if not isinstance(reviews, list):
+                raise ValueError("Invalid saved document reviews")
+            for review in reviews:
+                validate_document_review(review, file_id=file_id, scope=scope)
+        except ValueError:
+            raise PathsError("Invalid saved document reviews; reload authoritative state",
+                             code="invalid_response", status=200) from None
+        return payload
 
     def get_document_review(self, review_id: str) -> Dict[str, Any]:
-        return self._json("documents", "GET", f"/mammoth/document-reviews/{self._seg(review_id)}")
+        return self._review_json("GET", f"/mammoth/document-reviews/{self._seg(review_id)}", review_id=review_id)
+
+    def _review_json(self, method: str, path: str, *, body: Any = None, review_id: Optional[str] = None,
+                     file_id: Optional[str] = None, scope: Optional[str] = None) -> Dict[str, Any]:
+        payload = self._json("documents", method, path, body=body)
+        try:
+            validate_document_review(payload.get("review"), review_id=review_id, file_id=file_id, scope=scope)
+        except ValueError:
+            raise PathsError("Invalid saved document review; reload authoritative state before further work",
+                             code="invalid_response", status=200) from None
+        return payload
 
     def advance_document_review(self, review_id: str, *, confirm_model_usage: bool = False) -> Dict[str, Any]:
         """Explicit paid next batch, never an automatic retry or budget extension."""
         if confirm_model_usage is not True:
             raise ValueError("Explicit model-usage confirmation is required")
-        return self._json("documents", "POST", f"/mammoth/document-reviews/{self._seg(review_id)}/advance",
-                          body={"confirm_model_usage": True})
+        return self._review_json("POST", f"/mammoth/document-reviews/{self._seg(review_id)}/advance",
+                                 body={"confirm_model_usage": True}, review_id=review_id)
 
     def delete_document_review(self, review_id: str) -> Dict[str, Any]:
-        return self._json("documents", "DELETE", f"/mammoth/document-reviews/{self._seg(review_id)}")
+        payload = self._json("documents", "DELETE", f"/mammoth/document-reviews/{self._seg(review_id)}")
+        if payload.get("deleted") != review_id:
+            raise PathsError("Invalid review deletion receipt; reload authoritative state", code="invalid_response", status=200)
+        return payload
 
     def synthesize_document_review(self, review_id: str, *, confirm_model_usage: bool = False) -> Dict[str, Any]:
         """Explicit paid synthesis batch over saved assessments, not a full-source reread."""
         if confirm_model_usage is not True:
             raise ValueError("Explicit model-usage confirmation is required")
-        return self._json("documents", "POST", f"/mammoth/document-reviews/{self._seg(review_id)}/synthesize",
-                          body={"confirm_model_usage": True})
+        return self._review_json("POST", f"/mammoth/document-reviews/{self._seg(review_id)}/synthesize",
+                                 body={"confirm_model_usage": True}, review_id=review_id)
 
     def extend_document_review_budget(self, review_id: str, *, expected_max_tokens: int, max_tokens: int,
                                      confirm_budget_extension: bool = False) -> Dict[str, Any]:
         """Raise the lifetime ceiling without spending tokens or resetting usage."""
         if confirm_budget_extension is not True:
             raise ValueError("Explicit budget-extension confirmation is required")
-        return self._json("documents", "POST", f"/mammoth/document-reviews/{self._seg(review_id)}/budget",
-                          body={"expected_max_tokens": expected_max_tokens, "max_tokens": max_tokens,
-                                "confirm_budget_extension": True})
+        return self._review_json("POST", f"/mammoth/document-reviews/{self._seg(review_id)}/budget",
+                                 body={"expected_max_tokens": expected_max_tokens, "max_tokens": max_tokens,
+                                       "confirm_budget_extension": True}, review_id=review_id)
 
     def owner_execution_capabilities(self, repo: str = "") -> Dict[str, Any]:
         return self._json("owner_execution", "GET", "/owner-executions/capabilities", query={"repo": repo})
