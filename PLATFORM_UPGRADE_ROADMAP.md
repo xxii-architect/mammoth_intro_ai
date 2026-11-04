@@ -246,7 +246,12 @@ and full multi-replica readiness are not certified):
   serialized request ceilings and shared cancellation; the explicit runtime
   backup/import/export/rollback includes their counts and pending operations.
   Learner state/erasure/recovery remains a separate filesystem transaction.
-- Still open: unmigrated local controls, uploads/artifact binaries and learner
+- Document metadata, bounded raw upload binaries, indexed sections and saved
+  reviews now optionally share PostgreSQL transactions. Quotas serialize per
+  owner; deletion cascades without late checkpoint resurrection. Explicit
+  per-owner checksummed backup/import/rollback preserves unknown review work.
+  Raw binaries consume database storage, not an unlimited object bucket.
+- Still open: unmigrated local stores, generated-artifact binaries and learner
   erasure/recovery transactions; backend
   migration/price catalog activation; invoice reconciliation and full paid-path
   coverage. Declared multiple replicas are rejected until those gates close.

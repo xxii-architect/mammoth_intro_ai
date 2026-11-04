@@ -52,6 +52,10 @@ durable cross-worker cancellation and explicit per-owner import/export/rollback.
 Learning request-count controls can also explicitly use PostgreSQL, preserving
 their limits, account-scoped cancellation, retained operations and existing API.
 This does not migrate learner recovery/erasure state or enable replicas.
+Document metadata, raw uploads, indexed sections and saved reviews additionally
+have a coordinated optional PostgreSQL backend. Quotas and deletion are atomic;
+unknown review calls are not replayed. Bounded raw bytes live in the database
+and require capacity planning. Migration/rollback verifies per-file hashes.
 Their existing API contracts and unknown-outcome protections remain unchanged.
 See [shared runtime operations](docs/shared_runtime_operations.md).
 Full independent-replica readiness and production migration remain explicit

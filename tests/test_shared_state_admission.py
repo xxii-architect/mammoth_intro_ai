@@ -236,7 +236,8 @@ CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,raw_user_meta_data jsonb 
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
 """)
         for migration in ("supabase_tenant_auth.sql", "supabase_runtime_state.sql", "supabase_tenant_admission.sql",
-                          "supabase_agent_runs.sql", "supabase_private_admission.sql", "supabase_learning_controls.sql"):
+                          "supabase_agent_runs.sql", "supabase_private_admission.sql", "supabase_learning_controls.sql",
+                          "supabase_documents.sql"):
             sql((ROOT / ".mammoth" / migration).read_text(encoding="utf-8"))
         # Reapplication is safe and does not erase existing operational records.
         sql((ROOT / ".mammoth" / "supabase_runtime_state.sql").read_text())

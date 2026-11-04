@@ -7148,6 +7148,16 @@ from mammoth_os.documents import DocumentLibrary, DocumentError, capabilities as
 
 
 def _document_library(user_id: str) -> DocumentLibrary:
+    backend = os.environ.get("MAMMOTH_DOCUMENT_BACKEND", "local")
+    if backend != "local":
+        from mammoth_os.postgres_documents import PostgresDocumentLibrary
+        from mammoth_os.shared_state import StateUnavailable
+
+        if backend != "postgres":
+            raise StateUnavailable("Invalid document backend; no fallback is permitted.")
+        return PostgresDocumentLibrary(
+            os.environ.get("MAMMOTH_POSTGRES_DSN"), os.environ.get("MAMMOTH_STATE_NAMESPACE"), user_id,
+        )
     from mammoth_os.repo_access import user_storage_key
     legacy = {"chat": _user_uploads_dir(user_id), "atlas": _atlas_files_dir(user_id)}
     if str(user_id) != re.sub(r"[^a-z0-9_-]", "-", str(user_id).strip().lower()).strip("-"):

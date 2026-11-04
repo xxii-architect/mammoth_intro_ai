@@ -67,7 +67,7 @@ jobs:
             sleep 1
           done
           exit 1
-      - run: python -m pytest tests/test_shared_state_admission.py tests/test_postgres_run_store.py -q
+      - run: python -m pytest tests/test_shared_state_admission.py tests/test_postgres_run_store.py tests/test_postgres_documents.py -q
       - name: Stop dedicated fixture database
         if: always()
         run: docker rm -f mammoth-admission-ci
