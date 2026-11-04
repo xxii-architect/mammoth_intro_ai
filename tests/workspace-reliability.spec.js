@@ -3,6 +3,35 @@ const fs = require('node:fs')
 const path = require('node:path')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
+test('Runtime token ceiling is explicit, preserves zero and surfaces errors without retries', async ({ page }) => {
+  const requests = []
+  let fail = false
+  const snapshot = { contract: 'mammoth.runtime-usage.v1', daily_token_limit: null, reported_tokens: 40,
+    unresolved_reserved_tokens: 100, accounting_status: 'incomplete', attempts: 2 }
+  const errors = await mount(page, 'components/RuntimeUsageControls', {
+    '/api/runtime/usage': snapshot,
+    '/api/runtime/usage/policy': request => {
+      requests.push(request.postDataJSON())
+      return fail ? { status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Usage storage unavailable' }) }
+        : { ...snapshot, daily_token_limit: request.postDataJSON().daily_token_limit }
+    },
+  })
+  await expect(page.getByRole('status')).toContainText('Accounting: incomplete')
+  await expect(page.getByText('Private to your login', { exact: false })).toBeVisible()
+  await page.getByLabel('Daily runtime token ceiling').fill('0')
+  await page.getByRole('button', { name: 'Save runtime ceiling' }).click()
+  await expect.poll(() => requests.length).toBe(1)
+  expect(requests[0]).toEqual({ daily_token_limit: 0 })
+  await expect(page.getByRole('button', { name: 'Save runtime ceiling' })).toBeEnabled()
+  fail = true
+  await page.getByLabel('Daily runtime token ceiling').fill('')
+  await page.getByRole('button', { name: 'Save runtime ceiling' }).click()
+  await expect(page.getByRole('alert')).toContainText('Usage storage unavailable')
+  expect(requests).toEqual([{ daily_token_limit: 0 }, { daily_token_limit: null }])
+  await expect(page.getByRole('status')).toContainText('Reported: 40')
+  expect(errors).toEqual([])
+})
+
 async function mount(page, component, payloads = {}, { authFailure = false, stalledAuth = false, savedTheme = '', repo = '', runOverride = null, trustProps = {} } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))

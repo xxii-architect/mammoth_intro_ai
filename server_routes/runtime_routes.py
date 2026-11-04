@@ -21,11 +21,29 @@ async def auth_guard_middleware(request: Request, call_next):
         effective_user = {"id": "local", "email": "", "is_admin": True}
     token_user, token_email, token_admin = _set_request_auth_context(request, effective_user)
     try:
-        return await call_next(request)
+        from mammoth_os.runtime_ledger import ledger_context
+
+        with ledger_context(_runtime_ledger() if effective_user["id"] != "anonymous" else None):
+            return await call_next(request)
     finally:
         _REQUEST_USER_ID.reset(token_user)
         _REQUEST_USER_EMAIL.reset(token_email)
         _REQUEST_IS_ADMIN.reset(token_admin)
+
+
+@app.get("/api/runtime/usage")
+async def runtime_usage():
+    return _runtime_ledger().snapshot()
+
+
+@app.put("/api/runtime/usage/policy")
+async def runtime_usage_policy(body: Dict[str, Any]):
+    if set(body) != {"daily_token_limit"}:
+        return JSONResponse({"status": "error", "error": "Provide daily_token_limit only."}, status_code=400)
+    try:
+        return _runtime_ledger().set_limit(body["daily_token_limit"])
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=400)
 
 @app.get("/api/status")
 async def get_status():
@@ -99,6 +117,8 @@ async def runtime_deploy_snapshot():
 
 @app.get("/api/agents")
 async def get_agents():
+    from mammoth_os.agent_registry import observed_agent_health
+
     blocked = _require_admin_api()
     if blocked is not None:
         return blocked
@@ -114,6 +134,7 @@ async def get_agents():
                     "capabilities": m.capabilities,
                     "level":        m.level,
                     "endpoint":     m.endpoint,
+                    "health":       observed_agent_health(m),
                     **({"recursive": m.metadata["recursive"]} if m.metadata.get("recursive") else {}),
                     **({"owner_execution": await asyncio.to_thread(_OWNER_EXECUTION.capabilities)}
                        if m.agent_id == "coding_agent" and _request_is_admin() else {}),
@@ -137,6 +158,7 @@ async def get_agents():
                 "capabilities": [],
                 "level":        1,
                 "endpoint":     f"http://localhost:8000/agents/{f.stem}",
+                "health":       {"status": "not_verified", "source": "discovery_only", "observed_at": None, "ttl_seconds": 300},
             })
     return results
 
@@ -1237,7 +1259,6 @@ async def run_agent(body: Dict[str, Any]):
                 manifest = await agent_registry.get_agent(f"{tracked_agent_id}_agent")
             if manifest:
                 manifest.status = AgentStatus.ACTIVE
-                manifest.last_heartbeat = datetime.now(timezone.utc)
                 _think("Agent resolved", f"name={manifest.name!r}  type={getattr(manifest, 'agent_type', 'unknown')!r}", "success")
             else:
                 _think("Agent not in registry", f"id={tracked_agent_id!r} — will fall back to intent routing", "warning")
@@ -1705,6 +1726,12 @@ async def run_agent(body: Dict[str, Any]):
             task_status = "failed"
         else:
             task_status = "completed"
+        if manifest:
+            manifest.metadata["health_observation"] = {
+                "status": "available" if task_status == "completed" else "unavailable" if result.get("status") == "error" else "not_verified",
+                "source": "agent_dispatch_result",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+            }
         _upsert_task(
             task_id,
             task["title"],
@@ -1787,6 +1814,10 @@ async def run_agent(body: Dict[str, Any]):
             manifest.status = AgentStatus.ERROR
             manifest.last_heartbeat = datetime.now(timezone.utc)
             manifest.metadata["last_error"] = str(e)
+            manifest.metadata["health_observation"] = {
+                "status": "unavailable", "source": "agent_dispatch_exception",
+                "observed_at": datetime.now(timezone.utc).isoformat(),
+            }
 
         _upsert_task(
             task_id,

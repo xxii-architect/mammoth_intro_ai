@@ -55,7 +55,7 @@ def backend():
             self.end_headers()
             self.wfile.write(payload)
 
-        do_GET = do_POST = do_DELETE = _handle
+        do_GET = do_POST = do_DELETE = do_PUT = _handle
 
         def log_message(self, *args):
             pass
@@ -73,6 +73,22 @@ def test_public_names_and_aliases():
     assert MammothMind is AtlasFAB
     assert "MammothPaths" in mammoth_os.__all__
     assert "MammothMind" in mammoth_os.__all__
+
+
+def test_runtime_usage_and_ceiling_match_wire_contract(backend):
+    snapshot = {"contract": "mammoth.runtime-usage.v1", "daily_token_limit": 0}
+    backend.route("GET", "/api/runtime/usage", body=snapshot)
+    backend.route("PUT", "/api/runtime/usage/policy", body=snapshot)
+    client = MammothPaths(backend.url)
+    assert client.runtime_usage() == snapshot
+    for limit in (0, 100000000, None):
+        assert client.set_runtime_token_limit(limit) == snapshot
+        assert backend.requests[-1]["body"] == {"daily_token_limit": limit}
+    count = len(backend.requests)
+    for bad in (True, -1, 100000001, "10", 0.1):
+        with pytest.raises(ValueError):
+            client.set_runtime_token_limit(bad)
+    assert len(backend.requests) == count
 
 
 def test_owner_branch_export_validates_bytes_confirmation_and_single_request(backend):

@@ -23,6 +23,22 @@ downloads; it remains supplemental to the active lesson.
 
 ### Workspace reliability and learning resources
 
+Agent run API mutations now use cross-process leases and version-checked atomic
+checkpoints. Ordinary interrupted runs retain evidence but never automatically
+replay unknown model/tool outcomes. Cancellation survives worker restarts.
+Registration/API keys are configuration, not verified health: provider completion
+observations and agent health signals show timestamps and five-minute freshness.
+
+**Settings > Runtime usage controls** exposes a private, login-wide UTC token
+ceiling and durable SQLite admission ledger. Zero blocks new covered calls;
+blank removes the ceiling without erasing usage. Input/output reservations are
+atomic across workers. Reported tokens replace reservations; missing usage,
+failed calls and killed workers retain their full allowance. Covered completion
+calls include normal OpenAI/Ollama text adapters, runs and indexed reviews.
+This is not dollar spend, Copilot credits, an invoice, hosted tenant billing,
+embedding metering or a guarantee about custom paths/internal SDK retries.
+Shared disk is required; separate server disks do not coordinate.
+
 Under Edit learning profile, **Learning privacy & costs** exports the current
 account's saved learning JSON without model calls. Retained conversations,
 lessons/exercises/cards, owned linked notes and confirmed recovery are also added

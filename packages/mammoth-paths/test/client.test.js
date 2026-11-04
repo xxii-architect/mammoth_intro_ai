@@ -16,6 +16,25 @@ const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
+test('runtime usage and explicit ceilings use matching wire fields without retries', async () => {
+  const body = { contract: 'mammoth.runtime-usage.v1', daily_token_limit: 0 }
+  const { impl, calls } = fakeFetch({
+    'GET /api/runtime/usage': { body },
+    'PUT /api/runtime/usage/policy': { body },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  assert.deepEqual(await client.runtimeUsage(), body)
+  for (const limit of [0, 100000000, null]) {
+    assert.deepEqual(await client.setRuntimeTokenLimit(limit), body)
+    assert.deepEqual(calls.at(-1).body, { daily_token_limit: limit })
+  }
+  const count = calls.length
+  for (const limit of [true, -1, 100000001, '10', 0.1, undefined]) {
+    assert.throws(() => client.setRuntimeTokenLimit(limit), TypeError)
+  }
+  assert.equal(calls.length, count)
+})
+
 test('document reviews preserve evidence and require explicit paid batch confirmation', async () => {
   const review = JSON.parse(readFileSync(new URL('../../../tests/fixtures/document-review-contract.json', import.meta.url))).review
   const id = review.id

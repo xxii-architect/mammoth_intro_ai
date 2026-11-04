@@ -27,6 +27,21 @@ Mammoth Paths is separate from the **Mammoth Mind tutor SDK** (formerly ATLAS FA
 - The MammothOS platform repository is never available to customers.
 - Notes and the build log need a Pro plan or higher.
 
+## Runtime usage and ceilings
+
+Python `runtime_usage()` / JavaScript `runtimeUsage()` reads the private
+`mammoth.runtime-usage.v1` ledger. `set_runtime_token_limit(100000)` /
+`setRuntimeTokenLimit(100000)` sets a UTC daily login-wide admission ceiling;
+`0` blocks new covered calls and `None` / `null` removes the ceiling.
+Both methods require your ordinary authenticated backend access.
+
+Reported tokens, unresolved reservations and accounting completeness stay
+separate. Unknown outcomes retain capacity; setters do not reset usage or replay
+work. This is shared-disk hosted completion admission, not dollars, invoices,
+Copilot credits, embeddings, custom paths or authoritative tenant billing.
+Local SDK generation outside the hosted request context is not metered by this
+ledger. Read-only refreshes do not invoke a model.
+
 ## Approvals
 
 Read-only tools run automatically. Anything that would run a command or change something pauses with an approval request. In the SDK you can supply an approval policy, or leave the run paused and decide later.

@@ -2,7 +2,7 @@ import asyncio
 import os
 from typing import Any, Dict, List
 
-from .llm_completion import Completion
+from .llm_completion import Completion, complete
 
 
 class OpenAIAdapter:
@@ -45,7 +45,7 @@ class OpenAIAdapter:
         return self._client
 
     async def generate(self, prompt: str, **kwargs) -> str:
-        return (await self.generate_completion(prompt, **kwargs)).text
+        return (await complete(self, prompt, **kwargs)).text
 
     def completion_payload(self, prompt: str, options: Dict[str, Any]) -> tuple[Dict[str, Any], str]:
         kwargs = dict(options)

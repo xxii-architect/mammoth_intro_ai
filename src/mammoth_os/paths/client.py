@@ -362,6 +362,18 @@ class MammothPaths:
         """Tool catalog visible to the caller for ``repo`` (source id or ``owner/repo``)."""
         return self._json("mind", "GET", "/mammoth/tools", query={"repo": repo})
 
+    def runtime_usage(self) -> Dict[str, Any]:
+        """Durable private token admission; excludes invoices and uninstrumented calls."""
+        return self._json("usage", "GET", "/runtime/usage")
+
+    def set_runtime_token_limit(self, daily_token_limit: Optional[int]) -> Dict[str, Any]:
+        """Set a UTC daily user ceiling; null removes the ceiling without erasing usage."""
+        if daily_token_limit is not None and (
+            type(daily_token_limit) is not int or not 0 <= daily_token_limit <= 100_000_000
+        ):
+            raise ValueError("daily_token_limit must be null or an integer from 0 to 100000000")
+        return self._json("usage", "PUT", "/runtime/usage/policy", {"daily_token_limit": daily_token_limit})
+
     def stream_run(
         self,
         message: str,

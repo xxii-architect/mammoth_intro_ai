@@ -338,6 +338,10 @@ export default function DiagnosticsPage() {
                     <div style={{ fontSize: '0.68rem', color: provider.available ? '#22c55e' : '#eab308', fontWeight: 700, textTransform: 'uppercase' }}>{provider.status}</div>
                   </div>
                   <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)' }}>{provider.detail}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)' }}>
+                    Observed health: {provider.health || 'not_verified'}.
+                    {' '}{provider.observation?.observed_at ? `Last attempt: ${new Date(provider.observation.observed_at).toLocaleString()} (5-minute freshness).` : 'Configuration is not a successful model call.'}
+                  </div>
                 </div>
               ))}
             </div>

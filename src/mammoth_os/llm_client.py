@@ -200,7 +200,9 @@ def _classify_provider_error(exc: BaseException) -> str:
 def _client_label(client: LLMClient) -> str:
     name = type(client).__name__.lower()
     if "openai" in name:
-        return "openai"
+        from urllib.parse import urlparse
+
+        return "deepseek" if urlparse(str(getattr(client, "base_url", ""))).hostname == "api.deepseek.com" else "openai"
     if "ollama" in name:
         return "ollama"
     if "local" in name:

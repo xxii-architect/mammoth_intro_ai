@@ -6,6 +6,30 @@
 
 ## Production-readiness snapshot
 
+### Durable runs, health and runtime token controls
+
+Run API streams/approval/continuation use OS-released cross-process leases.
+Checkpoints use atomic replacement, fsync and saved revisions; stale writers
+cannot silently overwrite newer evidence. Active/approval-pending runs are not
+evicted by recent-run retention. Ordinary interrupted runs become explicit
+non-continuable failures on saved-state read, never automatic tool/model replay.
+Cancellation is durable and cooperative, not a provider stop or rollback.
+
+Provider keys and agent discovery do not prove availability. Diagnostics and
+Modules separate configuration from timestamped observations, stale after five
+minutes. Health refresh does not buy a model probe.
+
+Settings > Runtime usage controls sets an optional UTC daily token-admission
+ceiling for the signed-in login across accounts. Zero blocks covered calls;
+empty removes the ceiling. SQLite serializes reservations across workers.
+Provider-reported usage replaces allowances; failures, absent usage and killed
+workers retain reservations. Limits are not retroactive and resetting them
+does not erase usage. Covered calls go through the shared completion helper or
+standard OpenAI/Ollama text adapters. Embeddings, custom paths, internal SDK
+retries, provider invoices and calls outside the hosted request context remain
+outside separate accounting. This is not dollar/Copilot-credit spend or
+authoritative multi-member tenant billing. All workers must share durable disk.
+
 ### Detailed explanations and Guide freshness
 
 The [MammothOS Feature Handbook](docs/public/mammothos_feature_handbook.md)

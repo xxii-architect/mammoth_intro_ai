@@ -103,7 +103,7 @@ export interface RunSnapshot {
 }
 
 export interface UsageRecord {
-  surface: 'mind' | 'repos' | 'notes' | 'buildlog' | 'terminal' | 'tasks' | 'artifacts' | 'documents' | 'owner_execution'
+  surface: 'mind' | 'repos' | 'notes' | 'buildlog' | 'terminal' | 'tasks' | 'artifacts' | 'documents' | 'owner_execution' | 'usage'
   method: string
   path: string
   status: number
@@ -149,6 +149,8 @@ export declare class PathsError extends Error {
 
 export interface PathsClient {
   contract: 'mammoth.paths.v1'
+  runtimeUsage(): Promise<RuntimeUsage>
+  setRuntimeTokenLimit(dailyTokenLimit: number | null): Promise<RuntimeUsage>
   tools(options?: { repo?: string }): Promise<Record<string, unknown>>
   streamRun(message: string, options?: RunOptions): Promise<RunEvent[]>
   decide(runId: string, approvalId: string, decision: 'approve' | 'reject', options?: { note?: string; signal?: AbortSignal; onEvent?: (event: RunEvent) => void }): Promise<RunEvent[]>
@@ -191,6 +193,28 @@ export interface PathsClient {
   listBuildLog(): Promise<Array<Record<string, unknown>>>
   logBuild(title: string, options?: { description?: string; [field: string]: unknown }): Promise<Record<string, unknown>>
   execTerminal(cmd: string): Promise<Record<string, unknown>>
+}
+
+export interface RuntimeUsage {
+  contract: 'mammoth.runtime-usage.v1'
+  day_utc: string
+  scope: 'authenticated_user_all_accounts'
+  daily_token_limit: number | null
+  attempts: number
+  reported_tokens: number
+  unresolved_reserved_tokens: number
+  unknown_attempts: number
+  admission_tokens: number
+  remaining_tokens: number | null
+  accounting_status: 'incomplete' | 'reported'
+  currency_spend: null
+  invoice_verified: false
+  coverage: 'leaf_calls_through_llm_completion_only'
+  unknown_outcomes: 'retain_full_reservation_without_automatic_replay'
+  providers: Array<{
+    provider: string; model: string; observed_at: string; age_seconds: number
+    health: 'available' | 'unavailable' | 'stale'; source: 'completion_attempt'; ttl_seconds: 300
+  }>
 }
 
 export declare function createPathsClient(options: PathsClientOptions): PathsClient

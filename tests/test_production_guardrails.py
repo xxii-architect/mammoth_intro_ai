@@ -4,7 +4,10 @@ import json
 import api_server
 
 
-def test_health_exposes_runtime_snapshot(monkeypatch):
+def test_health_exposes_runtime_snapshot(monkeypatch, tmp_path):
+    from mammoth_os.runtime_ledger import RuntimeLedger
+
+    monkeypatch.setattr(api_server, "_runtime_ledger", lambda: RuntimeLedger(tmp_path / "usage.sqlite3"))
     monkeypatch.setattr(api_server, "_read_env_vars", lambda: {"DEEPSEEK_API_KEY": "x", "OPENAI_API_KEY": "y"})
     monkeypatch.setattr(
         api_server,
@@ -23,7 +26,7 @@ def test_health_exposes_runtime_snapshot(monkeypatch):
 
     health = asyncio.run(api_server.get_health())
 
-    assert health["runtime"]["state"] == "ready"
+    assert health["runtime"]["state"] == "not_verified"
     assert health["summary"]["healthy_services"] >= 2
     labels = [service["label"] for service in health["services"]]
     assert not any("5174" in label for label in labels)

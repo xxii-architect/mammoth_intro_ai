@@ -14,6 +14,44 @@ a specific topic. The Guide uses curated documentation bundled with the running
 server. Merging a documentation update does not update an already-running server.
 The Guide is an explanation aid, not a live health check or proof of correctness.
 
+## Saved runs and observed runtime health
+
+The run API protects approval and continuation streams with cross-process
+leases and versioned, atomic checkpoints on shared durable disk. Completed
+events and tool evidence survive process restarts. Ordinary abandoned runs
+become interrupted on saved-state read; review the retained evidence and start
+new work deliberately. Unknown provider/tool outcomes are never automatically
+replayed. Cancellation is a durable request checked at safe boundaries, not
+an undo or guaranteed provider cancellation.
+
+Configured keys and discovered agents are not availability tests. Provider
+completion observations and explicit agent heartbeat/HTTP health evidence have
+timestamps and five-minute freshness. Stale/unknown evidence stays distinct.
+A successful provider call does not prove every model, tool or agent works.
+Refreshing health does not perform a paid probe.
+
+## Runtime usage controls: when to use them
+
+Use Settings > Runtime usage controls before long runs or indexed reviews to
+choose an optional daily token-admission ceiling across your login's workspace
+accounts. Days are UTC. Blank is uncapped; zero prevents new covered calls.
+Admission reserves the full input/output allowance before a completion starts,
+so a large request can be refused even with some capacity left.
+
+The durable ledger counts calls through the shared completion helper and
+standard OpenAI/Ollama text adapters. Reported tokens replace reservations;
+unknown, failed or interrupted outcomes retain their full allowance rather
+than granting free retry capacity. An unexpectedly larger reported total
+remains visible and blocks later admissions. Changing the ceiling never
+deletes usage. Already-started calls are not cancelled.
+
+Do not use this as a bill, Copilot-credit meter or guaranteed dollar-spend cap.
+Embeddings, custom/uninstrumented paths, internal provider-SDK retries, local SDK
+calls outside the hosted request context and invoices are not separately
+accounted. Per-login admission is not hosted multi-member tenant billing.
+Workers sharing the same durable disk coordinate; independent replicas/disks
+require a shared transactional backend, which remains a deployment gate.
+
 ## How the Guide stays current
 
 The server reads its allowlisted public documentation on each Guide request,

@@ -8,6 +8,20 @@
 
 > The package is `private: true` and consumed from source by the MammothOS app. Remove `private` when you are ready to publish.
 
+### Runtime usage controls
+
+`await paths.runtimeUsage()` reads `mammoth.runtime-usage.v1`.
+`await paths.setRuntimeTokenLimit(100000)` sets an optional UTC daily ceiling
+across the caller's workspace accounts; `0` blocks new covered completion calls,
+`null` removes the ceiling. Unknown outcomes keep their full reservations.
+Reported tokens, reservations and missing accounting are distinct. No automatic
+retry/reset or model call occurs on reading/saving controls.
+This shared-disk server ledger is not dollar spend, Copilot credits, invoices,
+embedding metering or authoritative multi-member tenant billing. Custom paths,
+internal provider-SDK retries and local generation outside hosted requests are
+not separately covered. Python has matching `runtime_usage()` and
+`set_runtime_token_limit()` methods.
+
 ### Applied branch export
 
 `await paths.exportOwnerBranch(id, {repo: 'owner/repo', expectedCommit: commit,

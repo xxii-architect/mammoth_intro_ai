@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { api } from '../api/client'
+import RuntimeUsageControls from '../components/RuntimeUsageControls'
 
 const TEXTURE_STORAGE_KEY = 'mammoth-texture'
 const emptyProfile = { display_name: '', email: '', organization: '' }
@@ -220,6 +221,7 @@ export default function SettingsPage() {
         </p>
       </div>
 
+      <RuntimeUsageControls />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 20 }}>
         <div className="glass-card-solid" style={{ padding: 20, borderLeft: '3px solid var(--photon)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
