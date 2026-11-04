@@ -2127,12 +2127,21 @@ def _remember_runtime_status(runtime_status: Dict[str, Any]) -> None:
         if value not in (None, "", []):
             remembered[key] = deepcopy(value)
     remembered["checked_at"] = datetime.now(timezone.utc).isoformat()
+    remembered["user_id"] = _current_request_user_id()
     _LATEST_RUNTIME_STATUS = remembered
 
 
 def _merge_latest_runtime_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
     merged = deepcopy(snapshot)
     latest = deepcopy(_LATEST_RUNTIME_STATUS)
+    if latest.get("user_id") != _current_request_user_id() or (
+        _parse_iso_datetime(latest.get("checked_at")) is None
+        or (datetime.now(timezone.utc) - _parse_iso_datetime(latest["checked_at"])).total_seconds() > 300
+    ):
+        latest = {}
+    if any("health" in provider for provider in snapshot.get("providers", [])):
+        merged["last_request"] = {key: value for key, value in latest.items() if key != "user_id"}
+        latest = {}
     for key, value in latest.items():
         if value not in (None, "", []):
             merged[key] = value
@@ -2143,7 +2152,13 @@ def _merge_latest_runtime_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         or merged.get("active_adapter")
         or "local"
     ).strip().lower() or "local"
-    merged["active_provider"] = preferred_provider
+    has_observation_contract = any("health" in provider for provider in merged.get("providers", []))
+    observed_active = any(
+        provider.get("provider") == preferred_provider
+        and (provider.get("observation") or {}).get("health") == "available"
+        for provider in merged.get("providers", [])
+    )
+    merged["active_provider"] = preferred_provider if not has_observation_contract or observed_active else None
     merged["checked_at"] = str(
         merged.get("checked_at") or datetime.now(timezone.utc).isoformat()
     )
@@ -2170,11 +2185,20 @@ def _merge_latest_runtime_status(snapshot: Dict[str, Any]) -> Dict[str, Any]:
         item = dict(provider)
         provider_name = str(item.get("provider") or "").strip().lower()
         item["active"] = provider_name == preferred_provider
+        if "health" in item:
+            item["active"] = item["active"] and (item.get("observation") or {}).get("health") == "available"
         item["selected"] = provider_name == str(merged.get("active_adapter") or "").strip().lower()
         item["fallback_target"] = bool(merged.get("fallback_used")) and item["active"] and not item["selected"]
         providers.append(item)
     merged["providers"] = providers
     return merged
+
+
+def _runtime_ledger(user_id=None):
+    from mammoth_os.runtime_ledger import RuntimeLedger
+    from mammoth_os.repo_access import user_storage_key
+
+    return RuntimeLedger(MAMMOTH_DIR / "runtime_usage" / f"{user_storage_key(user_id or _current_request_user_id())}.sqlite3")
 
 
 def _runtime_status_snapshot() -> Dict[str, Any]:
@@ -2188,35 +2212,57 @@ def _runtime_status_snapshot() -> Dict[str, Any]:
     providers = [
         {
             "provider": "deepseek",
-            "status": "ready" if deepseek_key_present else "missing_key",
-            "available": deepseek_key_present,
+            "status": "configured" if deepseek_key_present else "missing_key",
+            "available": False,
+            "configured": deepseek_key_present,
             "detail": "DeepSeek cloud reasoning",
         },
         {
             "provider": "openai",
-            "status": "ready" if openai_key_present else "missing_key",
-            "available": openai_key_present,
+            "status": "configured" if openai_key_present else "missing_key",
+            "available": False,
+            "configured": openai_key_present,
             "detail": "OpenAI chat/runtime",
         },
         {
             "provider": "ollama",
             "status": "ready" if ollama_running else "offline",
             "available": ollama_running,
+            "configured": True,
             "detail": models.get("ollama_base_url", "http://localhost:11434"),
         },
         {
             "provider": "local",
             "status": "ready",
             "available": True,
+            "configured": True,
             "detail": "Local echo fallback",
         },
     ]
 
+    observations = {item["provider"]: item for item in _runtime_ledger().snapshot()["providers"]}
+    for item in providers:
+        observation = observations.get(item["provider"])
+        item["observation"] = observation
+        item["health"] = observation["health"] if observation else "not_verified"
+        item["available_basis"] = "completion_attempt" if observation else "configuration_only"
+        if not observation and item["provider"] == "ollama":
+            item["available_basis"] = "local_service_probe"
+        elif not observation and item["provider"] == "local":
+            item["available_basis"] = "built_in_offline_adapter"
+        if item["provider"] in {"deepseek", "openai"}:
+            item["available"] = bool(item["configured"] and observation and observation["health"] == "available")
+            if observation:
+                item["status"] = observation["health"]
     available_providers = [item["provider"] for item in providers if item["available"]]
     if active_adapter == "local":
         state = "degraded"
-    elif active_adapter in available_providers:
+    elif (active_adapter in available_providers and observations.get(active_adapter, {}).get("health") == "available"
+          and observations[active_adapter]["model"] == active_model):
         state = "ready"
+    elif any(item["provider"] == active_adapter and item["configured"]
+             and item["status"] in {"configured", "available", "ready"} for item in providers):
+        state = "not_verified"
     elif available_providers:
         state = "degraded"
     else:
@@ -2224,8 +2270,12 @@ def _runtime_status_snapshot() -> Dict[str, Any]:
 
     degraded_mode = state != "ready" or active_adapter == "local"
 
-    if state == "ready":
-        issue = "All configured providers are available, and the runtime is operating in its normal chain."
+    if state == "not_verified":
+        issue = "The selected provider/model is configured, but no recent matching successful completion has been observed."
+        recommendation = "Configuration does not verify credentials, quota, or model availability."
+        next_action = "Run useful work explicitly; health refresh never starts a paid probe."
+    elif state == "ready":
+        issue = "The selected runtime path has recent availability evidence; other providers may be unverified."
         recommendation = f"{active_adapter} is ready"
         next_action = "Continue with the current provider path."
     elif deepseek_key_present or openai_key_present:
@@ -7649,17 +7699,27 @@ def _persist_agent_run_exchange(run: AgentRun, *, thread_id: str = "") -> None:
             logger.exception("Could not persist agent run %s to its thread", run.id)
 
 
-def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "") -> StreamingResponse:
+def _agent_run_stream(run: AgentRun, events_iter, *, thread_id: str = "", lease=None) -> StreamingResponse:
     async def event_stream():
-        async for event in events_iter:
-            # Agent-page runs live in that page's own threads, not Mammoth Mind's chat history.
-            save_recursive_pause = bool(run.recursive and event.type == "run.awaiting_approval")
-            if ((event.type in {"run.completed", "run.partial", "run.failed"} and run.reply) or save_recursive_pause) and run.request.get("surface") != "agent_workspace":
-                try:
-                    _persist_agent_run_exchange(run, thread_id=thread_id)
-                except (OSError, ValueError, TypeError):
-                    logger.exception("Could not persist agent run %s to chat history", run.id)
-            yield event.to_sse()
+        from mammoth_os.runtime_ledger import ledger_context
+
+        try:
+            with ledger_context(_runtime_ledger(run.user_id)):
+                async for event in events_iter:
+                    # Agent-page runs live in that page's own threads, not Mammoth Mind's chat history.
+                    save_recursive_pause = bool(run.recursive and event.type == "run.awaiting_approval")
+                    if ((event.type in {"run.completed", "run.partial", "run.failed"} and run.reply) or save_recursive_pause) and run.request.get("surface") != "agent_workspace":
+                        try:
+                            _persist_agent_run_exchange(run, thread_id=thread_id)
+                        except (OSError, ValueError, TypeError):
+                            logger.exception("Could not persist agent run %s to chat history", run.id)
+                    yield event.to_sse()
+        finally:
+            try:
+                await events_iter.aclose()
+            finally:
+                if lease:
+                    lease.close()
 
     return StreamingResponse(
         event_stream(),
@@ -8020,6 +8080,8 @@ def _build_activity_index() -> Dict[str, Dict[str, Any]]:
 
 
 def _module_observability_snapshot(module_id: str, status: str, *, manifest: Any = None, activity_index: Optional[Dict[str, Dict[str, Any]]] = None) -> Dict[str, Any]:
+    from mammoth_os.agent_registry import observed_agent_health
+
     now = datetime.now(timezone.utc)
     activity_index = activity_index or {}
 
@@ -8059,6 +8121,7 @@ def _module_observability_snapshot(module_id: str, status: str, *, manifest: Any
         "last_heartbeat_at": heartbeat_dt.isoformat() if heartbeat_dt else "",
         "heartbeat_age_seconds": heartbeat_age_seconds,
         "last_run_at": last_run_dt.isoformat() if last_run_dt else "",
+        "health": observed_agent_health(manifest),
     }
 
 

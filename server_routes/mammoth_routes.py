@@ -1,5 +1,6 @@
 # Route fragment loaded by api_server._load_route_fragments().
 # Not importable on its own: handlers execute in api_server globals, so keep helpers there.
+from mammoth_os.agent_loop.lease import RunBusyError
 
 @app.post("/api/mammoth/chat/stream")
 async def mammoth_chat_stream(body: Dict[str, Any]):
@@ -390,7 +391,13 @@ async def mammoth_agent_run_start(body: Dict[str, Any]):
         runtime = RecursiveRuntime(_AGENT_RUNNER, run, ctx)
         lease = runtime.reserve()
         return _agent_run_stream(run, runtime.stream(lease, initial=True), thread_id=run.request["thread_id"])
-    return _agent_run_stream(run, _AGENT_RUNNER.start(run, ctx), thread_id=run.request["thread_id"])
+    lease = _AGENT_RUNS.reserve(run)
+    try:
+        _AGENT_RUNS.save(run)
+    except BaseException:
+        lease.close()
+        raise
+    return _agent_run_stream(run, _AGENT_RUNNER.start(run, ctx), thread_id=run.request["thread_id"], lease=lease)
 
 @app.get("/api/mammoth/runs")
 async def mammoth_agent_run_list():
@@ -408,7 +415,7 @@ async def mammoth_agent_run_get(run_id: str, after: int = 0):
         runtime = RecursiveRuntime(_AGENT_RUNNER, run, ctx)
         try:
             lease = runtime.reserve()
-        except ValueError:
+        except RunBusyError:
             pass  # An active stream owns this run.
         else:
             try:
@@ -421,6 +428,29 @@ async def mammoth_agent_run_get(run_id: str, after: int = 0):
                 run.reply = ("Recursive work was interrupted. Saved stages are retained. "
                              "Unknown provider/tool outcomes are never automatically replayed.")
                 _AGENT_RUNS.save(run)
+            finally:
+                lease.close()
+    if not run.recursive and run.status in {"running", "awaiting_approval"}:
+        from mammoth_os.agent_loop.events import RunEvent
+
+        try:
+            lease = _AGENT_RUNS.reserve(run)
+        except RunBusyError:
+            pass
+        else:
+            try:
+                if _AGENT_RUNNER._cancel_requested(run):
+                    run.status, run.pending_approval = "cancelled", None
+                    run.events.append(RunEvent(run.id, len(run.events) + 1, "run.cancelled", {"recovered": True}).to_dict())
+                    _AGENT_RUNS.save(run)
+                elif run.status == "running":
+                    run.status, run.failure_code = "failed", "run_interrupted"
+                    run.reply = ("Run execution was interrupted. Saved evidence is retained; unknown provider/tool "
+                                 "outcomes are not automatically replayed. Start a new run after reviewing it.")
+                    run.events.append(RunEvent(run.id, len(run.events) + 1, "run.failed", {
+                        "code": run.failure_code, "error": run.reply, "can_continue": False, "recovered": True,
+                    }).to_dict())
+                    _AGENT_RUNS.save(run)
             finally:
                 lease.close()
     data = run.public()
@@ -462,20 +492,31 @@ async def mammoth_agent_run_approval(run_id: str, body: Dict[str, Any]):
             raise
         return _agent_run_stream(run, runtime.stream(lease, action=action),
                                  thread_id=str(run.request.get("thread_id") or ""))
-    _append_audit_event(
-        kind="agent_run_approval",
-        message=f"Agent run tool {decision}d",
-        details={"run_id": run.id, "approval_id": str(body.get("approval_id") or ""), "tool": (run.pending_approval or {}).get("tool")},
-        source="mammoth_mind",
-        actor=ctx.user_id,
-    )
+    try:
+        lease = _AGENT_RUNS.reserve(run)
+    except ValueError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=409)
+    if run.status != "awaiting_approval" or (run.pending_approval or {}).get("id") != str(body.get("approval_id") or ""):
+        lease.close()
+        return JSONResponse({"status": "error", "error": "No matching approval is pending."}, status_code=409)
+    try:
+        _append_audit_event(
+            kind="agent_run_approval",
+            message=f"Agent run tool {decision}d",
+            details={"run_id": run.id, "approval_id": str(body.get("approval_id") or ""), "tool": (run.pending_approval or {}).get("tool")},
+            source="mammoth_mind",
+            actor=ctx.user_id,
+        )
+    except BaseException:
+        lease.close()
+        raise
     events_iter = _AGENT_RUNNER.resume(
         run, ctx,
         approval_id=str(body.get("approval_id") or ""),
         approved=decision == "approve",
         note=str(body.get("note") or ""),
     )
-    return _agent_run_stream(run, events_iter, thread_id=str(run.request.get("thread_id") or ""))
+    return _agent_run_stream(run, events_iter, thread_id=str(run.request.get("thread_id") or ""), lease=lease)
 
 @app.post("/api/mammoth/runs/{run_id}/cancel")
 async def mammoth_agent_run_cancel(run_id: str):
@@ -489,7 +530,7 @@ async def mammoth_agent_run_cancel(run_id: str):
         runtime = RecursiveRuntime(_AGENT_RUNNER, run, None)
         try:
             lease = runtime.reserve()
-        except ValueError:
+        except RunBusyError:
             _AGENT_RUNNER.cancel(run)
         else:
             try:
@@ -500,12 +541,21 @@ async def mammoth_agent_run_cancel(run_id: str):
             finally:
                 lease.close()
         return {"status": "ok", "run_id": run.id, "run_status": run.status, "cancel_requested": True}
-    if run.status == "awaiting_approval":
-        run.pending_approval = None
-        run.status = "cancelled"
-        _AGENT_RUNS.save(run)
+    _AGENT_RUNNER.cancel(run)
+    lease = None
+    try:
+        lease = _AGENT_RUNS.reserve(run)
+    except RunBusyError:
+        pass
     else:
-        _AGENT_RUNNER.cancel(run)
+        try:
+            if run.status not in {"completed", "failed", "cancelled"}:
+                run.pending_approval = None
+                run.status = "cancelled"
+                run.cancel_requested = True
+                _AGENT_RUNS.save(run)
+        finally:
+            lease.close()
     return {"status": "ok", "run_id": run.id, "run_status": run.status, "cancel_requested": True}
 
 @app.post("/api/mammoth/runs/{run_id}/continue")
@@ -535,13 +585,24 @@ async def mammoth_agent_run_continue(run_id: str):
                 lease.close()
             return JSONResponse({"status": "error", "error": str(exc)}, status_code=409)
         return _agent_run_stream(run, runtime.stream(lease), thread_id=str(run.request.get("thread_id") or ""))
-    events_iter = _AGENT_RUNNER.continue_run(run, ctx)
-    _append_audit_event(
-        kind="agent_run_continuation", message="Continuing saved agent work",
-        details={"run_id": run.id, "continuations": run.continuations},
-        source="mammoth_mind", actor=ctx.user_id,
-    )
-    return _agent_run_stream(run, events_iter, thread_id=str(run.request.get("thread_id") or ""))
+    lease = None
+    try:
+        lease = _AGENT_RUNS.reserve(run)
+        events_iter = _AGENT_RUNNER.continue_run(run, ctx)
+    except ValueError as exc:
+        if lease:
+            lease.close()
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=409)
+    try:
+        _append_audit_event(
+            kind="agent_run_continuation", message="Continuing saved agent work",
+            details={"run_id": run.id, "continuations": run.continuations},
+            source="mammoth_mind", actor=ctx.user_id,
+        )
+    except BaseException:
+        lease.close()
+        raise
+    return _agent_run_stream(run, events_iter, thread_id=str(run.request.get("thread_id") or ""), lease=lease)
 
 @app.post("/api/mammoth/chat")
 async def mammoth_chat(body: Dict[str, Any]):

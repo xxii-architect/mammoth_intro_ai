@@ -13,9 +13,11 @@ decides. Context is rebuilt on resume, so access is re-checked at that point.
 from __future__ import annotations
 
 import json
+import os
 import re
 import secrets
 import threading
+import tempfile
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Dict, List, Optional
@@ -26,6 +28,7 @@ from mammoth_os.analysis_contract import REASONING_GUIDANCE
 from . import events as ev
 from .decisions import decision_schema, omit_optional_nulls, parse_structured_decision
 from .tools import ToolContext, ToolRegistry, ToolSpec, validate_args
+from .lease import RunBusyError, RunLease
 
 DEFAULT_MAX_STEPS = 8
 DECISION_OUTPUT_TOKENS = 4096
@@ -71,6 +74,8 @@ class AgentRun:
     step_limit: int = 0
     completion_goal: str = "answer"
     recursive: Dict[str, Any] = field(default_factory=dict)
+    storage_revision: int = 0
+    inflight_activity: str = ""
 
     def progress(self) -> Dict[str, Any]:
         inspected = []
@@ -138,6 +143,7 @@ class AgentRun:
         data = self.to_dict()
         data.pop("request", None)
         data.pop("cancel_requested", None)
+        data.pop("storage_revision", None)
         if self.recursive:
             data["recursive"] = {key: self.recursive.get(key) for key in
                                  ("contract", "stage", "iteration", "limits", "usage", "stop_reason",
@@ -173,46 +179,94 @@ class RunStore:
         return self.base_dir / user_storage_key(user_id)
 
     def save(self, run: AgentRun) -> None:
-        run.updated_at = ev.utc_now()
         with self._lock:
-            self._live[run.id] = run
             folder = self._user_dir(run.user_id)
             folder.mkdir(parents=True, exist_ok=True)
-            tmp = folder / f"{run.id}.json.tmp"
-            tmp.write_text(json.dumps(run.to_dict(), default=str), encoding="utf-8")
-            tmp.replace(folder / f"{run.id}.json")
-            files = sorted(folder.glob("run-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-            for stale in files[self.keep_per_user:]:
-                stale.unlink(missing_ok=True)
-                self._live.pop(stale.stem, None)
+            if RUN_ID_RE.fullmatch(run.id) is None:
+                raise ValueError("Invalid run identity")
+            lease = RunLease(folder / "state-write.lock", blocking=True)
+            tmp = None
+            try:
+                path = folder / f"{run.id}.json"
+                if path.exists():
+                    saved = json.loads(path.read_text(encoding="utf-8"))
+                    if saved.get("user_id") != run.user_id or saved.get("storage_revision", 0) != run.storage_revision:
+                        raise ValueError("Saved run changed; reload authoritative state before further work")
+                elif run.storage_revision:
+                    raise ValueError("Saved run was removed; work cannot resurrect it")
+                run.updated_at = ev.utc_now()
+                revision = run.storage_revision + 1
+                payload = {**run.to_dict(), "storage_revision": revision}
+                with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=folder, suffix=".tmp", delete=False) as stream:
+                    tmp = Path(stream.name)
+                    json.dump(payload, stream, default=str)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                tmp.replace(path)
+                run.storage_revision = revision
+                self._live[run.id] = run
+                files = sorted(folder.glob("run-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+                for stale in files[self.keep_per_user:]:
+                    if stale.stem == run.id:
+                        continue
+                    saved = json.loads(stale.read_text(encoding="utf-8"))
+                    if saved.get("status") in {"running", "awaiting_approval"}:
+                        continue
+                    try:
+                        stale_lease = RunLease(folder / f"{stale.stem}.lock")
+                    except RunBusyError:
+                        continue
+                    try:
+                        stale.unlink(missing_ok=True)
+                        self._live.pop(stale.stem, None)
+                    finally:
+                        stale_lease.close()
+            finally:
+                if tmp:
+                    tmp.unlink(missing_ok=True)
+                lease.close()
+
+    def reserve(self, run: AgentRun) -> RunLease:
+        lease = RunLease(self._user_dir(run.user_id) / f"{run.id}.lock")
+        try:
+            saved = self.get(run.id, run.user_id)
+            if saved:
+                run.__dict__.update(saved.__dict__)
+            return lease
+        except BaseException:
+            lease.close()
+            raise
 
     def get(self, run_id: str, user_id: str) -> Optional[AgentRun]:
-        if not RUN_ID_RE.match(str(run_id or "")):
+        if not RUN_ID_RE.fullmatch(str(run_id or "")):
             return None
-        live = self._live.get(run_id)
-        if live is not None and not live.recursive:
-            return live if live.user_id == user_id else None
         path = self._user_dir(user_id) / f"{run_id}.json"
         try:
             run = AgentRun.from_dict(json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, ValueError, TypeError):
+        except FileNotFoundError:
             return None
-        return run if run.user_id == user_id else None
+        except (OSError, ValueError, TypeError) as exc:
+            raise ValueError("Saved run is unreadable; operator repair is required") from exc
+        return run if run.user_id == user_id and run.id == run_id else None
 
     def list(self, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         folder = self._user_dir(user_id)
         if not folder.exists():
             return []
-        out = []
-        for path in sorted(folder.glob("run-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
-                continue
-            if data.get("user_id") != user_id:
-                continue
-            out.append({k: data.get(k) for k in ("id", "message", "agent_id", "status", "created_at", "updated_at", "steps")})
-        return out
+        lease = RunLease(folder / "state-write.lock", blocking=True)
+        try:
+            out = []
+            for path in sorted(folder.glob("run-*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:limit]:
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as exc:
+                    raise ValueError("Saved run list contains unreadable state; operator repair is required") from exc
+                if data.get("user_id") != user_id:
+                    raise ValueError("Saved run owner does not match its private storage")
+                out.append({k: data.get(k) for k in ("id", "message", "agent_id", "status", "created_at", "updated_at", "steps")})
+            return out
+        finally:
+            lease.close()
 
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.I)
@@ -426,8 +480,7 @@ class AgentRunner:
             data = {**data, "progress": run.progress()}
         event = ev.RunEvent(run_id=run.id, seq=len(run.events) + 1, type=kind, data=data)
         run.events.append(event.to_dict())
-        if kind in ev.TERMINAL_EVENT_TYPES:
-            self.store.save(run)
+        self.store.save(run)
         return event
 
     def _needs_approval(self, spec: Any, run: AgentRun) -> bool:
@@ -640,6 +693,8 @@ class AgentRunner:
         ):
             output_limit = max(output_limit, OWNER_EDIT_OUTPUT_TOKENS)
         output_limit = self._output_budget(run, prompt, output_limit)
+        run.inflight_activity = "model"
+        self.store.save(run)
         result = await complete(
             client, prompt, temperature=0.2,
             max_tokens=output_limit,
@@ -647,6 +702,8 @@ class AgentRunner:
             decision_schema=schema,
             _admission=self._completion_admission(run),
         )
+        run.inflight_activity = ""
+        self.store.save(run)
         meta = {
             **_client_meta(client),
             "finish_reason": result.finish_reason,
@@ -737,6 +794,7 @@ class AgentRunner:
             return
         run.pending_approval = None
         run.status = "running"
+        self.store.save(run)
         yield self._emit(run, ev.APPROVAL_RESOLVED, {"approval_id": approval_id, "approved": approved, "tool": pending.get("tool"), "note": note[:500]})
         if approved:
             async for event in self._execute_tool(run, ctx, pending["tool"], pending.get("args") or {}, call_id=pending.get("call_id")):
@@ -749,8 +807,12 @@ class AgentRunner:
 
     def cancel(self, run: AgentRun) -> None:
         run.cancel_requested = True
+        folder = self.store._user_dir(run.user_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{run.id}.cancel").touch()
 
     def _cancel_requested(self, run: AgentRun) -> bool:
+        run.cancel_requested = run.cancel_requested or (self.store._user_dir(run.user_id) / f"{run.id}.cancel").exists()
         return run.cancel_requested
 
     def continue_run(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:
@@ -818,11 +880,18 @@ class AgentRunner:
         spec = self.registry.resolve(name, ctx)
         call_id = call_id or f"call-{secrets.token_hex(4)}"
         trace_kind = spec.trace_kind if spec else "tool"
+        run.inflight_activity = "tool"
         yield self._emit(run, ev.TOOL_CALL, {"call_id": call_id, "tool": name, "args": args, "trace_kind": trace_kind, "tier": spec.tier if spec else None})
+        if self._cancel_requested(run):
+            run.inflight_activity = ""
+            run.status = "cancelled"
+            yield self._emit(run, ev.RUN_CANCELLED, {"steps": run.steps})
+            return
         tool_ctx = replace(ctx, extras={**ctx.extras, "cancel_requested": lambda: self._cancel_requested(run), "run_id": run.id,
                                       "observations": run.transcript})
         result = await self.registry.invoke(name, args, tool_ctx)
         run.transcript.append({"tool": name, "args": args, "result": result})
+        run.inflight_activity = ""
         yield self._emit(run, ev.TOOL_RESULT, {"call_id": call_id, "tool": name, "status": result.get("status"), "trace_kind": trace_kind, "result": result})
         if result.get("status") == "ok" and result.get("diff"):
             yield self._emit(run, ev.DIFF_PROPOSED, {
@@ -840,7 +909,7 @@ class AgentRunner:
             invalid_streak = 0
             repeat_recoveries = 0
             while True:
-                if run.cancel_requested:
+                if self._cancel_requested(run):
                     run.status = "cancelled"
                     yield self._emit(run, ev.RUN_CANCELLED, {"steps": run.steps})
                     return
@@ -881,7 +950,7 @@ class AgentRunner:
                         decision = await self._decide(run, ctx)
                     meta = decision.pop("_meta", {})
                     yield self._emit(run, ev.MODEL_COMPLETED, meta)
-                if run.cancel_requested:
+                if self._cancel_requested(run):
                     run.status = "cancelled"
                     yield self._emit(run, ev.RUN_CANCELLED, {"steps": run.steps})
                     return

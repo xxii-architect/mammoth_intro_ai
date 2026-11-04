@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import secrets
 import time
 from dataclasses import asdict
@@ -13,6 +12,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from mammoth_os.agent_loop import events as ev
+from mammoth_os.agent_loop.lease import RunLease
 from mammoth_os.agent_loop.runner import AgentRun, AgentRunner, describe_repo, render_observation
 from mammoth_os.analysis_contract import REASONING_GUIDANCE, validate_analysis
 from mammoth_os.research_quality import strip_reasoning
@@ -40,32 +40,6 @@ def recursive_limits(value: Any) -> dict[str, int]:
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= MAX_LIMITS[key]:
             raise ValueError(f"{key} must be an integer between 1 and {MAX_LIMITS[key]}")
     return limits
-
-
-class RunLease:
-    """Non-blocking OS lock; process exit releases it without a stale lease."""
-
-    def __init__(self, path):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self.file = path.open("a+b")
-        try:
-            if os.name == "nt":
-                import msvcrt
-                self.file.seek(0)
-                if not self.file.read(1):
-                    self.file.write(b"\0")
-                    self.file.flush()
-                self.file.seek(0)
-                msvcrt.locking(self.file.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self.file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            self.file.close()
-            raise ValueError("This recursive run is already active") from None
-
-    def close(self):
-        self.file.close()
 
 
 class RecursiveBudgetError(ValueError):

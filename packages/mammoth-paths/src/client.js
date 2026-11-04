@@ -229,6 +229,13 @@ export function createPathsClient(options = {}) {
       }
     },
     listRuns: async () => (await json('mind', 'GET', '/mammoth/runs', { member: 'runs' })).runs,
+    runtimeUsage: () => json('usage', 'GET', '/runtime/usage'),
+    setRuntimeTokenLimit: (dailyTokenLimit) => {
+      if (dailyTokenLimit !== null && (!Number.isSafeInteger(dailyTokenLimit) || dailyTokenLimit < 0 || dailyTokenLimit > 100000000)) {
+        throw new TypeError('dailyTokenLimit must be null or an integer from 0 to 100000000')
+      }
+      return json('usage', 'PUT', '/runtime/usage/policy', { body: { daily_token_limit: dailyTokenLimit } })
+    },
 
     // ── Repositories (bring your own) ────────────────────────────────────
     listRepos: () => json('repos', 'GET', '/mammoth/repo-sources'),

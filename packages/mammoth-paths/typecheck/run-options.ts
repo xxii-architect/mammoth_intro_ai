@@ -8,6 +8,11 @@ const options: RunOptions = {
   recursive: { max_iterations: 1, max_tokens: 8000 },
 }
 const client = createPathsClient({ baseUrl: 'https://example.invalid' })
+void client.runtimeUsage()
+void client.setRuntimeTokenLimit(null)
+void client.setRuntimeTokenLimit(0)
+// @ts-expect-error Limits cannot be strings.
+void client.setRuntimeTokenLimit('100')
 const review: Record<string, unknown> = validateDocumentReview({}, { reviewId: 'review-id', fileId: 'file-id', scope: 'chat' })
 void review
 // @ts-expect-error Review identities cannot address arbitrary scopes.

@@ -182,6 +182,10 @@ function ModulesRegistry() {
                     </div>
                   </div>
                   <p style={{ fontSize: '0.8rem', color: 'var(--txt-sec)', lineHeight: 1.5, marginBottom: 8 }}>{m.description}</p>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--txt-sec)' }}>
+                    Observed health: {m.health?.status || 'not_verified'}
+                    {m.health?.observed_at ? ` (${m.health.source}; ${new Date(m.health.observed_at).toLocaleString()})` : ' (discovery is not availability)'}
+                  </div>
                   {m.workflow_ready !== undefined && (
                     <p style={{ fontSize: '0.68rem', color: 'var(--txt-mut)', marginBottom: 10 }}>
                       Workflow: {m.workflow_path === 'mammoth_chat' ? 'wired into Mammoth Mind' : m.workflow_path === 'atlas_lesson' ? 'wired into ATLAS lesson flow' : m.workflow_stage === 'routed' ? 'wired into plan/execute' : m.workflow_stage === 'autonomous' ? 'wired into autonomous flow' : 'registered only'}

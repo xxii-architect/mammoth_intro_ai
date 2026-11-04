@@ -44,7 +44,7 @@ class AgentManifest:
     dependencies:   list[str]
     endpoint:       str
     registered_at:  datetime.datetime = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
-    last_heartbeat: datetime.datetime = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc))
+    last_heartbeat: Optional[datetime.datetime] = None
     metadata:       dict[str, Any]    = field(default_factory=dict)
 
 
@@ -99,6 +99,10 @@ class AgentRegistry:
         async with self._lock:
             if agent_id in self._agents:
                 self._agents[agent_id].last_heartbeat = datetime.datetime.now(datetime.timezone.utc)
+                self._agents[agent_id].metadata["health_observation"] = {
+                    "status": "available", "source": "heartbeat",
+                    "observed_at": self._agents[agent_id].last_heartbeat.isoformat(),
+                }
 
     async def health_check_all(self) -> dict[str, str]:
         """Ping every registered agent's /health endpoint."""
@@ -106,6 +110,9 @@ class AgentRegistry:
         results = {}
         async with aiohttp.ClientSession() as session:
             for agent_id, manifest in self._agents.items():
+                if not manifest.endpoint.startswith(("http://", "https://")):
+                    results[agent_id] = "NOT_VERIFIED"
+                    continue
                 try:
                     async with session.get(f"{manifest.endpoint}/health", timeout=5) as resp:
                         if resp.status == 200:
@@ -115,14 +122,33 @@ class AgentRegistry:
                         else:
                             manifest.status = AgentStatus.ERROR
                             results[agent_id] = "ERROR"
-                except Exception as exc:
+                        manifest.metadata["health_observation"] = {
+                            "status": "available" if resp.status == 200 else "unavailable",
+                            "source": "http_health_endpoint",
+                            "observed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        }
+                except (aiohttp.ClientError, asyncio.TimeoutError):
                     manifest.status = AgentStatus.ERROR
-                    results[agent_id] = f"UNREACHABLE: {exc}"
+                    results[agent_id] = "UNREACHABLE"
+                    manifest.metadata["health_observation"] = {
+                        "status": "unavailable", "source": "http_health_endpoint",
+                        "observed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    }
         return results
 
 
 # Singleton — import this everywhere instead of creating new instances
 agent_registry = AgentRegistry()
+
+
+def observed_agent_health(manifest) -> dict[str, Any]:
+    observation = (getattr(manifest, "metadata", None) or {}).get("health_observation")
+    if not observation:
+        return {"status": "not_verified", "source": "discovery_only", "observed_at": None, "ttl_seconds": 300}
+    observed_at = datetime.datetime.fromisoformat(observation["observed_at"])
+    age = max(0, (datetime.datetime.now(datetime.timezone.utc) - observed_at).total_seconds())
+    return {**observation, "status": "stale" if age > 300 else observation["status"],
+            "age_seconds": round(age), "ttl_seconds": 300}
 
 
 def recursive_workflow_capability(agent_id: str) -> dict[str, Any]:
@@ -492,7 +518,6 @@ def _auto_register_agents() -> None:
             dependencies=[],
             endpoint=f"internal://{agent_id}",
             registered_at=datetime.datetime.now(datetime.timezone.utc),
-            last_heartbeat=datetime.datetime.now(datetime.timezone.utc),
             metadata={"recursive": recursive} if recursive else {},
         )
         # Use a synchronous direct insert to avoid asyncio.run() at import time

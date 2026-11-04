@@ -213,6 +213,26 @@ Connected SDK/recovery slice (bounded local checks; final release evidence in PR
 
 Remaining infrastructure/platform gates:
 
+Runtime reliability/admission refinement (bounded delivery, not closure of every
+DATA/HEALTH/BILL item):
+
+- Run API approval/continuation streams now hold OS-released cross-process
+  leases. Version-checked atomic/fsynced checkpoints reject stale writers.
+  Active and approval-pending runs survive retention; cancellation is durable.
+  Ordinary abandoned runs become explicit interrupted failures without replay.
+- Provider keys/agent discovery are configuration, not availability.
+  Per-login durable completion observations and explicit agent health/dispatch
+  signals expose timestamps and five-minute freshness. No paid health probe.
+- A private login-wide UTC token-admission ledger serializes reservations and
+  tracks reported tokens separately from unknown/failed/inflight allowances.
+  Settings and both Paths SDKs expose optional ceilings. No reset/replay
+  shortcut releases unknown reservations; larger reported totals remain visible.
+- Coverage includes shared completion and standard OpenAI/Ollama text adapters
+  inside hosted request contexts. This does not close hosted multi-member
+  tenant/RLS billing, invoices/dollar ceilings, embeddings, custom paths, SDK
+  internal retries, independent replicas/disks or the remaining general
+  JSON/state/task writers. Those remain explicit follow-up gates.
+
 Desktop handoff refinement:
 
 - Applied coding result/pilot cards can explicitly reread the caller-authorized
