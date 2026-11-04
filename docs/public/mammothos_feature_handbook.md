@@ -51,6 +51,10 @@ overrun estimates, and reported overruns remain visible.
 These controls cover hosted completion admission, not embeddings, all internal
 SDK retries, custom paid paths, external clients or provider invoices.
 Shared-state RPCs do not make all runtime components independently replica-safe.
+Onboarding, notifications, execution logs and account-deletion requests now use
+the same shared backend. Corrupt records are errors rather than empty resets;
+conflicting edits require reloading. A deletion request is not an erasure
+certificate for backups, provider records or all stored content.
 Concurrent conflicting saved edits now require a reload instead of silently
 overwriting another request. A retained executing approval after worker loss
 is an unknown outcome to inspect, not an action to replay.

@@ -38,6 +38,10 @@ record edits with HTTP 409. Corrupt records return a storage error rather than
 an empty success. Legacy approvals are durably claimed before execution; an
 interrupted claim is an unknown outcome, not permission to replay the action.
 Local learner saves also reject conflicting changes and retain deletion fences.
+Onboarding, notifications, execution logs and account-deletion request records
+also use the shared store. Conflicting edits require reload; unreadable data no
+longer silently becomes an empty record. Requesting deletion is not verification
+that all copies, provider data or backups have been erased.
 
 Settings > Tenant usage controls exposes verified active memberships and shared
 UTC-day token/estimated-USD ceilings. Only tenant owners/admins can change policy;

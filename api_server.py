@@ -2703,10 +2703,10 @@ def _record_trust_metric(
     validation_passed: bool,
 ) -> None:
     """Record a trust validation metric for telemetry."""
+    from mammoth_os.shared_state import StateConflict, StateUnavailable
+
     try:
         metrics = _read_json(TRUST_METRICS_FILE)
-        if not isinstance(metrics, list):
-            metrics = []
         
         # Keep only last 1000 entries
         if len(metrics) >= 1000:
@@ -2723,9 +2723,9 @@ def _record_trust_metric(
             "issues_sample": validation_issues[:2],  # First 2 issues for trending
         }
         metrics.append(metric)
-        TRUST_METRICS_FILE.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
-    except Exception:
-        pass  # Fail silently on telemetry
+        _write_json(TRUST_METRICS_FILE, metrics)
+    except (StateConflict, StateUnavailable):
+        logger.exception("Trust telemetry could not be saved; the response is not replayed")
 
 
 def _wrap_response_with_trust(
@@ -8895,27 +8895,17 @@ async def _execute_terminal_command(cmd: str, timeout: Optional[int] = None) -> 
 _EXECUTION_LOG_MAX = 200
 
 def _load_execution_log() -> list:
-    try:
-        return json.loads(EXECUTION_LOG_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    return _read_json(EXECUTION_LOG_FILE)
 
 def _append_execution_event(kind: str, summary: str, detail: dict = None, user_id: str = "system") -> None:
-    try:
-        log = _load_execution_log()
-        log.append({
-            "id": str(uuid.uuid4()),
-            "kind": kind,
-            "summary": summary,
-            "detail": detail or {},
-            "user_id": user_id,
-            "ts": datetime.now(timezone.utc).isoformat(),
-        })
-        if len(log) > _EXECUTION_LOG_MAX:
-            log = log[-_EXECUTION_LOG_MAX:]
-        EXECUTION_LOG_FILE.write_text(json.dumps(log, indent=2, default=str), encoding="utf-8")
-    except Exception:
-        pass
+    _json_store().append(EXECUTION_LOG_FILE, {
+        "id": str(uuid.uuid4()),
+        "kind": kind,
+        "summary": summary,
+        "detail": detail or {},
+        "user_id": user_id,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }, keep=_EXECUTION_LOG_MAX)
 
 
 
@@ -8964,13 +8954,10 @@ _ONBOARDING_STEPS = [
 ]
 
 def _load_onboarding() -> dict:
-    try:
-        return json.loads(ONBOARDING_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
+    return _read_json(ONBOARDING_FILE, default={})
 
 def _save_onboarding(data: dict) -> None:
-    ONBOARDING_FILE.write_text(json.dumps(data, indent=2, default=str), encoding="utf-8")
+    _write_json(ONBOARDING_FILE, data)
 
 
 
@@ -8987,13 +8974,10 @@ def _save_onboarding(data: dict) -> None:
 _NOTIFICATION_TYPES = {"system", "billing", "agent", "security", "info", "warning"}
 
 def _load_notifications() -> list:
-    try:
-        return json.loads(NOTIFICATIONS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    return _read_json(NOTIFICATIONS_FILE)
 
 def _save_notifications(items: list) -> None:
-    NOTIFICATIONS_FILE.write_text(json.dumps(items, indent=2, default=str), encoding="utf-8")
+    _write_json(NOTIFICATIONS_FILE, items)
 
 def _create_notification(
     title: str,
@@ -9015,11 +8999,7 @@ def _create_notification(
         "actor": actor,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    items = _load_notifications()
-    items.append(note)
-    if len(items) > 1000:
-        items = items[-1000:]
-    _save_notifications(items)
+    _json_store().append(NOTIFICATIONS_FILE, note, keep=1000)
     return note
 
 
@@ -9045,13 +9025,10 @@ _DELETION_GRACE_DAYS = 30
 
 
 def _load_deletion_requests() -> list:
-    try:
-        return json.loads(ACCOUNT_DELETIONS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    return _read_json(ACCOUNT_DELETIONS_FILE)
 
 def _save_deletion_requests(items: list) -> None:
-    ACCOUNT_DELETIONS_FILE.write_text(json.dumps(items, indent=2, default=str), encoding="utf-8")
+    _write_json(ACCOUNT_DELETIONS_FILE, items)
 
 def _get_deletion_request(uid: str) -> dict | None:
     return next((r for r in _load_deletion_requests() if r.get("user_id") == uid and r.get("status") in {"pending", "confirmed"}), None)
@@ -9094,10 +9071,7 @@ def _get_deletion_request(uid: str) -> dict | None:
 
 
 def _load_json_file(path) -> list:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    return _read_json(path)
 
 
 ROUTE_FRAGMENT_DIR = ROOT / "server_routes"

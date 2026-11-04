@@ -14,6 +14,19 @@ or a fresh bounded CAS computation keeps the latest 250 entries without turning
 normal retention contention into a failed workflow. Only the pure event append
 is recomputed, never the action that produced it; ordinary edits retain conflicts.
 
+Onboarding, notifications, execution events and account-deletion request records
+also use this backend, not direct filesystem overwrites. Disjoint keyed updates
+merge while competing record edits fail explicitly. Notifications retain the
+latest 1,000 entries and execution events the latest 200 through atomic
+append-and-retain; workflow actions are not replayed to retry these writes.
+Corrupt/wrong-shaped records are errors, never silently replaced by empty data.
+Account export reads the selected backend for these shared collections.
+Legacy unkeyed trust metrics also use the selected backend without changing
+their payload shape. Their concurrent changes may conflict; telemetry failures
+are explicitly logged and do not replay or fail an already-computed response.
+Deletion requests remain the existing request/cancellation workflow, not proof
+that provider records, backups or every stored copy have been erased.
+
 Legacy approvals commit a unique `executing` claim before running an action.
 Only pending approvals execute. A lost worker leaves a retained unknown outcome
 that cannot be replayed or discarded automatically. Inspect external evidence

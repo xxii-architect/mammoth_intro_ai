@@ -53,6 +53,8 @@ Disjoint keyed appends survive concurrency; competing edits return 409 rather
 than silently dropping data. Legacy approvals persist a unique claim before
 executing; interrupted/unknown actions are never automatically replayed.
 Learner-state corruption no longer silently becomes an empty session.
+Onboarding, notifications, execution events and deletion-request records now use
+the same conflict-safe backend; corruption and failed writes are explicit.
 See [shared runtime operations](docs/shared_runtime_operations.md) for migration,
 price configuration and the production-host acceptance workflow.
 Run checkpoints/leases and private login admission now have optional service-only
