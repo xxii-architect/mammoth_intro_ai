@@ -810,8 +810,9 @@ Contract coverage builds and installs a wheel and npm tarball into temporary
 locations, then exercises both against the loaded backend routes: workspace
 context, approval/resume, cancellation/recovery, per-request token changes,
 cross-user denial, platform-repo denial and anonymous rejection. Auth, document
-context and providers/tools use isolated fixtures; SSE responses are buffered by
-the test bridge. This does not test paid providers, real document retrieval,
+context and providers/tools use isolated fixtures; the package tests also page
+through real locally ingested source text and verify cross-user/scope/anonymous
+document denial. SSE responses are buffered by the test bridge. This does not test paid providers,
 production proxy timing/disconnects or hostile-code isolation. CI requires these
 package tests rather than silently skipping missing Node/npm, and checks the
 public JavaScript run-option types.
@@ -1522,10 +1523,37 @@ or an OS sandbox. Never execute uploaded code or active HTML.
 
 The whole extracted document is split into source-located sections. Chat,
 Mammoth Mind runs, and ATLAS retrieve relevant sections by lexical matching
-(or opening sections when no terms match), instead of only using the first
+(or distributed beginning/middle/end samples when no terms match), instead of only using the first
 8,000 characters. Ask about a concrete topic or `page 120` / `slide 12`.
 This is bounded retrieval, not semantic search or proof that the model's answer
 is accurate. Chat uses up to four attached files; ATLAS uses up to six.
+Chat's three-section overview now samples at the requested limit, retaining the
+last section instead of selecting four and then dropping the final sample.
+Initial context states selected versus indexed section counts. Topic-based
+retrieval still returns matches, not every section or guaranteed complete review.
+
+Both file libraries offer **Browse indexed text**, then **Previous sections** /
+**Next sections** through bounded sequential pages. Search results and pages show
+selected/indexed counts; a failed page preserves the current source, and late
+responses cannot reopen closed previews. This is access to indexed text, not OCR,
+rendered-original fidelity, a character-coverage percentage or proof of model review.
+The existing content routes accept `start` and `count` (1-10, default 6);
+omit `start` for existing search behavior. Do not mix a query with sequential
+offsets. Both Paths clients expose `read_document` / `readDocument`, with scope
+`chat` (default) or `atlas`. Responses include `total_chunks`, `next_start` and
+`selection` metadata; reads never execute model calls or grant access.
+
+Recursive review now caps planner/critic outputs at 2,048 tokens each, retains
+the executor/synthesis output allowances and reserves bounded synthesis headroom
+without raising the overall cap. Replanning omits the duplicate previous draft
+while execution still receives it for revision. Role contexts no longer blindly
+clip a serialized source/draft tail; oversized contexts stop explicitly.
+The timeline/saved snapshot separates reported usage from conservative input
+reservations and preserves the latest completed executor draft on failure,
+clearly labeled unverified. UTF-8 bytes remain a conservative input upper bound,
+not a provider tokenizer: early stops can still occur and are now diagnosable.
+Tokenizer-aware admission, automatic exhaustive review and budget-extension
+continuation remain open; the two reported hosted failures were not inspected here.
 
 The UI shows transfer progress, processing, extraction warnings, cancellation,
 and retry. ATLAS offers searchable section previews; chat's **Manage saved files**

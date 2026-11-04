@@ -19,7 +19,32 @@ result = client.run(
 assert result.status == "completed" and result.reply == "Context received."
 assert result.events[0].data["repo"] is None
 assert client.recover_run(result.run_id).status == "completed"
+file_id = sys.argv[3]
+start, indices, source = 0, [], ""
+while True:
+    page = client.read_document(file_id, start=start, count=2)
+    assert page["selection"]["review_complete"] is False
+    indices.extend(section["chunk_index"] for section in page["sections"])
+    source += page["text"]
+    if page["next_start"] is None:
+        break
+    start = page["next_start"]
+assert indices == list(range(page["total_chunks"]))
+assert "BEGIN_SOURCE" in source and "END_SOURCE" in source
+for options, status in [({"count": 11}, 400), ({"scope": "atlas"}, 404)]:
+    try:
+        client.read_document(file_id, **options)
+    except PathsError as error:
+        assert error.status == status
+    else:
+        raise AssertionError("Invalid document page or scope succeeded")
 token = "tenant-b"
+try:
+    client.read_document(file_id)
+except PathsError as error:
+    assert error.status == 404
+else:
+    raise AssertionError("Another tenant read this document")
 try:
     client.get_run(result.run_id)
 except PathsError as error:
@@ -43,6 +68,12 @@ assert cancelled.status == "awaiting_approval"
 client.cancel_run(cancelled.run_id)
 assert client.recover_run(cancelled.run_id).status == "cancelled"
 token = None
+try:
+    client.read_document(file_id)
+except PathsError as error:
+    assert error.status == 401
+else:
+    raise AssertionError("Anonymous document read succeeded")
 try:
     client.run("Anonymous")
 except PathsError as error:

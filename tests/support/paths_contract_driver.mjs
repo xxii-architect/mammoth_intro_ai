@@ -11,7 +11,26 @@ assert.equal(result.status, 'completed')
 assert.equal(result.reply, 'Context received.')
 assert.equal(result.state.events[0].data.repo, null)
 assert.equal((await client.recoverRun(result.runId)).status, 'completed')
+const fileId = process.argv[3]
+let start = 0
+const indices = []
+let source = ''
+let total = 0
+while (true) {
+  const page = await client.readDocument(fileId, { start, count: 2 })
+  assert.equal(page.selection.review_complete, false)
+  indices.push(...page.sections.map(section => section.chunk_index))
+  source += page.text
+  total = page.total_chunks
+  if (page.next_start === null) break
+  start = page.next_start
+}
+assert.deepEqual(indices, Array.from({ length: total }, (_, index) => index))
+assert.ok(source.includes('BEGIN_SOURCE') && source.includes('END_SOURCE'))
+await assert.rejects(client.readDocument(fileId, { count: 11 }), error => error instanceof PathsError && error.status === 400)
+await assert.rejects(client.readDocument(fileId, { scope: 'atlas' }), error => error instanceof PathsError && error.status === 404)
 token = 'tenant-b'
+await assert.rejects(client.readDocument(fileId), error => error instanceof PathsError && error.status === 404)
 await assert.rejects(client.getRun(result.runId), error => error instanceof PathsError && error.status === 404)
 token = 'tenant-a'
 await assert.rejects(client.run('Read platform', { repo: 'platform', surface: 'agent_workspace' }),
@@ -26,5 +45,6 @@ assert.equal(cancelled.status, 'awaiting_approval')
 await client.cancelRun(cancelled.runId)
 assert.equal((await client.recoverRun(cancelled.runId)).status, 'cancelled')
 token = null
+await assert.rejects(client.readDocument(fileId), error => error instanceof PathsError && error.status === 401)
 await assert.rejects(client.run('Anonymous'), error => error instanceof PathsError && error.status === 401)
 console.log(JSON.stringify({ context_run: result.runId, cancelled_run: cancelled.runId }))

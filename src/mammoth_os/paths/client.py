@@ -562,6 +562,14 @@ class MammothPaths:
     def clear_artifacts(self) -> Dict[str, Any]:
         return self._json("artifacts", "DELETE", "/workspace/artifacts")
 
+    def read_document(self, file_id: str, *, scope: str = "chat", start: int = 0, count: int = 6) -> Dict[str, Any]:
+        """Read a bounded page of private indexed text, not a model review."""
+        if scope not in {"chat", "atlas"}:
+            raise ValueError("Document scope must be chat or atlas")
+        surface = "mammoth" if scope == "chat" else "atlas"
+        return self._json("documents", "GET", f"/{surface}/files/{self._seg(file_id)}/content",
+                          query={"start": start, "count": count})
+
     def owner_execution_capabilities(self, repo: str = "") -> Dict[str, Any]:
         return self._json("owner_execution", "GET", "/owner-executions/capabilities", query={"repo": repo})
 

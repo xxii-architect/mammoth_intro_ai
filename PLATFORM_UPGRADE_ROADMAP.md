@@ -10,6 +10,118 @@ from unchecked audit phases.
 
 ## Purpose and boundaries
 
+### Reprioritized delivery plan (2026-11-03)
+
+Recent merged passes:
+
+- #16: workspace SDK run/context parity and installed wheel/npm contract tests.
+- #17: fail-closed, four-suite Chromium interaction gate.
+- #18: bounded Python Paths correctness lint and strict typing gates.
+- #19: Python/JS JSON container guards and removal of the dynamic-return exemption.
+- #20: strict SSE decoding, run identity/sequence guards and saved recovery checks.
+- #21: repository-aware frontend readiness and explicit approval-bound deletion.
+- #22: Docker-required legacy smoke, structured execution evidence and read-only
+  diagnostics without host fallback or automatic policy PRs.
+
+These are merged source changes, not proof of deployment or complete production
+acceptance. The latest release had nine successful checks and 178 fixture-backed
+Chromium scenarios. The real Docker smoke still reported `not_verified` after
+namespace/mount startup failure; owner/reviewed-image isolation remains open.
+
+#### Next batch: document completeness and recursive review reliability
+
+User reports: uploaded files still seem only about two-thirds readable; two
+recursive reviews stopped at the token cap. Reproduce against saved receipts and
+representative fixtures before assigning either report a single root cause.
+Do not silently raise limits, weaken safety, or equate upload success with review.
+
+- [ ] DOC-CONTEXT-01: trace source extraction, indexing, retrieval and actual
+  model-visible coverage separately. Current extraction is bounded to 2,000,000
+  characters/2,000 units; scans need OCR, which is not enabled. Initial chat
+  context includes up to three selected chunks per file and four files. Existing
+  Agent document search/paginated reads can inspect more indexed text, but
+  availability is not proof that all sections were read.
+  Add beginning/middle/end sentinels, late appendices, tables and multi-file
+  fixtures; identify the exact stage and reason for omissions.
+- [ ] DOC-CONTEXT-02: expose extracted/indexed/selected/reviewed coverage and
+  omissions with file/section provenance across backend, chat/workspace and both
+  SDKs. Offer an explicit bounded whole-document review using existing paginated
+  reads, with resumable section coverage and no false full-review claim.
+  Count unique source coverage rather than overlapping chunk bytes. Preserve
+  account isolation, deletion, download access and prompt-injection boundaries.
+- [ ] REVIEW-BUDGET-01 (RUN-07/10): inspect the two failed run receipts, including
+  configured cap, role, actual provider usage, prompt estimate, reservation,
+  output allowance and stop reason. Current recursive reservation subtracts
+  UTF-8 prompt bytes from a token limit, while charging actual reported tokens
+  after each response; this can reserve too conservatively, but is not yet a
+  proven explanation for these runs. Use provider-aware counting or explicitly
+  labeled conservative estimates; keep estimated/reserved/actual usage distinct.
+  Test near-cap boundaries, multilingual text and missing provider usage.
+- [ ] REVIEW-BUDGET-02 (RUN-07/10/11): allocate bounded planner/executor/critic/
+  synthesis budgets before calls, retain evidence rather than repeating entire
+  transcripts, and reserve room for final synthesis. Checkpoint completed work;
+  show remaining work and precise cap cause on partial results. Safe explicit
+  continuation must not rerun paid completed stages, duplicate tools, or bypass
+  approvals. Never present an unfinished review as passed. Preserve long-form
+  deliverables and source citations when compacting context.
+- [ ] CONTEXT-EVAL-01 (RUN-09): add deterministic adversarial/coverage fixtures
+  first, then a small explicitly approved paid evaluation if needed. Measure
+  source coverage, false completion, successful review completion, call count,
+  input/output/reasoning usage where available, and cost per successful task only
+  when authoritative prices/usage exist. Keep failures and unavailable data.
+
+Acceptance: every required sentinel in fully extractable fixtures is recoverable;
+an exhaustive review either records every indexed section or clearly remains
+partial. Known unextractable content is disclosed. Recursive boundary tests
+respect the configured budget without false early completion or duplicate
+execution; final output or a resumable partial checkpoint survives a cap stop.
+Build, behavior verification and untested production boundaries remain separate.
+
+#### First connected delivery and remaining boundaries
+
+Implemented bounded first batch (not closure of the items above):
+
+- Regression confirmed that chat selected four distributed sections then dropped
+  the fourth, losing the final section. Selection now requests three directly.
+  Context includes selected/indexed counts.
+- Both existing content endpoints, file-library previews and Paths clients offer
+  bounded sequential paging with selection metadata; installed-client fixtures
+  enumerate all locally indexed source chunks and deny cross-user/scope/anonymous
+  reads. Counts describe indexed sections, never original-source character
+  coverage or AI review completion. Extraction/OCR limits remain unchanged.
+- Recursive planner/critic outputs are capped at 2,048 tokens; existing executor/
+  synthesis allowances and overall ceilings stay intact, with bounded synthesis
+  headroom. Replanning avoids duplicating the prior draft; the executor retains
+  it for revision. Role contexts no longer blindly clip serialized source tails.
+  Public budgets distinguish byte-based conservative admission from actual
+  reported usage, and failures retain the latest completed executor draft under
+  an unverified label.
+- Deterministic fixtures cover long source tails, Unicode, replanning, cap-stop
+  draft durability, paging/failure/stale-response behavior and SDK parity.
+  The two hosted failure receipts/user files were not accessed. Exact provider
+  tokenization, automatic exhaustive-review orchestration, resumable coverage
+  tracking and explicit budget extension remain open. No paid benchmark or
+  quantified credit-saving claim is made.
+
+#### Order after the context/review batch
+
+1. Establish reviewed owner-container infrastructure evidence and compatible
+   per-repository validators (CI-03); a green diagnostics job is insufficient.
+2. Expand nested SDK payload contracts and live disconnect/restart coverage
+   (SDK-01/02, RUN-11), building on existing container/envelope guards.
+3. Address shared persistence transactions and observed provider/agent health
+   (DATA-01/02, HEALTH-01/02); do not infer availability from discovery alone.
+4. Establish authoritative tenant usage/spend controls and measured escalation
+   (BILL-01/02, RUN-09/10), then broaden optional product features.
+   Existing personal-health consent/design prerequisites remain unchanged.
+
+Credit-efficient delivery here: group related backend/SDK/UI/docs/tests into
+substantial coherent passes; inspect once, reuse evidence and run targeted tests
+before the final full gate. Avoid redundant model reviews and paid benchmarks
+without a concrete question and spend approval. Do not trade away coverage,
+privacy or correctness for fewer calls. No percentage saving is claimed for
+Copilot credits; this repository cannot authoritatively measure that balance.
+
 ### Personal Health direction (requested 2026-11-02; not implemented)
 
 The Health destination is a private personal-health dashboard with an AI
@@ -418,10 +530,11 @@ directions. These are fixture-based contract checks, not paid-model benchmarks.
   Automatic reconnect, durable background jobs and restart reconciliation
   beyond existing backend behavior remain open.
 
-Next order: failed-validation repair with fresh frozen jobs and both approvals;
-RUN-07 context/checkpoint budgets; RUN-10 explicit spend/time controls backed by
-reported usage (never invented prices); representative provider-specific RUN-09
-measurements; then reviewed isolated browser runtime. Tenant paid execution
+Current next order is the document/recursive context batch above (RUN-07/10),
+followed by reviewed isolated execution and the remaining SDK/state/usage work.
+Continue preserving failed-validation repair with fresh frozen jobs and both
+approvals. Representative provider-specific RUN-09 measurements must use reported
+usage (never invented prices). Tenant paid execution
 requires stronger isolation, authoritative metering and representative evidence;
 it is not enabled by these SDK/UI additions. No new setting can grant repository,
 host, tool or approval privileges.

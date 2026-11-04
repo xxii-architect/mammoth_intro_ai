@@ -16,9 +16,11 @@ class Model:
         self.values = list(values)
         self.prompts = []
         self.usage = usage
+        self.options = []
 
     async def generate_completion(self, prompt, **kwargs):
         self.prompts.append(prompt)
+        self.options.append(kwargs)
         return Completion(json.dumps(self.values.pop(0)), finish_reason="stop",
                           usage={"total_tokens": 100} if self.usage else {})
 
@@ -67,6 +69,28 @@ def test_failed_critique_replans_with_findings(tmp_path):
     assert "Consider an alternative." in model.prompts[3]
     assert run.recursive["iteration"] == 1
     assert run.recursive["usage"]["tokens"] == 700
+
+
+def test_replanning_omits_duplicate_draft_but_executor_keeps_it_for_revision(tmp_path):
+    draft = {"final": "DRAFT_ONLY_SENTINEL " + "Long existing deliverable. " * 100}
+    fail = {**PASS, "label": "fail", "suggestions": ["Preserve the source appendix."]}
+    model, base, run, ctx = setup(tmp_path, [PLAN, draft, fail, PLAN, ANSWER, PASS, SYNTHESIS])
+    asyncio.run(drain(RecursiveRuntime(base, run, ctx), initial=True))
+    assert run.status == "completed"
+    assert "DRAFT_ONLY_SENTINEL" not in model.prompts[3]
+    assert "Preserve the source appendix." in model.prompts[3]
+    assert "DRAFT_ONLY_SENTINEL" in model.prompts[4]
+
+
+def test_role_context_preserves_long_source_tail_and_unicode_without_blind_clipping(tmp_path):
+    model, base, run, ctx = setup(tmp_path, [PLAN, ANSWER, PASS, SYNTHESIS])
+    run.request["extra_context"] = "Source \u00e9. " * 3300 + "SOURCE_TAIL_SENTINEL"
+    asyncio.run(drain(RecursiveRuntime(base, run, ctx), initial=True))
+    assert run.status == "completed"
+    for index in (0, 2, 3):
+        assert "SOURCE_TAIL_SENTINEL" in model.prompts[index]
+        assert "Source \u00e9." in model.prompts[index]
+    assert "truncated" not in model.prompts[-1]
 
 
 def test_uncertainty_checkpoint_survives_reload_and_is_single_use(tmp_path):
@@ -154,6 +178,23 @@ def test_missing_usage_is_explicit_failure(tmp_path):
     assert not run.public()["can_continue"]
 
 
+@pytest.mark.parametrize("usage", [
+    {"prompt_tokens": True, "completion_tokens": 1},
+    {"prompt_tokens": 100, "completion_tokens": "1"},
+    {"prompt_tokens": -1, "completion_tokens": 100},
+])
+def test_invalid_split_usage_fails_closed_instead_of_inventing_a_total(tmp_path, usage):
+    model, base, run, ctx = setup(tmp_path, [PLAN])
+
+    async def invalid_usage(*_args, **_kwargs):
+        return Completion(json.dumps(PLAN), finish_reason="stop", usage=usage)
+
+    model.generate_completion = invalid_usage
+    asyncio.run(drain(RecursiveRuntime(base, run, ctx), initial=True))
+    assert run.recursive["stop_reason"] == "provider_usage_unavailable"
+    assert run.recursive["usage"]["tokens"] == 0
+
+
 def test_iteration_leash_and_no_premature_success(tmp_path):
     fail = {**PASS, "label": "fail"}
     model, base, run, ctx = setup(tmp_path, [PLAN, ANSWER, fail, PLAN, ANSWER, fail])
@@ -182,6 +223,45 @@ def test_token_ceiling_stops_before_provider_call(tmp_path):
     assert model.prompts == []
     assert run.status == "failed"
     assert run.recursive["stop_reason"] == "max_tokens"
+
+
+def test_role_budgets_are_distinct_and_actual_usage_is_not_a_reservation(tmp_path):
+    model, base, run, ctx = setup(tmp_path, [PLAN, ANSWER, PASS, SYNTHESIS])
+    asyncio.run(drain(RecursiveRuntime(base, run, ctx), initial=True))
+    assert [option["max_tokens"] for option in model.options] == [2048, 4096, 2048, 8192]
+    assert run.recursive["usage"]["tokens"] == 400
+    budget = run.public()["recursive"]["budget"]
+    assert budget["input_estimation"] == "utf8_byte_upper_bound"
+    assert budget["synthesis_headroom"] == 0
+    assert run.recursive["reservation"] == 0
+    assert budget["reported_call_tokens"] == 100
+
+
+def test_cap_stop_retains_unverified_draft_and_precise_budget_evidence(tmp_path):
+    model, base, run, ctx = setup(tmp_path, [PLAN, ANSWER, PASS])
+    original = model.generate_completion
+
+    async def consume_budget(prompt, **kwargs):
+        response = await original(prompt, **kwargs)
+        return Completion(response.text, finish_reason="stop",
+                          usage={"total_tokens": 30_000 if len(model.prompts) == 2 else 100})
+
+    model.generate_completion = consume_budget
+    run.request["recursive"]["max_tokens"] = 33_000
+    events = asyncio.run(drain(RecursiveRuntime(base, run, ctx), initial=True))
+    assert run.status == "failed"
+    assert run.recursive["stop_reason"] == "max_tokens"
+    public = run.public()["recursive"]
+    assert public["partial_output"] == ANSWER["final"]
+    assert public["budget"]["stop_detail"] == "insufficient_call_allowance"
+    assert public["budget"]["remaining_tokens"] == 2900
+    assert public["completed_stages"] == ["0:planner", "0:executor"]
+    assert "cache" not in public
+    assert not run.public()["can_continue"]
+    assert not any(event["type"] == "run.completed" for event in events)
+    assert len(model.prompts) == 2
+    saved = RunStore(tmp_path).get(run.id, run.user_id)
+    assert saved.public()["recursive"]["partial_output"] == ANSWER["final"]
 
 
 def test_cancellation_during_model_call_retains_unknown_usage(tmp_path):

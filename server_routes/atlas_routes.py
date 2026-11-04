@@ -1424,8 +1424,8 @@ async def list_atlas_files():
     return {"status": "ok", "files": [DocumentLibrary.public(f) for f in index]}
 
 @app.get("/api/atlas/files/{file_id}/content")
-async def get_atlas_file_content(file_id: str, query: str = ""):
-    return await asyncio.to_thread(_document_content, "atlas", file_id, query)
+async def get_atlas_file_content(file_id: str, query: str = "", start: Optional[int] = None, count: int = 6):
+    return await asyncio.to_thread(_document_content, "atlas", file_id, query, start, count)
 
 @app.patch("/api/atlas/files/{file_id}")
 async def update_atlas_file_tag(file_id: str, body: Dict[str, Any] = {}):

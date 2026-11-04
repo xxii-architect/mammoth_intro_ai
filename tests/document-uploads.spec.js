@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
-async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false } = {}) {
+async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false, pagingFailure = false, pagingDelay = false } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   let records = []
@@ -16,7 +16,18 @@ async function mountLibrary(page, { uploadFailure = false, deleteFailure = false
       if (uploadFailure) return route.fulfill({ status: 413, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Private upload quota reached.' }) })
       result = { status: 'ok', file_id: 'atlas-book', name: 'textbook.pdf', size: 12345, tag: 'textbook', processing_status: 'partial', warnings: ['One scanned page needs OCR.'], chunk_count: 120 }
       records = [result]
-    } else if (path.endsWith('/content')) result = { status: 'ok', file_id: 'atlas-book', name: 'textbook.pdf', processing_status: 'partial', sections: [{ location: 'page 120', text: 'Zebrafish cardiac regeneration uses progenitor cells.' }] }
+    } else if (path.endsWith('/content')) {
+      const params = new URL(route.request().url()).searchParams
+      const start = params.has('start') ? Number(params.get('start')) : null
+      if (start === 6 && pagingDelay) await new Promise(resolve => setTimeout(resolve, 600))
+      if (start === 6 && pagingFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Document index temporarily unavailable.' }) })
+      const sections = start === null ? [{ location: 'page 120', text: 'Zebrafish cardiac regeneration uses progenitor cells.', chunk_index: 12 }]
+        : Array.from({ length: Math.min(6, 13 - start) }, (_, index) => ({ chunk_index: start + index, location: `section ${start + index + 1}`, text: `Indexed source ${start + index + 1}.` }))
+      result = { status: 'ok', file_id: 'atlas-book', name: 'textbook.pdf', processing_status: 'partial',
+        warnings: ['One scanned page needs OCR.'], sections, total_chunks: 13,
+        next_start: start !== null && start + sections.length < 13 ? start + sections.length : null,
+        selection: { mode: start === null ? 'search' : 'sequential', selected_chunks: sections.length, total_chunks: 13, review_complete: false } }
+    }
     else if (route.request().method() === 'DELETE') {
       if (deleteFailure) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Storage unavailable.' }) })
       records = []
@@ -71,6 +82,48 @@ test('failed upload remains explicit and retryable without a success record', as
   await expect(page.getByRole('alert')).toContainText('Private upload quota reached.')
   await expect(page.getByRole('button', { name: 'Retry failed uploads' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toHaveCount(0)
+})
+
+test('indexed text browsing reaches the final section and keeps coverage distinct from model review', async ({ page }) => {
+  const errors = await mountLibrary(page)
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByRole('button', { name: 'Browse indexed text' }).click()
+  const preview = page.getByRole('region', { name: 'Document extraction preview' })
+  await expect(preview.getByLabel('Document section coverage')).toContainText('6 of 13')
+  await expect(preview).toContainText('Indexed source 1.')
+  await page.getByRole('button', { name: 'Next sections' }).click()
+  await expect(preview).toContainText('Indexed source 7.')
+  await page.getByRole('button', { name: 'Next sections' }).click()
+  await expect(preview).toContainText('Indexed source 13.')
+  await expect(page.getByRole('button', { name: 'Next sections' })).toHaveCount(0)
+  await expect(preview).toContainText('Neither means the model reviewed the entire document.')
+  await page.getByRole('button', { name: 'Previous sections' }).click()
+  await expect(preview).toContainText('Indexed source 7.')
+  expect(errors).toEqual([])
+})
+
+test('a failed section page preserves the current source and reports the failure', async ({ page }) => {
+  await mountLibrary(page, { pagingFailure: true })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByRole('button', { name: 'Browse indexed text' }).click()
+  await expect(page.getByText('Indexed source 1.', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Next sections' }).click()
+  await expect(page.getByText('Document index temporarily unavailable.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Indexed source 1.', { exact: true })).toBeVisible()
+})
+
+test('closing a preview cannot be undone by a late section response', async ({ page }) => {
+  await mountLibrary(page, { pagingDelay: true })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByRole('button', { name: 'Browse indexed text' }).click()
+  const response = page.waitForResponse(url => url.url().includes('start=6'))
+  await page.getByRole('button', { name: 'Next sections' }).click()
+  await page.getByRole('button', { name: 'Close preview' }).click()
+  await response
+  await expect(page.getByRole('region', { name: 'Document extraction preview' })).toHaveCount(0)
 })
 
 test('delete failure retains the actual library record', async ({ page }) => {

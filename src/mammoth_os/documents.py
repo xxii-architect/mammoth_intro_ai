@@ -425,6 +425,22 @@ class DocumentLibrary:
     def sections(self, entry: dict, query: str, *, limit: int = 4) -> list[dict]:
         return retrieve_sections(self._chunks(entry), query, limit=limit)
 
+    def content(self, entry: dict, query: str = "", *, start: int | None = None, count: int = 6) -> dict:
+        if start is not None:
+            if query:
+                raise DocumentError("Use either a search query or sequential section offsets, not both.", 400)
+            result = self.read_sections(entry, start=start, count=count)
+        else:
+            chunks = self._chunks(entry)
+            result = {"sections": retrieve_sections(chunks, query), "total_chunks": len(chunks),
+                      "next_start": None,
+                      "coverage": "Selected indexed sections, not proof the entire document was reviewed."}
+        return {**result, "selection": {
+            "mode": "sequential" if start is not None else "search",
+            "selected_chunks": len(result["sections"]), "total_chunks": result["total_chunks"],
+            "review_complete": False,
+        }}
+
     def read_sections(self, entry: dict, *, start: int = 0, count: int = 6) -> dict:
         if start < 0 or count < 1 or count > 10:
             raise DocumentError("Use a nonnegative start and a count between 1 and 10.", 400)

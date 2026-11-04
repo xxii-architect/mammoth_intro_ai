@@ -15,6 +15,22 @@ const RUN_ID = 'run-0123456789abcdef'
 const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_ID, seq, type, ts: 't', data })
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
+test('document paging preserves offsets, scope and unverified coverage evidence', async () => {
+  const body = { status: 'ok', sections: [{ chunk_index: 12, text: 'last appendix' }], total_chunks: 13,
+    next_start: null, selection: { mode: 'sequential', selected_chunks: 1, total_chunks: 13, review_complete: false } }
+  const { impl, calls } = fakeFetch({
+    'GET /api/mammoth/files/file-one/content': { body },
+    'GET /api/atlas/files/file-one/content': { body },
+  })
+  const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
+  assert.deepEqual(await client.readDocument('file-one', { start: 12, count: 1 }), body)
+  assert.equal(new URL(calls[0].url).search, '?start=12&count=1')
+  assert.deepEqual(await client.readDocument('file-one', { scope: 'atlas' }), body)
+  assert.equal(new URL(calls[1].url).pathname, '/api/atlas/files/file-one/content')
+  assert.equal(new URL(calls[1].url).search, '?start=0&count=6')
+  assert.throws(() => client.readDocument('file-one', { scope: 'other' }), /scope/)
+})
+
 test('owner proposals preserve explicit deletion and optional acceptance without changing defaults', async () => {
   const { impl, calls } = fakeFetch({ 'POST /api/owner-executions': { body: { status: 'ok', execution: { id: 'exec-one' } } } })
   const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })

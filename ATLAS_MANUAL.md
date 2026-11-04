@@ -6,6 +6,24 @@
 
 ## Production-readiness snapshot
 
+### Document coverage and recursive review budgets
+
+Both file libraries offer **Browse indexed text** with bounded previous/next
+section pages alongside topic search. Selected/indexed counts do not mean the
+model reviewed the whole file; extraction/OCR omissions remain visible. Chat's
+three-section overview retains its end-of-document sample instead of dropping
+the fourth sample from a larger selection. Agent tools can read further sections.
+Paths clients expose the same private paging through `read_document` /
+`readDocument`; these reads do not invoke a model.
+
+Recursive review uses smaller planner/critic output allowances without raising
+the configured token ceiling. Its timeline separates reported usage from the
+conservative byte-based input allowance and explains admission stops. A completed
+executor draft survives a later review failure under an explicitly unverified
+disclosure. Oversized role context stops instead of silently clipping its tail.
+Exact tokenizer admission, automated exhaustive review and budget extensions
+remain roadmap work; no fix for an uninspected hosted run is claimed.
+
 ### Focused ATLAS workspace
 
 ATLAS uses four workspace views: Lesson, Tutor, Agents and Curricula. On phones,

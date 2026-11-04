@@ -69,6 +69,30 @@ review. Tool counts record attempted invocations, including denied/failed ones.
 Normal one-pass success uses at least four model completions; tools and retries
 add calls. Recursive mode can therefore cost materially more than a normal run.
 
+Planner and critic output limits are 2,048 tokens each; executor decisions retain
+their normal allowances and synthesis retains its 8,192-token allowance, subject
+to remaining budget. Non-synthesis calls retain headroom of the smaller of 4,096
+tokens or one-eighth of the overall cap. This headroom is a target, not a guarantee
+that a future synthesis prompt fits. Overall configured limits are unchanged.
+
+`budget` in public snapshots/events records the latest call's role, remaining
+tokens before admission, conservative input bound, overhead allowance, output
+limit, synthesis headroom, current reservation and reported call usage when known.
+`input_estimation: utf8_byte_upper_bound` is deliberately not a measured token
+count. It can stop a call below the reported-token ceiling; an admission refusal
+records `stop_detail: insufficient_call_allowance`. Provider-aware tokenizer
+admission remains open. Missing/unknown provider usage still fails closed.
+
+Planner revisions receive earlier execution evidence but not a duplicate draft;
+the executor still receives that draft for revision. Role source/draft contexts
+are serialized without the previous blind 32,000-character tail clipping.
+Contexts that cannot fit stop rather than silently dropping source conclusions.
+`completed_stages` records cached stages. On failure, `partial_output` retains the
+latest completed executor draft and the timeline labels it unverified; it is not
+a passed critique, synthesis, application receipt or automatic retry.
+Cap stops do not gain additional allowance or a continuation button. Explicit
+budget extensions and exhaustive document-review checkpoints remain future work.
+
 Runs, cached typed role outputs and human checkpoints use the existing user-scoped
 RunStore. A nonblocking OS lease prevents competing consumers across workers and
 is released on process exit. Approval decisions are audited and consumed before

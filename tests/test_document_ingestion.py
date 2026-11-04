@@ -121,6 +121,52 @@ def test_overview_samples_end_of_document_and_warns_it_is_not_full_review():
     assert len(selected) == 4
 
 
+def test_chat_overview_keeps_final_section_and_reports_selected_coverage(library, monkeypatch):
+    upload(library, ("BEGIN_SENTINEL\n" + "background details " * 1200 + "\nEND_SENTINEL").encode(), scope="chat")
+    monkeypatch.setattr(api_server, "_document_library", lambda _user: library)
+    monkeypatch.setattr(api_server, "_load_uploads_index", lambda _user: library.list("chat"))
+    entry = library.list("chat")[0]
+    context = api_server._attached_chat_document_context("alice", [entry["file_id"]], "overview")
+    assert "BEGIN_SENTINEL" in context and "END_SENTINEL" in context
+    assert "Selected indexed sections: 3/" in context
+    assert "not the entire document" in context
+
+
+def test_content_endpoint_paging_recovers_every_chunk_without_claiming_review(library, monkeypatch):
+    upload(library, ("BEGIN_SENTINEL\n" + "middle paragraph " * 1200 + "\nEND_SENTINEL").encode(), scope="chat")
+    monkeypatch.setattr(api_server, "_document_library", lambda _user: library)
+    monkeypatch.setattr(api_server, "_current_request_user_id", lambda: "alice")
+    entry = library.list("chat")[0]
+    seen, text, start = [], [], 0
+    while True:
+        page = api_server._document_content("chat", entry["file_id"], "", start, 3)
+        seen.extend(section["chunk_index"] for section in page["sections"])
+        text.extend(section["text"] for section in page["sections"])
+        assert page["selection"]["mode"] == "sequential"
+        assert page["selection"]["review_complete"] is False
+        if page["next_start"] is None:
+            break
+        start = page["next_start"]
+    assert seen == list(range(page["total_chunks"]))
+    assert "BEGIN_SENTINEL" in "".join(text) and "END_SENTINEL" in "".join(text)
+    selected = api_server._document_content("chat", entry["file_id"], "END_SENTINEL")
+    assert selected["selection"]["mode"] == "search"
+    assert selected["selection"]["selected_chunks"] <= 4
+    assert selected["selection"]["total_chunks"] == page["total_chunks"]
+
+
+@pytest.mark.parametrize("start,count,query", [(-1, 6, ""), (0, 0, ""), (0, 11, ""), (999999, 6, ""), (0, 6, "topic")])
+def test_invalid_document_pages_fail_explicitly_without_removing_index(library, monkeypatch, start, count, query):
+    upload(library, b"Private source text.", scope="chat")
+    monkeypatch.setattr(api_server, "_document_library", lambda _user: library)
+    monkeypatch.setattr(api_server, "_current_request_user_id", lambda: "alice")
+    entry = library.list("chat")[0]
+    response = api_server._document_content("chat", entry["file_id"], query, start, count)
+    assert response.status_code == 400
+    assert json.loads(response.body)["status"] == "error"
+    assert library.list("chat")[0]["file_id"] == entry["file_id"]
+
+
 def test_real_docx_pptx_and_xlsx_readers(library, tmp_path):
     from docx import Document
     from openpyxl import Workbook
