@@ -6,6 +6,16 @@
 
 ## Production-readiness snapshot
 
+### Detailed explanations and Guide freshness
+
+The [MammothOS Feature Handbook](docs/public/mammothos_feature_handbook.md)
+explains feature choices, recursive-review use/avoid cases, costs, document
+coverage and approval evidence in plain language. The Guide reads bundled public
+documentation per request and includes a timestamped capability snapshot for the
+current caller, not operator logs or verified service health. Its content hash
+identifies the docs bundle, not a release. Deploy updated files to update the
+running Guide; no platform repository sync or paid health probe is performed.
+
 ### Document coverage and recursive review budgets
 
 Both file libraries offer **Browse indexed text** with bounded previous/next

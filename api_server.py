@@ -7169,6 +7169,7 @@ def _repo_sources_payload(user_id: str) -> Dict[str, Any]:
 
 
 _PUBLIC_GUIDE_DOCS = [
+    "docs/public/mammothos_feature_handbook.md",
     "docs/public/mammoth_mind_user_guide.md",
     "docs/public/mammoth_paths_sdk_guide.md",
     "docs/atlas_fab_product_guide.md",
@@ -7176,35 +7177,80 @@ _PUBLIC_GUIDE_DOCS = [
 ]
 
 
-def _collect_public_docs_context(query: str, *, max_snippets: int = 3) -> Dict[str, Any]:
+def _guide_platform_status(tool_context=None) -> Dict[str, Any]:
+    """Request-local capability metadata only; never operator state or health."""
+    observed_at = datetime.now(timezone.utc).isoformat()
+    if _AUTH_REQUIRED and _current_request_user_id("") in {"", "anonymous"}:
+        return {"observed_at": observed_at, "scope": "public_only",
+                "verification": "configuration_only_not_health"}
+    from mammoth_os.agent_registry import recursive_workflow_capability
+
+    ctx = tool_context if tool_context is not None else _agent_tool_context(None)[0]
+    return {
+        "observed_at": observed_at, "scope": "current_caller",
+        "verification": "configuration_only_not_health",
+        "run_contract": EVENT_CONTRACT_VERSION,
+        "recursive": recursive_workflow_capability("assistant"),
+        "repository_scope": ctx.repo_scope,
+        "tools": [{key: tool[key] for key in ("name", "tier", "requires_approval")}
+                  for tool in _AGENT_TOOLS.catalog(ctx)],
+        "mcp_server_count": len(_AGENT_MCP.describe(ctx)),
+        "workspace_records_available": _require_workspace_tier_api("pro") is None,
+        "terminal_owner_access": ctx.is_admin,
+    }
+
+
+def _collect_public_docs_context(query: str, *, max_snippets: int = 3, tool_context=None) -> Dict[str, Any]:
     """Curated, publishable docs for the MammothOS Guide. Never platform source code."""
-    snippets: List[Dict[str, Any]] = []
-    hits: List[Dict[str, Any]] = []
+    import hashlib
+
+    candidates = []
+    revision = hashlib.sha256()
     tokens = _repo_context_query_tokens(query)
     for rel in _PUBLIC_GUIDE_DOCS:
         path = ROOT / rel
-        if not path.is_file():
+        if path.is_symlink() or not _path_within(path, ROOT) or not path.is_file():
             continue
-        if len(snippets) < max_snippets:
-            excerpt = _read_repo_file_excerpt(rel, repo_root=ROOT, max_lines=80, max_chars=2400)
-            if excerpt.get("status") == "ok":
-                excerpt["ref"] = "public-docs"
-                snippets.append(excerpt)
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except Exception:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError):
+            logger.warning("Published Guide document could not be read: %s", rel, exc_info=True)
             continue
-        for idx, line in enumerate(lines, start=1):
-            if len(hits) >= 4:
-                break
-            lowered = line.lower()
-            if tokens and any(token in lowered for token in tokens):
-                hits.append({"path": rel, "line": idx, "preview": line.strip()[:280], "ref": "public-docs"})
+        revision.update((rel + "\0" + text + "\0").encode("utf-8"))
+        lines = text.splitlines()
+        boundaries = sorted({0, len(lines), *(
+            idx for idx, line in enumerate(lines) if re.match(r"^#{1,6}\s", line)
+        )})
+        for start, end in zip(boundaries, boundaries[1:]):
+            section = lines[start:end]
+            if not any(line.strip() and not line.startswith("#") for line in section):
+                continue
+            # Rank bounded, heading-located excerpts, not entire document openings.
+            excerpt = "\n".join(section[:80])[:2400]
+            heading = section[0].lower()
+            lowered = excerpt.lower()
+            score = sum(4 * (token in heading) + (token in lowered) for token in tokens)
+            candidates.append((score, {
+                "path": rel, "status": "ok", "line": start + 1,
+                "line_count": len(lines), "excerpt": excerpt, "ref": "public-docs",
+            }))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    snippets = [item for _, item in candidates[:max(0, min(max_snippets, 3))]]
+    hits = [{"path": item["path"], "line": item["line"],
+             "preview": item["excerpt"].splitlines()[0][:280], "ref": "public-docs"}
+            for item in snippets]
     if not snippets and not hits:
-        return {}
+        return {
+            "scope": "public_docs", "docs_revision": None,
+            "platform_status": _guide_platform_status(tool_context),
+            "snippets": [], "search_hits": [],
+            "error": "Published Guide documentation is unavailable for this request.",
+        }
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "scope": "public_docs",
+        "docs_revision": revision.hexdigest(),
+        "platform_status": _guide_platform_status(tool_context),
         "root": "mammothos-docs",
         "branch": "published",
         "query": str(query or "")[:240],
@@ -7243,10 +7289,12 @@ _URL_ARG_SCHEMA = {
 
 
 def _agent_tool_docs(query: str, ctx: ToolContext) -> Dict[str, Any]:
-    docs = _collect_public_docs_context(query, max_snippets=2)
-    if not docs:
-        return {"status": "ok", "snippets": [], "note": "No published MammothOS docs matched."}
-    return {"status": "ok", "snippets": docs.get("snippets") or [], "hits": docs.get("search_hits") or []}
+    docs = _collect_public_docs_context(query, max_snippets=2, tool_context=ctx)
+    if docs.get("error"):
+        return {"status": "error", "error": docs["error"], "snippets": [],
+                "platform_status": docs.get("platform_status")}
+    return {"status": "ok", "snippets": docs.get("snippets") or [], "hits": docs.get("search_hits") or [],
+            "docs_revision": docs.get("docs_revision"), "platform_status": docs.get("platform_status")}
 
 
 async def _agent_tool_research(query: str, ctx: ToolContext) -> Dict[str, Any]:

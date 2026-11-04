@@ -1401,6 +1401,17 @@ async def run_agent(body: Dict[str, Any]):
                         payload_for_agent.setdefault("query", prompt_text)
                 elif isinstance(payload, dict):
                     payload_for_agent.setdefault("prompt", payload.get("prompt") or payload.get("content") or payload.get("task") or "")
+                if runtime_agent == "mammoth_guide":
+                    raw_context = payload_for_agent.get("repo_context")
+                    repo_request = _normalize_repo_context_request(raw_context)
+                    guide_context = _collect_public_docs_context(
+                        str(payload_for_agent.get("message") or prompt_text),
+                        tool_context=_agent_tool_context(raw_context if repo_request else None)[0],
+                    )
+                    payload_for_agent["guide_context"] = guide_context
+                    payload_for_agent["repo_context"] = (
+                        _collect_repo_context_snapshot(repo_request) if repo_request else guide_context
+                    )
                 if runtime_agent == "coding":
                     # Server-forced: non-admins never touch host files, host tests, or the shared vector store.
                     payload_for_agent["host_access"] = _mutation_allowed()

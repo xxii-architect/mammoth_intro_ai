@@ -22,13 +22,16 @@ Recent merged passes:
 - #21: repository-aware frontend readiness and explicit approval-bound deletion.
 - #22: Docker-required legacy smoke, structured execution evidence and read-only
   diagnostics without host fallback or automatic policy PRs.
+- #23: retained final overview samples, private document paging across both SDKs
+  and UI, recursive role allowances, budget diagnostics and unverified draft
+  retention.
 
 These are merged source changes, not proof of deployment or complete production
-acceptance. The latest release had nine successful checks and 178 fixture-backed
+acceptance. The latest release had nine successful checks and 182 fixture-backed
 Chromium scenarios. The real Docker smoke still reported `not_verified` after
 namespace/mount startup failure; owner/reviewed-image isolation remains open.
 
-#### Next batch: document completeness and recursive review reliability
+#### Active workstream: document completeness and recursive review reliability
 
 User reports: uploaded files still seem only about two-thirds readable; two
 recursive reviews stopped at the token cap. Reproduce against saved receipts and
@@ -104,6 +107,26 @@ Implemented bounded first batch (not closure of the items above):
   quantified credit-saving claim is made.
 
 #### Order after the context/review batch
+
+Next connected implementation order:
+
+1. Provider-aware admission with explicit counted/estimated/reserved/reported
+   semantics and conservative fallback when the exact provider/model cannot be
+   counted. No chars-per-token guess or silent cap expansion.
+2. Explicit bounded exhaustive indexed-document review with durable per-section
+   coverage, evidence and safe resume. Keep cap extension separate from ordinary
+   recovery, and never replay unknown side effects or completed paid stages.
+3. Use authorized saved receipts to reproduce the two hosted failures when
+   available; they remain uninspected, not implicitly fixed by local fixtures.
+
+Guide/explanation companion slice: a public feature handbook, query-selected
+source excerpts passed into Guide responses, and per-request documentation
+fingerprints/caller-filtered capability snapshots. Snapshots distinguish configured
+availability from verified health; no private operator diagnostics or autonomous
+platform checkout/sync. Deployment remains necessary. This does not close the
+tokenization, exhaustive-review or container-evidence work.
+
+Subsequent infrastructure/platform gates:
 
 1. Establish reviewed owner-container infrastructure evidence and compatible
    per-repository validators (CI-03); a green diagnostics job is insufficient.

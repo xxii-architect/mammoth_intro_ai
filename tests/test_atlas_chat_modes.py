@@ -78,6 +78,7 @@ def test_atlas_chat_tutor_mode_keeps_guard_behavior(monkeypatch):
 
 
 def test_atlas_chat_guide_command_routes_to_mammoth_guide(monkeypatch):
+    guide_payloads = []
     state = {
         "current_exercise": {},
         "current_lesson": {"title": "Lesson 1"},
@@ -89,7 +90,11 @@ def test_atlas_chat_guide_command_routes_to_mammoth_guide(monkeypatch):
     monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
     monkeypatch.setattr(api_server, "_sync_resume_packet", lambda *args, **kwargs: None)
     monkeypatch.setattr(api_server, "_hydrate_learner_state", lambda *args, **kwargs: {})
-    monkeypatch.setattr(api_server, "registry_run_agent", lambda name, payload: {"message": f"guide::{payload.get('message')}", "repo_context_used": True})
+    def guide(name, payload):
+        guide_payloads.append(payload)
+        return {"message": f"guide::{payload.get('message')}", "repo_context_used": True}
+
+    monkeypatch.setattr(api_server, "registry_run_agent", guide)
 
     response = asyncio.run(
         api_server.atlas_chat(
@@ -104,6 +109,9 @@ def test_atlas_chat_guide_command_routes_to_mammoth_guide(monkeypatch):
     assert response["status"] == "ok"
     assert response["adapter"] == "mammoth-guide"
     assert "guide::show sdk entry points" in response["reply"]
+    assert guide_payloads[0]["guide_context"]["scope"] == "public_docs"
+    assert guide_payloads[0]["guide_context"]["docs_revision"]
+    assert guide_payloads[0]["guide_context"]["platform_status"]["verification"] == "configuration_only_not_health"
 
 
 def test_atlas_chat_injects_attached_material_context(monkeypatch):

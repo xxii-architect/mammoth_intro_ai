@@ -164,8 +164,10 @@ def test_mammoth_chat_failed_reasoning_is_not_a_completed_insight(monkeypatch):
 
 def test_mammoth_chat_guide_preserves_steps_from_nested_agent_output(monkeypatch):
     state = {}
+    guide_payloads = []
 
     async def fake_run_agent(body):
+        guide_payloads.append(body["payload"]["guide_context"])
         return {
             'status': 'ok',
             'result': {
@@ -210,6 +212,9 @@ def test_mammoth_chat_guide_preserves_steps_from_nested_agent_output(monkeypatch
     assert response.get('guide_branch') == 'main'
     assert isinstance(response['chat_history'][-1].get('guide_steps'), list)
     assert response['chat_history'][-1]['guide_steps'][0]['title'] == 'Step 1'
+    assert guide_payloads[0]["scope"] == "public_docs"
+    assert guide_payloads[0]["docs_revision"]
+    assert guide_payloads[0]["platform_status"]["verification"] == "configuration_only_not_health"
 
 
 def test_mammoth_chat_stream_emits_sse_events(monkeypatch):
