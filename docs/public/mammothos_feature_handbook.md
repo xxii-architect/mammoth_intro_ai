@@ -79,7 +79,11 @@ replaying unknown work, and database failure does not fall back to local state.
 Learning request ceilings and cancellation also have an optional PostgreSQL
 backend with explicit migration of usage and pending operations. This is not a
 refund/replay mechanism or learner-state migration.
-Uploads, unmigrated local controls and learner erasure/recovery are still separate
+Document metadata, raw uploads, indexed sections and saved review checkpoints
+can also move together to a bounded PostgreSQL store. Quotas/deletion commit
+atomically, unknown calls stay blocked and migration verifies raw-file hashes.
+This consumes database capacity and does not migrate generated-artifact files.
+Generated binaries, unmigrated local stores and learner erasure/recovery remain
 replica-readiness gates; backend autoscaling is not enabled by these options.
 
 ## How the Guide stays current

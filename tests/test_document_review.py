@@ -219,7 +219,7 @@ def test_concurrent_budget_confirmations_accept_exactly_one_without_lost_history
 def test_legacy_record_gains_current_limit_metadata_without_model_calls(reviews):
     state = create(reviews)
     state.pop("max_extended_tokens")
-    with reviews._connect() as connection, connection:
+    with reviews.library._connect() as connection, connection:
         connection.execute("UPDATE document_reviews SET payload=? WHERE id=?", (json.dumps(state), state["id"]))
     assert reviews.get(state["id"])["max_extended_tokens"] == 128_000
     assert reviews.list("chat", state["file_id"])[0]["max_extended_tokens"] == 128_000

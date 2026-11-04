@@ -235,12 +235,75 @@ This removes one local-disk component, **not** the learner state/draft/model
 erasure and recovery transaction boundary. Their filesystem locks remain
 required, so this setting does not authorize independent replicas.
 
+## Shared documents, indexed sections and review checkpoints
+
+`MAMMOTH_DOCUMENT_BACKEND=postgres` replaces document-library SQLite metadata,
+raw uploaded binaries, extracted-section JSON and saved indexed-review state
+**together**, after applying `supabase_documents.sql`. It uses the same private
+DSN and deployment namespace. Every query is owner/namespace-scoped; service-only
+SQL permissions and foreign keys enforce document/review identity and cascading
+deletion. Nothing is exposed through browser database credentials.
+
+Uploads still stream into bounded private temporary parser input, with the
+existing extension, size, extraction and processing-slot limits. Successful
+ingestion commits raw bytes, metadata and sections atomically; parser failure
+does not consume durable quota. Temporary input is removed before the request
+returns. Cross-worker file/byte quotas serialize per owner. The default 50 MiB
+file and 500 MiB per-owner raw-storage bounds remain unchanged. Indexed-section
+and review API payloads remain unchanged; no filesystem paths are returned.
+
+The initial durable binary store is PostgreSQL `bytea`, not an object-storage
+bucket or a claim of unlimited binary scale. It avoids partial cross-system
+commits and additional bucket credentials for the existing bounded library.
+Database backups/storage capacity now include uploaded bytes and indexed text;
+operators must provision/monitor that cost and capacity before activation.
+This option does not move generated-artifact binaries or host repositories.
+
+Saved-review quota/create and advance/synthesis claims are transactional.
+Unknown/inflight model work stays blocked after restart, never replayed.
+Budget changes retain their expected-ceiling check and audit history. Deleting
+a document removes its bytes, sections and reviews in one transaction; a late
+review save cannot resurrect them.
+
+### Document migration and rollback
+
+Stop **all** upload/review writers and back up the source/database. For every
+explicitly reviewed owner, use real source directories (no ownership guessing):
+
+```powershell
+python scripts\migrate_document_storage.py local-export --user-id REVIEWED_OWNER --local-dir C:\private\REVIEWED_LIBRARY --legacy-chat-dir C:\private\REVIEWED_CHAT --legacy-atlas-dir C:\private\REVIEWED_ATLAS --backup-dir C:\private\document-backup --confirm-quiesced
+python scripts\migrate_document_storage.py import --user-id REVIEWED_OWNER --backup-dir C:\private\document-backup --confirm-quiesced
+python scripts\migrate_document_storage.py export --user-id REVIEWED_OWNER --backup-dir C:\private\document-verified --confirm-quiesced
+```
+
+Backup outputs must be new directories. Each contains per-file metadata/index/
+review JSON, raw binary and SHA-256, with the owner manifest written **last**.
+A missing manifest, changed checksum, missing original binary, invalid owner,
+duplicate review or exceeded configured quota blocks import rather than
+discarding content. Resolve source corruption before migration. Private
+backups contain original user content; keep them out of source control/artifacts.
+The per-owner import is all-or-nothing and refuses existing documents. Compare
+both backups, including hashes and pending-review markers, before selecting
+`MAMMOTH_DOCUMENT_BACKEND=postgres` through the approved deployment procedure.
+
+For rollback, stop writers again, export the latest shared state into a new
+backup directory and restore into a **new** private library:
+
+```powershell
+python scripts\migrate_document_storage.py restore-local --user-id REVIEWED_OWNER --backup-dir C:\private\document-latest --local-dir C:\private\restored-library --confirm-quiesced
+```
+
+Only a completed restore has `restore-complete.json`. Verify its re-export
+against the latest backup before installing it into the reviewed owner's
+original location and selecting `local`. A failed partial restore must never
+be activated; existing output directories are never overwritten.
+
 ## Replica boundary and verification
 
 This release is **not independent-replica readiness**. Generic JSON RPCs and the
 tenant admission ledger coordinate via Postgres, with new optional PostgreSQL
-run leases/checkpoints and private login ceilings. Uploads/artifact binaries,
-local learning controls (unless explicitly migrated) and learner erasure/recovery still need a
+run leases/checkpoints, private login ceilings, learning controls and document
+libraries. Unmigrated local stores, generated-artifact binaries and learner erasure/recovery still need a
 single-writer/shared-disk deployment. The request gate refuses
 `MAMMOTH_REPLICA_COUNT` values other than `1`; it does not discover undeclared
 replicas. Do not autoscale the backend to independent disks yet.
@@ -253,7 +316,7 @@ unknown costs, settlement and completion wiring. Local equivalent:
 $env:PYTHONPATH="$PWD\src"
 $env:MAMMOTH_TEST_POSTGRES_CONTAINER="your-dedicated-test-container"
 $env:MAMMOTH_REQUIRE_POSTGRES_TESTS="1"
-python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_store.py -q
+python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_store.py tests\test_postgres_documents.py -q
 ```
 
 The named container must be dedicated test infrastructure. Tests create/drop a

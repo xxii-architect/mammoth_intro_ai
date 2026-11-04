@@ -8,7 +8,6 @@ import json
 import logging
 import secrets
 import time
-from contextlib import closing
 from datetime import datetime, timezone
 
 from .documents import DocumentError
@@ -42,8 +41,8 @@ class DocumentReviews:
     def __init__(self, library):
         self.library = library
 
-    def _connect(self):
-        return self.library._connect()
+    def _store(self):
+        return self.library.review_store()
 
     def _source(self, scope, file_id):
         entry = next((entry for entry in self.library.list(scope) if entry["file_id"] == file_id), None)
@@ -55,19 +54,10 @@ class DocumentReviews:
 
     def list(self, scope, file_id):
         self._source(scope, file_id)
-        with closing(self._connect()) as connection:
-            rows = connection.execute(
-                "SELECT payload FROM document_reviews WHERE scope=? AND file_id=? ORDER BY rowid DESC",
-                (scope, file_id),
-            ).fetchall()
-        return [{**json.loads(row[0]), "max_extended_tokens": MAX_EXTENDED_TOKENS} for row in rows]
+        return [{**state, "max_extended_tokens": MAX_EXTENDED_TOKENS} for state in self._store().list(scope, file_id)]
 
     def get(self, review_id):
-        with closing(self._connect()) as connection:
-            row = connection.execute("SELECT payload FROM document_reviews WHERE id=?", (review_id,)).fetchone()
-        if row is None:
-            raise DocumentError("Review not found.", 404)
-        state = json.loads(row[0])
+        state = self._store().get(review_id)
         state["max_extended_tokens"] = MAX_EXTENDED_TOKENS
         self._source(state["scope"], state["file_id"])
         return state
@@ -90,42 +80,23 @@ class DocumentReviews:
             "max_tokens": MAX_TOKENS, "max_extended_tokens": MAX_EXTENDED_TOKENS, "batch_sections": BATCH_SECTIONS,
             "created_at": _now(), "updated_at": _now(), "inflight_section": None,
         }
-        with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            if connection.execute("SELECT count(*) FROM document_reviews").fetchone()[0] >= 20:
-                raise DocumentError("Saved review limit reached (20). Delete an unused review first.", 409)
-            if not connection.execute("SELECT 1 FROM files WHERE scope=? AND file_id=?", (scope, file_id)).fetchone():
-                raise DocumentError("File not found.", 404)
-            connection.execute("INSERT INTO document_reviews VALUES (?,?,?,?)",
-                               (state["id"], scope, file_id, json.dumps(state)))
+        self._store().create(state)
         return state
 
     def delete(self, review_id):
-        with closing(self._connect()) as connection, connection:
-            row = connection.execute("DELETE FROM document_reviews WHERE id=?", (review_id,))
-            if not row.rowcount:
-                raise DocumentError("Review not found.", 404)
+        self._store().delete(review_id)
         return {"deleted": review_id}
 
     def _save(self, state):
         state["updated_at"] = _now()
         state["max_extended_tokens"] = MAX_EXTENDED_TOKENS
-        with closing(self._connect()) as connection, connection:
-            changed = connection.execute("UPDATE document_reviews SET payload=? WHERE id=?",
-                                         (json.dumps(state), state["id"]))
-            if not changed.rowcount:
-                raise DocumentError("Review or source was deleted. No further work can be saved.", 404)
+        self._store().save(state)
 
     def extend_budget(self, review_id, expected_max_tokens, max_tokens):
         if (type(expected_max_tokens) is not int or type(max_tokens) is not int
                 or not MAX_TOKENS <= expected_max_tokens < max_tokens <= MAX_EXTENDED_TOKENS):
             raise DocumentError("Choose a larger total ceiling, at most 128000, with the expected current ceiling.", 400)
-        with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload FROM document_reviews WHERE id=?", (review_id,)).fetchone()
-            if row is None:
-                raise DocumentError("Review not found.", 404)
-            state = json.loads(row[0])
+        with self._store().edit(review_id) as state:
             if state["max_tokens"] != expected_max_tokens:
                 raise DocumentError("Budget changed. Reload saved state before confirming again.", 409)
             if max_tokens <= state["usage"]["tokens"]:
@@ -152,7 +123,6 @@ class DocumentReviews:
             if state["status"] == "blocked":
                 state.update(status="completed" if state["review_complete"] else "partial", stop_reason="")
             state["updated_at"] = _now()
-            connection.execute("UPDATE document_reviews SET payload=? WHERE id=?", (json.dumps(state), review_id))
         return state
 
     def _check_source(self, state):
@@ -179,17 +149,11 @@ class DocumentReviews:
 
     async def advance(self, review_id, client_factory):
         state = self.get(review_id)
-        with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload FROM document_reviews WHERE id=?", (review_id,)).fetchone()
-            if row is None:
-                raise DocumentError("Review not found.", 404)
-            state = json.loads(row[0])
+        with self._store().edit(review_id) as state:
             if state["status"] not in {"ready", "partial"} or state.get("inflight_section") is not None:
                 raise DocumentError("Review is active, completed, or blocked. Unknown calls are never replayed.", 409)
             state["status"] = "active"
             state["stop_reason"] = ""
-            connection.execute("UPDATE document_reviews SET payload=? WHERE id=?", (json.dumps(state), review_id))
         started = time.monotonic()
         try:
             chunks = self._check_source(state)
@@ -276,12 +240,7 @@ class DocumentReviews:
 
     async def synthesize(self, review_id, client_factory):
         self.get(review_id)
-        with closing(self._connect()) as connection, connection:
-            connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT payload FROM document_reviews WHERE id=?", (review_id,)).fetchone()
-            if row is None:
-                raise DocumentError("Review not found.", 404)
-            state = json.loads(row[0])
+        with self._store().edit(review_id) as state:
             synthesis = state.get("synthesis")
             if (state["status"] != "completed" or not state["review_complete"]
                     or state.get("inflight_section") is not None
@@ -294,7 +253,6 @@ class DocumentReviews:
                 state["synthesis"] = synthesis
             state["status"] = "active"
             synthesis.update(status="active", stop_reason="")
-            connection.execute("UPDATE document_reviews SET payload=? WHERE id=?", (json.dumps(state), review_id))
         started = time.monotonic()
         try:
             chunks = self._check_source(state)

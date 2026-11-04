@@ -297,6 +297,11 @@ class DocumentLibrary:
         self.legacy_folders = legacy_folders
         folder.mkdir(parents=True, exist_ok=True)
 
+    def review_store(self):
+        from .document_review_store import LocalReviewStore
+
+        return LocalReviewStore(self)
+
     def _connect(self):
         connection = sqlite3.connect(self.folder / "library.sqlite3", timeout=30)
         connection.execute("CREATE TABLE IF NOT EXISTS files (file_id TEXT PRIMARY KEY, scope TEXT NOT NULL, payload TEXT NOT NULL)")

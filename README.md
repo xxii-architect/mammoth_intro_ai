@@ -60,7 +60,11 @@ PostgreSQL backends, with explicit per-owner migration/export/rollback.
 Learning request controls also have an optional PostgreSQL backend, preserving
 ceilings, cancellation and pending-operation evidence through explicit migration.
 These are not enabled automatically. This is **not full multi-replica readiness**:
-Uploads, unmigrated local controls and learner recovery still require
+Document uploads, indexed sections and saved reviews can also explicitly move
+together to PostgreSQL, including bounded raw binaries, atomic quotas/deletion
+and verified per-owner backup/import/rollback. This uses database storage
+capacity, not an unlimited object bucket. Generated-artifact binaries,
+unmigrated local stores and learner recovery still require
 single-writer/shared-disk storage. A declared
 `MAMMOTH_REPLICA_COUNT` other than `1` is rejected, not silently enabled.
 
