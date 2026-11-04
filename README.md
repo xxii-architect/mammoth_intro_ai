@@ -37,7 +37,8 @@ failed calls and killed workers retain their full allowance. Covered completion
 calls include normal OpenAI/Ollama text adapters, runs and indexed reviews.
 This is not dollar spend, Copilot credits, an invoice, hosted tenant billing,
 embedding metering or a guarantee about custom paths/internal SDK retries.
-Shared disk is required; separate server disks do not coordinate.
+SQLite requires shared disk; the optional PostgreSQL private ledger coordinates
+across disks without changing the usage contract.
 
 **Settings > Tenant usage controls** adds optional shared Postgres admission.
 Only active tenant owners/admins can set token/estimated-USD ceilings; backend
@@ -54,8 +55,11 @@ executing; interrupted/unknown actions are never automatically replayed.
 Learner-state corruption no longer silently becomes an empty session.
 See [shared runtime operations](docs/shared_runtime_operations.md) for migration,
 price configuration and the production-host acceptance workflow.
-This is **not full multi-replica readiness**: run leases, uploads, private SQLite
-and learner recovery still require single-writer/shared-disk storage. A declared
+Run checkpoints/leases and private login admission now have optional service-only
+PostgreSQL backends, with explicit per-owner migration/export/rollback.
+These are not enabled automatically. This is **not full multi-replica readiness**:
+uploads, learning-control SQLite and learner recovery still require
+single-writer/shared-disk storage. A declared
 `MAMMOTH_REPLICA_COUNT` other than `1` is rejected, not silently enabled.
 
 Under Edit learning profile, **Learning privacy & costs** exports the current

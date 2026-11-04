@@ -6,6 +6,7 @@ python-dotenv
 requests
 rich
 supabase
+psycopg[binary]>=3.2,<4
 uvicorn
 pytest
 python-multipart

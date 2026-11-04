@@ -237,6 +237,14 @@ class RunStore:
             lease.close()
             raise
 
+    def request_cancel(self, run: AgentRun) -> None:
+        folder = self._user_dir(run.user_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / f"{run.id}.cancel").touch()
+
+    def cancellation_requested(self, run: AgentRun) -> bool:
+        return (self._user_dir(run.user_id) / f"{run.id}.cancel").exists()
+
     def get(self, run_id: str, user_id: str) -> Optional[AgentRun]:
         if not RUN_ID_RE.fullmatch(str(run_id or "")):
             return None
@@ -807,12 +815,10 @@ class AgentRunner:
 
     def cancel(self, run: AgentRun) -> None:
         run.cancel_requested = True
-        folder = self.store._user_dir(run.user_id)
-        folder.mkdir(parents=True, exist_ok=True)
-        (folder / f"{run.id}.cancel").touch()
+        self.store.request_cancel(run)
 
     def _cancel_requested(self, run: AgentRun) -> bool:
-        run.cancel_requested = run.cancel_requested or (self.store._user_dir(run.user_id) / f"{run.id}.cancel").exists()
+        run.cancel_requested = run.cancel_requested or self.store.cancellation_requested(run)
         return run.cancel_requested
 
     def continue_run(self, run: AgentRun, ctx: ToolContext) -> AsyncIterator[ev.RunEvent]:

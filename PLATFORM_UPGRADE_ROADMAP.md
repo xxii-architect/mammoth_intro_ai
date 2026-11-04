@@ -236,8 +236,14 @@ and full multi-replica readiness are not certified):
   checkout, Python environment and locally cached reviewed digest. It does not
   deploy, pull, restart, loosen sandbox policy or fall back to host execution.
   Only an actual-host verified receipt can close the hosted trusted-fixture gate.
-- Still open: independently replicated run leases/checkpoints, private SQLite,
-  uploads/artifact binaries and learner erasure/recovery transactions; backend
+- Ordinary/recursive run checkpoints and execution leases now optionally use
+  PostgreSQL CAS and dedicated session locks; lost connections cannot silently
+  reconnect and publish. Private login admission has a matching PostgreSQL
+  backend. Explicit per-owner migration/export/rollback preserves pending and
+  unknown work; defaults stay local. Read-only hosted storage preflight does not
+  deploy or imply connectivity/schema readiness.
+- Still open: learning-control SQLite, uploads/artifact binaries and learner
+  erasure/recovery transactions; backend
   migration/price catalog activation; invoice reconciliation and full paid-path
   coverage. Declared multiple replicas are rejected until those gates close.
 

@@ -147,17 +147,7 @@ class RecursiveRuntime:
         self.resume_action = None
 
     def reserve(self) -> RunLease:
-        lease = RunLease(self.base.store._user_dir(self.run.user_id) / f"{self.run.id}.lock")
-        try:
-            path = self.base.store._user_dir(self.run.user_id) / f"{self.run.id}.json"
-            if path.exists():
-                saved = AgentRun.from_dict(json.loads(path.read_text(encoding="utf-8")))
-                self.run.__dict__.update(saved.__dict__)
-            self.base.store._live[self.run.id] = self.run
-            return lease
-        except Exception:
-            lease.close()
-            raise
+        return self.base.store.reserve(self.run)
 
     def check(self):
         state = self.run.recursive
@@ -173,8 +163,7 @@ class RecursiveRuntime:
                 raise RecursiveBudgetError(limit)
 
     def is_cancelled(self):
-        cancel_path = self.base.store._user_dir(self.run.user_id) / f"{self.run.id}.cancel"
-        self.run.cancel_requested = self.run.cancel_requested or cancel_path.exists()
+        self.run.cancel_requested = self.run.cancel_requested or self.base.store.cancellation_requested(self.run)
         return self.run.cancel_requested
 
     def event(self, kind, data):

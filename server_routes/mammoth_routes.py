@@ -530,7 +530,7 @@ async def mammoth_agent_run_cancel(run_id: str):
     if run.recursive:
         from mammoth_os.recursive.runtime import RecursiveRuntime
 
-        (_AGENT_RUNS._user_dir(run.user_id) / f"{run.id}.cancel").touch()
+        _AGENT_RUNS.request_cancel(run)
         runtime = RecursiveRuntime(_AGENT_RUNNER, run, None)
         try:
             lease = runtime.reserve()

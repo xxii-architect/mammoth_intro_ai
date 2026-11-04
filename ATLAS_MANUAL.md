@@ -46,7 +46,11 @@ operator-reviewed prices are required when a dollar ceiling is active. Unknown
 usage retains reservations; unknown historical prices block dollar-capped
 admission. Reported overruns are retained and block later calls, not hidden.
 These are conservative estimates, not invoices, Copilot credits or full paid
-service coverage. See [shared runtime operations](docs/shared_runtime_operations.md).
+service coverage. Ordinary/recursive run checkpoints and private login ceilings
+also have optional PostgreSQL backends, with session-released execution leases,
+durable cross-worker cancellation and explicit per-owner import/export/rollback.
+Their existing API contracts and unknown-outcome protections remain unchanged.
+See [shared runtime operations](docs/shared_runtime_operations.md).
 Full independent-replica readiness and production migration remain explicit
 rollout gates; this release does not automatically change host configuration.
 

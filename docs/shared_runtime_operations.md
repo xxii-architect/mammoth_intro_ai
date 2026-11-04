@@ -60,7 +60,8 @@ Defaults remain local. No production migration is automatic.
 
 Set `MAMMOTH_USAGE_BACKEND=supabase` only after the migration and membership
 checks pass. This is separate from selecting shared JSON storage. Both backends
-are opt-in. The private login-wide SQLite ceiling remains additive.
+are opt-in. The private login-wide ceiling remains additive, using SQLite by
+default or the explicitly selected PostgreSQL backend described below.
 
 Settings > Tenant usage controls lists only active memberships. Selecting a
 tenant scopes subsequent UI requests with `X-Mammoth-Tenant-ID`; selection is
@@ -127,12 +128,86 @@ missing precondition remains `not_verified`; a green runner-only probe cannot
 substitute for actual-host evidence. Even a verified trusted-fixture receipt is
 not hostile-code, tenant isolation, frontend-executor or production certification.
 
+## Shared run checkpoints and private login admission
+
+Ordinary and recursive runs can now use PostgreSQL checkpoints and dedicated
+session advisory leases. Distinct workers coordinate without a shared disk.
+A dead worker releases its database-session lease; a worker that loses its
+connection cannot silently reconnect and save a late checkpoint. Checkpoint
+revisions reject stale writes. Cancellation survives process loss, is writable
+from another worker and cannot be undone by an older checkpoint. Retention
+does not delete active, approval-pending or currently leased runs.
+
+The private login-wide token ledger also has an optional normalized PostgreSQL
+backend. Admission, settlement and limit changes serialize per owner.
+Unknown outcomes retain reservations; larger reported totals remain visible.
+Its public usage/observed-provider-health contract is unchanged. This does not
+add invoice reconciliation or extend paid-path coverage.
+
+### Reviewed migration and rollback
+
+These settings do not migrate existing data. Stop writers and back up the
+private directory/database before activation. Do not select an empty backend.
+
+1. Apply `supabase_agent_runs.sql` and `supabase_private_admission.sql` through
+   the trusted database administration path. Both are additive, service-only
+   tables, with anonymous/authenticated SQL access denied.
+2. Set `MAMMOTH_POSTGRES_DSN` privately on the backend, a deployment-specific
+   `MAMMOTH_STATE_NAMESPACE`, and `MAMMOTH_POSTGRES_SESSION_MODE=direct`.
+   **Direct or session-mode pooling only: never transaction pooling.**
+   Install the declared `postgres` package extra (included in server requirements).
+3. Inventory each actual user's hashed storage key and its associated owner
+   through trusted administration. There is deliberately no reverse ownership
+   guess from a directory name. For every reviewed owner, create a private
+   runtime backup from their existing run directory and SQLite usage file:
+
+   ```powershell
+   python scripts\migrate_runtime_storage.py local-export --user-id REVIEWED_OWNER --runs-dir C:\private\REVIEWED_RUN_FOLDER --ledger-file C:\private\REVIEWED_USAGE.sqlite3 --file C:\private\runtime-backup.json --confirm-quiesced
+   python scripts\migrate_runtime_storage.py import --user-id REVIEWED_OWNER --file C:\private\runtime-backup.json --confirm-quiesced
+   ```
+
+   Both local paths must exist; missing state is not assumed to be empty.
+   The all-or-nothing per-owner import refuses any existing destination state.
+   It preserves run revisions, approval/workflow evidence, cancellation,
+   limits and all historical/pending/unknown reservations.
+4. Export the imported owner into a new private file and compare the payload:
+
+   ```powershell
+   python scripts\migrate_runtime_storage.py export --user-id REVIEWED_OWNER --file C:\private\runtime-verified.json --confirm-quiesced
+   ```
+
+5. Only after every ownership/import check passes, select
+   `MAMMOTH_RUN_BACKEND=postgres` and `MAMMOTH_PRIVATE_USAGE_BACKEND=postgres`,
+   then restart through the approved deployment process and smoke-test before
+   reopening writes. Either switch can be deferred independently. Database
+   failure is explicit; there is no success-shaped local fallback.
+6. To roll back after shared writes, stop writers again and export the **latest**
+   database snapshot. Restore to new private paths:
+
+   ```powershell
+   python scripts\migrate_runtime_storage.py restore-local --user-id REVIEWED_OWNER --file C:\private\runtime-latest.json --runs-dir C:\private\restored-runs --ledger-file C:\private\restored-usage.sqlite3 --confirm-quiesced
+   ```
+
+   Outputs must not exist. Verify the restored files, retain both backups,
+   then install them into the reviewed owner's original private paths through
+   normal backup/restore procedures before selecting `local`. A failed restore
+   is not usable state. Never switch onto stale originals.
+
+For read-only production discovery, dispatch **Owner Container Acceptance**
+with `target=storage-preflight`. It uses pinned SSH and the live service UID/
+checkout, emits only credential-presence booleans and allowlisted backend
+labels, and never deploys, connects to the database, migrates or restarts.
+Presence of a DSN does not prove database connectivity, privileges or schema
+readiness. Without an authorized database administration/session connection,
+production migration is blocked; do not improvise a replacement database.
+
 ## Replica boundary and verification
 
 This release is **not independent-replica readiness**. Generic JSON RPCs and the
-tenant admission ledger coordinate via Postgres; run leases/checkpoints,
-private SQLite ceilings, uploads/artifact binaries and learner erasure/recovery
-still need a single-writer/shared-disk deployment. The request gate refuses
+tenant admission ledger coordinate via Postgres, with new optional PostgreSQL
+run leases/checkpoints and private login ceilings. Uploads/artifact binaries,
+learning-control SQLite and learner erasure/recovery still need a
+single-writer/shared-disk deployment. The request gate refuses
 `MAMMOTH_REPLICA_COUNT` values other than `1`; it does not discover undeclared
 replicas. Do not autoscale the backend to independent disks yet.
 
@@ -144,7 +219,7 @@ unknown costs, settlement and completion wiring. Local equivalent:
 $env:PYTHONPATH="$PWD\src"
 $env:MAMMOTH_TEST_POSTGRES_CONTAINER="your-dedicated-test-container"
 $env:MAMMOTH_REQUIRE_POSTGRES_TESTS="1"
-python -m pytest tests\test_shared_state_admission.py -q
+python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_store.py -q
 ```
 
 The named container must be dedicated test infrastructure. Tests create/drop a
