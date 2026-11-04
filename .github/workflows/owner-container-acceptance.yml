@@ -96,10 +96,11 @@ jobs:
           fi
           printf '%s\n' "$DO_KNOWN_HOSTS" > "$RUNNER_TEMP/hosted-ssh/known_hosts"
           chmod 600 "$RUNNER_TEMP/hosted-ssh/key"
+          PROBE_B64="$(base64 -w0 scripts/quality/check_owner_container.py)"
           ssh -i "$RUNNER_TEMP/hosted-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosted-ssh/known_hosts" \
             -p "${DO_PORT:-22}" "${DO_USER}@${DO_HOST}" \
-            "python3 - '$DO_APP_PATH' '$REVIEWED_IMAGE' '$GITHUB_SHA'" \
+            "python3 - '$DO_APP_PATH' '$REVIEWED_IMAGE' '$GITHUB_SHA' '$PROBE_B64'" \
             < scripts/quality/check_hosted_owner_container.py \
             > hosted-container-evidence/hosted_container_evidence.json
       - name: Upload actual-host acceptance receipt

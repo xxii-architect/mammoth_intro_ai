@@ -114,12 +114,15 @@ It does not invoke the deployment command.
 
 Preflight requires a running `mammothos` service, the expected checkout and the
 same SSH/live-service UID. It uses the live process's Python and environment
-without exposing environment contents. Only the deployed trusted acceptance
-fixtures run, using an already-cached reviewed digest. No deploy, image pull,
+without exposing environment contents. The reviewed branch's trusted acceptance harness is staged only in a temporary
+directory and imports the **deployed** executor, using an already-cached reviewed
+digest. This allows harness fixes to be tested without deploying runtime code.
+No deploy, image pull,
 service restart, policy loosening or host fallback occurs.
 
 The `mammoth.hosted-container-evidence.v1` receipt binds the deployed commit,
-probe hash, reviewed image and nested strict container receipt. A failure or
+deployed executor hash, deployed/candidate probe hashes, reviewed image and nested
+strict container receipt. A failure or
 missing precondition remains `not_verified`; a green runner-only probe cannot
 substitute for actual-host evidence. Even a verified trusted-fixture receipt is
 not hostile-code, tenant isolation, frontend-executor or production certification.
