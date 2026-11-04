@@ -51,45 +51,44 @@ def suggest_from_runtime(runtime_text, stderr_text):
 
     if not runtime_text:
         notes.append('runtime_info.txt empty or missing')
-        # suggest common syscalls for python if no info
-        suggestions.extend(CANDIDATE_SYSCALLS[:3])
+        notes.append('No observed test runtime; inspect container startup. No seccomp changes are supported.')
         return suggestions, notes
 
-    # Check for Seccomp field
+    observed = re.search(r"---RUNTIME-INFO-START---\r?\n(.*?)---RUNTIME-INFO-END---",
+                         runtime_text, re.DOTALL)
+    if not observed:
+        notes.append('No bounded runtime receipt; no seccomp changes are supported.')
+        return suggestions, notes
+    runtime_text = observed.group(1)
     m = RE_SEC_COMP.search(runtime_text)
+    if not m or not RE_CAPEFF.search(runtime_text) or not re.search(r"^NoNewPrivs:\s*\d+", runtime_text, re.MULTILINE):
+        notes.append('Runtime evidence incomplete; no seccomp changes are supported.')
+        return suggestions, notes
     if m:
         sec = int(m.group(1))
         notes.append(f'Seccomp field detected: {sec}')
         if sec == 0:
             notes.append('Seccomp disabled in container')
+            notes.append('Restore the reviewed runtime profile; do not broaden its syscall policy.')
+            return suggestions, notes
         else:
             notes.append('Seccomp appears enabled')
     else:
         notes.append('No Seccomp field found')
+        notes.append('Runtime evidence incomplete; no seccomp changes are supported.')
+        return suggestions, notes
 
-    # Look for common Python misfires in stderr
-    if stderr_text:
-        if 'Operation not permitted' in stderr_text or 'seccomp' in stderr_text.lower():
-            notes.append('Detected permission/seccomp errors in stderr')
-            suggestions.extend(CANDIDATE_SYSCALLS[:4])
-
-    # Heuristic: if runtime text mentions a denied syscall (some distributions log it)
-    denied = []
-    for line in runtime_text.splitlines():
-        if 'denied' in line.lower() or 'syscall' in line.lower():
-            denied.append(line.strip())
-    if denied:
-        notes.append('Found lines mentioning denied syscalls or errors')
-        # include the last token words as possible syscall names
-        for d in denied:
-            parts = re.findall(r"[a-zA-Z_][a-zA-Z0-9_]+", d)
-            for p in parts[-3:]:
-                if p not in suggestions:
-                    suggestions.append(p)
-
-    # Fall back to a few safe candidates if suggestions empty
-    if not suggestions:
-        suggestions.extend(CANDIDATE_SYSCALLS[:2])
+    # Only named denials from observed runtime are review candidates, never permissions to apply.
+    for line in (runtime_text + "\n" + stderr_text).splitlines():
+        if not re.search(r"\b(?:denied|blocked)\b", line, re.IGNORECASE):
+            continue
+        match = re.search(r"\bsyscall[=: ]+([a-z_][a-z0-9_]*)\b", line, re.IGNORECASE)
+        if match and match.group(1).lower() in CANDIDATE_SYSCALLS:
+            name = match.group(1).lower()
+            if name not in suggestions:
+                suggestions.append(name)
+    notes.append('Named syscall denials require operator review; no automatic policy edits.'
+                 if suggestions else 'No recognized named syscall denial; no policy relaxation suggested.')
 
     # parse CapEff if present and include capability names
     caps_found = []

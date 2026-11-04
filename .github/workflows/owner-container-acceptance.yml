@@ -1,0 +1,51 @@
+name: Owner Container Acceptance
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Operator-reviewed image@sha256 digest (Python 3.11.8+)
+        required: true
+        type: string
+      pull_reviewed_image:
+        description: Explicitly pull this reviewed digest before the no-pull executor probe
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  owner-container-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: src
+      REVIEWED_IMAGE: ${{ inputs.image }}
+      PULL_REVIEWED_IMAGE: ${{ inputs.pull_reviewed_image }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install host-side acceptance dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Validate operator image and optionally pull exactly that digest
+        shell: bash
+        run: |
+          python -c "import os; from mammoth_os.owner_execution import IMAGE_RE; assert IMAGE_RE.fullmatch(os.environ['REVIEWED_IMAGE']), 'A reviewed image digest is required'"
+          if [ "$PULL_REVIEWED_IMAGE" = "true" ]; then
+            docker pull -- "$REVIEWED_IMAGE"
+          fi
+      - name: Strict trusted owner-runtime acceptance (no host fallback)
+        run: python scripts/quality/check_owner_container.py --image "$REVIEWED_IMAGE" --output-dir owner-container-evidence
+      - name: Upload bounded acceptance receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owner-container-evidence
+          path: owner-container-evidence/owner_container_evidence.json
+          if-no-files-found: warn
+          retention-days: 7

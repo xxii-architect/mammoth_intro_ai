@@ -7,7 +7,13 @@ the legacy `docker-tests-linux` job is replaced by `sandbox-diagnostics`:
 Docker-required smoke execution cannot fall back to the host, structured receipts
 distinguish verified/failed/not_verified, and missing infrastructure evidence is
 not isolation acceptance. Seccomp suggestions are review-only; automatic policy
-patch PR creation has been removed. The old scores, branch instructions and
+patch PR creation has been removed. Missing runtime/namespace startup no longer
+generates guessed syscall relaxations. A separate strict operator command,
+`scripts\quality\check_owner_container.py`, exercises trusted fixtures through
+the real owner executor and records host/image/profile-specific acceptance;
+the manual Owner Container Acceptance workflow does not enable production
+execution. Local fixture success does not resolve the hosted namespace startup
+failure or certify hostile-code isolation. The old scores, branch instructions and
 blocker descriptions below are retained as historical context, not revalidated.
 
 Purpose

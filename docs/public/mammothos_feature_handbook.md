@@ -4,8 +4,8 @@
 
 This is the explanation-first companion to the in-app Manual: what each main
 workspace feature is for, how to choose it, and what its results do **not** prove.
-Its merged baseline includes PR #25 (2026-11-03); synthesis and deliberate budget
-controls describe this source edition and require deployment too. This is not a
+Its merged baseline includes PR #26 (2026-11-03); operator container-evidence
+refinements describe this source edition and require deployment too. This is not a
 certification of the version currently running on your server. Availability also
 depends on your account, plan, operator configuration and connected providers.
 
@@ -314,6 +314,30 @@ profile does not automatically validate another Next.js or Vite application.
 If baseline validation fails before the change runs, fix the environment or use
 a reviewed compatible validator. Do not switch to the platform repository to
 make another project's check appear green.
+
+### What container evidence actually establishes
+
+Image/tool availability is not isolation acceptance. Operators have a separate,
+strict runtime-acceptance command and manual workflow that run bundled trusted
+Python fixtures through the real owner executor. A successful receipt observes
+the test process's non-root identity, capabilities/seccomp/no-new-privileges,
+read-only mounts, bounded writable storage, resource controls and loopback-only
+network interfaces. It also checks that a failing test is rejected, a started
+sleeping test times out, and specifically named containers are removed.
+
+`verified` applies only to the recorded host, image digest, profile, timestamp
+and tested conditions. It is not a certificate for hostile code, all repository
+dependencies, frontend browser behavior or the deployed server. No user/tenant
+receives new execution access, and no operator approval is bypassed.
+
+The operator command never pulls images or falls back to host execution.
+The manual workflow can explicitly pull an operator-reviewed digest; otherwise
+the image must already be local. Unavailable/incomplete evidence is
+`not_verified`, not a pass. Observed checks or cleanup failures are `failed`.
+Both stop strict acceptance. The legacy hosted smoke remains a separate receipt:
+its namespace/mount startup failure occurs before a test process is observed,
+so it cannot justify relaxing seccomp. Missing runtime or unnamed permission
+errors now produce no speculative syscall suggestions.
 
 ## Tools, MCP and approvals
 

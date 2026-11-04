@@ -900,6 +900,51 @@ test success, factual accuracy, review approval, or safe-to-apply code.
 
 ## Owner isolated coding validation pilot
 
+### Operator runtime acceptance
+
+The operator can now check a **reviewed, already-local digest-pinned image**
+through the actual `ContainerExecutor`, rather than treating image discovery or
+the legacy smoke as acceptance:
+
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python scripts\quality\check_owner_container.py --image python@sha256:<reviewed-digest> --output-dir <private-evidence-directory>
+```
+
+The strict command runs only bundled trusted Python fixtures, never selected
+repository or user code. It does not pull images, change Docker/seccomp settings,
+enable the owner pilot, approve work or fall back to the host. A missing image/
+daemon or absent runtime receipt is `not_verified` and exits nonzero. An observed
+check or cleanup failure is `failed` and exits nonzero.
+
+The `mammoth.owner-container-evidence.v1` receipt records the timestamp, exact
+image/digest, Docker server version, profile, bounded check logs and source
+hashes of the probe, executor and trusted fixtures for reproducibility. It observes
+the **test process** (not just a root shell): UID/GID 65534, seccomp filter,
+zero effective capabilities, no-new-privileges, loopback-only interfaces, no
+Docker socket, read-only root/input, writable bounded tmpfs, noexec `/tmp`,
+memory/PID/CPU controls and file limits. An intentionally failing test must be
+rejected; a started sleeping test must time out; each specifically named
+container must be absent afterward. It is an acceptance fixture, not a proof
+against kernel escapes, all network attacks, arbitrary repositories or frontend
+browser behavior. Review logs before sharing them.
+
+The manual **Owner Container Acceptance** GitHub workflow accepts a reviewed
+digest and an independent explicit pull option (default off). Its executor never
+pulls automatically. It uses strict exits and uploads the receipt even on failure;
+no `not_verified` result is converted into acceptance. On an ephemeral runner,
+the image must already exist or the operator must deliberately allow the reviewed
+pull. Pull/setup failure before the probe means no acceptance receipt, not success.
+After this workflow file is merged it can be dispatched; it is not an automatic
+PR gate and has not been run merely by adding the file.
+
+Local acceptance on 2026-11-03 passed for the existing Python digest
+`python@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93`
+on Linux Docker Engine 29.6.2. This observation is host/image/profile-specific,
+not a new image recommendation or production certificate. The hosted legacy
+namespace/mount startup failure remains separate and unresolved; do not transfer
+the local result to hosted CI or the deployed owner service.
+
 This is **opt-in validation and separately approved local-branch application,
 not autonomous repository editing**. Owner/admin
 authorization and an explicitly selected repository are checked by the backend.
@@ -1807,10 +1852,22 @@ has read-only repository permissions and no longer attempts automatic seccomp
 patch PRs. Suggestions remain review-only artifacts. The renamed check replaces
 `docker-tests-linux`; update any external branch rule referencing that old name.
 
+Missing-runtime receipts now include an actionable startup classification:
+Docker executable/daemon unavailable, image unavailable, namespace/mount startup,
+timeout without runtime, or unknown missing evidence. The observed hosted
+`reopen exec fifo` / `bind-mount /proc` failure is classified as namespace startup,
+not an application syscall denial. The seccomp helper emits **no suggested
+relaxation** for missing/incomplete runtime, generic permission failures or a
+healthy runtime without named denials. Only recognized, explicitly named denied
+syscalls in a bounded runtime receipt become manual review candidates. It never
+applies policy changes. Repair runner namespace/kernel support before rerunning;
+do not use privileged mode, disable seccomp or switch to host execution.
+
 This legacy smoke does not validate the owner execution service, reviewed UI
 images, the test process's user identity, or hostile-code/production isolation.
 Owner execution uses its separate pinned-image, approval-bound validator and
-never uses this host fallback. Broader isolation acceptance remains open.
+never uses this host fallback. The operator acceptance command above exercises
+that real executor separately; broader hostile-code/production acceptance remains open.
 
 ## Detailed manuals
 

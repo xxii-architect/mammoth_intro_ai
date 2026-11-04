@@ -197,3 +197,47 @@ def test_workflow_labels_diagnostics_and_does_not_ignore_smoke_failures():
     assert "|| true" not in job and "continue-on-error" not in job
     assert "apply_suggestion" not in job
     assert "runtime_evidence.json" in job and "runtime_error.txt" in job
+
+
+@pytest.mark.parametrize("error,code", [
+    ("reopen exec fifo: get safe /proc/thread-self/fd handle: operation not permitted", "container_namespace_startup"),
+    ("bind-mount /proc/123/ns/net: no such file or directory", "container_namespace_startup"),
+    ("Cannot connect to the Docker daemon", "docker_daemon_unavailable"),
+    ("pull access denied", "image_unavailable"),
+    ("unrecognized failure", "runtime_evidence_absent"),
+])
+def test_missing_runtime_receipt_explains_startup_without_suggesting_seccomp_changes(error, code):
+    evidence = probe.classify(receipt(stdout="", stderr=error, passed=False, returncode=127))
+    assert evidence["status"] == "not_verified"
+    assert evidence["failure_code"] == code
+    assert evidence["seccomp_change_supported"] is False
+    assert evidence["next_action"]
+
+
+def load_tuner():
+    spec = importlib.util.spec_from_file_location("seccomp_diagnostics", ROOT / ".github" / "scripts" / "ci_seccomp_tuner.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("runtime,error", [
+    ("", "operation not permitted; bind-mount /proc"),
+    ("TEST_OK", "seccomp denied syscall=mprotect"),
+    ("Seccomp: 2", "denied syscall=mprotect"),
+    (receipt()["stdout"], "operation not permitted"),
+    (receipt()["stdout"], "denied syscall=unreviewed_syscall"),
+    (receipt()["stdout"], "denied arbitrary words mprotect syscall other"),
+    (receipt()["stdout"].replace("Seccomp:\t2", "Seccomp:\t0"), "denied syscall=mprotect"),
+])
+def test_tuner_never_guesses_relaxations_from_startup_or_unnamed_permission_errors(runtime, error):
+    suggestions, notes = load_tuner().suggest_from_runtime(runtime, error)
+    assert suggestions == []
+    assert notes
+
+
+def test_tuner_only_retains_named_allowlisted_denials_as_review_candidates():
+    suggestions, notes = load_tuner().suggest_from_runtime(
+        receipt()["stdout"], "denied syscall=mprotect\nblocked syscall: statx\ndenied syscall=mprotect")
+    assert suggestions == ["mprotect", "statx"]
+    assert any("operator review" in note for note in notes)

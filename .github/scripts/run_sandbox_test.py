@@ -9,14 +9,37 @@ from pathlib import Path
 from mammoth_os.sandbox_runner import run_code
 
 
+def startup_diagnosis(result):
+    """Classify missing runtime evidence without guessing a seccomp policy fix."""
+    error = str(result.get("stderr", "")).lower()
+    if result.get("method") == "docker-unavailable":
+        code, action = "docker_unavailable", "Install/configure the operator's Docker executable and daemon."
+    elif any(marker in error for marker in ("bind-mount /proc", "reopen exec fifo", "fsmount:fscontext:proc")):
+        code, action = "container_namespace_startup", (
+            "Inspect the runner's nested-container/kernel namespace and mount support. "
+            "The test process was not observed; do not loosen application seccomp or use host fallback."
+        )
+    elif any(marker in error for marker in ("cannot connect to the docker daemon", "daemon unavailable", "error during connect")):
+        code, action = "docker_daemon_unavailable", "Inspect daemon availability and operator permissions; do not bypass isolation."
+    elif any(marker in error for marker in ("pull access denied", "manifest unknown", "failed to resolve reference")):
+        code, action = "image_unavailable", "Review the requested image and registry availability; do not substitute an unreviewed image."
+    elif result.get("returncode") == -1:
+        code, action = "timeout_without_runtime", "Inspect startup timing and container cleanup before retrying."
+    else:
+        code, action = "runtime_evidence_absent", "Inspect Docker stderr and runtime startup; no syscall denial is established."
+    return {"failure_code": code, "next_action": action, "seccomp_change_supported": False}
+
+
 def classify(result):
     evidence = {"contract": "mammoth.sandbox-evidence.v1", "status": "not_verified", "result": result}
     if result.get("method") != "docker":
-        return {**evidence, "reason": "Docker execution was not observed. Host fallback cannot verify isolation."}
+        return {**evidence, **startup_diagnosis(result),
+                "reason": "Docker execution was not observed. Host fallback cannot verify isolation."}
     stdout = result.get("stdout", "")
     match = re.search(r"---RUNTIME-INFO-START---\r?\n(.*?)---RUNTIME-INFO-END---", stdout, re.DOTALL)
     if not match:
-        return {**evidence, "reason": "Container runtime evidence is absent; infrastructure/startup needs operator review."}
+        return {**evidence, **startup_diagnosis(result),
+                "reason": "Container runtime evidence is absent; infrastructure/startup needs operator review."}
     runtime = match.group(1)
     fields = {
         "seccomp": re.search(r"^Seccomp:\s*([0-9]+)\s*$", runtime, re.MULTILINE),
@@ -66,6 +89,8 @@ def main(argv=None):
     (args.output_dir / "runtime_error.txt").write_text(errors, encoding="utf-8")
     (args.output_dir / "runtime_evidence.json").write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     summary = f"### Sandbox execution: {evidence['status']}\n\n{evidence['reason']}\n"
+    if evidence.get("next_action"):
+        summary += f"\nClassification: `{evidence['failure_code']}`\n\n{evidence['next_action']}\n"
     print(summary)
     print(json.dumps(evidence))
     if os.environ.get("GITHUB_STEP_SUMMARY"):
