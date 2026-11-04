@@ -6,7 +6,14 @@ export default function DocumentReviewPanel({ fileId, scope }) {
   const [goal, setGoal] = useState('')
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
+  const [budgetCeiling, setBudgetCeiling] = useState('')
   const generation = useRef(0)
+  const synthesis = review?.synthesis
+  const capStops = ['insufficient_call_allowance', 'reported_token_limit']
+  const canExtend = review && review.status !== 'active' && review.inflight_section == null
+    && (review.status !== 'blocked' || capStops.includes(review.stop_reason))
+    && (synthesis?.status !== 'blocked' || capStops.includes(synthesis.stop_reason))
+    && review.max_tokens < review.max_extended_tokens
 
   useEffect(() => {
     const request = ++generation.current
@@ -54,6 +61,41 @@ export default function DocumentReviewPanel({ fileId, scope }) {
       {['ready', 'partial'].includes(review.status) && !error && <button disabled={busy} onClick={() => change(() => api(`/mammoth/document-reviews/${encodeURIComponent(review.id)}/advance`, { method: 'POST', body: { confirm_model_usage: true } }))}>
         Review next batch (uses model credits)
       </button>}
+      {review.review_complete && review.status === 'completed' && (!synthesis || synthesis.status === 'partial') && !error && <button disabled={busy} onClick={() => change(() => api(`/mammoth/document-reviews/${encodeURIComponent(review.id)}/synthesize`, { method: 'POST', body: { confirm_model_usage: true } }))}>
+        Synthesize next batch (uses model credits)
+      </button>}
+      {synthesis && <section aria-label="Saved cross-section synthesis">
+        <h5>Cross-section synthesis · {synthesis.status}</h5>
+        <p>Combines saved assessments in bounded groups, not full-source rereads. Input traversal is not proof every claim is discussed or factually correct. Intermediate summaries can lose detail.</p>
+        <p>A unit can include provider fallback attempts; failed-attempt charges may be unknown.</p>
+        <p>Saved synthesis units: {(synthesis.levels || []).reduce((count, level) => count + level.length, 0) + (synthesis.nodes || []).length}</p>
+        {synthesis.stop_reason && <p>Stop reason: {synthesis.stop_reason}</p>}
+        {synthesis.status === 'completed' && synthesis.result && <>
+          <p>{synthesis.result.summary}</p>
+          <p>All {synthesis.result.section_indices.length} indexed assessments traversed. Citation links identify source sections, not verified entailment.</p>
+          {synthesis.result.citations.map(index => {
+            const source = review.assessments.find(item => item.chunk_index === index)
+            return source && <details key={index}><summary>Source section {index + 1} · {source.location}</summary><blockquote>{source.quote}</blockquote></details>
+          })}
+        </>}
+        {synthesis.status === 'blocked' && <p>Reload saved state. Only a known budget stop can be unlocked by an explicit extension; uncertain calls are never replayed.</p>}
+      </section>}
+      {canExtend && !error && <form onSubmit={event => {
+        event.preventDefault()
+        change(() => api(`/mammoth/document-reviews/${encodeURIComponent(review.id)}/budget`, {
+          method: 'POST', body: { expected_max_tokens: review.max_tokens, max_tokens: Number(budgetCeiling), confirm_budget_extension: true },
+        }))
+      }}>
+        <p>Raising the total ceiling permits more future model usage; it does not run models, reset usage, or unlock uncertain calls. Maximum: {review.max_extended_tokens} reported tokens. Each paid batch still needs its own click.</p>
+        <label>New total token ceiling <input type="number" min={review.max_tokens + 1} max={review.max_extended_tokens} step="1" value={budgetCeiling} onChange={event => setBudgetCeiling(event.target.value)} required /></label>
+        <button type="submit" disabled={busy || Number(budgetCeiling) <= review.max_tokens}>Confirm larger total ceiling (no model call)</button>
+      </form>}
+      {review.budget_extensions?.length > 0 && <details>
+        <summary>Confirmed budget history</summary>
+        <ul>{review.budget_extensions.map((item, index) => <li key={index}>
+          {item.previous_max_tokens} → {item.max_tokens} total ceiling · {item.reported_tokens} reported tokens retained · {item.confirmed_at}
+        </li>)}</ul>
+      </details>}
       <button disabled={busy} onClick={() => change(() => api(`/mammoth/document-reviews/${encodeURIComponent(review.id)}`))}>Reload saved review (no model call)</button>
       <button disabled={busy} onClick={async () => {
         setBusy(true)
@@ -66,7 +108,7 @@ export default function DocumentReviewPanel({ fileId, scope }) {
         } finally { if (request === generation.current) setBusy(false) }
       }}>Delete saved review</button>
       {review.status === 'active' && <p>A batch is active or was interrupted. Reload to inspect progress; unknown provider calls are never automatically replayed.</p>}
-      {review.status === 'blocked' && <p>This review cannot safely continue. Saved assessments remain available; the budget is not automatically extended.</p>}
+      {review.status === 'blocked' && <p>This review is blocked. Saved assessments remain available. Only a known budget stop can be unlocked by an explicit ceiling extension; uncertain calls cannot.</p>}
       {review.assessments.map(item => <details key={item.chunk_index}>
         <summary>Section {item.chunk_index + 1} · {item.location}</summary>
         <p>{item.summary}</p><blockquote>{item.quote}</blockquote>

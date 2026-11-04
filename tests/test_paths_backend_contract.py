@@ -109,6 +109,9 @@ def contract_backend(monkeypatch, tmp_path):
                 {"tool": "contract_read", "args": {}},
             ])
         async def generate(self, prompt, **kwargs):
+            if prompt.startswith("Synthesize these saved section assessments"):
+                source = json.loads(prompt.split("\n", 1)[1])
+                return json.dumps({"summary": "A combined assessment.", "citations": source["section_indices"][:1]})
             if prompt.startswith("Assess exactly this indexed source section"):
                 source = json.loads(prompt.split("\n", 1)[1])
                 return json.dumps({"summary": "A section assessment.", "quote": source["text"][:80]})

@@ -176,6 +176,8 @@ export interface PathsClient {
   getDocumentReview(id: string): Promise<Record<string, unknown>>
   advanceDocumentReview(id: string, options: { confirmModelUsage: true }): Promise<Record<string, unknown>>
   deleteDocumentReview(id: string): Promise<Record<string, unknown>>
+  synthesizeDocumentReview(id: string, options: { confirmModelUsage: true }): Promise<Record<string, unknown>>
+  extendDocumentReviewBudget(id: string, options: { expectedMaxTokens: number; maxTokens: number; confirmBudgetExtension: true }): Promise<Record<string, unknown>>
   ownerExecutionCapabilities(repo?: string): Promise<Record<string, unknown>>
   prepareOwnerExecution(repo: string, changes: OwnerExecutionChange[], options: { baseSha: string; profile: 'python_unittest' | 'python_pytest' | 'node_test' | 'ui_build' | 'ui_component' | 'ui_browser'; acceptance?: { expected_behavior: string[]; regression_tests: string[] } }): Promise<Record<string, unknown>>
   getOwnerExecution(id: string): Promise<Record<string, unknown>>

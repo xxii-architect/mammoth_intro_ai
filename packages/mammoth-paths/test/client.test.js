@@ -22,6 +22,8 @@ test('document reviews preserve evidence and require explicit paid batch confirm
     'GET /api/mammoth/document-reviews': { body },
     'GET /api/mammoth/document-reviews/review-one': { body },
     'POST /api/mammoth/document-reviews/review-one/advance': { body },
+    'POST /api/mammoth/document-reviews/review-one/synthesize': { body },
+    'POST /api/mammoth/document-reviews/review-one/budget': { body },
     'DELETE /api/mammoth/document-reviews/review-one': { body },
   })
   const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
@@ -33,6 +35,15 @@ test('document reviews preserve evidence and require explicit paid batch confirm
   assert.equal(calls.length, 3)
   assert.deepEqual(await client.advanceDocumentReview('review-one', { confirmModelUsage: true }), body)
   assert.deepEqual(calls[3].body, { confirm_model_usage: true })
+  assert.throws(() => client.synthesizeDocumentReview('review-one'), /confirmation/)
+  assert.throws(() => client.extendDocumentReviewBudget('review-one', { expectedMaxTokens: 64000, maxTokens: 128000 }), /confirmation/)
+  assert.equal(calls.length, 4)
+  assert.deepEqual(await client.synthesizeDocumentReview('review-one', { confirmModelUsage: true }), body)
+  assert.deepEqual(calls[4].body, { confirm_model_usage: true })
+  assert.deepEqual(await client.extendDocumentReviewBudget('review-one', {
+    expectedMaxTokens: 64000, maxTokens: 128000, confirmBudgetExtension: true,
+  }), body)
+  assert.deepEqual(calls[5].body, { expected_max_tokens: 64000, max_tokens: 128000, confirm_budget_extension: true })
   assert.deepEqual(await client.deleteDocumentReview('review-one'), body)
 })
 

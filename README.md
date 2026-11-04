@@ -1568,15 +1568,33 @@ The two reported hosted failures were not inspected here.
 An explicit **Indexed document review** in either file-library preview creates a
 saved, read-only review without model calls. Each **Review next batch** click
 confirms model usage for up to three sections, with 180 seconds per batch and a
-64,000 reported-token ceiling across the entire review. Model summaries and
+default 64,000 reported-token ceiling across the entire review. Model summaries and
 literal source quotes are checkpointed per section against a source hash. Reload
 is read-only; the next batch resumes at the first unassessed index without
 replaying completed work. Concurrent calls, changed/deleted sources, unknown
 provider outcomes, invalid outputs and cap stops cannot silently retry or extend
 the ceiling. Extraction warnings persist even when all indexed sections have
 assessments. That state does not establish original-file completeness, factual
-verification or cross-section synthesis. Reviews are private, retained with
+verification or automatic cross-section synthesis. Reviews are private, retained with
 uploads (up to 20), explicitly deletable and removed with their source.
+
+After indexed assessment finishes, **Synthesize next batch (uses model credits)**
+combines saved assessments in groups of at most eight, up to three synthesis units
+per explicit batch. Intermediate summaries/citation lineage are checkpointed;
+every indexed assessment must be traversed before a final result is marked
+complete. It does not reread full source or guarantee each claim survives lossy
+summarization. Source citations resolve to saved literal quotes, not verified
+entailment. Synthesis shares the review's cumulative usage and 180-second batch
+limit; reopening never runs it automatically.
+Provider fallback can attempt more than one call per unit; failed-attempt charges
+may be unknown.
+
+The default 64,000-token ceiling is unchanged. An explicit, audited budget
+confirmation may raise a saved review's **total** ceiling up to 128,000 reported
+tokens, without resetting usage or running models. The caller must supply the
+expected current ceiling; stale confirmations fail. Only known cap stops with
+no uncertain call may resume. Completed paid units are never resubmitted.
+This does not extend ordinary recursive-run budgets or provide invoice/spend control.
 
 The UI shows transfer progress, processing, extraction warnings, cancellation,
 and retry. ATLAS offers searchable section previews; chat's **Manage saved files**

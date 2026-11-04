@@ -1,7 +1,7 @@
 const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
 
-async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false, pagingFailure = false, pagingDelay = false, reviewFailure = false } = {}) {
+async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false, pagingFailure = false, pagingDelay = false, reviewFailure = false, synthesisFailure = false, budgetFailure = false } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   let records = []
@@ -12,7 +12,24 @@ async function mountLibrary(page, { uploadFailure = false, deleteFailure = false
     const path = new URL(route.request().url()).pathname
     let result = {}
     if (path.includes('/document-reviews')) {
-      if (path.endsWith('/advance')) {
+      if (path.endsWith('/synthesize')) {
+        expect(route.request().postDataJSON()).toEqual({ confirm_model_usage: true })
+        if (synthesisFailure) {
+          review.synthesis = { status: 'blocked', stop_reason: 'provider_outcome_unknown', nodes: [], levels: [] }
+          review.inflight_section = 'synthesis'
+          return route.fulfill({ status: 504, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Synthesis gateway timeout.' }) })
+        }
+        review.synthesis = { status: 'completed', nodes: [], levels: [], result: {
+          summary: 'A combined assessment with limitations.', section_indices: [0, 1, 2, 3], citations: [0, 3],
+        } }
+        review.usage.tokens += 100
+      } else if (path.endsWith('/budget')) {
+        expect(route.request().postDataJSON()).toEqual({
+          expected_max_tokens: 64000, max_tokens: 100000, confirm_budget_extension: true,
+        })
+        if (budgetFailure) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Budget changed. Reload saved state before confirming again.' }) })
+        review.max_tokens = 100000
+      } else if (path.endsWith('/advance')) {
         expect(route.request().postDataJSON()).toEqual({ confirm_model_usage: true })
         if (reviewFailure) return route.fulfill({ status: 504, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Review gateway timeout.' }) })
         const start = review.assessments.length
@@ -21,10 +38,11 @@ async function mountLibrary(page, { uploadFailure = false, deleteFailure = false
           summary: 'A source-grounded assessment.', quote: 'An exact source quote.',
         })))
         review.status = review.assessments.length === 4 ? 'completed' : 'partial'
+        review.review_complete = review.status === 'completed'
         review.usage.tokens += 300
       } else if (route.request().method() === 'POST') {
         review = { id: 'review-one', goal: route.request().postDataJSON().goal, file_id: 'atlas-book',
-          total_sections: 4, assessments: [], status: 'ready', usage: { tokens: 0 }, max_tokens: 64000,
+          total_sections: 4, assessments: [], status: 'ready', usage: { tokens: 0 }, max_tokens: 64000, max_extended_tokens: 128000,
           warnings: ['One scanned page needs OCR.'] }
       } else if (route.request().method() === 'DELETE') review = null
       result = path.endsWith('/document-reviews') && route.request().method() === 'GET'
@@ -140,6 +158,76 @@ test('failed review batch requires saved-state reload instead of an automatic pa
   await expect(page.getByRole('button', { name: 'Review next batch (uses model credits)' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Reload saved review (no model call)' }).click()
   await expect(page.getByLabel('Saved review coverage')).toContainText('0/4')
+})
+
+test('cross-section synthesis is explicitly paid and saved source citations reopen without replay', async ({ page }) => {
+  const errors = await mountLibrary(page)
+  let syntheses = 0
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/synthesize')) syntheses += 1 })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByLabel('Review goal', { exact: false }).fill('Combine the evidence and limitations.')
+  await page.getByRole('button', { name: 'Create saved review (no model call)' }).click()
+  await expect(page.getByRole('button', { name: 'Synthesize next batch (uses model credits)' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  expect(syntheses).toBe(0)
+  await page.getByRole('button', { name: 'Synthesize next batch (uses model credits)' }).click()
+  const synthesis = page.getByRole('region', { name: 'Saved cross-section synthesis' })
+  await expect(synthesis).toContainText('All 4 indexed assessments traversed.')
+  await synthesis.getByText('Source section 4', { exact: false }).click()
+  await expect(synthesis.locator('details[open] blockquote')).toHaveText('An exact source quote.')
+  await page.getByRole('button', { name: 'Close preview' }).click()
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Saved cross-section synthesis' })).toContainText('A combined assessment with limitations.')
+  expect(syntheses).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('budget extension confirms a new total without model calls or usage reset', async ({ page }) => {
+  const errors = await mountLibrary(page)
+  let modelBatches = 0
+  page.on('request', request => { if (/\/(advance|synthesize)$/.test(new URL(request.url()).pathname)) modelBatches += 1 })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByLabel('Review goal', { exact: false }).fill('Assess the indexed explanation.')
+  await page.getByRole('button', { name: 'Create saved review (no model call)' }).click()
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await page.getByLabel('New total token ceiling').fill('100000')
+  await page.getByRole('button', { name: 'Confirm larger total ceiling (no model call)' }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('300 reported tokens / 100000 ceiling')
+  expect(modelBatches).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('uncertain synthesis blocks replay and budget unlock after saved-state recovery', async ({ page }) => {
+  await mountLibrary(page, { synthesisFailure: true })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByLabel('Review goal', { exact: false }).fill('Combine saved assessments.')
+  await page.getByRole('button', { name: 'Create saved review (no model call)' }).click()
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await page.getByRole('button', { name: 'Synthesize next batch (uses model credits)' }).click()
+  await expect(page.getByRole('alert')).toContainText('Synthesis gateway timeout.')
+  await page.getByRole('button', { name: 'Reload saved review (no model call)' }).click()
+  await expect(page.getByRole('region', { name: 'Saved cross-section synthesis' })).toContainText('provider_outcome_unknown')
+  await expect(page.getByRole('button', { name: 'Synthesize next batch (uses model credits)' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Confirm larger total ceiling (no model call)' })).toHaveCount(0)
+})
+
+test('a stale budget confirmation requires reload and cannot authorize a paid batch', async ({ page }) => {
+  await mountLibrary(page, { budgetFailure: true })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByLabel('Review goal', { exact: false }).fill('Assess the indexed explanation.')
+  await page.getByRole('button', { name: 'Create saved review (no model call)' }).click()
+  await page.getByLabel('New total token ceiling').fill('100000')
+  await page.getByRole('button', { name: 'Confirm larger total ceiling (no model call)' }).click()
+  await expect(page.getByRole('alert')).toContainText('Budget changed.')
+  await expect(page.getByRole('button', { name: 'Review next batch (uses model credits)' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reload saved review (no model call)' }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('0 reported tokens / 64000 ceiling')
 })
 
 test('indexed text browsing reaches the final section and keeps coverage distinct from model review', async ({ page }) => {

@@ -69,10 +69,23 @@ without model calls, then explicitly review up to three sections per paid batch.
 Each section saves its source hash/location, summary and a literal source quote.
 Reopening/reloading never runs a model. Known completed sections are not replayed;
 unknown active calls, changed/deleted source and hard caps block continuation.
-The 64,000 reported-token ceiling spans batches; each batch lasts at most 180
+The default 64,000 reported-token ceiling spans batches; each batch lasts at most 180
 seconds. Full indexed assessment coverage is not original-file extraction,
 factual verification, cross-section synthesis or recursive critique. Warnings
 stay visible. Deleting the source removes its private saved reviews.
+
+After assessment completes, **Synthesize next batch (uses model credits)** combines
+saved assessments in groups of at most eight, up to three units per confirmed
+batch. It checkpoints intermediate summaries and source citations until every
+indexed assessment has been traversed. Summaries are lossy; this is not full-source
+rereading or verified entailment. Expand source references to see saved quotes.
+Reopening saved synthesis never calls models.
+
+**Confirm larger total ceiling (no model call)** explicitly permits a higher
+total review budget, up to 128,000 reported tokens. Usage is preserved, not reset;
+the confirmation is audited and must match the current ceiling. Only a known
+cap stop may be unlocked, never an uncertain/invalid call. It does not start
+another paid batch or change ordinary recursive-review limits.
 
 ## Reading the trace
 

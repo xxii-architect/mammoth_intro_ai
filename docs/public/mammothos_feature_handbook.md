@@ -4,8 +4,8 @@
 
 This is the explanation-first companion to the in-app Manual: what each main
 workspace feature is for, how to choose it, and what its results do **not** prove.
-Its merged baseline includes PR #24 (2026-11-03); provider-admission and saved
-indexed-review additions describe this source edition and require deployment too. This is not a
+Its merged baseline includes PR #25 (2026-11-03); synthesis and deliberate budget
+controls describe this source edition and require deployment too. This is not a
 certification of the version currently running on your server. Availability also
 depends on your account, plan, operator configuration and connected providers.
 
@@ -227,7 +227,7 @@ Each assessment stores its source index/location/hash, model summary, a quote
 checked literally against that source, and reported usage. The workflow resumes
 at the next unassessed index rather than repeating completed calls.
 
-The review is read-only and separate from recursive critique. Its 64,000
+The review is read-only and separate from recursive critique. Its default 64,000
 reported-token ceiling spans all batches; each batch is limited to 180 seconds.
 Reopening/reloading only reads saved progress. Network/proxy timeout does not
 establish that a call failed: reload saved state before doing more work.
@@ -240,6 +240,43 @@ Warnings remain visible even at full indexed coverage. Source changes invalidate
 continuation; deleting the source deletes its reviews. Saved reviews can also be
 deleted explicitly. The private library retains up to 20 reviews. Budget
 extension and cross-section synthesis are not automatic.
+
+### Combining sections and deliberately permitting more usage
+
+After all indexed sections have assessments, **Synthesize next batch (uses model
+credits)** combines saved assessments into a cross-section result. It processes
+groups of at most eight inputs, with at most three synthesis units per confirmed
+batch. Larger reviews have intermediate summary levels. Every completed unit is
+checkpointed and never resubmitted on resume; a final result requires traversal
+of all indexed assessments, including the final section. There is no hidden
+whole-document truncation or automatic paid loop.
+Provider fallback can make multiple attempts within a unit; failed-attempt
+charges may be unknown, so a unit count is not an invoice count.
+
+Use synthesis for themes, conflicts, conclusions and limitations across assessed
+sections. Do not treat it as a new full-source read or use it alone to resolve
+a crucial detail: summaries are lossy, and a section being traversed does not
+prove every claim survives. Citations retain source-index lineage through the
+summary levels and open literal quotes from saved assessments. This validates
+the link, not entailment or truth. Source warnings still apply.
+
+Synthesis shares the saved review's reported-token usage and 180-second batch
+limit. Opening it or reloading it never runs models. Unknown provider outcomes,
+invalid responses, source changes and deletion block safe continuation.
+
+When a known budget stop is the actual blocker, **Confirm larger total ceiling
+(no model call)** can deliberately permit more future review usage, up to 128,000
+reported tokens total. The default stays 64,000. Enter a total, not an increment.
+The operation preserves usage, records an audit event/history, and compares the
+expected current ceiling so stale/double confirmations fail. It does not run a
+model or automatically start the next batch; each paid batch remains a separate
+choice. It cannot unlock uncertain or invalid calls or raise ordinary recursive
+run limits. A checkpointed over-ceiling unit is retained, not replayed.
+
+Avoid raising a ceiling just because a result is partial. Read the actual stop
+reason and coverage first. Extension is neither an invoice guarantee nor a
+replacement for tenant spend controls; charges for failed/interrupted provider
+attempts can remain unknown.
 
 Legacy uploads with only preview text cannot recover their missing original
 content through paging; re-uploading may be needed. No amount of recursive
@@ -399,9 +436,10 @@ Provider-aware local admission now distinguishes tokenizer text plus conservativ
 request-envelope allowances from byte fallback; exact server-side billing counts
 remain provider-reported after the call. Explicit indexed review now checkpoints
 bounded section assessments and resumes known completed work without replay.
-It is not automatic recursive whole-file critique or combined synthesis.
-Budget extension requires further design; it must not silently replay paid stages,
-duplicate tools or bypass approvals.
+Separate, explicitly confirmed batches can now synthesize saved assessments and
+deliberately extend a saved review's total ceiling, with checkpoint and
+unknown-outcome protections. This is not automatic recursive whole-file critique,
+full-source rereading, or an extension of ordinary recursive-run budgets.
 
 The two reported hosted token-cap failures have not been independently reproduced
 from their original run receipts. Deterministic tests verify specific behaviors,
@@ -421,4 +459,4 @@ tenant spend controls also remain roadmap work.
 
 For a useful Guide question, try: "Explain recursive review costs and token-cap
 stops, then help me decide whether my task needs it. Distinguish current behavior
-from indexed-review coverage and future budget-extension features."
+from indexed-review coverage, saved synthesis and deliberate budget controls."

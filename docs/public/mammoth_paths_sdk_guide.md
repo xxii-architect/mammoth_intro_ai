@@ -189,13 +189,34 @@ for a batch, or recover saved state after a gateway timeout before further work.
 Envelopes contain `review` or `reviews`. The additive
 `mammoth.document-review.v1` record contains indexed coverage, source hash, literal
 quotes, model summaries, extraction warnings, reported usage and stop reasons.
-The 64,000 reported-token ceiling spans all batches; it is not renewed on resume.
+The default 64,000 reported-token ceiling spans all batches; it is not renewed on resume.
 Unknown inflight outcomes, changed/deleted sources and cap stops block replay.
 Reading saved state never spends model credits. Source deletion purges reviews;
 explicit review deletion frees the private library's 20-review quota.
 Completion is indexed assessment coverage, not original extraction, factual
 verification or cross-section synthesis. Ordinary recursive review remains
 a separate opt-in workflow.
+
+After assessment completes, call
+`synthesize_document_review(id, confirm_model_usage=True)` or
+`synthesizeDocumentReview(id, {confirmModelUsage: true})` for each synthesis
+batch. Up to three units combine groups of at most eight saved assessments or
+intermediate summaries, checkpointing progress in `review.synthesis`. A final
+result requires input traversal of every indexed assessment, not silent
+truncation. This is lossy summary synthesis, not full-source rereading or verified
+entailment. Source-index citations resolve to existing literal quotes. Synthesis
+shares review usage and the 180-second batch ceiling; GET remains model-free.
+
+To deliberately permit more future usage, call
+`extend_document_review_budget(id, expected_max_tokens=64000, max_tokens=100000,
+confirm_budget_extension=True)` or
+`extendDocumentReviewBudget(id, {expectedMaxTokens: 64000, maxTokens: 100000,
+confirmBudgetExtension: true})`. This audited, model-free operation compares
+the current ceiling and permits at most 128,000 reported tokens total. It never
+resets usage or triggers another model call. Stale confirmations return 409.
+Only known cap stops with no uncertain/invalid call may resume; paid completed
+units are not resubmitted. Recursive-run ceilings and tenant billing limits
+are separate and unchanged.
 
 ## Owner-only isolated validation
 

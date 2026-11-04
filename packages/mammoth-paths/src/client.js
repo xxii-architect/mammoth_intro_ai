@@ -242,6 +242,16 @@ export function createPathsClient(options = {}) {
       return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/advance`, { body: { confirm_model_usage: true } })
     },
     deleteDocumentReview: (id) => json('documents', 'DELETE', `/mammoth/document-reviews/${seg(id)}`),
+    synthesizeDocumentReview: (id, { confirmModelUsage = false } = {}) => {
+      if (confirmModelUsage !== true) throw new TypeError('Explicit model-usage confirmation is required')
+      return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/synthesize`, { body: { confirm_model_usage: true } })
+    },
+    extendDocumentReviewBudget: (id, { expectedMaxTokens, maxTokens, confirmBudgetExtension = false } = {}) => {
+      if (confirmBudgetExtension !== true) throw new TypeError('Explicit budget-extension confirmation is required')
+      return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/budget`, {
+        body: { expected_max_tokens: expectedMaxTokens, max_tokens: maxTokens, confirm_budget_extension: true },
+      })
+    },
     ownerExecutionCapabilities: (repo = '') => json('owner_execution', 'GET', '/owner-executions/capabilities', { query: { repo } }),
     prepareOwnerExecution: (repo, changes, { baseSha, profile, acceptance }) =>
       json('owner_execution', 'POST', '/owner-executions', { body: { repo_context: { root: repo }, changes, base_sha: baseSha, profile,

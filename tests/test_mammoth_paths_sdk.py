@@ -93,6 +93,8 @@ def test_document_review_methods_require_explicit_paid_batch_and_preserve_eviden
                          ("GET", "/api/mammoth/document-reviews"),
                          ("GET", "/api/mammoth/document-reviews/review-one"),
                          ("POST", "/api/mammoth/document-reviews/review-one/advance"),
+                         ("POST", "/api/mammoth/document-reviews/review-one/synthesize"),
+                         ("POST", "/api/mammoth/document-reviews/review-one/budget"),
                          ("DELETE", "/api/mammoth/document-reviews/review-one")]:
         backend.route(method, path, body=payload)
     client = MammothPaths(backend.url)
@@ -106,6 +108,18 @@ def test_document_review_methods_require_explicit_paid_batch_and_preserve_eviden
     assert len(backend.requests) == before
     assert client.advance_document_review("review-one", confirm_model_usage=True) == payload
     assert backend.requests[-1]["body"] == {"confirm_model_usage": True}
+    before = len(backend.requests)
+    with pytest.raises(ValueError, match="confirmation"):
+        client.synthesize_document_review("review-one")
+    with pytest.raises(ValueError, match="confirmation"):
+        client.extend_document_review_budget("review-one", expected_max_tokens=64000, max_tokens=128000)
+    assert len(backend.requests) == before
+    assert client.synthesize_document_review("review-one", confirm_model_usage=True) == payload
+    assert backend.requests[-1]["body"] == {"confirm_model_usage": True}
+    assert client.extend_document_review_budget("review-one", expected_max_tokens=64000, max_tokens=128000,
+                                               confirm_budget_extension=True) == payload
+    assert backend.requests[-1]["body"] == {"expected_max_tokens": 64000, "max_tokens": 128000,
+                                           "confirm_budget_extension": True}
     assert client.delete_document_review("review-one") == payload
 
 
