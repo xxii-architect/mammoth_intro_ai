@@ -1256,6 +1256,7 @@ test('required coding result demands explicit repo then reaches the run API with
       })}\n\n` }
     },
   })
+
   await page.getByRole('navigation', { name: 'Agents' }).getByRole('button', { name: /Coding/ }).click()
   await page.getByRole('combobox', { name: 'Required coding result' }).selectOption('applied')
   await page.getByRole('textbox', { name: 'Message Coding' }).fill('What are your suggestions?')
@@ -1270,6 +1271,74 @@ test('required coding result demands explicit repo then reaches the run API with
   expect(submitted.repo_context).toEqual({ root: 'owner/repo' })
 })
 
+  for (const repo of ['owner/repo', 'https://github.com/owner/repo.git', 'C:\\private\\repo', 'https://evil.example/owner/repo']) {
+    test(`Desktop handoff uses recorded applied evidence without automatic launch or push (${repo})`, async ({ page }) => {
+      const id = `exec-${'a'.repeat(24)}`
+      const branch = `mammoth/owner/${id}`
+      const patch = 'diff --git a/example.txt b/example.txt\n--- a/example.txt\n+++ b/example.txt\n@@ -1 +1 @@\n-old\n+approved\n'
+      const requests = []
+      const errors = await mount(page, 'components/RunTimeline', {
+        [`/api/owner-executions/${id}`]: request => {
+          requests.push(request.method())
+          return { execution: { id, repo, status: 'validated', patch,
+            application: { status: 'applied', branch, commit_sha: 'b'.repeat(40) } } }
+        },
+      }, { runOverride: { id: 'run-test', status: 'completed', events: [], plan: [],
+        progress: { goal: 'applied', stage: 'applied', executions: [
+          { id, status: 'validated', application: { status: 'applied', branch, commit_sha: 'b'.repeat(40) } },
+        ] } } })
+      const handoff = page.getByRole('region', { name: 'GitHub Desktop handoff' })
+      expect(requests).toEqual([])
+      await expect(handoff.locator('a')).toHaveCount(0)
+      await handoff.getByRole('button', { name: 'Prepare GitHub Desktop handoff (no push)' }).click()
+      await expect(handoff).toContainText('Opening Desktop does not transfer unpublished work')
+      expect(requests).toEqual(['GET'])
+      const downloadPromise = page.waitForEvent('download')
+      await handoff.getByRole('button', { name: 'Download approved patch' }).click()
+      const download = await downloadPromise
+      expect(download.suggestedFilename()).toBe(`${id}.patch`)
+      expect(fs.readFileSync(await download.path(), 'utf8')).toBe(patch)
+      if (repo === 'owner/repo' || repo.startsWith('https://github.com/')) {
+        await expect(handoff.getByRole('link', { name: 'Open repository in GitHub Desktop', exact: true }))
+          .toHaveAttribute('href', 'x-github-client://openRepo/https://github.com/owner/repo')
+        await expect(handoff.getByRole('link', { name: 'Open prepared branch in GitHub Desktop' })).toHaveCount(0)
+        await handoff.getByRole('checkbox').check()
+        await expect(handoff.getByRole('link', { name: 'Open prepared branch in GitHub Desktop' }))
+          .toHaveAttribute('href', `x-github-client://openRepo/https://github.com/owner/repo?branch=${encodeURIComponent(branch)}`)
+        await handoff.getByRole('checkbox').uncheck()
+        await expect(handoff.getByRole('link', { name: 'Open prepared branch in GitHub Desktop' })).toHaveCount(0)
+      } else {
+        await expect(handoff.locator('a')).toHaveCount(0)
+        await expect(handoff).toContainText('No unambiguous GitHub repository was recorded')
+      }
+      expect(requests).toEqual(['GET'])
+      expect(errors).toEqual([])
+    })
+  }
+
+  test('Desktop handoff rejects stale application evidence and supports read-only retry', async ({ page }) => {
+    const id = `exec-${'c'.repeat(24)}`
+    let attempts = 0
+    await mount(page, 'components/RunTimeline', {
+      [`/api/owner-executions/${id}`]: () => {
+        attempts++
+        return { execution: { id, repo: 'owner/repo', status: 'validated', patch: 'private-patch',
+          application: { status: attempts === 1 ? 'ready' : 'applied',
+            branch: `mammoth/owner/${id}`, commit_sha: 'd'.repeat(40) } } }
+      },
+    }, { runOverride: { id: 'run-test', status: 'completed', events: [], plan: [],
+      progress: { goal: 'applied', stage: 'applied', executions: [
+        { id, status: 'validated', application: { status: 'applied' } },
+      ] } } })
+    const handoff = page.getByRole('region', { name: 'GitHub Desktop handoff' })
+    await handoff.getByRole('button', { name: 'Prepare GitHub Desktop handoff (no push)' }).click()
+    await expect(handoff.getByRole('alert')).toContainText('Applied branch evidence is unavailable')
+    await expect(handoff.locator('a')).toHaveCount(0)
+    await expect(handoff.getByRole('button', { name: 'Download approved patch' })).toHaveCount(0)
+    await handoff.getByRole('button', { name: 'Prepare GitHub Desktop handoff (no push)' }).click()
+    await expect(handoff.getByRole('link', { name: 'Open repository in GitHub Desktop', exact: true })).toBeVisible()
+    expect(attempts).toBe(2)
+  })
 test('Coding approval works after a terminal event even when the response transport stays open', async ({ page }) => {
   const errors = await mount(page, 'components/agent-workspace/AgentWorkspace', {
     '/api/mammoth/repo-sources': { options: [{ value: 'owner/repo', label: 'Owner repo' }] },

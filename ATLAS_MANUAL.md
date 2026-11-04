@@ -69,6 +69,26 @@ checks, not factual verification or permission to replay unknown provider work.
 Real-socket tests with offline models cover assessment timeout plus abrupt
 worker restart in both installed clients, not deployed proxy/provider behavior.
 
+### GitHub Desktop handoff for approved coding work
+
+After branch application, the coding timeline and owner pilot card offer
+**Prepare GitHub Desktop handoff (no push)**. It reads current execution evidence,
+shows the branch/commit and offers an approved patch download. For a recorded
+GitHub repository, **Open repository in GitHub Desktop** launches the installed
+app with browser permission. Only confirm the local-branch checkbox if the branch
+already exists in your local clone or on GitHub, then use **Open prepared branch
+in GitHub Desktop** and verify its commit before publishing. The checkbox is your
+acknowledgment, not automatic verification of local state.
+
+Use Desktop's Publish branch / Push origin and Create Pull Request, then review
+checks and merge on GitHub. Nothing launches on card refresh, pushes or merges
+automatically. If Mammoth runs remotely, its unpublished branch is not on your
+laptop: an operator-assisted transfer is still required. Downloading a patch
+alone does not import it into Desktop or preserve the backend commit. Private
+patches contain source; do not share them casually. If no valid GitHub identity
+was recorded, no repository link is invented. If the browser cannot open Desktop,
+open it manually and select the correct clone.
+
 ### Focused ATLAS workspace
 
 ATLAS uses four workspace views: Lesson, Tutor, Agents and Curricula. On phones,
