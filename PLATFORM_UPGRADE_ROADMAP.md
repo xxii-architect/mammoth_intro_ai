@@ -255,6 +255,11 @@ and full multi-replica readiness are not certified):
   erasure/recovery transactions; backend
   migration/price catalog activation; invoice reconciliation and full paid-path
   coverage. Declared multiple replicas are rejected until those gates close.
+- Remaining JSON writer refinement: onboarding, notifications, execution events
+  and deletion requests use the shared conflict-safe backend. Atomic bounded
+  event appends preserve retention without replaying workflow actions; corrupt
+  reads and storage failures are explicit. This does not close chat-thread,
+  learner, host-state or binary migration gates.
 
 Runtime reliability/admission refinement (bounded delivery, not closure of every
 DATA/HEALTH/BILL item):

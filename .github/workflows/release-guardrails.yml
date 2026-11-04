@@ -42,6 +42,7 @@ jobs:
             tests/test_runtime_resilience.py \
             tests/test_runtime_state_usage.py \
             tests/test_shared_state_admission.py \
+            tests/test_remaining_shared_writers.py \
             tests/test_hosted_storage_preflight.py \
             tests/test_server_routes_layout.py \
             -q
