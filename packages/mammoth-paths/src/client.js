@@ -4,6 +4,7 @@
  */
 
 import { hydrateRun, readRunEventStream, reduceRunEvent } from './runState.js'
+import { validateDocumentReview } from './documentReview.js'
 
 export const PATHS_CONTRACT_VERSION = 'mammoth.paths.v1'
 
@@ -88,6 +89,21 @@ export function createPathsClient(options = {}) {
         if (init.member === 'runs' ? !Array.isArray(value) || !value.every(object) : !object(value)) {
           throw new PathsError(`Response has an invalid ${init.member} field`, { status, code: 'invalid_response' })
         }
+      }
+      if (init.review || init.reviews) {
+        try {
+          if (init.reviews) {
+            if (!Array.isArray(payload.reviews)) throw new Error('Invalid saved document reviews')
+            payload.reviews.forEach(review => validateDocumentReview(review, init.reviews))
+          } else validateDocumentReview(payload.review, init.review)
+        } catch (error) {
+          if (error.code !== 'invalid_response' && error.message !== 'Invalid saved document reviews') throw error
+          throw new PathsError('Invalid saved document review; reload authoritative state before further work',
+            { status, code: 'invalid_response' })
+        }
+      }
+      if (init.deletedReview !== undefined && payload.deleted !== init.deletedReview) {
+        throw new PathsError('Invalid review deletion receipt; reload authoritative state', { status, code: 'invalid_response' })
       }
       return payload
     } finally {
@@ -233,23 +249,23 @@ export function createPathsClient(options = {}) {
       return json('documents', 'GET', `/${scope === 'chat' ? 'mammoth' : 'atlas'}/files/${seg(fileId)}/content`, { query: { start, count } })
     },
     createDocumentReview: (fileId, goal, { scope = 'chat' } = {}) =>
-      json('documents', 'POST', '/mammoth/document-reviews', { body: { file_id: fileId, scope, goal } }),
+      json('documents', 'POST', '/mammoth/document-reviews', { body: { file_id: fileId, scope, goal }, review: { fileId, scope } }),
     listDocumentReviews: (fileId, { scope = 'chat' } = {}) =>
-      json('documents', 'GET', '/mammoth/document-reviews', { query: { file_id: fileId, scope } }),
-    getDocumentReview: (id) => json('documents', 'GET', `/mammoth/document-reviews/${seg(id)}`),
+      json('documents', 'GET', '/mammoth/document-reviews', { query: { file_id: fileId, scope }, reviews: { fileId, scope } }),
+    getDocumentReview: (id) => json('documents', 'GET', `/mammoth/document-reviews/${seg(id)}`, { review: { reviewId: id } }),
     advanceDocumentReview: (id, { confirmModelUsage = false } = {}) => {
       if (confirmModelUsage !== true) throw new TypeError('Explicit model-usage confirmation is required')
-      return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/advance`, { body: { confirm_model_usage: true } })
+      return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/advance`, { body: { confirm_model_usage: true }, review: { reviewId: id } })
     },
-    deleteDocumentReview: (id) => json('documents', 'DELETE', `/mammoth/document-reviews/${seg(id)}`),
+    deleteDocumentReview: (id) => json('documents', 'DELETE', `/mammoth/document-reviews/${seg(id)}`, { deletedReview: id }),
     synthesizeDocumentReview: (id, { confirmModelUsage = false } = {}) => {
       if (confirmModelUsage !== true) throw new TypeError('Explicit model-usage confirmation is required')
-      return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/synthesize`, { body: { confirm_model_usage: true } })
+      return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/synthesize`, { body: { confirm_model_usage: true }, review: { reviewId: id } })
     },
     extendDocumentReviewBudget: (id, { expectedMaxTokens, maxTokens, confirmBudgetExtension = false } = {}) => {
       if (confirmBudgetExtension !== true) throw new TypeError('Explicit budget-extension confirmation is required')
       return json('documents', 'POST', `/mammoth/document-reviews/${seg(id)}/budget`, {
-        body: { expected_max_tokens: expectedMaxTokens, max_tokens: maxTokens, confirm_budget_extension: true },
+        body: { expected_max_tokens: expectedMaxTokens, max_tokens: maxTokens, confirm_budget_extension: true }, review: { reviewId: id },
       })
     },
     ownerExecutionCapabilities: (repo = '') => json('owner_execution', 'GET', '/owner-executions/capabilities', { query: { repo } }),

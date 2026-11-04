@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 
 import {
   createPathsClient,
@@ -16,35 +17,38 @@ const ev = (seq, type, data = {}) => ({ contract: 'mammoth.run.v1', run_id: RUN_
 const sse = (events) => events.map((e) => `event: ${e.type}\r\ndata: ${JSON.stringify(e)}\r\n\r\n`).join('')
 
 test('document reviews preserve evidence and require explicit paid batch confirmation', async () => {
-  const body = { status: 'ok', review: { id: 'review-one', review_complete: false, assessments: [] } }
-  const { impl, calls } = fakeFetch({
+  const review = JSON.parse(readFileSync(new URL('../../../tests/fixtures/document-review-contract.json', import.meta.url))).review
+  const id = review.id
+  const body = { status: 'ok', review, deleted: id }
+  const routes = {
     'POST /api/mammoth/document-reviews': { body },
-    'GET /api/mammoth/document-reviews': { body },
+    'GET /api/mammoth/document-reviews': { body: { status: 'ok', reviews: [review] } },
     'GET /api/mammoth/document-reviews/review-one': { body },
     'POST /api/mammoth/document-reviews/review-one/advance': { body },
     'POST /api/mammoth/document-reviews/review-one/synthesize': { body },
     'POST /api/mammoth/document-reviews/review-one/budget': { body },
     'DELETE /api/mammoth/document-reviews/review-one': { body },
-  })
+  }
+  const { impl, calls } = fakeFetch(Object.fromEntries(Object.entries(routes).map(([path, value]) => [path.replace('review-one', id), value])))
   const client = createPathsClient({ baseUrl: 'https://x.test', fetch: impl })
   assert.deepEqual(await client.createDocumentReview('file-one', 'Check appendix.', { scope: 'atlas' }), body)
   assert.deepEqual(calls[0].body, { file_id: 'file-one', scope: 'atlas', goal: 'Check appendix.' })
-  assert.deepEqual(await client.listDocumentReviews('file-one', { scope: 'atlas' }), body)
-  assert.deepEqual(await client.getDocumentReview('review-one'), body)
-  assert.throws(() => client.advanceDocumentReview('review-one'), /confirmation/)
+  assert.deepEqual((await client.listDocumentReviews('file-one', { scope: 'atlas' })).reviews, [review])
+  assert.deepEqual(await client.getDocumentReview(id), body)
+  assert.throws(() => client.advanceDocumentReview(id), /confirmation/)
   assert.equal(calls.length, 3)
-  assert.deepEqual(await client.advanceDocumentReview('review-one', { confirmModelUsage: true }), body)
+  assert.deepEqual(await client.advanceDocumentReview(id, { confirmModelUsage: true }), body)
   assert.deepEqual(calls[3].body, { confirm_model_usage: true })
-  assert.throws(() => client.synthesizeDocumentReview('review-one'), /confirmation/)
-  assert.throws(() => client.extendDocumentReviewBudget('review-one', { expectedMaxTokens: 64000, maxTokens: 128000 }), /confirmation/)
+  assert.throws(() => client.synthesizeDocumentReview(id), /confirmation/)
+  assert.throws(() => client.extendDocumentReviewBudget(id, { expectedMaxTokens: 64000, maxTokens: 128000 }), /confirmation/)
   assert.equal(calls.length, 4)
-  assert.deepEqual(await client.synthesizeDocumentReview('review-one', { confirmModelUsage: true }), body)
+  assert.deepEqual(await client.synthesizeDocumentReview(id, { confirmModelUsage: true }), body)
   assert.deepEqual(calls[4].body, { confirm_model_usage: true })
-  assert.deepEqual(await client.extendDocumentReviewBudget('review-one', {
+  assert.deepEqual(await client.extendDocumentReviewBudget(id, {
     expectedMaxTokens: 64000, maxTokens: 128000, confirmBudgetExtension: true,
   }), body)
   assert.deepEqual(calls[5].body, { expected_max_tokens: 64000, max_tokens: 128000, confirm_budget_extension: true })
-  assert.deepEqual(await client.deleteDocumentReview('review-one'), body)
+  assert.deepEqual(await client.deleteDocumentReview(id), body)
 })
 
 test('document paging preserves offsets, scope and unverified coverage evidence', async () => {

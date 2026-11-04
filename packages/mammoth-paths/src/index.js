@@ -1,4 +1,5 @@
 export { createPathsClient, PathsError, PATHS_CONTRACT_VERSION } from './client.js'
+export { validateDocumentReview } from './documentReview.js'
 export {
   RUN_CONTRACT_VERSION,
   TERMINAL_RUN_EVENTS,

@@ -234,6 +234,18 @@ establish that a call failed: reload saved state before doing more work.
 Unknown provider outcomes remain blocked rather than being replayed. A process
 restart with active work likewise cannot authorize automatic replay.
 
+The preview and both workspace SDKs validate the nested saved-review record
+before using it: identity and source references, coverage, reported usage,
+budget history and synthesis traversal/citation lineage. An invalid response
+is an explicit error, not empty progress or permission to retry a paid call.
+The last valid record stays visible; reload saved state without a model call
+before making another decision. If the initial saved list cannot be trusted,
+**Reload saved reviews (no model call)** retries only that read. A timeout does
+not prove the original provider call stopped. An active/unknown checkpoint may
+remain blocked after reload, which protects against duplicate paid work.
+These structural checks do not establish factual truth or current source
+freshness; source and access checks remain backend responsibilities.
+
 All indexed sections assessed means exactly that, not recovered OCR, verified
 facts, a combined cross-section argument or a guarantee of correct interpretation.
 Warnings remain visible even at full indexed coverage. Source changes invalidate

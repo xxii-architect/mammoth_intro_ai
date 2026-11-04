@@ -1,4 +1,4 @@
-import { createPathsClient, readRunEventStream, type OwnerExecutionChange, type RunOptions, type RunSnapshot, type UsageRecord } from '../src/index.js'
+import { createPathsClient, readRunEventStream, validateDocumentReview, type OwnerExecutionChange, type RunOptions, type RunSnapshot, type UsageRecord } from '../src/index.js'
 
 const options: RunOptions = {
   surface: 'agent_workspace',
@@ -8,6 +8,10 @@ const options: RunOptions = {
   recursive: { max_iterations: 1, max_tokens: 8000 },
 }
 const client = createPathsClient({ baseUrl: 'https://example.invalid' })
+const review: Record<string, unknown> = validateDocumentReview({}, { reviewId: 'review-id', fileId: 'file-id', scope: 'chat' })
+void review
+// @ts-expect-error Review identities cannot address arbitrary scopes.
+validateDocumentReview({}, { scope: 'operator' })
 void client.run('Review', options)
 void client.streamRun('Review', options)
 void client.readDocument('file-id', { scope: 'chat', start: 6, count: 6 })

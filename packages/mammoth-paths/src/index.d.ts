@@ -203,3 +203,4 @@ export declare function createRunStore(initial?: RunState | null): {
   dispatch(event: RunEvent): RunState
   reset(value?: RunState | null): void
 }
+export function validateDocumentReview(value: unknown, identity?: { reviewId?: string; fileId?: string; scope?: 'chat' | 'atlas' }): Record<string, unknown>

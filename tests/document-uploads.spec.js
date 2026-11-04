@@ -1,7 +1,8 @@
 const { test, expect } = require('@playwright/test')
 const baseURL = process.env.ATLAS_UI_URL || 'http://127.0.0.1:5194'
+const reviewFixture = require('./fixtures/document-review-contract.json').review
 
-async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false, pagingFailure = false, pagingDelay = false, reviewFailure = false, synthesisFailure = false, budgetFailure = false } = {}) {
+async function mountLibrary(page, { uploadFailure = false, deleteFailure = false, delayed = false, chat = false, pagingFailure = false, pagingDelay = false, reviewFailure = false, synthesisFailure = false, budgetFailure = false, malformedReview = false, malformedList = false } = {}) {
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   let records = []
@@ -15,13 +16,16 @@ async function mountLibrary(page, { uploadFailure = false, deleteFailure = false
       if (path.endsWith('/synthesize')) {
         expect(route.request().postDataJSON()).toEqual({ confirm_model_usage: true })
         if (synthesisFailure) {
-          review.synthesis = { status: 'blocked', stop_reason: 'provider_outcome_unknown', nodes: [], levels: [] }
+          review.synthesis = { ...reviewFixture.synthesis, status: 'blocked', stop_reason: 'provider_outcome_unknown' }
           review.inflight_section = 'synthesis'
           return route.fulfill({ status: 504, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Synthesis gateway timeout.' }) })
         }
-        review.synthesis = { status: 'completed', nodes: [], levels: [], result: {
+        const node = {
           summary: 'A combined assessment with limitations.', section_indices: [0, 1, 2, 3], citations: [0, 3],
-        } }
+          source_sha256: review.source_sha256, model: 'fixture', reported_tokens: 100, reasoning_trace: '',
+          quality: { fact_verification: 'not_performed' },
+        }
+        review.synthesis = { ...reviewFixture.synthesis, status: 'completed', stop_reason: '', nodes: [node], result: node }
         review.usage.tokens += 100
       } else if (path.endsWith('/budget')) {
         expect(route.request().postDataJSON()).toEqual({
@@ -29,24 +33,40 @@ async function mountLibrary(page, { uploadFailure = false, deleteFailure = false
         })
         if (budgetFailure) return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Budget changed. Reload saved state before confirming again.' }) })
         review.max_tokens = 100000
+        review.budget_extensions = [{ previous_max_tokens: 64000, max_tokens: 100000,
+          reported_tokens: review.usage.tokens, confirmed_at: review.updated_at }]
       } else if (path.endsWith('/advance')) {
         expect(route.request().postDataJSON()).toEqual({ confirm_model_usage: true })
         if (reviewFailure) return route.fulfill({ status: 504, contentType: 'application/json', body: JSON.stringify({ status: 'error', error: 'Review gateway timeout.' }) })
         const start = review.assessments.length
         review.assessments.push(...Array.from({ length: Math.min(3, 4 - start) }, (_, index) => ({
-          chunk_index: start + index, location: `section ${start + index + 1}`,
+          ...reviewFixture.assessments[0], chunk_index: start + index, location: `section ${start + index + 1}`,
           summary: 'A source-grounded assessment.', quote: 'An exact source quote.',
         })))
         review.status = review.assessments.length === 4 ? 'completed' : 'partial'
         review.review_complete = review.status === 'completed'
         review.usage.tokens += 300
       } else if (route.request().method() === 'POST') {
-        review = { id: 'review-one', goal: route.request().postDataJSON().goal, file_id: 'atlas-book',
-          total_sections: 4, assessments: [], status: 'ready', usage: { tokens: 0 }, max_tokens: 64000, max_extended_tokens: 128000,
+        review = { ...structuredClone(reviewFixture), goal: route.request().postDataJSON().goal, file_id: 'atlas-book',
+          scope: chat ? 'chat' : 'atlas', synthesis: undefined, review_complete: false,
+          total_sections: 4, assessments: [], status: 'ready', usage: { tokens: 0, accounting_status: 'reported_successful_calls_only' }, max_tokens: 64000, max_extended_tokens: 128000,
           warnings: ['One scanned page needs OCR.'] }
-      } else if (route.request().method() === 'DELETE') review = null
+      } else if (route.request().method() === 'DELETE') {
+        const deleted = review.id
+        review = null
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ status: 'ok', deleted }) })
+      }
+      if (malformedReview && path.endsWith('/advance')) {
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({
+          status: 'ok', review: { ...review, usage: { tokens: 'private-body-sentinel' } },
+        }) })
+      }
       result = path.endsWith('/document-reviews') && route.request().method() === 'GET'
         ? { status: 'ok', reviews: review ? [review] : [] } : { status: 'ok', review }
+      if (malformedList && path.endsWith('/document-reviews') && route.request().method() === 'GET') {
+        malformedList = false
+        result.reviews = [{ ...reviewFixture, file_id: 'another-private-file' }]
+      }
     }
     else if (path.endsWith('/capabilities')) result = { extensions: ['.pdf', '.docx', '.pptx', '.xlsx', '.txt'], max_file_bytes: 50 * 1048576, max_storage_bytes: 500 * 1048576, usage: { storage_bytes: 0 } }
     else if (path.endsWith('/upload')) {
@@ -158,6 +178,43 @@ test('failed review batch requires saved-state reload instead of an automatic pa
   await expect(page.getByRole('button', { name: 'Review next batch (uses model credits)' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Reload saved review (no model call)' }).click()
   await expect(page.getByLabel('Saved review coverage')).toContainText('0/4')
+})
+
+test('malformed paid review evidence hides mutation controls until a free saved-state reload', async ({ page }) => {
+  const errors = await mountLibrary(page, { malformedReview: true })
+  let advances = 0
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/advance')) advances += 1 })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await page.getByLabel('Review goal', { exact: false }).fill('Assess the indexed explanation.')
+  await page.getByRole('button', { name: 'Create saved review (no model call)' }).click()
+  await page.getByRole('button', { name: 'Review next batch (uses model credits)' }).click()
+  await expect(page.getByRole('alert')).toContainText('Invalid saved document review')
+  await expect(page.getByRole('alert')).not.toContainText('private-body-sentinel')
+  await expect(page.getByLabel('Saved review coverage')).toContainText('0/4')
+  await expect(page.getByRole('button', { name: 'Review next batch (uses model credits)' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Reload saved review (no model call)' }).click()
+  await expect(page.getByLabel('Saved review coverage')).toContainText('3/4')
+  expect(advances).toBe(1)
+  expect(errors).toEqual([])
+})
+
+test('foreign saved review lists block creation until a model-free reload succeeds', async ({ page }) => {
+  const errors = await mountLibrary(page, { malformedList: true })
+  let mutations = 0
+  page.on('request', request => {
+    if (new URL(request.url()).pathname.includes('/document-reviews') && request.method() !== 'GET') mutations += 1
+  })
+  await page.locator('input[type=file]').setInputFiles({ name: 'textbook.pdf', mimeType: 'application/pdf', buffer: Buffer.from('fixture') })
+  await page.getByRole('button', { name: 'Preview', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Invalid saved document review')
+  await page.getByLabel('Review goal', { exact: false }).fill('Assess the indexed explanation.')
+  await expect(page.getByRole('button', { name: 'Create saved review (no model call)' })).toBeDisabled()
+  await page.getByRole('button', { name: 'Reload saved reviews (no model call)' }).click()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create saved review (no model call)' })).toBeEnabled()
+  expect(mutations).toBe(0)
+  expect(errors).toEqual([])
 })
 
 test('cross-section synthesis is explicitly paid and saved source citations reopen without replay', async ({ page }) => {

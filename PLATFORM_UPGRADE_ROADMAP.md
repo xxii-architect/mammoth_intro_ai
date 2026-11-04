@@ -171,7 +171,7 @@ tokenization, exhaustive-review or container-evidence work.
 
 Subsequent infrastructure/platform gates:
 
-Current container evidence slice (source; awaiting release gate):
+Merged container evidence slice (#27; all nine checks passed):
 
 - Separate strict operator acceptance command runs bundled trusted Python
   fixtures through the actual owner executor. Observes non-root test-process
@@ -192,12 +192,31 @@ Current container evidence slice (source; awaiting release gate):
   from startup/generic permission errors; only recognized named denials with a
   bounded runtime receipt are manual review candidates. No automatic policy edits.
 
+Connected SDK/recovery slice (bounded local checks; final release evidence in PR):
+
+- Python/zero-dependency JavaScript review methods validate nested saved evidence:
+  identity/file/scope, source hashes and sequential coverage, safe-integer usage,
+  inflight markers, compare-and-set budget history and hierarchical synthesis
+  traversal/citation lineage. Preserve additive fields and legitimate active,
+  blocked and over-ceiling states; malformed receipts never authorize replay.
+- The preview reuses the JavaScript guard, retains its last valid record and
+  requires a model-free reload after failed/malformed evidence. Invalid initial
+  lists expose a free reload instead of allowing replacement creation.
+- A common malformed-state matrix checks both clients. Real hierarchical service
+  checkpoints exercise the guard at writes. Installed-client loopback tests use
+  real socket timeouts and killed/restarted SQLite workers with offline models:
+  unknown assessment work stays blocked, GET never spends, explicit continuation
+  of a known partial checkpoint starts at the next section.
+- Bounded evidence only: not production proxy/provider behavior, synthesis wire
+  disconnects, general agent SSE restart or full nested SDK certification.
+  No new provider spend, dependencies, permissions or automatic retries.
+
 Remaining infrastructure/platform gates:
 
 1. Establish reviewed owner-container infrastructure evidence and compatible
    per-repository validators (CI-03); a green diagnostics job is insufficient.
-2. Expand nested SDK payload contracts and live disconnect/restart coverage
-   (SDK-01/02, RUN-11), building on existing container/envelope guards.
+2. Expand nested SDK domains and deployed/general agent SSE disconnect/restart
+   coverage (SDK-01/02, RUN-11), beyond the bounded saved-review work above.
 3. Address shared persistence transactions and observed provider/agent health
    (DATA-01/02, HEALTH-01/02); do not infer availability from discovery alone.
 4. Establish authoritative tenant usage/spend controls and measured escalation

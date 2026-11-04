@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { validateDocumentReview } from '@mammothos/paths'
 import { api } from '../api/client'
 
 export default function DocumentReviewPanel({ fileId, scope }) {
@@ -15,17 +16,27 @@ export default function DocumentReviewPanel({ fileId, scope }) {
     && (synthesis?.status !== 'blocked' || capStops.includes(synthesis.stop_reason))
     && review.max_tokens < review.max_extended_tokens
 
-  useEffect(() => {
+  const loadSaved = useCallback(() => {
     const request = ++generation.current
+    setBusy(true)
+    setError('')
     api(`/mammoth/document-reviews?file_id=${encodeURIComponent(fileId)}&scope=${scope}`)
       .then(result => {
         if (!Array.isArray(result?.reviews)) throw new Error('Invalid saved reviews response.')
+        result.reviews.forEach(item => validateDocumentReview(item, { fileId, scope }))
         if (request === generation.current) setReview(result.reviews[0] || null)
       })
       .catch(cause => { if (request === generation.current) setError(cause.message || 'Could not load saved review.') })
       .finally(() => { if (request === generation.current) setBusy(false) })
-    return () => { generation.current += 1 }
   }, [fileId, scope])
+
+  useEffect(() => {
+    setReview(null)
+    setGoal('')
+    setBudgetCeiling('')
+    loadSaved()
+    return () => { generation.current += 1 }
+  }, [loadSaved])
 
   const change = async (action) => {
     const request = ++generation.current
@@ -33,7 +44,7 @@ export default function DocumentReviewPanel({ fileId, scope }) {
     setError('')
     try {
       const result = await action()
-      if (!result?.review || !Array.isArray(result.review.assessments)) throw new Error('Invalid review response. Reload saved state before retrying.')
+      validateDocumentReview(result?.review, { fileId, scope, ...(review ? { reviewId: review.id } : {}) })
       if (request === generation.current) setReview(result.review)
     } catch (cause) {
       if (request === generation.current) setError(`${cause.message || 'Review request failed.'} Reload saved state before starting another batch.`)
@@ -46,12 +57,13 @@ export default function DocumentReviewPanel({ fileId, scope }) {
     <h4>Indexed document review</h4>
     <p>Explicit read-only assessment, not recursive critique. Each batch uses model credits for up to 3 sections. Opening saved progress is free of model calls. All indexed sections assessed does not mean the original file was fully extracted or facts verified.</p>
     {error && <p role="alert">{error}</p>}
+    {error && !review && <button disabled={busy} onClick={loadSaved}>Reload saved reviews (no model call)</button>}
     {!review && <form onSubmit={event => {
       event.preventDefault()
       change(() => api('/mammoth/document-reviews', { method: 'POST', body: { file_id: fileId, scope, goal } }))
     }}>
       <label>Review goal <input value={goal} onChange={event => setGoal(event.target.value)} maxLength={1000} required /></label>
-      <button disabled={busy || !goal.trim()} type="submit">Create saved review (no model call)</button>
+      <button disabled={busy || !!error || !goal.trim()} type="submit">Create saved review (no model call)</button>
     </form>}
     {review && <>
       <p>{review.goal}</p>
@@ -101,7 +113,8 @@ export default function DocumentReviewPanel({ fileId, scope }) {
         setBusy(true)
         const request = ++generation.current
         try {
-          await api(`/mammoth/document-reviews/${encodeURIComponent(review.id)}`, { method: 'DELETE' })
+          const result = await api(`/mammoth/document-reviews/${encodeURIComponent(review.id)}`, { method: 'DELETE' })
+          if (result?.deleted !== review.id) throw new Error('Invalid deletion receipt. Reload saved state before further work.')
           if (request === generation.current) { setReview(null); setError('') }
         } catch (cause) {
           if (request === generation.current) setError(cause.message || 'Could not delete review.')

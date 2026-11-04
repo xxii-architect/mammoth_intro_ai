@@ -58,6 +58,17 @@ uncertain/invalid calls cannot be unlocked. Only known cap stops can resume at
 their checkpoint. Each subsequent paid batch still needs its own click.
 Ordinary recursive-run limits and broader tenant spend controls are unchanged.
 
+The preview and both Paths SDKs now reject malformed nested saved-review
+evidence: mismatched identity/source references, impossible coverage, invalid
+usage/history and broken synthesis traversal/citations. They preserve legitimate
+partial, active, blocked and over-ceiling records rather than inventing success.
+After an error, paid controls remain unavailable until a model-free saved-state
+reload succeeds. If the initial list is invalid, use **Reload saved reviews
+(no model call)**; no replacement review is silently created. These are structural
+checks, not factual verification or permission to replay unknown provider work.
+Real-socket tests with offline models cover assessment timeout plus abrupt
+worker restart in both installed clients, not deployed proxy/provider behavior.
+
 ### Focused ATLAS workspace
 
 ATLAS uses four workspace views: Lesson, Tutor, Agents and Curricula. On phones,
