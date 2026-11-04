@@ -213,6 +213,20 @@ Connected SDK/recovery slice (bounded local checks; final release evidence in PR
 
 Remaining infrastructure/platform gates:
 
+Desktop handoff refinement:
+
+- Applied coding result/pilot cards can explicitly reread the caller-authorized
+  execution, download its recorded patch and launch a recorded GitHub repository
+  in Desktop. No launch occurs on rendering, recovery or approval.
+- Branch-specific launching requires the user's local/published-branch
+  acknowledgment, not a fabricated check of their computer. Missing/ambiguous
+  GitHub identity never falls back to the platform repository.
+- Backend-only unpublished branches still need operator-assisted transfer.
+  Automatic remote-to-local branch transport/local helper distribution is not
+  implemented; patch download is not branch import. Push, PR and merge remain
+  explicit user operations. Browser protocol-handler links are covered by
+  fixture tests, not certified against an installed Desktop app.
+
 1. Establish reviewed owner-container infrastructure evidence and compatible
    per-repository validators (CI-03); a green diagnostics job is insufficient.
 2. Expand nested SDK domains and deployed/general agent SSE disconnect/restart

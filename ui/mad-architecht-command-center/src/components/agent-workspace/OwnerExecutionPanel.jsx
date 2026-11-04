@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, authorizedFetch, parseApiResponse } from '../../api/client'
 import { useAuth } from '../../lib/authContext'
+import DesktopHandoff from '../DesktopHandoff'
 
 export default function OwnerExecutionPanel({ repo }) {
   const { user, isGuest } = useAuth()
@@ -108,6 +109,7 @@ function ExecutionPanel({ repo = '' }) {
         {job.application.status === 'applied' && <>. Local branch: <code>{job.application.branch}</code>. Not pushed or deployed.</>}
       </p>}
       {job.application?.error && <p role="alert">{job.application.error}</p>}
+      {job.application?.status === 'applied' && <DesktopHandoff key={job.id} executionId={job.id} />}
       {job.error && <p role="alert">{job.error}</p>}
       {['baseline', 'candidate'].map(phase => job[phase] && <details key={phase}>
         <summary>{phase}: {job[phase].passed ? 'profile passed' : 'profile failed'} ({job[phase].duration_ms} ms)</summary>

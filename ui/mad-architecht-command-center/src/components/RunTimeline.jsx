@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { ChevronDown, ChevronRight, Copy, Check, Square, CircleDashed, CheckSquare2 } from 'lucide-react'
 import TraceGlyph from './TraceGlyph'
 import OwnerExecutionReview from './OwnerExecutionReview'
+import DesktopHandoff from './DesktopHandoff'
 import { describeRunActivity } from '../lib/runActivity'
 
 const MONO = 'var(--mm-font-mono, "JetBrains Mono", monospace)'
@@ -157,11 +158,13 @@ export default function RunTimeline({ run, onApprove, onReject, onContinue, busy
           Available profiles: {Object.entries(run.progress.readiness.profiles || {}).filter(([, available]) => available).map(([name]) => name).join(', ') || 'none'}.
           This is the saved observation, not an automatic repository sync.
         </p>}
-        {run.progress.executions?.map(job => <p key={job.id}>
+        {run.progress.executions?.map(job => <div key={job.id}><p>
           Execution <code>{job.id}</code>: {job.status} ({job.profile})
           {' · '}build: {job.validation_evidence?.build || 'not_tested'} · behavior: {job.validation_evidence?.behavior || 'not_tested'}
           {job.application?.status === 'applied' && <> · branch <code>{job.application.branch}</code> · commit <code>{job.application.commit_sha}</code></>}
-        </p>)}
+        </p>
+          {job.application?.status === 'applied' && <DesktopHandoff executionId={job.id} />}
+        </div>)}
         {run.progress.blocker && <p role="status">{run.progress.blocker}</p>}
       </section>}
       {(steps.length > 0 || run.plan?.length > 0 || !finished || run.status !== 'completed') && (

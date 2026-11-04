@@ -841,6 +841,18 @@ agent SSE restart acceptance. See the [recovery guidance](docs/public/mammoth_pa
 
 ### Saved-run recovery and review
 
+Applied owner-execution cards in the coding timeline and isolated-validation
+panel offer **Prepare GitHub Desktop handoff (no push)**. This explicitly rereads
+the caller-authorized execution; it never launches an app on refresh. The card
+can download the recorded approved patch and open an unambiguous recorded GitHub
+repository in Desktop. Branch-specific launching requires the user to confirm
+that the branch is already in their local clone or published, then verify its
+commit in Desktop. No default repository, automatic push/merge or backend-to-
+laptop transfer is introduced. An unpublished branch on a remote Mammoth host
+still requires operator-assisted transfer; a patch download does not install
+a branch or preserve the backend commit identity. Desktop installation and
+browser protocol-handler permission are required; launch success is not assumed.
+
 **Workspace > Run Review** lists the current account's saved runs and reopens
 their plans, tool traces, diagnostics, blockers, checks and branch receipts.
 It is deliberately read-only: refresh is GET-only and never starts a model,

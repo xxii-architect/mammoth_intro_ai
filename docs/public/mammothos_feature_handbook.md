@@ -296,6 +296,23 @@ critique can assess a diagram that was never extracted.
 
 ## Repository context and privacy
 
+### Handing approved coding work to GitHub Desktop
+
+An applied owner branch has an explicit **Prepare GitHub Desktop handoff (no
+push)** action on its result card. It rereads saved execution evidence and can
+download the approved patch or open a recorded GitHub repository in the installed
+Desktop app. A branch-specific link appears only after you acknowledge that the
+branch is already local or published; verify the displayed commit in Desktop.
+This acknowledgment is not a local-state probe. Browser permission may be needed,
+and launch success is never presumed. Review/push/create a PR in Desktop; review
+checks and merge on GitHub yourself.
+
+Important: Mammoth's backend and your laptop may be different computers. Opening
+Desktop cannot transfer an unpublished backend branch. That case still needs an
+operator-assisted transfer; the patch download is portable source evidence, not
+an automatic import or Git bundle. There is no automatic app launch, push, merge,
+repository sync or default repository. Keep downloaded source patches private.
+
 No repository selected means **no repository context**. Select a repository you
 connected when you want source-aware help. A repository name in a prompt is not
 authorization to access its files.
