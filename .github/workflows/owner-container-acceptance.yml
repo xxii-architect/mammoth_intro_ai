@@ -7,7 +7,7 @@ on:
         description: Runner diagnostics or actual deployed production service
         type: choice
         default: runner
-        options: [runner, production]
+        options: [runner, production, storage-preflight]
       image:
         description: Reviewed image@sha256 digest, or configured for production live-process image only
         required: true
@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   owner-container-acceptance:
-    if: inputs.target != 'production'
+    if: inputs.target == 'runner'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -57,7 +57,7 @@ jobs:
           retention-days: 7
 
   hosted-owner-container-acceptance:
-    if: inputs.target == 'production'
+    if: inputs.target == 'production' || inputs.target == 'storage-preflight'
     runs-on: ubuntu-latest
     environment: production
     timeout-minutes: 10
@@ -77,6 +77,7 @@ jobs:
           DO_SSH_PRIVATE_KEY_B64: ${{ secrets.DO_SSH_PRIVATE_KEY_B64 }}
           REVIEWED_IMAGE: ${{ inputs.image }}
           PULL_REVIEWED_IMAGE: ${{ inputs.pull_reviewed_image }}
+          ACCEPTANCE_TARGET: ${{ inputs.target }}
         shell: bash
         run: |
           set -euo pipefail
@@ -96,6 +97,14 @@ jobs:
           fi
           printf '%s\n' "$DO_KNOWN_HOSTS" > "$RUNNER_TEMP/hosted-ssh/known_hosts"
           chmod 600 "$RUNNER_TEMP/hosted-ssh/key"
+          if [ "$ACCEPTANCE_TARGET" = storage-preflight ]; then
+            ssh -i "$RUNNER_TEMP/hosted-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosted-ssh/known_hosts" \
+              -p "${DO_PORT:-22}" "${DO_USER}@${DO_HOST}" \
+              "python3 - '$DO_APP_PATH'" < scripts/quality/inspect_hosted_storage.py \
+              > hosted-container-evidence/storage_preflight.json
+            exit 0
+          fi
           PROBE_B64="$(base64 -w0 scripts/quality/check_owner_container.py)"
           ssh -i "$RUNNER_TEMP/hosted-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/hosted-ssh/known_hosts" \
@@ -107,8 +116,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hosted-container-evidence
-          path: hosted-container-evidence/hosted_container_evidence.json
+          name: ${{ inputs.target == 'storage-preflight' && 'storage-preflight' || 'hosted-container-evidence' }}
+          path: hosted-container-evidence/*.json
           if-no-files-found: warn
           retention-days: 7
       - name: Remove per-job SSH key

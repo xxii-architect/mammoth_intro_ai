@@ -71,8 +71,7 @@ class CombinedLedger:
             tenant_id = self.tenant.reserve(provider, model, tokens, **allowances)
         except RuntimeLimitReached:
             # Definitive rejection before any provider call; not an unknown paid outcome.
-            with self.private._db() as db:
-                db.execute("DELETE FROM attempts WHERE id=? AND status='pending'", (private_id,))
+            self.private.abandon_unstarted(private_id)
             raise
         return private_id, tenant_id
 

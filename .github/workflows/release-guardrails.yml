@@ -42,6 +42,7 @@ jobs:
             tests/test_runtime_resilience.py \
             tests/test_runtime_state_usage.py \
             tests/test_shared_state_admission.py \
+            tests/test_hosted_storage_preflight.py \
             tests/test_server_routes_layout.py \
             -q
 
@@ -60,13 +61,13 @@ jobs:
       - run: python -m pip install -r requirements.txt pytest
       - name: Start dedicated ephemeral PostgreSQL
         run: |
-          docker run --name mammoth-admission-ci -e POSTGRES_PASSWORD=fixture-only -d postgres:16
+          docker run --name mammoth-admission-ci -p 127.0.0.1::5432 -e POSTGRES_PASSWORD=fixture-only -d postgres:16
           for attempt in $(seq 1 30); do
             if docker exec mammoth-admission-ci pg_isready -U postgres; then exit 0; fi
             sleep 1
           done
           exit 1
-      - run: python -m pytest tests/test_shared_state_admission.py -q
+      - run: python -m pytest tests/test_shared_state_admission.py tests/test_postgres_run_store.py -q
       - name: Stop dedicated fixture database
         if: always()
         run: docker rm -f mammoth-admission-ci

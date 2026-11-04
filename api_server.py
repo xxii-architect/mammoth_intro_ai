@@ -1309,7 +1309,6 @@ def _save_activity_events(entries: List[Dict[str, Any]]):
 
 
 def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kind: str = "event", details: Optional[Dict[str, Any]] = None, trace_id: str = "") -> Dict[str, Any]:
-    entries = _load_activity_events()
     entry = {
         "id": str(uuid.uuid4()),
         "kind": kind,
@@ -1320,10 +1319,7 @@ def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kin
         "details": details or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    entries.append(entry)
-    if len(entries) > 250:
-        entries = entries[-250:]
-    _save_activity_events(entries)
+    _json_store().append(AGENT_ACTIVITY_FILE, entry, keep=250)
     return entry
 
 
@@ -2223,6 +2219,17 @@ def _runtime_ledger(user_id=None):
     from mammoth_os.runtime_ledger import RuntimeLedger
     from mammoth_os.repo_access import user_storage_key
 
+    backend = os.environ.get("MAMMOTH_PRIVATE_USAGE_BACKEND", "local")
+    if backend != "local":
+        from mammoth_os.postgres_ledger import PostgresRuntimeLedger
+        from mammoth_os.shared_state import StateUnavailable
+
+        if backend != "postgres":
+            raise StateUnavailable("Invalid private usage backend; no fallback is permitted.")
+        return PostgresRuntimeLedger(
+            os.environ.get("MAMMOTH_POSTGRES_DSN"), os.environ.get("MAMMOTH_STATE_NAMESPACE"),
+            user_id or _current_request_user_id(),
+        )
     return RuntimeLedger(MAMMOTH_DIR / "runtime_usage" / f"{user_storage_key(user_id or _current_request_user_id())}.sqlite3")
 
 
@@ -7598,7 +7605,9 @@ _OWNER_EXECUTION = OwnerExecution(
     if os.environ.get("MAMMOTH_OWNER_UI_IMAGE") else None,
 )
 _AGENT_TOOLS, _AGENT_MCP = _build_agent_tool_registry()
-_AGENT_RUNS = RunStore(MAMMOTH_DIR / "agent_runs")
+from mammoth_os.agent_loop.postgres_store import configured_run_store
+
+_AGENT_RUNS = configured_run_store(MAMMOTH_DIR / "agent_runs")
 
 
 def _agent_llm_factory(run: Optional[AgentRun] = None):

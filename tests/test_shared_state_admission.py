@@ -91,6 +91,62 @@ def test_inherited_request_contexts_keep_independent_read_snapshots(tmp_path):
     assert [row["id"] for row in json.loads(path.read_text())] == ["original", "second", "first"]
 
 
+def test_bounded_append_is_atomic_under_contention_and_never_weakens_edit_conflicts(tmp_path):
+    store = JsonStateStore(tmp_path)
+    path = tmp_path / "events.json"
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lambda index: store.append(path, {"id": str(index)}, keep=10), range(30)))
+    rows = store.read(path, [])
+    assert len(rows) == len({row["id"] for row in rows}) == 10
+    store.append(path, rows[-1], keep=10)
+    assert store.read(path, []) == rows
+    with pytest.raises(StateConflict, match="different content"):
+        store.append(path, {**rows[-1], "message": "changed"}, keep=10)
+    assert store.read(path, []) == rows
+
+
+def test_bounded_rpc_append_recomputes_retention_after_compare_and_swap_conflict(tmp_path, monkeypatch):
+    monkeypatch.setenv("MAMMOTH_STATE_NAMESPACE", "fixture")
+    state = {"revision": 1, "payload": [{"id": "old"}, {"id": "recent"}]}
+    raced = False
+
+    def rpc(name, params):
+        nonlocal raced
+        if name == "mammoth_state_read":
+            return json.loads(json.dumps(state))
+        if not raced:
+            raced = True
+            state.update(revision=2, payload=[{"id": "recent"}, {"id": "concurrent"}])
+            return {"saved": False}
+        assert params["p_revision"] == state["revision"]
+        state.update(revision=3, payload=params["p_payload"])
+        return {"saved": True, "revision": 3}
+
+    store = JsonStateStore(tmp_path, rpc)
+    store.append(tmp_path / "events.json", {"id": "new"}, keep=2)
+    assert state["payload"] == [{"id": "concurrent"}, {"id": "new"}]
+
+
+def test_activity_retention_uses_atomic_append_instead_of_stale_collection_edits(tmp_path, monkeypatch):
+    import api_server
+
+    path = tmp_path / "activity.json"
+    monkeypatch.setattr(api_server, "MAMMOTH_DIR", tmp_path)
+    monkeypatch.setattr(api_server, "AGENT_ACTIVITY_FILE", path)
+    store = JsonStateStore(tmp_path)
+    with state_session():
+        store.write(path, [{"id": str(index)} for index in range(250)])
+        stale_context = copy_context()
+        stale = stale_context.run(store.read, path, [])
+        with state_session():
+            store.append(path, {"id": "concurrent"}, keep=250)
+        event = api_server._append_activity("completed after another writer")
+    rows = store.read(path, [])
+    assert len(rows) == 250 and rows[-2]["id"] == "concurrent" and rows[-1] == event
+    with pytest.raises(StateConflict):
+        stale_context.run(store.write, path, stale[1:] + [{"id": "stale-edit"}])
+
+
 def test_process_appends_preserve_every_record(tmp_path):
     code = """
 import sys,time
@@ -179,11 +235,15 @@ CREATE SCHEMA auth;
 CREATE TABLE auth.users(id uuid PRIMARY KEY,email text,raw_user_meta_data jsonb DEFAULT '{}');
 CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
 """)
-        for migration in ("supabase_tenant_auth.sql", "supabase_runtime_state.sql", "supabase_tenant_admission.sql"):
+        for migration in ("supabase_tenant_auth.sql", "supabase_runtime_state.sql", "supabase_tenant_admission.sql",
+                          "supabase_agent_runs.sql", "supabase_private_admission.sql"):
             sql((ROOT / ".mammoth" / migration).read_text(encoding="utf-8"))
         # Reapplication is safe and does not erase existing operational records.
         sql((ROOT / ".mammoth" / "supabase_runtime_state.sql").read_text())
         sql((ROOT / ".mammoth" / "supabase_tenant_admission.sql").read_text())
+        sql((ROOT / ".mammoth" / "supabase_agent_runs.sql").read_text())
+        sql.database = database
+        sql.container = container
         yield sql
     finally:
         sql(f"DROP DATABASE {database} WITH (FORCE)", db="postgres")

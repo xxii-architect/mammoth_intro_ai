@@ -88,6 +88,13 @@ class RuntimeLedger:
             if changed.rowcount != 1:
                 raise ValueError("Provider attempt was already finalized or does not exist.")
 
+    def abandon_unstarted(self, identity: str) -> None:
+        """Release only a definitively rejected admission, never an unknown call."""
+        with self._db() as db:
+            changed = db.execute("DELETE FROM attempts WHERE id=? AND status='pending'", (identity,))
+            if changed.rowcount != 1:
+                raise ValueError("Unstarted reservation is missing or already finalized.")
+
     def snapshot(self) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         day = now.date().isoformat()
@@ -103,19 +110,25 @@ class RuntimeLedger:
                     SELECT id FROM (SELECT id,ROW_NUMBER() OVER (
                         PARTITION BY provider ORDER BY finished_at DESC,id DESC) AS position
                         FROM attempts WHERE finished_at IS NOT NULL) WHERE position=1)""").fetchall()
-        providers = []
-        for row in observations:
-            age = max(0, (now - datetime.fromisoformat(row["finished_at"])).total_seconds())
-            providers.append({"provider": row["provider"], "model": row["model"],
-                              "observed_at": row["finished_at"], "age_seconds": round(age),
-                              "health": "stale" if age > 300 else "unavailable" if row["status"] == "failed_unknown" else "available",
-                              "source": "completion_attempt", "ttl_seconds": 300})
-        counted = totals["reported_tokens"] + totals["unresolved_reserved_tokens"]
-        return {"contract": "mammoth.runtime-usage.v1", "day_utc": day,
-                "scope": "authenticated_user_all_accounts", "daily_token_limit": limit,
-                **dict(totals), "admission_tokens": counted,
-                "remaining_tokens": None if limit is None else max(0, limit - counted),
-                "accounting_status": "incomplete" if totals["unknown_attempts"] else "reported",
-                "currency_spend": None, "invoice_verified": False, "providers": providers,
-                "coverage": "leaf_calls_through_llm_completion_only",
-                "unknown_outcomes": "retain_full_reservation_without_automatic_replay"}
+        return usage_snapshot(limit, dict(totals), observations, now)
+
+
+def usage_snapshot(limit, totals, observations, now):
+    """Common public contract for local and PostgreSQL ledgers."""
+    day = now.date().isoformat()
+    providers = []
+    for row in observations:
+        age = max(0, (now - datetime.fromisoformat(row["finished_at"])).total_seconds())
+        providers.append({"provider": row["provider"], "model": row["model"],
+                          "observed_at": row["finished_at"], "age_seconds": round(age),
+                          "health": "stale" if age > 300 else "unavailable" if row["status"] == "failed_unknown" else "available",
+                          "source": "completion_attempt", "ttl_seconds": 300})
+    counted = totals["reported_tokens"] + totals["unresolved_reserved_tokens"]
+    return {"contract": "mammoth.runtime-usage.v1", "day_utc": day,
+            "scope": "authenticated_user_all_accounts", "daily_token_limit": limit,
+            **dict(totals), "admission_tokens": counted,
+            "remaining_tokens": None if limit is None else max(0, limit - counted),
+            "accounting_status": "incomplete" if totals["unknown_attempts"] else "reported",
+            "currency_spend": None, "invoice_verified": False, "providers": providers,
+            "coverage": "leaf_calls_through_llm_completion_only",
+            "unknown_outcomes": "retain_full_reservation_without_automatic_replay"}

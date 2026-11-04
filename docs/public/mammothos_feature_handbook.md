@@ -72,8 +72,12 @@ Do not use this as a bill, Copilot-credit meter or guaranteed dollar-spend cap.
 Embeddings, custom/uninstrumented paths, internal provider-SDK retries, local SDK
 calls outside the hosted request context and invoices are not separately
 accounted. Per-login admission is not hosted multi-member tenant billing.
-Workers sharing the same durable disk coordinate; independent replicas/disks
-require a shared transactional backend, which remains a deployment gate.
+Workers sharing the same durable disk coordinate by default. Optional PostgreSQL
+run checkpoints/session leases and private login admission coordinate across
+disks after an explicit reviewed migration. Worker loss does not authorize
+replaying unknown work, and database failure does not fall back to local state.
+Uploads, learning-control SQLite and learner erasure/recovery are still separate
+replica-readiness gates; backend autoscaling is not enabled by these options.
 
 ## How the Guide stays current
 
