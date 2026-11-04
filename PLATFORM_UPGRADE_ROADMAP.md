@@ -260,6 +260,12 @@ and full multi-replica readiness are not certified):
   event appends preserve retention without replaying workflow actions; corrupt
   reads and storage failures are explicit. This does not close chat-thread,
   learner, host-state or binary migration gates.
+- Generated-artifact refinement: optional private PostgreSQL DOCX bytes and
+  immutable ownership, cross-worker downloads, serialized count/byte limits,
+  checksummed namespace-wide backup/import/export/fresh-path rollback. Failed
+  publication preserves draft text and archives no broken download link. Local
+  remains default; chat, learner and host-side storage plus production activation
+  remain gates. No full independent-replica claim.
 
 Runtime reliability/admission refinement (bounded delivery, not closure of every
 DATA/HEALTH/BILL item):

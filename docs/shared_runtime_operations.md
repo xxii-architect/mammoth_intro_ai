@@ -311,12 +311,77 @@ against the latest backup before installing it into the reviewed owner's
 original location and selecting `local`. A failed partial restore must never
 be activated; existing output directories are never overwritten.
 
+## Shared generated research documents (optional)
+
+`MAMMOTH_GENERATED_ARTIFACT_BACKEND=postgres` stores generated DOCX ownership and
+bytes together in private PostgreSQL tables. `local` remains the default.
+Apply `.mammoth\supabase_generated_artifacts.sql` through the reviewed SQL
+administration channel first. Configure the private `MAMMOTH_POSTGRES_DSN` and
+explicit `MAMMOTH_STATE_NAMESPACE`; never put connection values in chat, source,
+backup manifests or browser configuration. Invalid/unavailable storage does
+not fall back to local downloads.
+
+The generator still writes a private staging file. Publication commits the
+bytes before removing that file; downloads on another worker use the database,
+not the generator's disk. Staging cleanup failures are logged separately.
+Document publication runs before workspace archival. A failed publication keeps
+the draft text but removes the download filename and records
+`quality.generated_document.status: "failed"` with a stable error code. It does
+not replay paid work.
+
+Limits are 50 MiB per file, 2 GiB and 2,000 files per owner. Quotas serialize
+across workers; reaching them fails publication without pruning older files.
+Identical owner/name/content registration is idempotent. A filename cannot be
+overwritten or claimed by another owner, even by an administrator. Downloads
+retain signed-in, owner-or-admin access and identical missing/not-owner 404s.
+Imported documents without ownership remain admin-only, never auto-assigned.
+SQL access is service-only with RLS; browser roles cannot read the tables.
+Database backups/capacity must include these `bytea` binaries.
+
+### Generated-document migration and rollback
+
+This is a **namespace-wide** backup containing private documents from multiple
+users, including admin-only legacy files. Stop all generator, ownership,
+download and other writers during the reviewed cutover. Review the explicit
+source directory and authoritative ownership snapshot; do not infer ownership
+from filenames. If ownership currently uses shared JSON, first export that
+record through the existing shared-state backup procedure; a stale local index
+is not an authoritative snapshot.
+
+```powershell
+python scripts\migrate_generated_artifacts.py local-export --namespace REVIEWED_NAMESPACE --generated-dir C:\private\generated_docs --owners-file C:\private\generated_doc_owners.json --backup C:\private\generated-before --confirm-quiesced
+python scripts\migrate_generated_artifacts.py import --namespace REVIEWED_NAMESPACE --backup C:\private\generated-before --confirm-quiesced
+python scripts\migrate_generated_artifacts.py export --namespace REVIEWED_NAMESPACE --backup C:\private\generated-after --confirm-quiesced
+```
+
+Outputs must be new private directories. The `mammoth.generated-artifacts-backup.v1`
+manifest is written last and records names, owners (or null for admin-only),
+sizes and SHA-256 checksums, never credentials. Import validates every binary
+and ownership record in a single transaction, refuses nonempty destinations,
+and rolls back earlier inserts if any later record fails. Compare the
+re-exported manifest and binaries before selecting the PostgreSQL backend.
+Backup directories require the same protection as the originals.
+
+For rollback, stop writers, export the latest shared state into a new backup
+and restore into a **new** private directory:
+
+```powershell
+python scripts\migrate_generated_artifacts.py restore-local --namespace REVIEWED_NAMESPACE --backup C:\private\generated-latest --restore-dir C:\private\generated-restored --confirm-quiesced
+```
+
+Only a completed restore has `restore-complete.json`. Verify its re-export
+before installing `generated_docs` and `generated_doc_owners.json` into the
+reviewed local locations and selecting `local`. Do not activate a partial
+restore or merge a rollback into existing files. Missing original binaries or
+owner references block migration instead of silently omitting data.
+
 ## Replica boundary and verification
 
 This release is **not independent-replica readiness**. Generic JSON RPCs and the
 tenant admission ledger coordinate via Postgres, with new optional PostgreSQL
 run leases/checkpoints, private login ceilings, learning controls and document
-libraries. Unmigrated local stores, generated-artifact binaries and learner erasure/recovery still need a
+libraries, plus optional generated-document ownership/bytes. Unmigrated chat,
+host-side stores and learner erasure/recovery still need a
 single-writer/shared-disk deployment. The request gate refuses
 `MAMMOTH_REPLICA_COUNT` values other than `1`; it does not discover undeclared
 replicas. Do not autoscale the backend to independent disks yet.
@@ -329,7 +394,7 @@ unknown costs, settlement and completion wiring. Local equivalent:
 $env:PYTHONPATH="$PWD\src"
 $env:MAMMOTH_TEST_POSTGRES_CONTAINER="your-dedicated-test-container"
 $env:MAMMOTH_REQUIRE_POSTGRES_TESTS="1"
-python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_store.py tests\test_postgres_documents.py -q
+python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_store.py tests\test_postgres_documents.py tests\test_generated_artifacts.py -q
 ```
 
 The named container must be dedicated test infrastructure. Tests create/drop a

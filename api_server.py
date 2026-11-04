@@ -1881,7 +1881,36 @@ def _visible_tasks() -> List[Dict[str, Any]]:
 _DOC_OWNERS_LOCK = threading.Lock()
 
 
+def _generated_artifact_store():
+    from mammoth_os.generated_artifacts import PostgresGeneratedArtifacts
+    from mammoth_os.shared_state import StateUnavailable
+
+    backend = os.environ.get("MAMMOTH_GENERATED_ARTIFACT_BACKEND", "local").strip().lower()
+    if backend == "local":
+        return None
+    if backend != "postgres":
+        raise StateUnavailable("Invalid generated artifact backend; no fallback is permitted.")
+    return PostgresGeneratedArtifacts(
+        os.environ.get("MAMMOTH_POSTGRES_DSN", ""), os.environ.get("MAMMOTH_STATE_NAMESPACE", ""),
+    )
+
+
 def _record_generated_doc_owner(filename: str) -> None:
+    from mammoth_os.generated_artifacts import validate_filename
+
+    validate_filename(filename)
+    store = _generated_artifact_store()
+    if store is not None:
+        from mammoth_os.generated_artifacts import read_staged
+
+        raw = read_staged(GENERATED_DOCS_DIR, filename)
+        store.put(filename, _current_request_user_id(""), raw)
+        # Staging is not the download source once the database commit succeeds.
+        try:
+            (GENERATED_DOCS_DIR / filename).unlink()
+        except OSError:
+            logger.exception("Generated document committed, but private staging cleanup failed")
+        return
     safe = os.path.basename(str(filename or ""))
     if not safe.endswith(".docx"):
         return
@@ -1893,6 +1922,22 @@ def _record_generated_doc_owner(filename: str) -> None:
         if len(owners) > 2000:
             owners = dict(list(owners.items())[-2000:])
         _write_json(GENERATED_DOC_OWNERS_FILE, owners)
+
+
+def _publish_generated_document(output):
+    from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+    filename = output.get("docx_filename")
+    if not filename:
+        return
+    try:
+        _record_generated_doc_owner(str(filename))
+    except (StateConflict, StateUnavailable, ValueError, OSError):
+        logger.exception("Generated document publication failed; model work is not replayed")
+        output["docx_filename"] = None
+        output["status"] = "partial" if output.get("status") != "error" else "error"
+        quality = output.setdefault("quality", {})
+        quality["generated_document"] = {"status": "failed", "error_code": "artifact_storage_failed"}
 
 
 def _generated_doc_visible(filename: str) -> bool:

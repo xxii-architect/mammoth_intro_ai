@@ -2,6 +2,7 @@ import asyncio
 
 import api_server
 import mammoth_os.agent_registry as agent_registry_mod
+from mammoth_os.shared_state import StateUnavailable
 
 
 class _DummyManifest:
@@ -120,6 +121,48 @@ def test_run_auto_save_keeps_full_content_type_provenance_and_distinct_runs(monk
         assert "output_contract" in artifact["verification"]
         assert artifact["lineage"] == {}
         assert artifact["revision"] == 1
+
+
+def test_longform_publication_failure_is_archived_without_broken_download_or_model_replay(monkeypatch):
+    state, calls = {}, []
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", False)
+    monkeypatch.setattr(api_server, "_agent_registry_ok", True)
+    monkeypatch.setattr(api_server, "_load_atlas_state", lambda: state)
+    monkeypatch.setattr(api_server, "_save_atlas_state", lambda payload: None)
+    monkeypatch.setattr(api_server, "_upsert_task", lambda *args, **kwargs: {"id": args[0], "title": args[1]})
+    monkeypatch.setattr(api_server, "_append_activity", lambda *args, **kwargs: None)
+    monkeypatch.setattr(agent_registry_mod, "agent_registry", _DummyRegistry())
+
+    def generate(name, payload):
+        calls.append("model")
+        return {
+            "status": "ok", "artifact_type": "long_form_research", "title": "Source-grounded draft",
+            "sections": [{"heading": "Evidence", "content": "Detailed source explanation. " * 200}],
+            "quality": {}, "docx_filename": "report.docx",
+        }
+
+    def fail_publication(filename):
+        calls.append("storage")
+        raise StateUnavailable("Private internal diagnostic must not enter the artifact.")
+
+    monkeypatch.setattr(api_server, "registry_run_agent", generate)
+    monkeypatch.setattr(api_server, "_record_generated_doc_owner", fail_publication)
+    response = asyncio.run(api_server.run_agent({
+        "intent": "research_long_form", "agent_id": "research_agent",
+        "payload": {"prompt": "Investigate evidence"},
+        "execution_policy": {"max_attempts": 2, "required_fields": ["status", "sections"]},
+    }))
+    assert calls == ["model", "storage"]
+    output = response["result"]["output"]
+    assert output["status"] == response["result"]["status"] == "partial"
+    assert output["docx_filename"] is None
+    assert output["quality"]["generated_document"]["status"] == "failed"
+    artifact = state["workspace_artifacts"][0]
+    assert not artifact["docx_filename"]
+    assert artifact["snapshot"]["docx_filename"] is None
+    assert artifact["snapshot"]["quality"]["generated_document"]["status"] == "failed"
+    assert "Detailed source explanation." in artifact["body"]
+    assert "Private internal diagnostic" not in artifact["body"]
 
 
 def test_run_auto_save_retains_supplied_repo_snapshot_and_revisions(monkeypatch):

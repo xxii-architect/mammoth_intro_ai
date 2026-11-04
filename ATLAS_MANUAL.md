@@ -42,6 +42,12 @@ Onboarding, notifications, execution logs and account-deletion request records
 also use the shared store. Conflicting edits require reload; unreadable data no
 longer silently becomes an empty record. Requesting deletion is not verification
 that all copies, provider data or backups have been erased.
+Generated research documents can optionally share ownership and binary downloads
+through PostgreSQL. Only the owner or an administrator can download; legacy
+unowned files remain admin-only. Failed publication preserves draft text, marks
+the document unit failed and omits the download link without rerunning the model.
+The local backend remains the default; use the documented backup/import/rollback
+procedure before changing production storage.
 
 Settings > Tenant usage controls exposes verified active memberships and shared
 UTC-day token/estimated-USD ceilings. Only tenant owners/admins can change policy;

@@ -1719,6 +1719,10 @@ async def run_agent(body: Dict[str, Any]):
                         result["output"] = dict(list(_p_out.items()) + [("tasks", _p_plan.get("tasks") or [])])
                 # Preserve the structured output, not a selection of its text fields.
                 _auto_out = result.get("output")
+                if isinstance(_auto_out, dict) and (
+                    intent == "research_long_form" or _auto_out.get("artifact_type") == "long_form_research"
+                ):
+                    await asyncio.to_thread(_publish_generated_document, _auto_out)
                 _auto_context = payload_dict.get("context") if isinstance(payload_dict.get("context"), dict) else {}
                 _auto_repo = _auto_context.get("repo_context") if isinstance(_auto_context.get("repo_context"), dict) else {}
                 result["artifact_save"] = _archive_runtime_result(
@@ -1772,6 +1776,18 @@ async def run_agent(body: Dict[str, Any]):
             check_cancelled()
             _think("CortexRouter returned", f"status={result.get('status','?')!r}  preview={str(result)[:120]!r}", "success")
 
+        _lf_out = result.get("output") if isinstance(result, dict) else {}
+        _lf_out = _lf_out if isinstance(_lf_out, dict) else {}
+        _is_longform = (
+            intent == "research_long_form"
+            or _lf_out.get("artifact_type") == "long_form_research"
+        )
+        if _is_longform:
+            if "artifact_save" not in result:
+                await asyncio.to_thread(_publish_generated_document, _lf_out)
+            if _lf_out.get("status") == "partial" and result.get("status") not in {"error", "pending_approval"}:
+                result["status"] = "partial"
+
         if manifest:
             await asyncio.sleep(1.2)
             manifest.status = AgentStatus.IDLE
@@ -1820,15 +1836,7 @@ async def run_agent(body: Dict[str, Any]):
             )
 
         _think("Run complete", f"task_status={task_status!r}", "error" if task_status == "failed" else "success")
-        _lf_out = result.get("output") if isinstance(result, dict) else {}
-        _lf_out = _lf_out if isinstance(_lf_out, dict) else {}
-        _is_longform = (
-            intent == "research_long_form"
-            or _lf_out.get("artifact_type") == "long_form_research"
-        )
         if _is_longform:
-            if _lf_out.get("docx_filename"):
-                _record_generated_doc_owner(str(_lf_out.get("docx_filename")))
             _run_confidence = 0.0
         elif runtime_agent in {"research", "coding"}:
             _run_confidence = 0.0
