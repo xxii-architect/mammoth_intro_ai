@@ -13,6 +13,12 @@ void client.streamRun('Review', options)
 void client.readDocument('file-id', { scope: 'chat', start: 6, count: 6 })
 void client.createDocumentReview('file-id', 'Assess the appendix.', { scope: 'atlas' })
 void client.advanceDocumentReview('review-id', { confirmModelUsage: true })
+void client.synthesizeDocumentReview('review-id', { confirmModelUsage: true })
+void client.extendDocumentReviewBudget('review-id', { expectedMaxTokens: 64000, maxTokens: 128000, confirmBudgetExtension: true })
+// @ts-expect-error Synthesis requires explicit paid confirmation.
+void client.synthesizeDocumentReview('review-id')
+// @ts-expect-error Ceiling changes require explicit confirmation.
+void client.extendDocumentReviewBudget('review-id', { expectedMaxTokens: 64000, maxTokens: 128000 })
 // @ts-expect-error Paid document review requires explicit confirmation.
 void client.advanceDocumentReview('review-id')
 // @ts-expect-error Document scopes cannot address arbitrary API surfaces.

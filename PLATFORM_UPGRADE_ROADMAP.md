@@ -105,12 +105,12 @@ Implemented bounded first batch (not closure of the items above):
   draft durability, paging/failure/stale-response behavior and SDK parity.
   The two hosted failure receipts/user files were not accessed. Exact provider
   tokenization, automatic exhaustive-review orchestration, resumable coverage
-  tracking and explicit budget extension remain open. No paid benchmark or
+  tracking and explicit budget extension remained open at that release. No paid benchmark or
   quantified credit-saving claim is made.
 
 #### Order after the context/review batch
 
-Current connected implementation (source; awaiting this slice's release gate):
+Delivered in merged #25:
 
 - Admission now runs at each leaf provider attempt, including fallback and
   conversation-background expansion. Known official OpenAI models use local
@@ -133,13 +133,32 @@ Current connected implementation (source; awaiting this slice's release gate):
   automatically retried. Exact original-source character coverage and
   authoritative charges from failed provider attempts are not invented.
 
-Next remaining context work:
+Current follow-up slice (source; awaiting this slice's release gate):
+
+- Explicit synthesis after complete indexed assessment, up to three model units
+  per confirmed batch, groups of at most eight saved assessments/intermediate
+  summaries. Durable nodes preserve input traversal and source-index citation
+  lineage without silent truncation. Final traversal must reach every indexed
+  assessment. Quotes validate source links, not entailment. Summaries are lossy,
+  not full-source rereads or factual verification.
+- Synthesis shares review usage and the 180-second batch ceiling. Reopening/
+  reloading is model-free; completed units never replay. Unknown provider outcomes,
+  invalid responses and source changes remain blocked. Crash-active work is not
+  automatically retried.
+- Audited, compare-and-set budget extensions deliberately permit a larger review
+  total, at most 128,000 reported tokens. Default remains 64,000, usage is never
+  reset, and confirmation does not run models. Only known cap stops with no
+  uncertain/invalid call may resume. Each subsequent paid batch needs separate
+  confirmation. Backend, both Paths SDKs, file-preview controls and Guide/docs
+  expose the same behavior; ordinary recursive limits remain unchanged.
+
+Remaining context work:
 
 1. Evaluate supported model/envelope admission against real reported usage; do
    not substitute a chars-per-token guess for unsupported provider tokenization.
-2. Design separately bounded cross-section synthesis and explicit budget
-   extension if required. Neither can silently replay completed paid work or
-   make an extraction-limited original file complete.
+2. Measure cross-section retention and source entailment with reviewed evaluation
+   sets before claiming semantic completeness; indexed input traversal alone
+   cannot establish it or make an extraction-limited original file complete.
 3. Use authorized saved receipts to reproduce the two hosted failures when
    available; they remain uninspected, not implicitly fixed by local fixtures.
 

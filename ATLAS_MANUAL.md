@@ -41,11 +41,22 @@ model calls. **Review next batch (uses model credits)** explicitly assesses up t
 three sections. Source-hashed summaries and exact source quotes persist per
 section; reopening/reloading does not call models. Repeat deliberate batches
 until all indexed sections are assessed or the review clearly stops partial/
-blocked. A 64,000 reported-token ceiling is shared across batches; each batch is
+blocked. A default 64,000 reported-token ceiling is shared across batches; each batch is
 limited to 180 seconds. Unknown provider outcomes and hard-cap stops are not
 replayed. Deleting the source removes its reviews. This is indexed coverage,
 not factual verification, original-file completeness or recursive critique;
-cross-section synthesis and budget extensions remain deferred.
+use a separate explicit synthesis batch to combine saved assessments. Each
+confirmed batch runs up to three groups of at most eight inputs, checkpointing
+intermediate summaries and source citation lineage until every indexed
+assessment has been traversed. This is lossy summary synthesis, not a full-source
+reread, verified entailment or truth. Quotes remain available on source sections.
+
+The review's default lifetime ceiling remains 64,000 reported tokens. Confirming
+a larger total ceiling (maximum 128,000) is audited and model-free, preserves
+usage and requires the expected current ceiling. A stale confirmation fails;
+uncertain/invalid calls cannot be unlocked. Only known cap stops can resume at
+their checkpoint. Each subsequent paid batch still needs its own click.
+Ordinary recursive-run limits and broader tenant spend controls are unchanged.
 
 ### Focused ATLAS workspace
 

@@ -234,19 +234,38 @@ it must never be treated as a completed recursive review or automatically retrie
 | `get_document_review(id)` | `getDocumentReview(id)` |
 | `advance_document_review(id, confirm_model_usage=True)` | `advanceDocumentReview(id, {confirmModelUsage: true})` |
 | `delete_document_review(id)` | `deleteDocumentReview(id)` |
+| `synthesize_document_review(id, confirm_model_usage=True)` | `synthesizeDocumentReview(id, {confirmModelUsage: true})` |
+| `extend_document_review_budget(id, expected_max_tokens=64000, max_tokens=100000, confirm_budget_extension=True)` | `extendDocumentReviewBudget(id, {expectedMaxTokens: 64000, maxTokens: 100000, confirmBudgetExtension: true})` |
 
 Methods preserve server envelopes (`review` / `reviews`) on the `documents` usage
 surface. Create/get/list/delete never invoke models. Advance requires explicit
 confirmation for each batch of up to three sections and never retries itself.
 Set the Python transport timeout above 180 seconds for a full batch; if a proxy
 or client disconnects sooner, reload saved state instead of resending blindly.
-The lifetime ceiling is 64,000 reported tokens, not a per-batch reset.
+The default lifetime ceiling is 64,000 reported tokens, not a per-batch reset.
 `mammoth.document-review.v1` stores source-hashed, sequential indexed assessments
 with literal quotes, warnings, usage and precise stop status. Completion means
 all indexed sections have assessments, not factual verification, original-file
 coverage or combined synthesis. Unknown calls, failed outputs and cap stops are
 blocked; completed section calls are not replayed. Source deletion removes its
 reviews. Up to 20 reviews are retained per private library; delete unused reviews.
+
+Synthesis is separately confirmed after indexed assessment completes. Each batch
+performs up to three units, combining groups of at most eight saved assessments/
+intermediate summaries into checkpointed nodes. Its final input-traversal coverage
+must include every indexed assessment, without truncation. It does not reread
+full source; summaries can lose detail. Citations preserve existing source-index
+lineage and resolve to literal saved quotes, not verified entailment. Progress is
+under `review.synthesis`; `review_complete` still means indexed assessment only.
+Synthesis shares cumulative review usage and the 180-second batch limit.
+
+Budget extension is model-free, explicitly confirmed and audited. It compares
+`expected_max_tokens` to the stored ceiling and raises the total to at most
+128,000; usage is never reset. A stale request fails with 409. Only known cap
+stops without uncertain/invalid calls can be unlocked; no completed unit is
+replayed, and a new paid batch needs separate confirmation. An extension receipt
+is permission for future usage, not a model call or invoice guarantee. Existing
+recursive-run limits are unchanged.
 
 ## Owner isolated execution pilot
 

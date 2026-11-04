@@ -301,6 +301,38 @@ async def document_review_advance(review_id: str, body: Dict[str, Any]):
     except DocumentError as exc:
         return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
 
+@app.post("/api/mammoth/document-reviews/{review_id}/synthesize")
+async def document_review_synthesize(review_id: str, body: Dict[str, Any]):
+    if body.get("confirm_model_usage") is not True:
+        return JSONResponse({"status": "error", "error": "Explicit model-usage confirmation is required."}, status_code=400)
+    try:
+        reviews = _document_reviews()
+        await asyncio.to_thread(reviews.get, review_id)
+        _append_audit_event(kind="document_review_synthesize", message="Synthesizing saved indexed assessments",
+                            details={"review_id": review_id}, source="mammoth_mind", actor=_current_request_user_id())
+        return {"status": "ok", "review": await reviews.synthesize(review_id, _AGENT_RUNNER.llm_factory)}
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+
+
+@app.post("/api/mammoth/document-reviews/{review_id}/budget")
+async def document_review_extend_budget(review_id: str, body: Dict[str, Any]):
+    if body.get("confirm_budget_extension") is not True:
+        return JSONResponse({"status": "error", "error": "Explicit budget-extension confirmation is required."}, status_code=400)
+    try:
+        reviews = _document_reviews()
+        await asyncio.to_thread(reviews.get, review_id)
+        _append_audit_event(kind="document_review_budget_extension", message="Confirming a larger total review ceiling",
+                            details={"review_id": review_id, "expected_max_tokens": body.get("expected_max_tokens"),
+                                     "max_tokens": body.get("max_tokens")},
+                            source="mammoth_mind", actor=_current_request_user_id())
+        review = await asyncio.to_thread(reviews.extend_budget, review_id,
+                                         body.get("expected_max_tokens"), body.get("max_tokens"))
+        return {"status": "ok", "review": review}
+    except DocumentError as exc:
+        return JSONResponse({"status": "error", "error": str(exc)}, status_code=exc.status_code)
+
+
 @app.post("/api/mammoth/runs")
 async def mammoth_agent_run_start(body: Dict[str, Any]):
     from mammoth_os.recursive.runtime import RecursiveRuntime, recursive_limits

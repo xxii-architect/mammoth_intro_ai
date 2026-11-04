@@ -96,9 +96,10 @@ Contexts that cannot fit stop rather than silently dropping source conclusions.
 latest completed executor draft and the timeline labels it unverified; it is not
 a passed critique, synthesis, application receipt or automatic retry.
 Cap stops do not gain additional allowance or a continuation button. Explicit
-budget extensions remain future work. The separate explicit indexed-document
-review workflow checkpoints section assessments in the private document library;
-it does not automatically make recursive runs exhaustive or resume their cap stops.
+recursive-run budget extensions remain future work. The separate explicit indexed-
+document workflow checkpoints section assessments and synthesis in the private
+document library and can deliberately extend its own ceiling up to 128,000.
+It does not make recursive runs exhaustive or resume their cap stops.
 
 Runs, cached typed role outputs and human checkpoints use the existing user-scoped
 RunStore. A nonblocking OS lease prevents competing consumers across workers and

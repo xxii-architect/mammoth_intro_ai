@@ -38,9 +38,24 @@ assert.equal(review.status, 'completed')
 assert.equal(review.review_complete, true)
 assert.deepEqual(review.assessments.map(item => item.chunk_index), Array.from({ length: review.total_sections }, (_, index) => index))
 assert.equal((await client.listDocumentReviews(fileId)).reviews[0].id, review.id)
+const priorUsage = review.usage.tokens
+review = (await client.extendDocumentReviewBudget(review.id, {
+  expectedMaxTokens: 64000, maxTokens: 128000, confirmBudgetExtension: true,
+})).review
+assert.equal(review.usage.tokens, priorUsage)
+assert.equal(review.max_tokens, 128000)
+review = (await client.synthesizeDocumentReview(review.id, { confirmModelUsage: true })).review
+while (review.synthesis.status === 'partial') review = (await client.synthesizeDocumentReview(review.id, { confirmModelUsage: true })).review
+assert.equal(review.synthesis.status, 'completed')
+assert.deepEqual(review.synthesis.result.section_indices, Array.from({ length: review.total_sections }, (_, index) => index))
+assert.deepEqual((await client.getDocumentReview(review.id)).review.synthesis, review.synthesis)
 await assert.rejects(client.readDocument(fileId, { count: 11 }), error => error instanceof PathsError && error.status === 400)
 await assert.rejects(client.readDocument(fileId, { scope: 'atlas' }), error => error instanceof PathsError && error.status === 404)
 token = 'tenant-b'
+await assert.rejects(client.synthesizeDocumentReview(review.id, { confirmModelUsage: true }), error => error instanceof PathsError && error.status === 404)
+await assert.rejects(client.extendDocumentReviewBudget(review.id, {
+  expectedMaxTokens: 64000, maxTokens: 128000, confirmBudgetExtension: true,
+}), error => error instanceof PathsError && error.status === 404)
 await assert.rejects(client.getDocumentReview(review.id), error => error instanceof PathsError && error.status === 404)
 await assert.rejects(client.readDocument(fileId), error => error instanceof PathsError && error.status === 404)
 await assert.rejects(client.getRun(result.runId), error => error instanceof PathsError && error.status === 404)
@@ -57,6 +72,10 @@ assert.equal(cancelled.status, 'awaiting_approval')
 await client.cancelRun(cancelled.runId)
 assert.equal((await client.recoverRun(cancelled.runId)).status, 'cancelled')
 token = null
+await assert.rejects(client.synthesizeDocumentReview(review.id, { confirmModelUsage: true }), error => error instanceof PathsError && error.status === 401)
+await assert.rejects(client.extendDocumentReviewBudget(review.id, {
+  expectedMaxTokens: 64000, maxTokens: 128000, confirmBudgetExtension: true,
+}), error => error instanceof PathsError && error.status === 401)
 await assert.rejects(client.getDocumentReview(review.id), error => error instanceof PathsError && error.status === 401)
 await assert.rejects(client.readDocument(fileId), error => error instanceof PathsError && error.status === 401)
 await assert.rejects(client.run('Anonymous'), error => error instanceof PathsError && error.status === 401)

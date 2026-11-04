@@ -591,6 +591,22 @@ class MammothPaths:
     def delete_document_review(self, review_id: str) -> Dict[str, Any]:
         return self._json("documents", "DELETE", f"/mammoth/document-reviews/{self._seg(review_id)}")
 
+    def synthesize_document_review(self, review_id: str, *, confirm_model_usage: bool = False) -> Dict[str, Any]:
+        """Explicit paid synthesis batch over saved assessments, not a full-source reread."""
+        if confirm_model_usage is not True:
+            raise ValueError("Explicit model-usage confirmation is required")
+        return self._json("documents", "POST", f"/mammoth/document-reviews/{self._seg(review_id)}/synthesize",
+                          body={"confirm_model_usage": True})
+
+    def extend_document_review_budget(self, review_id: str, *, expected_max_tokens: int, max_tokens: int,
+                                     confirm_budget_extension: bool = False) -> Dict[str, Any]:
+        """Raise the lifetime ceiling without spending tokens or resetting usage."""
+        if confirm_budget_extension is not True:
+            raise ValueError("Explicit budget-extension confirmation is required")
+        return self._json("documents", "POST", f"/mammoth/document-reviews/{self._seg(review_id)}/budget",
+                          body={"expected_max_tokens": expected_max_tokens, "max_tokens": max_tokens,
+                                "confirm_budget_extension": True})
+
     def owner_execution_capabilities(self, repo: str = "") -> Dict[str, Any]:
         return self._json("owner_execution", "GET", "/owner-executions/capabilities", query={"repo": repo})
 
