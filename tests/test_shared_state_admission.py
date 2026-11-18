@@ -237,7 +237,8 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
 """)
         for migration in ("supabase_tenant_auth.sql", "supabase_runtime_state.sql", "supabase_tenant_admission.sql",
                           "supabase_agent_runs.sql", "supabase_private_admission.sql", "supabase_learning_controls.sql",
-                          "supabase_documents.sql", "supabase_generated_artifacts.sql", "supabase_chat_threads.sql"):
+                          "supabase_documents.sql", "supabase_generated_artifacts.sql", "supabase_chat_threads.sql",
+                          "supabase_learner_bundles.sql"):
             sql((ROOT / ".mammoth" / migration).read_text(encoding="utf-8"))
         # Reapplication is safe and does not erase existing operational records.
         sql((ROOT / ".mammoth" / "supabase_runtime_state.sql").read_text())
@@ -245,6 +246,7 @@ CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT NULL::uuid $$;
         sql((ROOT / ".mammoth" / "supabase_agent_runs.sql").read_text())
         sql((ROOT / ".mammoth" / "supabase_generated_artifacts.sql").read_text())
         sql((ROOT / ".mammoth" / "supabase_chat_threads.sql").read_text())
+        sql((ROOT / ".mammoth" / "supabase_learner_bundles.sql").read_text())
         sql.database = database
         sql.container = container
         yield sql
@@ -318,6 +320,48 @@ def test_postgres_shared_state_cas_and_roles(postgres, tmp_path, monkeypatch):
         ):
             result = postgres(f"SET ROLE {role}; {statement}", check=False)
             assert result.returncode != 0 and "permission denied" in result.stderr
+
+
+def test_learning_export_reads_real_postgres_notes_without_local_fallback(postgres, tmp_path, monkeypatch):
+    import api_server
+    from fastapi.testclient import TestClient
+
+    notes_path = tmp_path / "notes.json"
+    notes_path.write_text(json.dumps([{
+        "id": "stale", "user_id": "alice", "account_id": "default", "body": "stale local",
+        "metadata": {"learning_context": {"contract": "mammoth.learning-selection.v1"}},
+    }]), encoding="utf-8")
+    local_before = notes_path.read_bytes()
+    namespace = "export_" + uuid.uuid4().hex
+    rows = [
+        {"id": owner + account, "user_id": owner, "account_id": account, "body": body,
+         "metadata": {"learning_context": {"contract": "mammoth.learning-selection.v1"}}}
+        for owner, account, body in [
+            ("alice", "default", "alice shared"), ("alice", "other", "other account"),
+            ("bob", "default", "bob shared"),
+        ]
+    ]
+    rpc = rpc_for(postgres)
+    assert rpc("mammoth_state_cas", {"p_key": f"{namespace}/notes.json",
+                                     "p_revision": 0, "p_payload": rows})["saved"]
+    monkeypatch.setattr(api_server, "MAMMOTH_DIR", tmp_path)
+    monkeypatch.setattr(api_server, "NOTES_FILE", notes_path)
+    monkeypatch.setattr(api_server, "_atlas_state_file_for_request",
+                        lambda: tmp_path / f"{api_server._current_request_user_id()}.json")
+    monkeypatch.setattr(api_server, "_AUTH_REQUIRED", True)
+    monkeypatch.setattr(api_server, "_resolve_supabase_user", lambda token: {
+        "id": token, "is_admin": False,
+    } if token in {"alice", "bob"} else None)
+    monkeypatch.setenv("MAMMOTH_STATE_BACKEND", "supabase")
+    monkeypatch.setenv("MAMMOTH_STATE_NAMESPACE", namespace)
+    monkeypatch.setattr("mammoth_os.shared_state.service_rpc", rpc)
+    with TestClient(api_server.app) as client:
+        for owner in ("alice", "bob"):
+            response = client.post("/api/atlas/export", headers={"Authorization": f"Bearer {owner}"})
+            assert response.status_code == 200
+            assert [note["body"] for note in response.json()["linked_notes"]] == [f"{owner} shared"]
+            assert "other account" not in response.text and "stale local" not in response.text
+    assert notes_path.read_bytes() == local_before
 
 
 def test_postgres_tenant_access_and_policy_validation(tenant):

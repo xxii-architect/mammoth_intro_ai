@@ -5,11 +5,11 @@
 async def list_workspace_artifacts():
     from mammoth_os.workspace_artifacts import ARTIFACT_CATEGORIES
 
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
     if artifacts != state.get("workspace_artifacts"):
         state["workspace_artifacts"] = artifacts
-        _save_atlas_state(state)
+        _save_workspace_collection(state, context, "workspace_artifacts")
     return {"status": "ok", "artifacts": artifacts, "categories": ARTIFACT_CATEGORIES}
 
 @app.post("/api/workspace/artifacts")
@@ -25,7 +25,7 @@ async def create_workspace_artifact(body: Dict[str, Any]):
             {"status": "error", "error": "artifact body is required and must include non-empty text content."},
             status_code=400,
         )
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
     previous = next((item for item in artifacts if item["id"] == artifact["id"]), None)
     artifact = record_artifact_revision(artifact, previous, now=datetime.now(timezone.utc).isoformat())
@@ -33,7 +33,7 @@ async def create_workspace_artifact(body: Dict[str, Any]):
     artifacts.insert(0, artifact)
     state["workspace_artifacts"] = artifacts[:120]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_atlas_state(state)
+    _save_workspace_collection(state, context, "workspace_artifacts")
     return {"status": "ok", "artifact": artifact}
 
 @app.get("/api/workspace/artifacts/{artifact_id}/run")
@@ -41,7 +41,7 @@ async def get_workspace_artifact_run(artifact_id: str):
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
-    state = _load_atlas_state()
+    state, _ = _load_workspace_collections()
     artifact = next((item for item in _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
                      if item["id"] == artifact_id), None)
     if artifact is None:
@@ -65,31 +65,31 @@ async def get_workspace_artifact_run(artifact_id: str):
 
 @app.delete("/api/workspace/artifacts/{artifact_id}")
 async def delete_workspace_artifact(artifact_id: str):
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
     remaining = [item for item in artifacts if str(item.get("id") or "") != str(artifact_id or "")]
     deleted = len(remaining) != len(artifacts)
     state["workspace_artifacts"] = remaining
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_atlas_state(state)
+    _save_workspace_collection(state, context, "workspace_artifacts")
     return {"status": "ok", "deleted": artifact_id, "removed": deleted}
 
 @app.delete("/api/workspace/artifacts")
 async def clear_workspace_artifacts():
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     count = len(_normalize_workspace_artifact_collection(state.get("workspace_artifacts")))
     state["workspace_artifacts"] = []
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_atlas_state(state)
+    _save_workspace_collection(state, context, "workspace_artifacts")
     return {"status": "ok", "cleared": count}
 
 @app.get("/api/workspace/run-history")
 async def list_workspace_run_history():
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
     if entries != state.get("agent_run_history"):
         state["agent_run_history"] = entries
-        _save_atlas_state(state)
+        _save_workspace_collection(state, context, "agent_run_history")
     return {"status": "ok", "entries": entries}
 
 @app.post("/api/workspace/run-history")
@@ -100,33 +100,33 @@ async def upsert_workspace_run_history_entry(body: Dict[str, Any]):
             {"status": "error", "error": "run history entry requires a non-empty prompt."},
             status_code=400,
         )
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
     entries = [item for item in entries if item.get("id") != entry["id"]]
     entries.insert(0, entry)
     state["agent_run_history"] = entries[:160]
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_atlas_state(state)
+    _save_workspace_collection(state, context, "agent_run_history")
     return {"status": "ok", "entry": entry}
 
 @app.delete("/api/workspace/run-history/{entry_id}")
 async def delete_workspace_run_history_entry(entry_id: str):
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     entries = _normalize_agent_run_history_collection(state.get("agent_run_history"))
     remaining = [item for item in entries if str(item.get("id") or "") != str(entry_id or "")]
     deleted = len(remaining) != len(entries)
     state["agent_run_history"] = remaining
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_atlas_state(state)
+    _save_workspace_collection(state, context, "agent_run_history")
     return {"status": "ok", "deleted": entry_id, "removed": deleted}
 
 @app.delete("/api/workspace/run-history")
 async def clear_workspace_run_history():
-    state = _load_atlas_state()
+    state, context = _load_workspace_collections()
     count = len(_normalize_agent_run_history_collection(state.get("agent_run_history")))
     state["agent_run_history"] = []
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    _save_atlas_state(state)
+    _save_workspace_collection(state, context, "agent_run_history")
     return {"status": "ok", "cleared": count}
 
 @app.get("/api/notes")

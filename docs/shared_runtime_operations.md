@@ -21,6 +21,20 @@ latest 1,000 entries and execution events the latest 200 through atomic
 append-and-retain; workflow actions are not replayed to retry these writes.
 Corrupt/wrong-shaped records are errors, never silently replaced by empty data.
 Account export reads the selected backend for these shared collections.
+Learning exports also read linked notes from that backend, filtered to the
+authenticated user and active learning account. A notes read failure rejects
+the export instead of falling back to a potentially stale local file. These
+exports are not transactional snapshots of notes and learner data.
+On the local learner backend, model operations recheck the active account and
+learning-erasure epoch under the state lock before accessing the model. Work
+is rejected if its account changed (including a switch away and back) or
+saved-learning deletion occurred. Learner approvals are also bound to these
+epochs, so an old approval cannot authorize adaptation after either event.
+Learner and session resets save their state and clear the draft under the state
+lock, preventing a reset from recreating a draft after concurrent deletion.
+If the state save succeeds but draft reset fails, the request reports possible
+partial changes. A rejected or failed state save also reports that the earlier
+private-model reset may already have happened; reload before an explicit retry.
 Legacy unkeyed trust metrics also use the selected backend without changing
 their payload shape. Their concurrent changes may conflict; telemetry failures
 are explicitly logged and do not replay or fail an already-computed response.
@@ -241,7 +255,15 @@ Export includes controls when present. For rollback, add
 `--learning-controls-file C:\private\restored-controls.sqlite3` to `restore-local`;
 it must be a new output path. A backup containing controls cannot be restored
 without this explicit path, and an absent controls backup cannot create an empty
-policy. Apply all documented schemas before running the combined exporter.
+policy. Runtime backup v1 cannot represent shared learner operation fences;
+its PostgreSQL export refuses owners with retained fences instead of silently
+discarding them, and import/restore refuse unsupported control fields. The
+experimental learner/control backup captures fences but does not capture runs
+or runtime usage, so it is not a replacement for a complete runtime backup.
+The runtime importer and exporter also coordinate with the learner migration
+lock for controls. They still require all writers to be stopped, including
+runtime writers that do not use that lock. Apply all documented schemas before
+running the combined exporter.
 Verify the restored payload before selecting local storage again.
 
 This removes one local-disk component, **not** the learner state/draft/model
@@ -438,6 +460,298 @@ conflict. Backups contain private conversation content; protect them accordingly
 
 ## Replica boundary and verification
 
+Local learner-state saves also check the account-switch epoch under the state
+lock. A delayed request cannot restore an older account or session after a
+switch, including switching away and back; it must reload instead.
+Local account creation, deletion and switching also compare the complete
+saved-state snapshot under that lock before writing. A concurrent change
+returns a conflict instead of overwriting it. Each successful account
+transition advances a separate account-collections epoch so delayed local
+state or adaptation writes cannot undo an inactive-account change. This is
+local-file concurrency protection, not the shared PostgreSQL integration.
+Account creation also rejects an ID with an unassigned saved session rather
+than overwriting it; review that session before resolving the conflict.
+Unknown per-account session fields are retained across normal saves and
+account switches; they are not promoted into the active session response.
+Unknown state and session extensions remain outside both saved-learning and
+adaptation deletion scopes; the deletion previews disclose this exclusion.
+Workspace request exercise keys also bind the account-switch epoch, while
+stored draft identity stays compatible with existing records. Switching away
+and back preserves the saved draft but rejects a delayed write from before the
+switch. Ordinary draft saves preserve unrecognized top-level record fields
+instead of silently discarding them.
+
+An experimental PostgreSQL learner-bundle primitive and schema exist for
+testing only. They are **not a runtime backend**, do not read existing learner
+files and must not be used to activate or migrate production learner data.
+They provide exact-owner whole-bundle revision checks and a namespace
+migration lock. A separate experimental transaction API tests revision-bound
+draft reads, saves and revision-checked clearing; allowlisted active-account
+learning-session updates requiring a live tracked operation; adaptation writes;
+coordinated request admission; and atomic
+account-scoped learning/adaptation deletion with cancellation in PostgreSQL.
+An experimental result operation also commits the updated private model,
+learning-session fields and adaptation caches together, using the same model
+calculation as local learner updates. It requires a revision and a live,
+epoch-fenced operation; cancellation or deletion prevents stale publication.
+An experimental onboarding operation similarly updates the model and caches
+in one transaction. Its guard binds the owner, namespace, account and
+account/deletion epochs; switching away and back or erasure invalidates an
+old approval even if the caller supplies the latest revision. This guard and
+operation are not yet connected to the live approval or onboarding routes.
+The guard is a concurrency fence, not an authorization credential; live
+integration must still validate authenticated ownership and approval state.
+An experimental learner/session reset atomically clears progress and the
+active recovery draft, refreshes the state caches, and cancels tracked
+account work. A reset epoch fences both older operations and approvals;
+onboarding and other retained model fields are not erased. The reset is not
+wired into live routes and is not a deletion receipt.
+Coordinated admission binds each operation to the current account-switch,
+account-collections, learning-erasure, adaptation-erasure and reset epochs in the same transaction. An
+unbound or stale operation cannot write a session or model even when presented
+with a newer bundle revision. Fences follow operation retention.
+It also tests active-account model reads that reject pending erasure and
+content-free adaptation and learning deletion previews with exact typed
+confirmation. Preview tokens bind the owner, namespace, account, deletion
+scope, revision and complete bundle; a changed bundle invalidates the preview.
+They are concurrency guards, not authentication or authorization. Unknown
+model extensions block adaptation deletion until reviewed.
+These operations are not wired into the live API; raw bundle reads and writes
+remain available to migration/testing code and do not enforce those rules.
+The session update surface covers only learning fields and cannot yet replace
+the full live state writer. Generic learning-control admissions
+do not carry learner fences and cannot write through these methods.
+Experimental account creation, deletion and switching use the same owner
+transaction and advance the epoch on active-account changes. They cancel
+departing or deleted accounts' tracked operations atomically and preserve
+separately stored models and drafts on account deletion, as the existing
+account endpoint does. Recreating the same account identifier can therefore
+make retained data accessible again; account deletion is not learner-data
+erasure. Unassigned saved sessions block creation pending review. Legacy-state
+normalization, full state updates and live route integration remain incomplete;
+these methods must not be enabled alone.
+Workspace artifact and run-history routes now use an internal storage seam.
+The default remains the existing local state implementation; an unselected
+PostgreSQL adapter is exercised only through test injection, including separate
+worker processes and completed-run artifact archiving. Its scoped
+collection writes check owner, active account, revision and epoch fence, and
+preserve unrelated bundle data. This is not a backend selector and must not be
+enabled independently of the remaining learner surfaces.
+Saved curriculum library reads and writes also use this revision-checked,
+owner/account-scoped collection seam when injected. Saved curriculum
+activation also commits its first lesson, exercise, history, bounded telemetry
+and recovery packet through the admitted, revision-fenced learner transaction.
+These paths are exercised through test injection only; the local backend
+remains the default, with platform-wide audit and real provider/sandbox
+acceptance still open.
+The tutor recovery-draft save route also has an unselected PostgreSQL adapter
+tested through HTTP injection; it rejects stale revisions, account switches,
+erasure and reset races without falling back to local files. Separate-process
+tests also verify HTTP saves, stale writes and owner isolation; recovery reads
+in those tests use the transaction API, not the status endpoint. Export and
+reset are not part of this draft-save adapter.
+The workspace account list and create/switch/delete routes have a separate
+test-injected PostgreSQL adapter. Account transitions use a revision-checked
+transaction and return the metadata view committed by that transaction;
+account/session extension fields are not exposed in that view. Tests cover
+separate processes, owner isolation, stale transitions, unavailable storage,
+and unassigned sessions. Profile, tier and developer-access updates also have
+test-injected transactions; each update and its bounded
+`account_metadata_audit` entry commit atomically in the owner bundle. This is
+not yet the platform-wide audit stream, and account lifecycle audit events
+still use their existing separate surface. Legacy account normalization and
+other learner routes remain outside this adapter. It is not a production
+backend selector and must not be enabled alone.
+Controlled-learning admission has a further test-injected seam that requires
+owner-matched PostgreSQL controls and creates the operation fence in the same
+transaction as the quota admission. HTTP rehearsals cover stale accounts,
+limits, cancellation, completion and unavailable or mismatched controls.
+Handler state and model writes still use local paths; this admission seam must
+not be activated without the rest of the learner integration.
+The tutor status snapshot and learner, lecture, module and library read routes
+have a test-injected reader. It returns active-account session fields, the
+validated learner model and recovery draft from one owner-scoped transaction;
+it never hydrates or writes from the local learner files. Host-local evaluation,
+sandbox and activity files are omitted from this shared status response. This
+is read-path coverage only. Learning-history and private-adaptation
+preview/confirmation routes use revision-bound transaction methods in tests.
+Unapproved onboarding updates and progress-only learner resets now use
+revision- and approval-fence-bound transactions in the same test-injected mode;
+reset preserves onboarding while clearing progress and replacing the recovery
+draft. Onboarding and learner/session reset approvals are stored and applied
+transactionally in the owner bundle with a bounded audit log; other approval
+operations are not enabled. Shared export requires
+the shared notes backend. Lesson generation and submission/result persistence
+are also test-injected routes when PostgreSQL controls are selected: generation
+stores the curriculum/exercise/history under its admitted operation, and
+submission commits the result, bounded lesson telemetry, adaptation and caches
+in one fenced transaction. Unapproved session reset also uses that transaction
+and clears bounded lesson telemetry; its approval path is blocked. Next/back
+lesson navigation commits through the same revision- and operation-fenced
+session transaction. Mastery overrides fail closed until the platform-wide
+audit lifecycle is shared. Remediation regeneration and other tutor mutations
+remain unintegrated, so these adapters are not a shared-backend selector.
+Provider/sandbox execution has not been validated against production services;
+route tests use deterministic fakes.
+Shared reader mode also has an HTTP guard: any tutor route outside the explicit
+test-covered read, draft-save, onboarding, progress-reset, deletion, lesson
+generation/submission, and next/back navigation allowlist returns
+`503 storage_unavailable` rather than reading or writing local learner files.
+Manual and requested failed-submission remediation regeneration are covered.
+Remediation uses a second fenced commit after the result transaction; if that
+second step fails, the result remains committed and clients must reload rather
+than replay the submission. Mastery overrides remain outside the allowlist
+until their audit lifecycle is shared.
+Account profile and entitlement routes are available only when both the
+test-injected account adapter and learner reader are installed; billing-usage
+routes remain blocked until their authoritative state and audit behavior are
+integrated. The shared learner approval list, approval and deletion routes are
+owner-scoped in the learner bundle. Only onboarding and learner/session reset
+approvals are supported; each request, application and deletion is audited in
+the same transaction as its state change. Stale account/fence checks reject
+execution, and retries of an already approved record do not replay the action.
+The signed-in owner can review their own records; a different user cannot see,
+approve or delete them. Other approval types and generic local approval
+creation/execution are blocked in shared mode; platform-wide audit integration
+remains outstanding.
+Operation admission itself is tested against the shared transaction API.
+Lesson generation and submission can run only with explicitly selected shared
+controls and the test-injected learner adapter; provider/sandbox behavior,
+retry outcomes and production acceptance are still unverified.
+When the explicit PostgreSQL learning-controls backend is selected alongside
+the test-injected learner reader, controls reads/limit updates and owner-scoped
+cancellation use PostgreSQL without touching local learner files. The
+unselected/default mode still blocks these routes rather than falling back.
+This does not enable any production backend or replica configuration.
+The experimental API does not provide complete runtime coverage, end-to-end
+migration, whole-platform deletion receipts or activated rollback. Raw
+bundle methods must never be wired directly to a user-facing endpoint; use
+the confirmed methods only after all runtime and migration gates are satisfied.
+Those domain guarantees and an end-to-end migration must be implemented and
+tested before any activation decision. The SQL file is not an instruction to
+apply that schema to production.
+
+An experimental offline source-backup tool is available for reviewed fixtures,
+not production activation. It requires all writers to be stopped and an exact
+owner and state file to be supplied. The operator must independently verify
+ownership: legacy owner filenames normalize identifiers and can collide.
+The tool discovers drafts for known accounts, rejects unidentified draft files,
+and accepts `--account-id` for independently identified removed accounts.
+Orphan model directories cannot be attributed from their hashes alone; the
+operator must inventory them and explicitly supply any missing account IDs.
+The backup preserves pending erasure records and unknown JSON model fields;
+unknown model files block backup. It does not include unrelated curricula,
+controls, notes, uploads, provider records or backups.
+
+For a quiesced fixture, the optional `inventory` command checks a separately
+reviewed owner/account mapping against one learner-state directory. A private
+JSON file has exactly this shape (the identifiers here are examples):
+
+```json
+{"owners": {"reviewed-owner": ["removed-account"]}, "reviewed_curricula": []}
+```
+
+```powershell
+python scripts\backup_learner_source.py inventory --state-dir C:\private\atlas_state --inventory-file C:\private\reviewed-owners.json --confirm-quiesced
+```
+
+The review rejects normalized owner collisions, missing owner state files,
+unmatched state/draft/model files and controls WAL files. Every existing
+curriculum filename in that directory must be classified explicitly in
+`reviewed_curricula`; names alone do not prove a file is not another owner's
+state. The operator must independently establish ownership and supply removed
+account IDs, including accounts no longer in saved state. Matching hashes or
+names cannot prove those assertions, and files outside the selected directory,
+controls contents and external sources are not inventoried. This command does
+not produce a backup or authorize migration or activation.
+
+For a private, access-restricted fixture directory (set `PYTHONPATH=src`):
+
+```powershell
+python scripts\backup_learner_source.py backup --user-id REVIEWED_OWNER --state-file C:\private\atlas_state_REVIEWED_OWNER.json --backup C:\private\learner-backup --confirm-quiesced
+python scripts\backup_learner_source.py verify --user-id REVIEWED_OWNER --backup C:\private\learner-backup
+python scripts\backup_learner_source.py restore-fresh --user-id REVIEWED_OWNER --backup C:\private\learner-backup --restore-dir C:\private\learner-restore
+```
+
+Use the actual normalized legacy filename, not the example placeholder. Supply
+additional reviewed accounts with repeated `--account-id` options. Verification
+checks the checksum and record shapes, not ownership, completeness or
+authenticity. Keep the backup private and configure filesystem ACLs explicitly
+on Windows; the checksum is not a signature. A missing manifest means the
+backup did not complete. The restore requires a new directory and re-reads
+all restored records before writing `restore-complete.json`; a missing marker
+means the restore is partial and must not be used. This restores only records
+in the backup and does not resolve its ownership or completeness limitations.
+There is an experimental `python -m scripts.migrate_learner_bundle` import/export
+rehearsal for **isolated test databases only**, requiring explicit test-only and
+quiescence confirmations. Import refuses an existing owner row, and export
+refuses missing or invalid records. The database bundle does not retain a
+backup's list of reviewed accounts that have no records: an operator must
+provide those again with `--account-id` on export. These commands do not
+establish source ownership, migrate controls, enforce erasure or coordinate
+running learners. Never use them for production migration or activate this
+bundle as a learner backend.
+
+An additional test-only Python rehearsal, `import_with_controls_rehearsal`,
+imports a validated learner backup and the learning-controls portion of a
+reviewed runtime snapshot in one PostgreSQL transaction. It rejects missing
+controls, unknown controls fields, unfinished operations and any preexisting learner or control rows;
+a failure rolls back both. The runtime snapshot's other data is not imported.
+The namespace lock coordinates learner-bundle transactions and the current
+generic PostgreSQL learning-controls API. **All** learner and controls writers
+must still be stopped, including older deployments and direct database writers
+that may not honor the lock.
+The separate inputs do not prove ownership, integrity of the runtime snapshot,
+completeness, simultaneous capture, or readiness for rollback or production.
+There is no production CLI or activation path for this rehearsal.
+The test-only `import_reviewed_batch_rehearsal` validates each reviewed owner
+before importing all owners and their controls in one transaction. Duplicate
+owners, an occupied destination or a failure on any owner abort the entire
+batch. It shares the same quiescence, ownership, snapshot and production
+limitations as the single-owner rehearsal, and does not import runs or runtime
+token usage. It rejects owners that collide under legacy filename normalization.
+`import_full_batch_rehearsal` additionally imports reviewed runs and token
+usage in the same transaction, including unresolved reservations; preserving
+them does not resolve or authorize replay of unfinished work.
+Companion `export_with_controls_rehearsal` and `import_combined_rehearsal`
+functions exercise a repeatable-read database snapshot and fresh-namespace
+restore. The export acquires the exclusive session advisory lock before
+establishing its database snapshot, so a learner writer that committed while
+the export waited is included. This requires a direct or session-mode
+connection, not transaction pooling. The v2 rehearsal includes retained
+operation fences, including unknown fence extensions, in the checksummed
+controls portion. Restores reject missing fences, duplicate or unmatched
+operation references, and older v1 combined backups. Local-source controls
+do not have shared operation fences. The export writes a completion marker last, binding checksums for
+both portions; a missing marker or changed payload blocks import. Checksums
+are not signatures. Controls and learner writers must still be quiesced:
+older processes or direct database writers may bypass the lock, and the
+snapshot is not proof that external work has stopped or that production
+rollback is safe. Reviewed accounts with no records must still be supplied
+explicitly when exporting.
+
+`export_full_rehearsal` and `import_full_rehearsal` exercise a single-owner,
+fresh-namespace restore of learner bundles, controls and operation fences,
+agent runs, and token-usage policy and attempts. The export obtains the
+learner namespace session lock before its repeatable-read snapshot and writes
+a completion marker binding the learner manifest and all payload checksums.
+Restore rejects corrupt or incomplete backups and rolls back all inserts if
+any destination is occupied. These are isolated-test Python functions, not a
+production migration or rollback procedure. All writers must stop: the learner
+lock does not exclude runtime-run or token-usage writers. Quiescence, ownership,
+external sources, authentication, backup integrity against a malicious actor,
+and data outside these tables remain independently unverified. Checksums are
+not signatures and a successful rehearsal does not authorize activation.
+The test-only namespace variants, `export_full_namespace_rehearsal` and
+`import_full_namespace_rehearsal`, inventory the covered tables against an
+explicit owner/account list, capture all reviewed owners in one snapshot, and
+restore them together only into an empty covered namespace. They reject
+unreviewed table owners, missing or modified owner payloads, and occupied
+destinations. An operator must still review owners and retained account IDs;
+the database inventory cannot find data outside these tables or prove that
+writers have stopped. The same non-production and no-activation restrictions
+apply.
+
 This release is **not independent-replica readiness**. Generic JSON RPCs and the
 tenant admission ledger coordinate via Postgres, with new optional PostgreSQL
 run leases/checkpoints, private login ceilings, learning controls and document
@@ -460,3 +774,43 @@ python -m pytest tests\test_shared_state_admission.py tests\test_postgres_run_st
 
 The named container must be dedicated test infrastructure. Tests create/drop a
 random database, never use production, and make no paid provider calls.
+
+### Shared learner activation gate
+
+The shared learner adapter remains test-injected; no production backend selector
+or activation procedure is approved. Keep `MAMMOTH_STATE_BACKEND` unchanged and
+`MAMMOTH_REPLICA_COUNT=1` until every gate below is evidenced in staging:
+
+1. **Runtime completeness:** migrate every learner/tutor write and read, account
+   lifecycle, approval/claim/execute/delete, audit, usage, export, erasure and
+   recovery path to owner-scoped transactions. Unsupported operations must keep
+   returning `503` without local fallback.
+2. **Real execution:** validate provider, sandbox, timeout, cancellation,
+   partial-failure and retry behavior with approved staging credentials. Confirm
+   a committed submission is never replayed after a later response failure.
+3. **Source review and quiescence:** identify every legacy owner/account and
+   state source, reconcile unknown/orphaned records, and stop all web workers,
+   background workers and direct writers. Confirm no learning operation remains
+   unresolved. The advisory migration lock alone does not establish quiescence.
+4. **Complete backup and restore:** create a restricted, independently verified
+   backup that covers all affected runtime data and external sources, not only
+   learner bundles. Verify checksums and ownership, restore into a fresh staging
+   namespace, and compare reviewed record counts and content without exposing
+   learner data in logs.
+5. **Rollback exercise:** rehearse stopping all writers, capturing writes made
+   since migration, restoring or reverting every affected data surface, and
+   verifying service behavior and owner isolation. A fresh-database import test
+   is not rollback evidence.
+6. **Staging acceptance:** test owner isolation, account switching, stale-write
+   rejection, deletion, approvals/audit, usage, provider/sandbox execution,
+   service restart and recovery. Record pass/fail evidence and the exact code,
+   schema and configuration revisions.
+7. **Production go/no-go:** verify the production DSN/namespace, TLS, service
+   permissions, backup location, replica count and rollback operator out of
+   band. Require explicit operator approval and a maintenance window before
+   applying schema, changing configuration or restarting production.
+
+Any failed, missing or ambiguous gate is a no-go: leave shared storage disabled,
+keep the single-writer configuration, and do not apply the learner schema to
+production. The local PostgreSQL tests and current rehearsal scripts close only
+code-level/test-fixture checks; they do not satisfy these deployment gates.

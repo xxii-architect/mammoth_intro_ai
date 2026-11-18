@@ -35,6 +35,11 @@ def has_operation() -> bool:
     return _CURRENT.get() is not None
 
 
+def current_operation_id() -> str | None:
+    current = _CURRENT.get()
+    return current[1] if current else None
+
+
 @contextmanager
 def operation_context(store: LearningCancellation, operation_id: str) -> Iterator[None]:
     token = _CURRENT.set((store, operation_id))

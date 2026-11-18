@@ -35,8 +35,16 @@ def in_scope(tenant, action):
         api_server._REQUEST_USER_ID.reset(token)
 
 
+def select_account(account):
+    path = api_server._atlas_state_file_for_request()
+    state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    state["active_account_id"] = account
+    path.write_text(json.dumps(state), encoding="utf-8")
+
+
 def test_tenants_and_local_accounts_have_distinct_scoped_models(client):
     def update(account):
+        select_account(account)
         state = {"active_account_id": account}
         return api_server._hydrate_learner_state(
             state, user_id="caller-cannot-select-another-owner",
@@ -47,6 +55,7 @@ def test_tenants_and_local_accounts_have_distinct_scoped_models(client):
     in_scope("tenant-a", lambda: update("second"))
     for tenant, account, attempts in [("tenant-a", "default", 1), ("tenant-a", "second", 2), ("tenant-b", "default", 0)]:
         state = {"active_account_id": account}
+        in_scope(tenant, lambda: select_account(account))
         model = in_scope(tenant, lambda: api_server._hydrate_learner_state(state))
         assert model["user_id"] == f"workspace:{account}"
         assert model["attempts"] == attempts
@@ -112,19 +121,23 @@ def test_onboarding_and_reset_touch_only_selected_private_model(client, monkeypa
         in_scope(tenant, lambda: api_server._hydrate_learner_state(
             {"active_account_id": "default"}, result={"passed": True}, lesson={"title": "Evidence"},
         ))
-    in_scope("tenant-a", lambda: api_server._hydrate_learner_state(
-        {"active_account_id": "second"}, result={"passed": True},
-    ))
+    def update_second():
+        select_account("second")
+        api_server._hydrate_learner_state({"active_account_id": "second"}, result={"passed": True})
+        select_account("default")
+    in_scope("tenant-a", update_second)
     result = in_scope("tenant-a", lambda: api_server._apply_atlas_onboarding_update(
         {"experience_level": "advanced", "goals": ["Compare evidence"]},
     ))
     assert result["learner_model"]["onboarding"]["experience_level"] == "advanced"
     in_scope("tenant-a", api_server._apply_atlas_learner_reset)
     for tenant, account, expected in [("tenant-a", "default", 0), ("tenant-a", "second", 1), ("tenant-b", "default", 1)]:
+        in_scope(tenant, lambda: select_account(account))
         model = in_scope(tenant, lambda: api_server._hydrate_learner_state({"active_account_id": account}))
         assert model["attempts"] == expected
     other = in_scope("tenant-b", lambda: api_server._hydrate_learner_state({"active_account_id": "default"}))
     assert other["onboarding"]["experience_level"] == "unknown"
+    in_scope("tenant-a", lambda: select_account("default"))
     own = in_scope("tenant-a", lambda: api_server._hydrate_learner_state({"active_account_id": "default"}))
     assert own["onboarding"]["experience_level"] == "advanced"
 
@@ -142,6 +155,18 @@ def test_bad_private_model_fails_explicitly_without_reset(client, raw):
     assert response.status_code == 503
     assert "No reset or save was confirmed" in response.json()["detail"]
     assert path.read_bytes() == before
+
+
+def test_saved_model_validation_preserves_extensions_and_checks_owner():
+    raw = {"user_id": "workspace:default", "mastery": {"x": 0.5},
+           "unknown_extension": {"must": "survive"}}
+    assert learner_model.validate_saved_learner_model(raw, "workspace:default") is raw
+    with pytest.raises(LearnerStorageError):
+        learner_model.validate_saved_learner_model(raw, "workspace:other")
+    with pytest.raises(LearnerStorageError):
+        learner_model.validate_saved_learner_model(
+            {**raw, "mastery": {"x": float("nan")}}, "workspace:default",
+        )
 
 
 def test_atomic_model_save_failure_preserves_existing_record_and_onboarding_state(tmp_path, monkeypatch):

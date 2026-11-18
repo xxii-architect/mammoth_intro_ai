@@ -1324,6 +1324,11 @@ def _append_activity(message: str, *, agent_id: str = "", task_id: str = "", kin
 
 
 def _create_approval_record(task_id: str, *, agent_id: str, operation: str, target: str, preview: Dict[str, Any], payload: Optional[Dict[str, Any]] = None, requested_by: str = "user", trace_id: str = "") -> Dict[str, Any]:
+    if _atlas_status_adapter is not None:
+        raise HTTPException(
+            status_code=503,
+            detail="This approval operation is not integrated with shared tenant storage; no local approval was created.",
+        )
     record = {
         "id": str(uuid.uuid4()),
         "task_id": task_id,
@@ -1712,6 +1717,11 @@ def _execute_approval_record(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _approve_record(record_id: str) -> Dict[str, Any]:
+    if _atlas_status_adapter is not None:
+        raise HTTPException(
+            status_code=503,
+            detail="Shared approval execution must use the owner-scoped transaction; no local action was executed.",
+        )
     approvals = _read_json(MAMMOTH_DIR / "approvals.json", default=[])
     updated = None
     for item in approvals:
@@ -1767,6 +1777,11 @@ def _approve_record(record_id: str) -> Dict[str, Any]:
 
 
 def _delete_approval_record(record_id: str, *, reason: str = "deleted_by_user") -> Dict[str, Any]:
+    if _atlas_status_adapter is not None:
+        raise HTTPException(
+            status_code=503,
+            detail="Shared approval deletion must use the owner-scoped transaction; no local approval was changed.",
+        )
     approvals = _read_json(MAMMOTH_DIR / "approvals.json", default=[])
     remaining = []
     deleted = None
@@ -1795,6 +1810,8 @@ def _delete_approval_record(record_id: str, *, reason: str = "deleted_by_user") 
 
 
 def _load_approvals() -> List[Dict[str, Any]]:
+    if _atlas_status_adapter is not None:
+        return _shared_learner_store().read_learner_approvals()
     return _read_json(MAMMOTH_DIR / "approvals.json", default=[])
 
 
@@ -3612,15 +3629,21 @@ def _audit_entries_to_csv(entries: List[Dict[str, Any]]) -> str:
     return output.getvalue()
 
 
-def _build_atlas_observability(state: Dict[str, Any], *, eval_history: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+def _build_atlas_observability(
+    state: Dict[str, Any], *, eval_history: Optional[List[Dict[str, Any]]] = None,
+    include_host_data: bool = True,
+) -> Dict[str, Any]:
     eval_entries = eval_history if isinstance(eval_history, list) else _load_eval_history()
     eval_entries = [entry for entry in eval_entries if isinstance(entry, dict)]
     recent_evals = eval_entries[-8:]
     recent_plans = [item for item in (state.get("plan_history") or []) if isinstance(item, dict)][-8:]
     recent_outcomes = [item for item in ((state.get("learner_model") or {}).get("recent_outcomes") or []) if isinstance(item, dict)]
     fab_events = [item for item in (state.get("fab_usage_events") or []) if isinstance(item, dict)]
-    sandbox_runs = _read_jsonl_records(MAMMOTH_DIR / "sandbox_runs.jsonl", limit=40)
-    recent_activity = [item for item in _load_activity_events() if isinstance(item, dict)][-6:] if _request_is_admin() else []
+    sandbox_runs = _read_jsonl_records(MAMMOTH_DIR / "sandbox_runs.jsonl", limit=40) if include_host_data else []
+    recent_activity = (
+        [item for item in _load_activity_events() if isinstance(item, dict)][-6:]
+        if include_host_data and _request_is_admin() else []
+    )
 
     attempts = len(recent_outcomes)
     passed_attempts = sum(1 for item in recent_outcomes if bool(item.get("passed")))
@@ -3720,11 +3743,16 @@ def _attach_delivery_state(state: Dict[str, Any]) -> Dict[str, Any]:
     return state
 
 
-def _decorate_atlas_state(state: Dict[str, Any]) -> Dict[str, Any]:
+def _decorate_atlas_state(
+    state: Dict[str, Any], *, eval_history=None, include_host_data: bool = True,
+) -> Dict[str, Any]:
     _attach_delivery_state(state)
-    eval_history = _load_eval_history()
+    if eval_history is None:
+        eval_history = _load_eval_history()
     state["eval_history"] = eval_history[-8:]
-    state["observability"] = _build_atlas_observability(state, eval_history=eval_history)
+    state["observability"] = _build_atlas_observability(
+        state, eval_history=eval_history, include_host_data=include_host_data,
+    )
     state["available_modules"] = _atlas_module_catalog()
     active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
     if active_track:
@@ -4342,39 +4370,78 @@ def _load_atlas_state() -> Dict[str, Any]:
     return _ensure_account_collections({"status": "no_session", "active_account_id": "default"})
 
 
-def _save_atlas_state(state: Dict[str, Any]):
-    from mammoth_os.learning_controls import check_cancelled
+def _load_account_transition_state():
     from mammoth_os.learning_workspace import _workspace_lock
-    from mammoth_os.shared_state import JsonStateStore, StateConflict
+
+    atlas_file = _atlas_state_file_for_request()
+    try:
+        with _workspace_lock(atlas_file):
+            try:
+                snapshot = atlas_file.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                snapshot = None
+            return _load_atlas_state(), (snapshot,)
+    except (OSError, UnicodeError) as exc:
+        logger.exception("Workspace account state could not be read")
+        raise HTTPException(status_code=503, detail="Workspace account state is unavailable. No account change was confirmed.") from exc
+
+
+def _save_atlas_state(state: Dict[str, Any], *, reset_workspace: bool = False, expected_account_state=None):
+    from mammoth_os.learning_controls import check_cancelled
+    from mammoth_os.learning_workspace import WorkspaceStorageError, _workspace_lock, clear_workspace
+    from mammoth_os.shared_state import JsonStateStore, StateConflict, StateUnavailable
 
     check_cancelled()
     atlas_file = _atlas_state_file_for_request()
     try:
         with _workspace_lock(atlas_file):
             try:
-                latest = json.loads(atlas_file.read_text(encoding="utf-8"))
+                latest_text = atlas_file.read_text(encoding="utf-8")
+                latest = json.loads(latest_text)
             except FileNotFoundError:
+                latest_text = None
                 latest = {}
             if not isinstance(latest, dict):
                 raise ValueError("Invalid saved state.")
+            if expected_account_state is not None and expected_account_state != (latest_text,):
+                raise HTTPException(status_code=409, detail="Workspace data changed while this account request was running. Reload and retry.")
+            if latest.get("account_collections_epoch") != state.get("account_collections_epoch"):
+                raise HTTPException(status_code=409, detail="Workspace accounts changed while this request was running. Reload; stale content was not saved.")
+            if latest.get("learning_account_epoch") != state.get("learning_account_epoch"):
+                raise HTTPException(status_code=409, detail="The active learning account changed while this request was running. Reload; stale content was not saved.")
             if latest.get("learning_erasure_epoch") != state.get("learning_erasure_epoch"):
                 raise HTTPException(status_code=409, detail="Saved learning was deleted while this request was running. Reload; stale content was not saved.")
             if _learner_erasure_records(latest) != _learner_erasure_records(state):
                 raise HTTPException(status_code=409, detail="Private adaptation was deleted or deletion is pending. Reload; stale state was not saved.")
             check_cancelled()
+            if _active_account_id(latest) != _active_account_id(state):
+                state["learning_account_epoch"] = uuid.uuid4().hex
+            if expected_account_state is not None:
+                state["account_collections_epoch"] = uuid.uuid4().hex
             _persist_active_account_collections(state)
             JsonStateStore(MAMMOTH_DIR).write(atlas_file, state, strict=True)
+            if reset_workspace:
+                clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
     except StateConflict as exc:
         raise HTTPException(status_code=409, detail="Saved learning changed during this request. Reload; stale content was not saved.") from exc
-    except (OSError, ValueError) as exc:
+    except WorkspaceStorageError as exc:
+        logger.exception("Learning workspace reset failed after state save")
+        raise HTTPException(status_code=503, detail="Learning state may have been saved, but workspace reset was not confirmed. Reload before retrying.") from exc
+    except (OSError, ValueError, StateUnavailable) as exc:
         logger.exception("Learning state save failed")
-        raise HTTPException(status_code=503, detail="Saved learning could not be written. No save was confirmed.") from exc
+        detail = ("Learning state or workspace reset was not confirmed. Changes may be partial; reload before retrying."
+                  if reset_workspace else "Saved learning could not be written. No save was confirmed.")
+        raise HTTPException(status_code=503, detail=detail) from exc
 
 
 def _learning_controls():
     from mammoth_os.learning_controls import LearningControls
 
     backend = os.environ.get("MAMMOTH_LEARNING_CONTROLS_BACKEND", "local")
+    if _atlas_status_adapter is not None and backend != "postgres":
+        from mammoth_os.shared_state import StateUnavailable
+
+        raise StateUnavailable("Shared learner mode requires owner-scoped PostgreSQL learning controls.")
     if backend != "local":
         from mammoth_os.postgres_learning_controls import PostgresLearningControls
         from mammoth_os.shared_state import StateUnavailable
@@ -4391,6 +4458,7 @@ def _learning_controls():
 
 def _learning_control_action(action, *args):
     import sqlite3
+    from mammoth_os.shared_state import StateUnavailable
 
     try:
         return getattr(_learning_controls(), action)(*args)
@@ -4398,17 +4466,17 @@ def _learning_control_action(action, *args):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (OSError, sqlite3.Error) as exc:
+    except (OSError, sqlite3.Error, StateUnavailable) as exc:
         logger.exception("Learning controls storage failed")
         raise HTTPException(status_code=503, detail="Learning controls could not be read or changed. Retry explicitly.") from exc
 
 
-_ERASABLE_LEARNING_FIELDS = (
-    "topic", "curriculum_topic", "module_id", "active_module",
-    "curriculum_id", "curriculum", "curriculum_origin", "lesson_id",
-    "current_lesson", "current_exercise", "lesson_plan", "last_submission",
-    "chat_history", "assistant_chat_history", "lesson_history", "study_aids",
-    "learner_profile", "resume_packet", "regenerated_exercise",
+from mammoth_os.learning_workspace import (
+    ACCOUNT_SESSION_FIELDS as _ACCOUNT_SESSION_KEYS,
+    ERASABLE_LEARNING_FIELDS as _ERASABLE_LEARNING_FIELDS,
+    LEARNING_ERASURE_EXCLUDES as _LEARNING_ERASURE_EXCLUDES,
+    LEARNER_CACHE_FIELDS as _LEARNER_CACHE_FIELDS,
+    LEARNER_ERASURE_EXCLUDES as _LEARNER_ERASURE_EXCLUDES,
 )
 
 
@@ -4427,10 +4495,7 @@ def _learning_erasure_preview(state):
         "contract": "mammoth.learning-erasure.v1", "account_id": account_id,
         "preview_token": hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=True).encode()).hexdigest(),
         "scope": "active_account_saved_lesson_session_and_recovery",
-        "excludes": ["linked_notes", "uploaded_files", "curriculum_library", "other_accounts",
-                     "learner_model_and_cached_context", "lesson_telemetry", "onboarding",
-                     "mammoth_mind_threads", "artifacts", "plans", "audit_logs",
-                     "usage_records", "provider_records", "backups", "other_tabs_and_downloads"],
+        "excludes": list(_LEARNING_ERASURE_EXCLUDES),
     }
 
 
@@ -4472,6 +4537,30 @@ def _erase_saved_learning(body):
         raise HTTPException(status_code=503, detail="Deletion was not confirmed. A recovery draft may already have been removed; reload the preview before retrying.") from exc
 
 
+def _begin_controlled_learning(store, route):
+    if _atlas_status_adapter is not None:
+        return _begin_shared_controlled_learning(store, route)
+    from mammoth_os.learning_workspace import _workspace_lock
+
+    with _workspace_lock(_atlas_state_file_for_request()):
+        state = _load_learning_export_state()
+        return store.begin(route, _active_account_id(state))
+
+
+def _begin_shared_controlled_learning(store, route):
+    """Unselected admission seam; shared learner storage is not enabled."""
+    from mammoth_os.postgres_learner_transactions import PostgresLearnerTransactions
+    from mammoth_os.postgres_learning_controls import PostgresLearningControls
+    from mammoth_os.shared_state import StateUnavailable
+
+    owner = _current_request_user_id()
+    if not isinstance(store, PostgresLearningControls) or store.user_id != owner:
+        raise StateUnavailable("Shared learner admission requires matching owner-scoped PostgreSQL controls.")
+    transactions = PostgresLearnerTransactions(store.dsn, store.namespace, owner)
+    account, revision = transactions.read_active_account()
+    return transactions.begin_operation(revision=revision, account=account, route=route)
+
+
 def _controlled_learning(route):
     """Reserve before executing; never refund requests that may already be billable."""
     def decorate(handler):
@@ -4481,8 +4570,6 @@ def _controlled_learning(route):
             from mammoth_os.learning_controls import (
                 LearningCancelled, LearningLimitReached, check_cancelled, operation_context,
             )
-            from mammoth_os.learning_workspace import _workspace_lock
-
             blocked = _require_signed_in_api()
             if blocked is not None:
                 return blocked
@@ -4490,9 +4577,7 @@ def _controlled_learning(route):
             operation_id = None
             status = "failed"
             try:
-                with _workspace_lock(_atlas_state_file_for_request()):
-                    state = _load_learning_export_state()
-                    operation_id = store.begin(route, _active_account_id(state))
+                operation_id = _begin_controlled_learning(store, route)
                 with operation_context(store, operation_id):
                     result = await handler(*args, **kwargs)
                     check_cancelled()
@@ -4550,6 +4635,797 @@ def _learning_workspace_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="Saved workspace could not be read. Retry or contact support; it has not been overwritten.") from exc
 
 
+def _read_shared_atlas_status():
+    """Unselected reader for a consistent shared tutor status snapshot."""
+    store = _shared_learner_store()
+    snapshot, _ = store.read_status_snapshot()
+    state, recovery = _shared_atlas_state(snapshot)
+    return state, recovery
+
+
+def _shared_atlas_state(snapshot):
+    account_id = snapshot["account_id"]
+    account = snapshot["account"]
+    state = dict(snapshot["session"])
+    state.update({
+        "status": state.get("status") or "no_session",
+        "active_account_id": account_id,
+        "user_id": f"workspace:{account_id}",
+        "account_profile": account["profile"],
+        "account_profile_updated_at": account.get("profile_updated_at"),
+        "tier": account["tier"],
+        "developer_access": account["developer_access"],
+        "tier_updated_at": account.get("tier_updated_at"),
+    })
+    from mammoth_os.learner_model import _ensure_model_shape, build_learner_context, learner_storage_scope
+
+    model = _ensure_model_shape(snapshot["model"], state["user_id"])
+    context = build_learner_context(model, topic=state.get("topic"))
+    state["learner_model"] = model
+    state["learner_context"] = context
+    state["learner_storage"] = learner_storage_scope(_current_request_user_id(), state["user_id"])
+    state["learner_profile"] = {
+        "streak": context.get("streak", 0), "attempts": context.get("attempts", 0),
+        "recommended_difficulty": context.get("recommended_difficulty", "beginner"),
+        "preferred_pacing": context.get("preferred_pacing", "gentle"),
+    }
+    return state, snapshot["workspace_recovery"]
+
+
+_atlas_status_adapter = None
+
+
+async def _guard_partial_shared_learner_runtime(request, call_next):
+    if _atlas_status_adapter is None:
+        return await call_next(request)
+    path, method = request.url.path, request.method.upper()
+    supported = {
+        ("GET", "/api/atlas/status"), ("POST", "/api/atlas/workspace"),
+        ("GET", "/api/atlas/curricula"), ("POST", "/api/atlas/curricula"),
+        ("POST", "/api/atlas/onboard"), ("POST", "/api/atlas/learner/reset"),
+        ("GET", "/api/atlas/lecture"), ("GET", "/api/atlas/history/preview"),
+        ("GET", "/api/atlas/learner/privacy-review"), ("DELETE", "/api/atlas/history"),
+        ("GET", "/api/atlas/learner/deletion-preview"),
+        ("DELETE", "/api/atlas/learner/adaptation"), ("GET", "/api/atlas/modules"),
+        ("GET", "/api/atlas/library"), ("GET", "/api/atlas/learner"),
+    }
+    if _atlas_status_adapter is not None:
+        supported.add(("POST", "/api/atlas/reset"))
+    shared_controls_ready = (
+        _atlas_status_adapter is not None
+        and os.environ.get("MAMMOTH_LEARNING_CONTROLS_BACKEND") == "postgres"
+    )
+    if shared_controls_ready:
+        supported.update({
+            ("GET", "/api/atlas/controls"), ("PUT", "/api/atlas/controls"),
+            ("POST", "/api/atlas/lesson"), ("POST", "/api/atlas/submit"),
+            ("POST", "/api/atlas/next"), ("POST", "/api/atlas/back"),
+            ("POST", "/api/atlas/regenerate"), ("POST", "/api/atlas/curricula/start"),
+        })
+    if _atlas_status_adapter is not None and os.environ.get("MAMMOTH_STATE_BACKEND") == "supabase":
+        supported.add(("POST", "/api/atlas/export"))
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        supported.update({
+            ("GET", "/api/account/workspace"), ("POST", "/api/account/workspace"),
+            ("GET", "/api/account/profile"), ("POST", "/api/account/profile"),
+            ("POST", "/api/account/developer-access"), ("GET", "/api/entitlements"),
+            ("POST", "/api/entitlements/tier"),
+        })
+    shared_cancel_path = (
+        shared_controls_ready and method == "POST"
+        and path.startswith("/api/atlas/operations/") and path.endswith("/cancel")
+    )
+    if (path.startswith(("/api/atlas/", "/agent/atlas/"))
+            and (method, path) not in supported and not shared_cancel_path):
+        return JSONResponse({
+            "status": "error",
+            "error": "Shared learner integration is incomplete; no local fallback was used.",
+            "code": "storage_unavailable",
+        }, status_code=503, headers={"Cache-Control": "no-store"})
+    if (_atlas_status_adapter is not None and path.startswith("/api/account/")
+            and not (_account_workspace_adapter is not None
+                     and (path, method) in {
+                         ("/api/account/workspace", "GET"), ("/api/account/workspace", "POST"),
+                         ("/api/account/profile", "GET"), ("/api/account/profile", "POST"),
+                         ("/api/account/developer-access", "POST"),
+                     })):
+        return JSONResponse({
+            "status": "error",
+            "error": "Shared account integration is incomplete; no local fallback was used.",
+            "code": "storage_unavailable",
+        }, status_code=503, headers={"Cache-Control": "no-store"})
+    shared_entitlement_route = (
+        _account_workspace_adapter is not None and _atlas_status_adapter is not None
+        and (path, method) in {("/api/entitlements", "GET"), ("/api/entitlements/tier", "POST")}
+    )
+    if (_atlas_status_adapter is not None
+            and path in {"/api/entitlements", "/api/entitlements/tier", "/api/billing/usage/current"}
+            and not shared_entitlement_route):
+        return JSONResponse({
+            "status": "error",
+            "error": "Shared account entitlements are not integrated; no local fallback was used.",
+            "code": "storage_unavailable",
+        }, status_code=503, headers={"Cache-Control": "no-store"})
+    shared_approval_route = (
+        (method, path) == ("GET", "/api/approvals")
+        or (method == "POST" and path.startswith("/api/approvals/") and path.endswith("/approve"))
+        or (method == "DELETE" and path.startswith("/api/approvals/"))
+    )
+    if (_atlas_status_adapter is not None and path.startswith("/api/approvals")
+            and not shared_approval_route):
+        return JSONResponse({
+            "status": "error",
+            "error": "Shared approval route is unavailable; no local approval action was performed.",
+            "code": "storage_unavailable",
+        }, status_code=503, headers={"Cache-Control": "no-store"})
+    return await call_next(request)
+
+
+app.middleware("http")(_guard_partial_shared_learner_runtime)
+
+
+def _shared_learner_store():
+    from mammoth_os.postgres_learner_transactions import PostgresLearnerTransactions
+
+    return PostgresLearnerTransactions(
+        os.environ.get("MAMMOTH_POSTGRES_DSN"), os.environ.get("MAMMOTH_STATE_NAMESPACE"),
+        _current_request_user_id(),
+    )
+
+
+def _shared_active_account():
+    account, revision = _shared_learner_store().read_active_account()
+    return account, revision
+
+
+def _shared_update_onboarding(onboarding):
+    from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+    store = _shared_learner_store()
+    account, revision = store.read_active_account()
+    guard, guard_revision = store.read_approval_guard(account=account)
+    if revision != guard_revision:
+        raise StateConflict("Learner data changed while onboarding was being prepared; retry.")
+    store.update_onboarding(
+        revision=revision, account=account, approval_guard=guard, onboarding=onboarding,
+    )
+    try:
+        state, _ = _read_shared_atlas_status()
+    except StateUnavailable as exc:
+        raise StateUnavailable(
+            "Onboarding was committed, but refreshed learner context is unavailable. Reload before retrying.",
+        ) from exc
+    return {
+        "status": "ok", "learner_model": state["learner_model"],
+        "learner_context": state["learner_context"], "learner_profile": state["learner_profile"],
+    }
+
+
+def _shared_reset_learner(*, session_reset=False):
+    from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+    store = _shared_learner_store()
+    account, revision = store.read_active_account()
+    guard, guard_revision = store.read_approval_guard(account=account)
+    if revision != guard_revision:
+        raise StateConflict("Learner data changed while reset was being prepared; retry.")
+    store.reset_learner(
+        revision=revision, account=account, approval_guard=guard,
+        session_reset=session_reset, saved_at=datetime.now(timezone.utc).isoformat(),
+    )
+    try:
+        state, _ = _read_shared_atlas_status()
+    except StateUnavailable as exc:
+        raise StateUnavailable(
+            "Reset was committed, but refreshed learner state is unavailable. Reload before retrying.",
+        ) from exc
+    if session_reset:
+        return {"status": "ok", "message": "Session reset"}
+    return {"status": "ok", "learner_model": state["learner_model"],
+            "learner_context": state["learner_context"]}
+
+
+def _create_shared_learner_approval(operation, *, onboarding=None):
+    from mammoth_os.shared_state import StateConflict
+
+    store = _shared_learner_store()
+    account, revision = store.read_active_account()
+    guard, guard_revision = store.read_approval_guard(account=account)
+    if revision != guard_revision:
+        raise StateConflict("Learner data changed while approval was being prepared; retry.")
+    task_id = f"{operation}-{uuid.uuid4().hex[:8]}"
+    target = {
+        "atlas_onboard_update": "atlas/onboarding",
+        "atlas_learner_reset": "atlas/learner",
+        "atlas_session_reset": "atlas/session",
+    }[operation]
+    payload = {"onboarding": onboarding} if operation == "atlas_onboard_update" else {}
+    preview_payload = {"onboarding": onboarding} if onboarding is not None else {}
+    record = {
+        "id": str(uuid.uuid4()), "task_id": task_id, "agent_id": "tutor_agent",
+        "operation": operation, "target": target, "payload": payload,
+        "preview": _build_operation_preview(operation, preview_payload),
+        "requested_by": _current_request_user_id(), "trace_id": "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "learner_write_guard": guard,
+    }
+    approval = store.create_learner_approval(
+        revision=revision, account=account, approval_guard=guard, record=record,
+    )
+    return {"status": "ok", "approval": approval, "preview": approval["preview"]}
+
+
+def _approve_shared_learner_record(record_id):
+    store = _shared_learner_store()
+    return store.approve_learner_approval(
+        record_id=record_id, actor=_current_request_user_id(),
+    )
+
+
+def _delete_shared_learner_record(record_id):
+    store = _shared_learner_store()
+    return store.delete_learner_approval(
+        record_id=record_id, actor=_current_request_user_id(),
+    )
+
+
+async def _start_shared_atlas_lesson(body):
+    from mammoth_os.atlas_session import ATLASSession
+    from mammoth_os.learning_controls import current_operation_id
+    from mammoth_os.learner_model import build_lesson_plan
+    from mammoth_os.shared_state import StateUnavailable
+
+    store = _shared_learner_store()
+    snapshot, revision = store.read_status_snapshot()
+    account_id = snapshot["account_id"]
+    state, _ = _shared_atlas_state(snapshot)
+    operation_id = current_operation_id()
+    if not operation_id:
+        raise StateUnavailable("Shared lesson generation requires an admitted learning operation.")
+
+    requested_topic = str(body.get("topic") or "").strip()
+    module_track = _resolve_module_track(body.get("module_id"), requested_topic)
+    topic = requested_topic or str((module_track or {}).get("topic") or "Python basics")
+    curriculum_topic = _compose_module_curriculum_topic(topic, module_track)
+    session = ATLASSession(user_id=f"workspace:{account_id}")
+    learner_context = state.get("learner_context") or {}
+    lesson_plan = build_lesson_plan(state, topic)
+    difficulty = str(
+        lesson_plan.get("difficulty") or learner_context.get("recommended_difficulty") or "beginner"
+    ).strip().lower() or "beginner"
+    curriculum_topic = _compose_module_curriculum_topic(topic, module_track, difficulty)
+    if module_track:
+        lesson_plan["module_track"] = _serialize_module_track(module_track)
+        lesson_plan["curriculum_topic"] = curriculum_topic
+    learner_context = {**learner_context, "lesson_plan": lesson_plan, "recommended_difficulty": difficulty}
+    if module_track:
+        learner_context["module_track"] = _serialize_module_track(module_track)
+    exercise = await asyncio.to_thread(
+        session.start_lesson, curriculum_topic, difficulty=difficulty, learner_context=learner_context,
+    )
+    lesson = _decorate_lesson_for_module_track(session.current_lesson, module_track)
+    exercise = _decorate_exercise_for_module_track(exercise, lesson, module_track)
+    state.update({
+        "status": "active", "topic": topic, "curriculum_topic": curriculum_topic,
+        "current_exercise": exercise, "curriculum": session.curriculum, "current_lesson": lesson,
+        "curriculum_id": session._curriculum_id, "curriculum_origin": "generated",
+        "lesson_id": session._lesson_id, "lesson_plan": lesson_plan,
+        "module_id": (module_track or {}).get("id"),
+        "active_module": _serialize_module_track(module_track),
+        "last_submission": None, "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    _append_lesson_history(state, lesson or {}, exercise or {})
+    tutor_delivery.touch_lesson(_lesson_telemetry(state), str(state.get("lesson_id") or ""))
+    _attach_delivery_state(state)
+    changes = {
+        key: state[key]
+        for key in (
+            "status", "topic", "curriculum_topic", "current_exercise", "curriculum",
+            "current_lesson", "curriculum_id", "curriculum_origin", "lesson_id",
+            "lesson_plan", "module_id", "active_module", "last_submission", "lesson_history",
+            "lesson_telemetry",
+        )
+    }
+    store.update_learning_session(
+        revision=revision, account=account_id, operation_id=operation_id, changes=changes,
+    )
+    return {
+        "status": "ok", "exercise": exercise, "learner_context": state.get("learner_context"),
+        "active_module": _serialize_module_track(module_track),
+        "curriculum_topic": curriculum_topic, "lesson_manifest": state.get("lesson_manifest"),
+    }
+
+
+async def _start_shared_saved_curriculum(curriculum_id):
+    from mammoth_os.atlas_session import ATLASSession
+    from mammoth_os.curriculum_library import prepare_curriculum
+    from mammoth_os.learning_controls import current_operation_id
+    from mammoth_os.learner_model import build_lesson_plan
+    from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+    store = _shared_learner_store()
+    snapshot, revision = store.read_status_snapshot()
+    account_id = snapshot["account_id"]
+    collections, _, collection_revision = store.read_workspace_collections(account=account_id)
+    if collection_revision != revision:
+        raise StateConflict("Learner data changed while loading the saved curriculum; reload before retrying.")
+    operation_id = current_operation_id()
+    if not operation_id:
+        raise StateUnavailable("Shared curriculum activation requires an admitted learning operation.")
+
+    record = next((
+        item for item in collections["curriculum_library"]
+        if item["curriculum"].get("curriculum_id") == curriculum_id
+    ), None)
+    if record is None:
+        raise HTTPException(status_code=404, detail="Curriculum not found in your library.")
+    try:
+        course = prepare_curriculum(record["curriculum"])
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=409, detail="Saved curriculum needs review.") from exc
+    if not course["quality"]["ready"]:
+        return JSONResponse({
+            "status": "draft",
+            "error": "This curriculum needs authored lessons before it can start.",
+            "quality": course["quality"],
+        }, status_code=409)
+
+    state, _ = _shared_atlas_state(snapshot)
+    user_id = state["user_id"]
+    learner_context = state.get("learner_context") or {}
+    plan = build_lesson_plan(state, course["subject"])
+    learner_context = {
+        **learner_context,
+        "recommended_difficulty": plan["difficulty"],
+        "lesson_plan": plan,
+    }
+    session = ATLASSession(user_id=user_id)
+    try:
+        exercise = await asyncio.to_thread(
+            session.start_curriculum, course,
+            difficulty=learner_context["recommended_difficulty"],
+            learner_context=learner_context,
+        )
+    except (ValueError, RuntimeError) as exc:
+        logger.exception("Could not activate shared saved curriculum")
+        raise StateUnavailable(
+            "Could not prepare the first exercise. Your active lesson was not changed.",
+        ) from exc
+
+    state.update({
+        "status": "active", "topic": course["subject"], "curriculum_topic": course["subject"],
+        "curriculum": session.curriculum, "curriculum_id": session._curriculum_id,
+        "curriculum_origin": "saved", "current_lesson": session.current_lesson,
+        "lesson_id": session._lesson_id, "current_exercise": exercise,
+        "active_module": None, "module_id": None, "last_submission": None,
+        "lesson_plan": plan, "updated_at": datetime.now(timezone.utc).isoformat(),
+    })
+    _append_lesson_history(state, session.current_lesson or {}, exercise)
+    tutor_delivery.touch_lesson(_lesson_telemetry(state), str(state["lesson_id"]))
+    _attach_delivery_state(state)
+    _sync_resume_packet(state, state["lesson_id"])
+    changes = {
+        key: state[key]
+        for key in (
+            "status", "topic", "curriculum_topic", "curriculum", "curriculum_id",
+            "curriculum_origin", "current_lesson", "lesson_id", "current_exercise",
+            "active_module", "module_id", "last_submission", "lesson_plan",
+            "lesson_history", "lesson_telemetry", "resume_packet",
+        )
+        if key in state
+    }
+    store.update_learning_session(
+        revision=revision, account=account_id, operation_id=operation_id, changes=changes,
+    )
+    return {"status": "ok", "curriculum_id": curriculum_id, "lesson_id": state["lesson_id"]}
+
+
+async def _advance_shared_atlas_lesson(body):
+    from mammoth_os.learning_controls import current_operation_id
+    from mammoth_os.learner_model import build_lesson_plan
+    from mammoth_os.shared_state import StateUnavailable
+
+    store = _shared_learner_store()
+    snapshot, revision = store.read_status_snapshot()
+    account_id = snapshot["account_id"]
+    state, _ = _shared_atlas_state(snapshot)
+    operation_id = current_operation_id()
+    if not operation_id:
+        raise StateUnavailable("Shared lesson navigation requires an admitted learning operation.")
+
+    lesson_id = str(state.get("lesson_id") or "").strip()
+    if not lesson_id:
+        return {"status": "ok", "message": "No active lesson to advance from."}
+    history_entry = _matching_history_entry(state, lesson_id) or {}
+    history_submission = (
+        history_entry.get("last_submission")
+        if isinstance(history_entry.get("last_submission"), dict) else None
+    )
+    gate = tutor_delivery.comprehension_gate(
+        lesson_id=lesson_id,
+        exercise=state.get("current_exercise") if isinstance(state.get("current_exercise"), dict) else {},
+        telemetry_entry=_lesson_telemetry(state).get(lesson_id),
+        history_submission=history_submission,
+        override=bool(body.get("override")),
+    )
+    if gate.get("overridden"):
+        raise HTTPException(
+            status_code=503,
+            detail="Shared mastery-override audit is not integrated; no lesson change was made.",
+        )
+    if not gate.get("allowed"):
+        return {"status": "gated", "lesson_id": lesson_id, "gate": gate}
+
+    curriculum = state.get("curriculum")
+    modules = curriculum.get("modules", []) if isinstance(curriculum, dict) else []
+    if not isinstance(modules, list):
+        raise StateUnavailable("Shared curriculum is invalid; no lesson change was made.")
+    next_lesson = None
+    next_module = None
+    for module_index, module in enumerate(modules):
+        lessons = module.get("lessons", []) if isinstance(module, dict) else []
+        if not isinstance(lessons, list):
+            continue
+        for lesson_index, lesson in enumerate(lessons):
+            if not isinstance(lesson, dict) or str(lesson.get("lesson_id") or "").strip() != lesson_id:
+                continue
+            if lesson_index + 1 < len(lessons) and isinstance(lessons[lesson_index + 1], dict):
+                next_lesson, next_module = lessons[lesson_index + 1], module
+            elif module_index + 1 < len(modules):
+                candidate = modules[module_index + 1]
+                candidate_lessons = candidate.get("lessons", []) if isinstance(candidate, dict) else []
+                if isinstance(candidate_lessons, list) and candidate_lessons and isinstance(candidate_lessons[0], dict):
+                    next_lesson, next_module = candidate_lessons[0], candidate
+            break
+        if next_lesson is not None or any(
+            isinstance(lesson, dict) and str(lesson.get("lesson_id") or "").strip() == lesson_id
+            for lesson in lessons
+        ):
+            break
+    if next_lesson is None:
+        return {"status": "ok", "message": "No more lessons in curriculum."}
+
+    next_module_id = str(
+        (next_module or {}).get("module_id") or (next_module or {}).get("id")
+        or state.get("module_id") or ""
+    ).strip()
+    active_track = None if state.get("curriculum_origin") == "saved" else _resolve_module_track(
+        next_module_id, state.get("topic"),
+    )
+    if active_track is None and state.get("curriculum_origin") != "saved":
+        active_track = _resolve_module_track((next_module or {}).get("title"), state.get("topic"))
+    next_lesson = _decorate_lesson_for_module_track(next_lesson, active_track)
+    next_active_module = _serialize_module_track(active_track) or {
+        "id": next_module_id,
+        "label": str((next_module or {}).get("title") or "Next module").strip(),
+        "topic": str(state.get("topic") or "").strip(),
+        "summary": "", "category": "", "icon": "", "lesson_type": "knowledge",
+        "outcomes": [], "operator_note": "",
+    }
+
+    try:
+        from mammoth_os.exercise_generator import generate_exercises_for_lesson
+
+        context = state.get("learner_context") or {}
+        plan = build_lesson_plan(state, state.get("topic"))
+        context = {**context, "recommended_difficulty": plan["difficulty"], "lesson_plan": plan}
+        generated = await asyncio.to_thread(
+            generate_exercises_for_lesson, next_lesson, count=1,
+            difficulty=context.get("recommended_difficulty", "beginner"),
+            learner_context=context,
+        )
+        if not generated:
+            raise RuntimeError("No exercise generated")
+        next_exercise = _decorate_exercise_for_module_track(generated[0], next_lesson, active_track)
+    except Exception as exc:
+        logger.exception("Could not prepare next shared lesson exercise")
+        raise StateUnavailable(
+            "Could not prepare the next exercise. The shared lesson was not changed.",
+        ) from exc
+
+    state.update({
+        "current_lesson": next_lesson,
+        "lesson_id": next_lesson["lesson_id"],
+        "module_id": next_module_id or state.get("module_id"),
+        "active_module": next_active_module,
+        "current_exercise": next_exercise,
+        "last_submission": None,
+        "lesson_plan": build_lesson_plan(state, state.get("topic")),
+    })
+    _append_lesson_history(state, next_lesson, next_exercise)
+    tutor_delivery.touch_lesson(_lesson_telemetry(state), str(state.get("lesson_id") or ""))
+    _attach_delivery_state(state)
+    _sync_resume_packet(state, state.get("lesson_id"))
+    store.update_learning_session(
+        revision=revision, account=account_id, operation_id=operation_id,
+        changes={
+            key: state[key] for key in (
+                "current_lesson", "lesson_id", "module_id", "active_module",
+                "current_exercise", "last_submission", "lesson_plan", "lesson_history",
+                "lesson_telemetry", "resume_packet",
+            )
+        },
+    )
+    return {
+        "status": "ok", "lesson": next_lesson, "exercise": next_exercise,
+        "module_id": state.get("module_id"), "active_module": state.get("active_module"),
+        "lesson_id": state.get("lesson_id"), "lesson_manifest": state.get("lesson_manifest"),
+        "gate": gate,
+    }
+
+
+def _return_shared_atlas_lesson():
+    from mammoth_os.learning_controls import current_operation_id
+    from mammoth_os.shared_state import StateUnavailable
+
+    store = _shared_learner_store()
+    snapshot, revision = store.read_status_snapshot()
+    account_id = snapshot["account_id"]
+    state, _ = _shared_atlas_state(snapshot)
+    operation_id = current_operation_id()
+    if not operation_id:
+        raise StateUnavailable("Shared lesson navigation requires an admitted learning operation.")
+    history = state.get("lesson_history")
+    if not isinstance(history, list) or len(history) < 2:
+        return {"status": "ok", "message": "No previous lesson to return to."}
+    history = list(history)
+    history.pop()
+    previous = history[-1]
+    if not isinstance(previous, dict):
+        raise StateUnavailable("Shared lesson history is invalid; no lesson change was made.")
+    state["lesson_history"] = history
+    state["current_lesson"] = previous.get("lesson") or {}
+    state["lesson_id"] = previous.get("lesson_id")
+    state["current_exercise"] = previous.get("exercise") or {}
+    remove = []
+    if isinstance(previous.get("last_submission"), dict):
+        state["last_submission"] = previous["last_submission"]
+    else:
+        state.pop("last_submission", None)
+        remove.append("last_submission")
+    _sync_resume_packet(state, state.get("lesson_id"))
+    _attach_delivery_state(state)
+    store.update_learning_session(
+        revision=revision, account=account_id, operation_id=operation_id,
+        changes={
+            key: state[key] for key in (
+                "current_lesson", "lesson_id", "current_exercise", "lesson_history",
+                "resume_packet",
+            )
+        },
+        remove=remove,
+    )
+    return {
+        "status": "ok", "lesson": state.get("current_lesson"),
+        "exercise": state.get("current_exercise"), "resume_packet": state.get("resume_packet"),
+        "lesson_manifest": state.get("lesson_manifest"),
+    }
+
+
+async def _regenerate_shared_atlas_exercise(body):
+    from mammoth_os.learning_controls import current_operation_id
+    from mammoth_os.shared_state import StateUnavailable
+
+    store = _shared_learner_store()
+    snapshot, revision = store.read_status_snapshot()
+    account_id = snapshot["account_id"]
+    state, _ = _shared_atlas_state(snapshot)
+    operation_id = current_operation_id()
+    if not operation_id:
+        raise StateUnavailable("Shared exercise regeneration requires an admitted learning operation.")
+    reason = "manual_regeneration"
+    if isinstance(body, dict):
+        reason = str(body.get("reason") or reason)
+
+    try:
+        exercise = await asyncio.to_thread(_regenerate_current_exercise, state, reason=reason)
+    except Exception as exc:
+        logger.exception("Could not regenerate a shared lesson exercise")
+        raise StateUnavailable(
+            "Exercise generation failed. No regeneration change was saved; reload before retrying.",
+        ) from exc
+    if not exercise:
+        return {"status": "error", "error": "No active lesson available for regeneration."}
+
+    _append_lesson_history(state, state.get("current_lesson") or {}, exercise)
+    _sync_resume_packet(state, state.get("lesson_id"))
+    _attach_delivery_state(state)
+    store.update_learning_session(
+        revision=revision, account=account_id, operation_id=operation_id,
+        changes={
+            key: state[key] for key in (
+                "current_exercise", "regenerated_exercise", "lesson_history", "resume_packet",
+            )
+        },
+    )
+    return {
+        "status": "ok", "exercise": exercise, "reason": reason,
+        "learner_context": state.get("learner_context"),
+    }
+
+
+async def _submit_shared_atlas_work(body):
+    from mammoth_os.atlas_session import ATLASSession
+    from mammoth_os.learning_controls import current_operation_id
+    from mammoth_os.shared_state import StateUnavailable
+
+    store = _shared_learner_store()
+    snapshot, revision = store.read_status_snapshot()
+    account_id = snapshot["account_id"]
+    state, _ = _shared_atlas_state(snapshot)
+    operation_id = current_operation_id()
+    if not operation_id:
+        raise StateUnavailable("Shared submission requires an admitted learning operation.")
+    exercise = state.get("current_exercise")
+    lesson = state.get("current_lesson")
+    if not isinstance(exercise, dict) or not isinstance(lesson, dict):
+        raise HTTPException(status_code=409, detail="No active shared lesson is available for submission.")
+
+    session = ATLASSession(user_id=f"workspace:{account_id}")
+    session.curriculum = state.get("curriculum")
+    session.current_lesson = lesson
+    session.current_exercise = exercise
+    session._curriculum_id = state.get("curriculum_id")
+    session._lesson_id = state.get("lesson_id")
+    active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
+    submission_mode = str(exercise.get("submission_mode") or "").strip().lower() or (
+        "code" if str(exercise.get("lesson_type") or "code").strip().lower() == "code" else "text"
+    )
+    code = body.get("code", "")
+    if submission_mode == "text":
+        response_text = str(body.get("response") or code or "").strip()
+        from mammoth_os.lesson_assessment import assess_text_response
+
+        try:
+            result = await assess_text_response(response_text, lesson, exercise, str(state.get("lesson_id") or ""))
+        except Exception:
+            logging.getLogger("mammoth.atlas").exception(
+                "Shared lesson assessment unavailable; using labeled coverage feedback",
+            )
+            result = _evaluate_text_submission(
+                response_text, lesson=lesson, exercise=exercise, track=active_track,
+                lesson_id=str(state.get("lesson_id") or ""),
+            )
+    else:
+        result = await session.submit({"solution.py": code})
+    if not isinstance(result, dict):
+        raise StateUnavailable("Shared submission returned an invalid result; no learner update was saved.")
+
+    telemetry = _lesson_telemetry(state)
+    telemetry_entry = tutor_delivery.record_attempt(telemetry, str(state.get("lesson_id") or ""), result)
+    stall = tutor_delivery.stall_signal(telemetry_entry)
+    result["stall"] = stall
+    state["last_submission"] = result
+    _record_submission_on_history(state, result)
+    store.record_learning_result(
+        revision=revision, account=account_id, operation_id=operation_id,
+        result=result,
+        changes={
+            "last_submission": state.get("last_submission"),
+            "lesson_history": state.get("lesson_history") or [],
+            "lesson_telemetry": telemetry,
+        },
+        lesson=lesson, exercise=exercise, topic=state.get("topic"),
+        metadata={"error_fingerprint": None},
+    )
+    try:
+        updated_state, _ = _read_shared_atlas_status()
+    except StateUnavailable as exc:
+        raise StateUnavailable(
+            "Submission result was committed, but refreshed learner context is unavailable. "
+            "Reload before retrying; do not replay the submission.",
+        ) from exc
+    learner_context = updated_state.get("learner_context") or {}
+    adaptive_feedback = _build_submit_adaptation(learner_context, result)
+    regenerated_exercise = None
+    if (bool(body.get("regenerate_on_fail")) and not bool(result.get("passed"))
+            and adaptive_feedback.get("remediation_needed")):
+        try:
+            regeneration = await _regenerate_shared_atlas_exercise(
+                {"reason": "remediation_after_failed_submission"},
+            )
+        except StateUnavailable as exc:
+            raise StateUnavailable(
+                "Submission result was committed, but remediation regeneration failed. "
+                "Reload before retrying; do not replay the submission.",
+            ) from exc
+        regenerated_exercise = regeneration.get("exercise")
+        if not regenerated_exercise:
+            raise StateUnavailable(
+                "Submission result was committed, but remediation exercise generation returned no exercise. "
+                "Reload before retrying; do not replay the submission.",
+            )
+        exercise = regenerated_exercise
+    response = {
+        "status": "ok", "result": result, "learner_context": learner_context,
+        "adaptive_feedback": adaptive_feedback, "current_exercise": exercise,
+        "regenerated_exercise": regenerated_exercise, "stall": stall, "provider": "atlas-tutor",
+        "confidence": 0.85, "citations": ["Exercise library", "Curriculum standards"],
+        "contradictions": [],
+    }
+    return _wrap_response_with_trust(response, endpoint="/api/atlas/submit", response_type="tutor")
+
+
+def _shared_learner_privacy_review(account, model):
+    counts = None
+    if model is not None:
+        graph = model.get("memory_graph") or {}
+        try:
+            nodes, edges = graph.get("nodes", []), graph.get("edges", [])
+            if not isinstance(nodes, list) or not isinstance(edges, list):
+                raise ValueError("Invalid memory graph collections.")
+            counts = {
+                "mastery_concepts": len(model.get("mastery") or {}),
+                "confidence_concepts": len(model.get("confidence") or {}),
+                "error_patterns": len(model.get("error_patterns") or []),
+                "retained_outcomes": len(model.get("recent_outcomes") or []),
+                "memory_nodes": len(nodes), "memory_edges": len(edges),
+            }
+        except (ValueError, TypeError, AttributeError) as exc:
+            logger.exception("Private learner adaptation review failed")
+            raise HTTPException(status_code=503, detail="Private learner adaptation could not be reviewed. No data was deleted.") from exc
+    from mammoth_os.learner_model import learner_storage_scope
+
+    learner_id = f"workspace:{account}"
+    return {
+        "contract": "mammoth.learner-privacy-review.v1",
+        "account_id": account, "model_status": "saved" if model is not None else "not_saved",
+        "saved_fields": sorted(model) if model is not None else [],
+        "pending_deletion": False, "saved_record_counts": counts,
+        "storage_scope": learner_storage_scope(_current_request_user_id(), learner_id),
+        "deletion_available": False,
+        "deletion_blockers": ["separate_deletion_preview_and_confirmation_required"],
+        "review_only": True, "model_calls": 0, "not_a_transactional_snapshot": True,
+        "scope": "active_account_private_learner_adaptation",
+        "retained_outside_scope": [
+            "lesson_session_and_recovery", "linked_notes", "uploaded_files",
+            "curriculum_library", "other_accounts", "unverified_legacy_models",
+            "unknown_learner_extension_fields", "lesson_telemetry",
+            "mammoth_mind_threads", "artifacts", "plans", "audit_logs",
+            "usage_records", "provider_records", "backups", "other_tabs_and_downloads",
+            "unknown_state_and_session_extensions",
+        ],
+    }
+
+
+def _load_atlas_read_state():
+    if _atlas_status_adapter is not None:
+        return _atlas_status_adapter()[0]
+    return _load_atlas_state()
+
+
+def _save_learning_workspace(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    from mammoth_os.learning_workspace import save_workspace, _workspace_lock
+
+    with _workspace_lock(_atlas_state_file_for_request()):
+        state = _load_atlas_state()
+        return save_workspace(
+            _learning_workspace_path(state), state, body, datetime.now(timezone.utc).isoformat(),
+        )
+
+
+def _save_shared_learning_workspace(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Unselected integration seam; shared learner storage is not enabled."""
+    from mammoth_os.learning_workspace import validate_workspace_values
+    from mammoth_os.postgres_learner_transactions import PostgresLearnerTransactions
+
+    validate_workspace_values(body.get("values"))
+    draft_revision = body.get("revision")
+    if type(draft_revision) is not int or draft_revision < 0:
+        return None
+    store = PostgresLearnerTransactions(
+        os.environ.get("MAMMOTH_POSTGRES_DSN"), os.environ.get("MAMMOTH_STATE_NAMESPACE"),
+        _current_request_user_id(),
+    )
+    account, revision = store.read_active_account()
+    saved, _ = store.save_draft(
+        revision=revision, account=account, exercise_key=body.get("exercise_key"),
+        draft_revision=draft_revision, values=body["values"],
+        saved_at=datetime.now(timezone.utc).isoformat(),
+    )
+    return saved
+
+
 def _validated_learning_selection(state: Dict[str, Any], payload: Any) -> Dict[str, Any]:
     try:
         return tutor_delivery.contextual_selection(state, payload)
@@ -4583,12 +5459,24 @@ def _load_learning_export_state(*, normalize: bool = True) -> Dict[str, Any]:
 
 def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
     """Export the active account's saved learning data, never the state envelope."""
+    from mammoth_os.shared_state import StateUnavailable
+
     user_id = _current_request_user_id()
     account_id = _active_account_id(state)
-    from mammoth_os.learner_model import read_saved_learner_model
+    if _atlas_status_adapter is not None:
+        if os.environ.get("MAMMOTH_STATE_BACKEND") != "supabase":
+            raise HTTPException(status_code=503, detail="Shared learning export requires shared notes storage.")
+        saved_model = deepcopy(state.get("learner_model"))
+        storage_scope = deepcopy(state.get("learner_storage"))
+        workspace_recovery = deepcopy(state.get("workspace_recovery") or {})
+        learner_id = str(state.get("user_id") or f"workspace:{account_id}")
+    else:
+        from mammoth_os.learner_model import read_saved_learner_model
 
-    learner_id = _atlas_user_id(state)
-    saved_model = _learner_storage_action(read_saved_learner_model, learner_id, learner_id)
+        learner_id = _atlas_user_id(state)
+        saved_model = _learner_storage_action(read_saved_learner_model, learner_id, learner_id)
+        storage_scope = _learner_storage_scope(learner_id)
+        workspace_recovery = _learning_workspace_snapshot(state)
     fields = (
         "topic", "curriculum_topic", "module_id", "active_module",
         "curriculum_id", "curriculum", "curriculum_origin", "lesson_id",
@@ -4597,14 +5485,10 @@ def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
         "learner_profile",
     )
     try:
-        raw_notes = json.loads(NOTES_FILE.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raw_notes = []
-    except (OSError, ValueError) as exc:
+        raw_notes = _read_json(NOTES_FILE, default=[])
+    except StateUnavailable as exc:
         logger.exception("Learning export notes could not be read")
         raise HTTPException(status_code=503, detail="Saved notes could not be read. No complete learning export was confirmed.") from exc
-    if not isinstance(raw_notes, list):
-        raise HTTPException(status_code=503, detail="Saved notes could not be exported. No complete learning export was confirmed.")
     notes = []
     for raw in raw_notes:
         if (not isinstance(raw, dict) or str(raw.get("user_id") or "") != user_id
@@ -4619,13 +5503,13 @@ def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "user_id": user_id, "account_id": account_id,
         "saved_learning": {key: deepcopy(state[key]) for key in fields if key in state},
-        "workspace_recovery": _learning_workspace_snapshot(state),
+        "workspace_recovery": workspace_recovery,
         "linked_notes": notes,
         "learner_adaptation": {
             "contract": "mammoth.learner-export.v1",
             "status": "saved" if saved_model is not None else "not_saved",
             "model": saved_model,
-            "storage_scope": _learner_storage_scope(learner_id),
+            "storage_scope": storage_scope,
             "unknown_extension_fields_included": False,
             "pending_deletion": (_learner_erasure_records(state).get(account_id) or {}).get("status") == "pending",
         },
@@ -4651,42 +5535,6 @@ def _export_learning_workspace(state: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
-_ACCOUNT_SESSION_KEYS = (
-    "status",
-    "topic",
-    "curriculum_topic",
-    "current_exercise",
-    "curriculum",
-    "current_lesson",
-    "curriculum_id",
-    "curriculum_origin",
-    "lesson_id",
-    "lesson_plan",
-    "module_id",
-    "active_module",
-    "last_submission",
-    "assistant_chat_history",
-    "chat_history",
-    "mammoth_chat_history",
-    "resume_packet",
-    "lesson_history",
-    "study_aids",
-    "learner_profile",
-    "learner_model",
-    "learner_context",
-    "learner_storage",
-    "fab_usage_events",
-    "workspace_artifacts",
-    "agent_run_history",
-    "plan_history",
-    "active_plan",
-    "eval_history",
-    "regenerated_exercise",
-    "workspace_epoch",
-    "updated_at",
-)
-
-
 def _normalize_account_id(value: Any, *, fallback: str = "default") -> str:
     normalized = re.sub(r"[^a-z0-9]+", "-", str(value or "").strip().lower()).strip("-")
     return normalized or fallback
@@ -4709,12 +5557,10 @@ def _atlas_user_id(state: Dict[str, Any]) -> str:
 
 
 def _learner_storage_scope(user_id: str) -> Dict[str, Any]:
-    import hashlib
+    from mammoth_os.learner_model import learner_storage_scope
 
     owner = str(_REQUEST_USER_ID.get() or "local")
-    key = hashlib.sha256(json.dumps([owner, user_id], ensure_ascii=True).encode("utf-8")).hexdigest()
-    return {"contract": "mammoth.learner-storage.v1", "scope_key": key,
-            "legacy_imported": False, "legacy_ownership": "unverified_not_imported"}
+    return learner_storage_scope(owner, user_id)
 
 
 def _learner_storage_path(user_id: str) -> str:
@@ -4723,20 +5569,23 @@ def _learner_storage_path(user_id: str) -> str:
 
 
 def _learner_erasure_records(state: Dict[str, Any]) -> Dict[str, Any]:
-    records = state.get("learner_erasure", {})
-    if not isinstance(records, dict) or any(
-        not isinstance(key, str) or not isinstance(value, dict)
-        or set(value) != {"epoch", "status"}
-        or not isinstance(value["epoch"], str) or not re.fullmatch(r"[a-f0-9]{32}", value["epoch"])
-        or value["status"] not in ("pending", "complete")
-        for key, value in records.items()
-    ):
+    from mammoth_os.learning_workspace import WorkspaceStorageError, validate_learner_erasure_records
+
+    try:
+        return validate_learner_erasure_records(state)
+    except WorkspaceStorageError as exc:
         logger.error("Invalid private adaptation erasure state")
-        raise HTTPException(status_code=503, detail="Private adaptation deletion state is invalid. No write or deletion was confirmed.")
-    return records
+        raise HTTPException(status_code=503, detail="Private adaptation deletion state is invalid. No write or deletion was confirmed.") from exc
 
 
 def _check_learner_write_state(state: Dict[str, Any], latest: Dict[str, Any]) -> None:
+    if state.get("account_collections_epoch") != latest.get("account_collections_epoch"):
+        raise HTTPException(status_code=409, detail="Workspace accounts changed after this work started. Reload; stale adaptation was not saved.")
+    if (_active_account_id(state) != _active_account_id(latest)
+            or state.get("learning_account_epoch") != latest.get("learning_account_epoch")):
+        raise HTTPException(status_code=409, detail="The active learning account changed after this work started. Reload; stale adaptation was not saved.")
+    if state.get("learning_erasure_epoch") != latest.get("learning_erasure_epoch"):
+        raise HTTPException(status_code=409, detail="Saved learning was deleted after this work started. Reload; stale adaptation was not saved.")
     records = _learner_erasure_records(latest)
     if records != _learner_erasure_records(state):
         raise HTTPException(status_code=409, detail="Private adaptation changed after this work started. Reload; stale adaptation was not saved.")
@@ -4745,22 +5594,17 @@ def _check_learner_write_state(state: Dict[str, Any], latest: Dict[str, Any]) ->
 
 
 def _learner_approval_guard(state: Dict[str, Any]) -> Dict[str, Any]:
-    return {"scope": _learner_storage_scope(_atlas_user_id(state)),
-            "erasure": deepcopy(_learner_erasure_records(state))}
+    guard = {"scope": _learner_storage_scope(_atlas_user_id(state)),
+             "erasure": deepcopy(_learner_erasure_records(state))}
+    for key in ("learning_account_epoch", "learning_erasure_epoch"):
+        if state.get(key) is not None:
+            guard[key] = state[key]
+    return guard
 
 
 def _validate_learner_approval(state: Dict[str, Any], guard: Optional[Dict[str, Any]]) -> None:
     if guard is not None and guard != _learner_approval_guard(state):
         raise HTTPException(status_code=409, detail="This learner approval is unbound or predates an account change or deletion. Request a new approval.")
-
-
-_LEARNER_CACHE_FIELDS = ("learner_model", "learner_context", "learner_profile", "learner_storage")
-_LEARNER_ERASURE_EXCLUDES = [
-    "lesson_session_and_recovery", "linked_notes", "uploaded_files", "curriculum_library",
-    "other_accounts", "unverified_legacy_models", "lesson_telemetry",
-    "mammoth_mind_threads", "artifacts", "plans", "audit_logs", "usage_records",
-    "provider_records", "backups", "other_tabs_and_downloads",
-]
 
 
 def _learner_erasure_preview(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -4790,7 +5634,7 @@ def _learner_erasure_preview(state: Dict[str, Any]) -> Dict[str, Any]:
         "pending_deletion": bool(record and record["status"] == "pending"),
         "erases": ["private_model_onboarding_mastery_confidence_errors_outcomes_and_memory_graph",
                    "active_account_adaptation_caches"],
-        "excludes": _LEARNER_ERASURE_EXCLUDES,
+        "excludes": list(_LEARNER_ERASURE_EXCLUDES),
         "cancels_tracked_account_requests": True, "provider_work_may_continue": True,
         "fresh_activity_can_create_new_adaptation": True,
     }
@@ -4914,8 +5758,99 @@ def _learner_privacy_review(state: Dict[str, Any]) -> Dict[str, Any]:
             "unknown_learner_extension_fields", "lesson_telemetry",
             "mammoth_mind_threads", "artifacts", "plans", "audit_logs",
             "usage_records", "provider_records", "backups", "other_tabs_and_downloads",
+            "unknown_state_and_session_extensions",
         ],
     }
+
+
+_account_workspace_adapter = None
+
+
+class _SharedAccountWorkspaceAdapter:
+    """Unselected account route adapter for isolated shared-storage rehearsals."""
+
+    def __init__(self):
+        from mammoth_os.postgres_learner_transactions import PostgresLearnerTransactions
+
+        self.store = PostgresLearnerTransactions(
+            os.environ.get("MAMMOTH_POSTGRES_DSN"), os.environ.get("MAMMOTH_STATE_NAMESPACE"),
+            _current_request_user_id(),
+        )
+
+    def snapshot(self):
+        view, _ = self.store.read_account_view()
+        return _build_workspace_accounts_snapshot(view)
+
+    def update_metadata(self, changes, action):
+        view, revision = self.store.read_account_view()
+        return self._commit_metadata(view, revision, changes, action)
+
+    def update_profile(self, body):
+        view, revision = self.store.read_account_view()
+        account = view["active_account_id"]
+        profile = dict(view["accounts"][account]["profile"])
+        for key in ("display_name", "email", "organization"):
+            if key in body:
+                profile[key] = str(body.get(key) or "").strip()
+        return self._commit_metadata(view, revision, {"profile": profile}, "profile_update")
+
+    def _commit_metadata(self, view, revision, changes, action):
+        account = view["active_account_id"]
+        guard, guard_revision = self.store.read_approval_guard(account=account)
+        if revision != guard_revision:
+            from mammoth_os.shared_state import StateConflict
+
+            raise StateConflict("Account changed while preparing metadata update; reload before retrying.")
+        _, updated = self.store.update_account_metadata(
+            revision=revision, account=account, guard=guard, changes=changes,
+            action=action, updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        return updated
+
+    def mutate(self, body):
+        view, revision = self.store.read_account_view()
+        account = view["active_account_id"]
+        accounts = view["accounts"]
+        action = str(body.get("action") or "").strip().lower()
+        now = datetime.now(timezone.utc).isoformat()
+        if action == "create":
+            raw_label = str(body.get("display_name") or body.get("label") or body.get("account_id") or "New account").strip()
+            target = _normalize_account_id(body.get("account_id") or raw_label, fallback="account")
+            if target in accounts:
+                return {"status": "error", "error": f"Account already exists: {target}"}
+            profile = {"display_name": raw_label or "Operator", "email": str(body.get("email") or "").strip(),
+                       "organization": str(body.get("organization") or "").strip()}
+            activate = bool(body.get("activate", True))
+            _, result = self.store.create_account(
+                revision=revision, account=account, target=target, profile=profile,
+                created_at=now, activate=activate, include_view=True,
+            )
+            kind, message = "account_created", "Workspace account created"
+            details = {"account_id": target, "active": activate}
+        elif action in {"switch", "delete"}:
+            target = _normalize_account_id(body.get("account_id"), fallback="")
+            if not target or target not in accounts:
+                return {"status": "error", "error": "Unknown account_id"}
+            if action == "delete" and len(accounts) <= 1:
+                return {"status": "error", "error": "At least one workspace account must remain."}
+            if action == "switch":
+                _, result = self.store.switch_account(
+                    revision=revision, account=account, target=target, include_view=True,
+                )
+                kind, message = "account_switch", "Workspace account switched"
+            else:
+                _, result = self.store.delete_account(
+                    revision=revision, account=account, target=target, deleted_at=now, include_view=True,
+                )
+                kind, message = "account_deleted", "Workspace account deleted"
+            details = {"account_id": target}
+        else:
+            return {"status": "error", "error": "Unsupported action. Use create, switch, or delete."}
+        _append_audit_event(
+            kind=kind, message=message, details=details, source="account", actor="user",
+            tier=result["accounts"][result["active_account_id"]]["tier"],
+        )
+        return {"status": "ok", "action": action, **_build_workspace_accounts_snapshot(result)}
 
 
 def _build_workspace_accounts_snapshot(state: Dict[str, Any]) -> Dict[str, Any]:
@@ -5053,13 +5988,47 @@ def _persist_active_account_collections(state: Dict[str, Any]) -> Dict[str, Any]
     account["tier_updated_at"] = state.get("tier_updated_at") or account.get("tier_updated_at")
     account["developer_access_updated_at"] = state.get("developer_access_updated_at") or account.get("developer_access_updated_at")
     account["updated_at"] = state.get("updated_at") or datetime.now(timezone.utc).isoformat()
-    sessions[active_account_id] = _legacy_session_slice(state)
+    previous_session = sessions.get(active_account_id)
+    if previous_session is not None and not isinstance(previous_session, dict):
+        raise ValueError("Invalid saved account session.")
+    extensions = {key: deepcopy(value) for key, value in (previous_session or {}).items()
+                  if key not in _ACCOUNT_SESSION_KEYS}
+    sessions[active_account_id] = {**extensions, **_legacy_session_slice(state)}
     state["accounts"] = accounts
     state["account_sessions"] = sessions
     state["active_account_id"] = active_account_id
     state["session_scope"] = "workspace_multi_account"
     state["user_id"] = _atlas_user_id(state)
     return state
+
+
+def _load_workspace_collections():
+    return _load_atlas_state(), None
+
+
+def _save_workspace_collection(state, context, field):
+    _save_atlas_state(state)
+
+
+def _load_shared_workspace_collections():
+    """Unselected integration seam; the shared learner backend is not enabled."""
+    from mammoth_os.postgres_learner_transactions import PostgresLearnerTransactions
+
+    store = PostgresLearnerTransactions(
+        os.environ.get("MAMMOTH_POSTGRES_DSN"), os.environ.get("MAMMOTH_STATE_NAMESPACE"),
+        _current_request_user_id(),
+    )
+    account, _ = store.read_active_account()
+    state, guard, revision = store.read_workspace_collections(account=account)
+    return state, (store, account, guard, revision)
+
+
+def _save_shared_workspace_collection(state, context, field):
+    store, account, guard, revision = context
+    store.update_workspace_collection(
+        revision=revision, account=account, guard=guard, field=field,
+        values=state[field], updated_at=state.get("updated_at"),
+    )
 
 
 def _normalize_workspace_artifact_record(raw: Any, *, now: Optional[str] = None) -> Optional[Dict[str, Any]]:
@@ -5113,13 +6082,13 @@ def _archive_runtime_result(output: Any, *, artifact_id: str, agent_id: str,
         })
         if record is None:
             raise ValueError("The run returned no savable output.")
-        state = _load_atlas_state()
+        state, context = _load_workspace_collections()
         artifacts = _normalize_workspace_artifact_collection(state.get("workspace_artifacts"))
         previous = next((item for item in artifacts if item["id"] == record["id"]), None)
         record = record_artifact_revision(record, previous, now=datetime.now(timezone.utc).isoformat())
         state["workspace_artifacts"] = [record, *[item for item in artifacts if item["id"] != record["id"]]][:120]
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
-        _save_atlas_state(state)
+        _save_workspace_collection(state, context, "workspace_artifacts")
         return {"status": "saved", "artifact_id": record["id"], "revision": record["revision"]}
     except Exception:
         logger.exception("Complete run archive failed")
@@ -5179,20 +6148,13 @@ def _normalize_agent_run_history_collection(raw_items: Any) -> List[Dict[str, An
 
 
 def _reset_learner_model_state(user_id: str = "default_user", *, state: Dict[str, Any]) -> Dict[str, Any]:
+    from mammoth_os.learner_model import _reset_model_progress
     from mammoth_os.learning_workspace import _workspace_lock
 
     def reset(*, storage_path: str):
         with _workspace_lock(Path(storage_path) / "atlas_learner_model.json"):
             learner_state = load_learner_model(user_id, storage_path=storage_path)
-            learner_state.update({
-                "mastery": {},
-                "confidence": {},
-                "streak": 0,
-                "attempts": 0,
-                "error_patterns": {},
-                "recent_outcomes": [],
-                "memory_graph": {"nodes": [], "edges": [], "last_updated": None},
-            })
+            _reset_model_progress(learner_state)
             return save_learner_model(learner_state, storage_path=storage_path)
     return _learner_storage_action(reset, user_id, guard_state=state)
 
@@ -5219,9 +6181,19 @@ def _apply_atlas_onboarding_update(onboarding: Dict[str, Any], *, approval_guard
     }
 
 
-def _apply_atlas_learner_reset(*, approval_guard=None) -> Dict[str, Any]:
-    from mammoth_os.learning_workspace import clear_workspace
+def _save_atlas_reset(state: Dict[str, Any]) -> None:
+    try:
+        _save_atlas_state(state, reset_workspace=True)
+    except HTTPException as exc:
+        if exc.status_code not in (409, 503):
+            raise
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail="Reset was not confirmed. Private adaptation may already have changed and other changes may be partial; reload before retrying.",
+        ) from exc
 
+
+def _apply_atlas_learner_reset(*, approval_guard=None) -> Dict[str, Any]:
     state = _load_atlas_state()
     _validate_learner_approval(state, approval_guard)
     learner_user_id = _atlas_user_id(state)
@@ -5229,7 +6201,6 @@ def _apply_atlas_learner_reset(*, approval_guard=None) -> Dict[str, Any]:
     state["learner_model"] = learner_state
     state["learner_storage"] = _learner_storage_scope(learner_user_id)
     state["workspace_epoch"] = uuid.uuid4().hex
-    clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
     state["learner_context"] = build_learner_context(learner_state)
     state["learner_profile"] = {
         "streak": 0,
@@ -5237,20 +6208,17 @@ def _apply_atlas_learner_reset(*, approval_guard=None) -> Dict[str, Any]:
         "recommended_difficulty": "beginner",
         "preferred_pacing": "gentle",
     }
-    _save_atlas_state(state)
+    _save_atlas_reset(state)
     return {"status": "ok", "learner_model": learner_state, "learner_context": state["learner_context"]}
 
 
 def _apply_atlas_session_reset(*, approval_guard=None) -> Dict[str, Any]:
-    from mammoth_os.learning_workspace import clear_workspace
-
     state = _load_atlas_state()
     _validate_learner_approval(state, approval_guard)
     learner_user_id = _atlas_user_id(state)
     learner_state = _reset_learner_model_state(learner_user_id, state=state)
     state["status"] = "reset"
     state["workspace_epoch"] = uuid.uuid4().hex
-    clear_workspace(_learning_workspace_path(state), state, datetime.now(timezone.utc).isoformat())
     state["user_id"] = learner_user_id
     state["learner_model"] = learner_state
     state["learner_storage"] = _learner_storage_scope(learner_user_id)
@@ -5262,7 +6230,7 @@ def _apply_atlas_session_reset(*, approval_guard=None) -> Dict[str, Any]:
         "preferred_pacing": "gentle",
     }
     state["lesson_telemetry"] = {}
-    _save_atlas_state(state)
+    _save_atlas_reset(state)
     return {"status": "ok", "message": "Session reset"}
 
 

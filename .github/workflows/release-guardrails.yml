@@ -43,6 +43,7 @@ jobs:
             tests/test_runtime_state_usage.py \
             tests/test_shared_state_admission.py \
             tests/test_remaining_shared_writers.py \
+            tests/test_learner_source_backup.py \
             tests/test_hosted_storage_preflight.py \
             tests/test_server_routes_layout.py \
             -q
@@ -68,7 +69,7 @@ jobs:
             sleep 1
           done
           exit 1
-      - run: python -m pytest tests/test_shared_state_admission.py tests/test_postgres_run_store.py tests/test_postgres_documents.py tests/test_generated_artifacts.py tests/test_postgres_chat_threads.py -q
+      - run: python -m pytest tests/test_shared_state_admission.py tests/test_postgres_run_store.py tests/test_postgres_documents.py tests/test_generated_artifacts.py tests/test_postgres_chat_threads.py tests/test_postgres_learner_bundle.py tests/test_postgres_learner_transactions.py tests/test_shared_workspace_api_rehearsal.py -q
       - name: Stop dedicated fixture database
         if: always()
         run: docker rm -f mammoth-admission-ci

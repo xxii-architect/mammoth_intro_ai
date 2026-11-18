@@ -36,6 +36,30 @@ def test_full_workspace_roundtrip_preserves_empty_drafts_without_submission(work
     assert state["current_exercise"]["starter_response"] == "Start here"
 
 
+def test_saved_draft_validation_is_reusable_without_losing_unknown_fields(workspace):
+    record = {"exercise_key": workspace["exercise_key"], "revision": 1,
+              "values": workspace["values"], "saved_at": "fixture",
+              "unknown_extension": {"preserve": True}}
+    assert learning_workspace.validate_workspace_record(record) is record
+    with pytest.raises(learning_workspace.WorkspaceStorageError):
+        learning_workspace.validate_workspace_record({**record, "revision": True})
+    with pytest.raises(learning_workspace.WorkspaceStorageError):
+        learning_workspace.validate_workspace_record({**record, "values": {}})
+
+
+def test_saving_draft_preserves_unknown_record_extensions(workspace):
+    state = api_server._load_atlas_state()
+    path = api_server._learning_workspace_path(state)
+    record = {"exercise_key": workspace["exercise_key"], "revision": 1,
+              "values": workspace["values"], "saved_at": "fixture",
+              "extension": {"retain": "future format"}}
+    learning_workspace._write_workspace(path, record)
+    current = api_server._learning_workspace_snapshot(state)
+    saved = save(current, lesson_response="Updated")
+    assert saved["revision"] == 2 and saved["values"]["lesson_response"] == "Updated"
+    assert learning_workspace.read_workspace(path)["extension"] == record["extension"]
+
+
 def test_conflicting_tabs_and_changed_exercise_cannot_overwrite_saved_work(workspace):
     saved = save(workspace, lesson_response="First tab")
     with pytest.raises(HTTPException) as conflict:
@@ -53,7 +77,7 @@ def test_conflicting_tabs_and_changed_exercise_cannot_overwrite_saved_work(works
 
 
 def test_workspace_isolated_between_local_accounts(workspace):
-    save(workspace, lesson_response="Account one private draft")
+    saved = save(workspace, lesson_response="Account one private draft")
     first_state = api_server._load_atlas_state()
     # Use the same switch surface as the application, not a payload user ID.
     asyncio.run(api_server.mutate_account_workspace({
@@ -69,7 +93,160 @@ def test_workspace_isolated_between_local_accounts(workspace):
     assert stale.value.status_code == 409
     assert second["values"]["lesson_response"] != "Account one private draft"
     asyncio.run(api_server.mutate_account_workspace({"action": "switch", "account_id": "default"}))
-    assert api_server._learning_workspace_snapshot(api_server._load_atlas_state())["values"]["lesson_response"] == "Account one private draft"
+    restored = api_server._learning_workspace_snapshot(api_server._load_atlas_state())
+    assert restored["values"]["lesson_response"] == "Account one private draft"
+    assert restored["exercise_key"] != saved["exercise_key"]
+    with pytest.raises(HTTPException) as stale:
+        save(saved, lesson_response="A delayed tab must not overwrite recovery")
+    assert stale.value.status_code == 409
+    assert save(restored, lesson_response="Explicitly resumed")["values"]["lesson_response"] == "Explicitly resumed"
+
+
+def test_legacy_draft_remains_readable_after_account_switch_and_rollback(workspace):
+    state = api_server._load_atlas_state()
+    path = api_server._learning_workspace_path(state)
+    legacy = {"exercise_key": workspace["exercise_key"], "revision": 1,
+              "values": {**workspace["values"], "lesson_response": "Legacy saved text"}, "saved_at": "before"}
+    learning_workspace._write_workspace(path, legacy)
+    asyncio.run(api_server.mutate_account_workspace({
+        "action": "create", "account_id": "second", "display_name": "Second", "activate": True,
+    }))
+    asyncio.run(api_server.mutate_account_workspace({"action": "switch", "account_id": "default"}))
+    current = api_server._load_atlas_state()
+    restored = api_server._learning_workspace_snapshot(current)
+    assert restored["values"]["lesson_response"] == "Legacy saved text"
+    save(restored, lesson_response="Saved after switch")
+    disk_record = learning_workspace.read_workspace(path)
+    assert disk_record["exercise_key"] == learning_workspace.workspace_content_key(current)
+    assert disk_record["values"]["lesson_response"] == "Saved after switch"
+
+
+def test_account_session_extensions_survive_save_and_switch(workspace, monkeypatch):
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
+    path = api_server._atlas_state_file_for_request()
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["account_sessions"]["default"]["future_extension"] = {"private": ["retained"]}
+    learning_workspace._write_workspace(path, raw)
+    state = api_server._load_atlas_state()
+    state.pop("current_exercise")
+    api_server._save_atlas_state(state)
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["account_sessions"]["default"]["future_extension"] == {"private": ["retained"]}
+    assert "current_exercise" not in saved["account_sessions"]["default"]
+    asyncio.run(api_server.mutate_account_workspace({
+        "action": "create", "account_id": "second", "activate": True,
+    }))
+    asyncio.run(api_server.mutate_account_workspace({"action": "switch", "account_id": "default"}))
+    saved = json.loads(path.read_text(encoding="utf-8"))
+    assert saved["account_sessions"]["default"]["future_extension"] == {"private": ["retained"]}
+    assert "future_extension" not in saved["account_sessions"]["second"]
+    assert "future_extension" not in api_server._load_atlas_state()
+
+
+@pytest.mark.parametrize("activate", [True, False])
+def test_account_creation_refuses_to_overwrite_unassigned_session(workspace, monkeypatch, activate):
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
+    path = api_server._atlas_state_file_for_request()
+    state = json.loads(path.read_text(encoding="utf-8"))
+    state["account_sessions"]["orphan"] = {"topic": "Unassigned saved work", "extension": {"retain": True}}
+    learning_workspace._write_workspace(path, state)
+    before = path.read_bytes()
+    with pytest.raises(HTTPException) as conflict:
+        asyncio.run(api_server.mutate_account_workspace({
+            "action": "create", "account_id": "orphan", "activate": activate,
+        }))
+    assert conflict.value.status_code == 409
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("switch_back", [False, True])
+def test_stale_state_save_cannot_reverse_account_switch_or_restore_old_session(workspace, switch_back):
+    stale = api_server._load_atlas_state()
+    stale["topic"] = "Outdated request"
+    asyncio.run(api_server.mutate_account_workspace({
+        "action": "create", "account_id": "second", "display_name": "Second", "activate": True,
+    }))
+    if switch_back:
+        asyncio.run(api_server.mutate_account_workspace({"action": "switch", "account_id": "default"}))
+    before = api_server._atlas_state_file_for_request().read_bytes()
+    with pytest.raises(HTTPException) as conflict:
+        api_server._save_atlas_state(stale)
+    assert conflict.value.status_code == 409
+    assert api_server._atlas_state_file_for_request().read_bytes() == before
+    current = api_server._load_atlas_state()
+    assert current["active_account_id"] == ("default" if switch_back else "second")
+    assert current.get("topic") != "Outdated request"
+    current["topic"] = "Fresh request"
+    api_server._save_atlas_state(current)
+    assert api_server._load_atlas_state()["topic"] == "Fresh request"
+
+
+def test_concurrent_inactive_account_creation_rejects_lost_update(workspace, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    original_load = api_server._load_account_transition_state
+    barrier = threading.Barrier(2)
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
+
+    def synchronized_load():
+        result = original_load()
+        barrier.wait(timeout=10)
+        return result
+
+    monkeypatch.setattr(api_server, "_load_account_transition_state", synchronized_load)
+
+    def create(account):
+        try:
+            return asyncio.run(api_server.mutate_account_workspace({
+                "action": "create", "account_id": account, "activate": False,
+            }))
+        except HTTPException as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(create, ("first", "second")))
+    successes = [result for result in results if isinstance(result, dict)]
+    conflicts = [result for result in results if isinstance(result, HTTPException)]
+    assert len(successes) == len(conflicts) == 1
+    assert successes[0]["status"] == "ok" and conflicts[0].status_code == 409
+    state = api_server._load_atlas_state()
+    assert len(set(state["accounts"]) & {"first", "second"}) == 1
+    assert state["active_account_id"] == "default"
+
+
+def test_inactive_account_change_fences_stale_state_and_preserves_draft(workspace, monkeypatch):
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
+    saved = save(workspace, lesson_response="Keep this draft")
+    stale = api_server._load_atlas_state()
+    result = asyncio.run(api_server.mutate_account_workspace({
+        "action": "create", "account_id": "other", "activate": False,
+    }))
+    assert result["status"] == "ok"
+    stale["topic"] = "Outdated write"
+    with pytest.raises(HTTPException) as adaptation_conflict:
+        api_server._hydrate_learner_state(stale, result={"passed": True})
+    assert adaptation_conflict.value.status_code == 409
+    with pytest.raises(HTTPException) as conflict:
+        api_server._save_atlas_state(stale)
+    assert conflict.value.status_code == 409
+    current = api_server._load_atlas_state()
+    assert "other" in current["accounts"] and current.get("topic") != "Outdated write"
+    restored = api_server._learning_workspace_snapshot(current)
+    assert restored["exercise_key"] == saved["exercise_key"]
+    assert restored["values"]["lesson_response"] == "Keep this draft"
+
+
+def test_account_transition_rejects_concurrent_learning_state_change(workspace):
+    state, snapshot = api_server._load_account_transition_state()
+    newer = api_server._load_atlas_state()
+    newer["topic"] = "Newer learning work"
+    api_server._save_atlas_state(newer)
+    state["topic"] = "Old account request"
+    with pytest.raises(HTTPException) as conflict:
+        api_server._save_atlas_state(state, expected_account_state=snapshot)
+    assert conflict.value.status_code == 409
+    assert api_server._load_atlas_state()["topic"] == "Newer learning work"
 
 
 @pytest.mark.parametrize("changes", [

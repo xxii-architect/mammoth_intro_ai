@@ -499,3 +499,108 @@ def test_runtime_storage_migration_preserves_learning_limits_usage_and_pending_c
     migration["restore_local"]("alice", restored_runs, restored_ledger, snapshot, restored_controls)
     assert migration["local_snapshot"]("alice", restored_runs, restored_ledger, restored_controls) == snapshot
     assert LearningControls(restored_controls).snapshot() == shared.snapshot()
+
+
+def test_runtime_backup_refuses_to_drop_shared_learner_fences(stores, tmp_path):
+    import runpy
+    from pathlib import Path
+
+    from mammoth_os.postgres_learner_bundle import PostgresLearnerBundle
+    from mammoth_os.postgres_learner_transactions import PostgresLearnerTransactions
+    from mammoth_os.postgres_learning_controls import PostgresLearningControls
+    from mammoth_os.runtime_ledger import RuntimeLedger
+
+    migration = runpy.run_path(str(Path(__file__).parents[1] / "scripts" / "migrate_runtime_storage.py"))
+    store, _ = stores
+    runs_dir, ledger = tmp_path / "runs", tmp_path / "usage.sqlite3"
+    runs_dir.mkdir()
+    RuntimeLedger(ledger).set_limit(100)
+    snapshot = migration["local_snapshot"]("alice", runs_dir, ledger)
+    migration["import_snapshot"](store.dsn, store.namespace, "alice", snapshot)
+    other = PostgresLearnerBundle(store.dsn, store.namespace, "bob")
+    other.write({"state": {"active_account_id": "default"}, "drafts": {}, "models": {}}, revision=0)
+    transactions = PostgresLearnerTransactions(store.dsn, store.namespace, "bob")
+    operation = transactions.begin_operation(revision=1, account="default", route="/fixture")
+    controls = PostgresLearningControls(store.dsn, store.namespace, "bob")
+    controls.finish(operation, "finished")
+    assert migration["export_snapshot"](store.dsn, store.namespace, "alice") == snapshot
+    alice = PostgresLearnerBundle(store.dsn, store.namespace, "alice")
+    alice.write({"state": {"active_account_id": "default"}, "drafts": {}, "models": {}}, revision=0)
+    transactions = PostgresLearnerTransactions(store.dsn, store.namespace, "alice")
+    operation = transactions.begin_operation(revision=1, account="default", route="/fixture")
+    PostgresLearningControls(store.dsn, store.namespace, "alice").finish(operation, "finished")
+    with pytest.raises(ValueError, match="cannot preserve learner operation fences"):
+        migration["export_snapshot"](store.dsn, store.namespace, "alice")
+
+
+@pytest.mark.parametrize("invalid", ["unknown_fences", "null_controls"])
+def test_runtime_backup_rejects_unknown_learning_control_fields_before_restore(stores, tmp_path, invalid):
+    import runpy
+    from pathlib import Path
+
+    from mammoth_os.learning_controls import LearningControls
+    from mammoth_os.runtime_ledger import RuntimeLedger
+
+    migration = runpy.run_path(str(Path(__file__).parents[1] / "scripts" / "migrate_runtime_storage.py"))
+    store, _ = stores
+    runs, ledger, controls = tmp_path / "runs", tmp_path / "usage.sqlite3", tmp_path / "controls.sqlite3"
+    runs.mkdir()
+    RuntimeLedger(ledger).set_limit(100)
+    LearningControls(controls).set_limit(5)
+    snapshot = migration["local_snapshot"]("alice", runs, ledger, controls)
+    if invalid == "unknown_fences":
+        snapshot["learning_controls"]["fences"] = [{"private": "do not discard"}]
+    else:
+        snapshot["learning_controls"] = None
+    with pytest.raises(ValueError, match="Unsupported learning-controls"):
+        migration["import_snapshot"](store.dsn, store.namespace, "alice", snapshot)
+    restored_runs, restored_ledger, restored_controls = tmp_path / "restored", tmp_path / "restored.sqlite3", tmp_path / "restored-controls.sqlite3"
+    with pytest.raises(ValueError, match="Unsupported learning-controls"):
+        migration["restore_local"]("alice", restored_runs, restored_ledger, snapshot, restored_controls)
+    assert not restored_runs.exists() and not restored_ledger.exists() and not restored_controls.exists()
+
+
+def test_runtime_export_snapshot_starts_after_prior_learner_control_writer(stores, tmp_path):
+    import runpy
+    import time
+    from pathlib import Path
+
+    from mammoth_os.learning_controls import LearningControls
+    from mammoth_os.postgres import database
+    from mammoth_os.postgres_learner_bundle import migration_lock
+    from mammoth_os.runtime_ledger import RuntimeLedger
+
+    migration = runpy.run_path(str(Path(__file__).parents[1] / "scripts" / "migrate_runtime_storage.py"))
+    store, _ = stores
+    runs, ledger, controls = tmp_path / "runs", tmp_path / "usage.sqlite3", tmp_path / "controls.sqlite3"
+    runs.mkdir()
+    RuntimeLedger(ledger).set_limit(100)
+    LearningControls(controls).set_limit(5)
+    snapshot = migration["local_snapshot"]("alice", runs, ledger, controls)
+    migration["import_snapshot"](store.dsn, store.namespace, "alice", snapshot)
+    with database(store.dsn) as connection:
+        connection.execute("BEGIN")
+        connection.execute("SELECT pg_advisory_xact_lock_shared(%s)", (migration_lock(store.namespace),))
+        connection.execute(
+            "UPDATE public.mammoth_learning_policy SET daily_limit=9 WHERE namespace=%s AND user_id=%s",
+            (store.namespace, "alice"),
+        )
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(migration["export_snapshot"], store.dsn, store.namespace, "alice")
+            try:
+                deadline = time.monotonic() + 4
+                waiting = False
+                while time.monotonic() < deadline:
+                    connection.execute("SELECT pg_stat_clear_snapshot()")
+                    waiting = connection.execute(
+                        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname=current_database() "
+                        "AND wait_event='advisory' AND query LIKE 'SELECT pg_advisory_lock%')"
+                    ).fetchone()[0]
+                    if waiting:
+                        break
+                    time.sleep(0.05)
+                assert waiting and not future.done()
+            finally:
+                connection.execute("COMMIT")
+            result = future.result(timeout=10)
+    assert result["learning_controls"]["daily_limit"] == 9

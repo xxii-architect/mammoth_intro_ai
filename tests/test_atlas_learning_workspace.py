@@ -315,7 +315,8 @@ def test_learning_deletion_erases_selected_storage_and_rejects_stale_saves(clien
     notes_before = notes.read_bytes()
     state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
     state["account_sessions"] = {
-        "default": {key: state[key] for key in ["lesson_id", "current_lesson", "current_exercise", "chat_history"]},
+        "default": {**{key: state[key] for key in ["lesson_id", "current_lesson", "current_exercise", "chat_history"]},
+                    "future_extension": {"private": "retained outside deletion scope"}},
         "other": {"chat_history": [{"message": "Other account retained."}]},
     }
     states["tenant-a"].write_text(json.dumps(state), encoding="utf-8")
@@ -329,6 +330,7 @@ def test_learning_deletion_erases_selected_storage_and_rejects_stale_saves(clien
         preview = client.get("/api/atlas/history/preview", headers=headers)
         assert preview.status_code == 200
         assert preview.headers["cache-control"] == "no-store"
+        assert "unknown_state_and_session_extensions" in preview.json()["excludes"]
         body = {"confirmation": "DELETE SAVED LEARNING", "preview_token": preview.json()["preview_token"]}
         assert client.request("DELETE", "/api/atlas/history", headers=headers,
                               json={**body, "confirmation": "yes"}).status_code == 400
@@ -339,6 +341,7 @@ def test_learning_deletion_erases_selected_storage_and_rejects_stale_saves(clien
         after = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
         assert all(field not in after for field in api_server._ERASABLE_LEARNING_FIELDS)
         assert all(field not in after["account_sessions"]["default"] for field in api_server._ERASABLE_LEARNING_FIELDS)
+        assert after["account_sessions"]["default"]["future_extension"] == {"private": "retained outside deletion scope"}
         assert after["account_sessions"]["other"] == state["account_sessions"]["other"]
         assert after["provider_key"] == "do-not-export-config"
         assert not draft_path.exists()
@@ -613,6 +616,122 @@ def test_stale_hosted_writers_and_old_approvals_cannot_resurrect_adaptation(clie
     assert fresh.json()["learner_model"]["attempts"] == 0
     assert fresh.json()["learner_model"]["onboarding"]["goals"] == ["New explicit goal"]
     assert "old goal" not in fresh.text
+
+
+@pytest.mark.parametrize("change", ["account", "account_switch_back", "learning_erasure"])
+def test_stale_learner_writes_stop_before_model_change(client, learning_export, change):
+    from fastapi import HTTPException
+
+    states, _ = learning_export
+    path, _ = _erasable_adaptation()
+    before = path.read_bytes()
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        stale = api_server._load_atlas_state()
+        approval_guard = api_server._learner_approval_guard(stale)
+        api_server._validate_learner_approval(stale, approval_guard)
+        if change in {"account", "account_switch_back"}:
+            response = client.post("/api/account/workspace", headers={"Authorization": "Bearer tenant-a"},
+                                   json={"action": "create", "account_id": "second", "activate": True})
+            assert response.status_code == 200 and response.json()["active_account_id"] == "second"
+            if change == "account_switch_back":
+                response = client.post("/api/account/workspace", headers={"Authorization": "Bearer tenant-a"},
+                                       json={"action": "switch", "account_id": "default"})
+                assert response.status_code == 200 and response.json()["active_account_id"] == "default"
+        else:
+            response = client.get("/api/atlas/history/preview", headers={"Authorization": "Bearer tenant-a"})
+            assert response.status_code == 200
+            response = client.request("DELETE", "/api/atlas/history", headers={"Authorization": "Bearer tenant-a"},
+                                      json={"confirmation": "DELETE SAVED LEARNING",
+                                            "preview_token": response.json()["preview_token"]})
+            assert response.status_code == 200
+        with pytest.raises(HTTPException) as error:
+            api_server._hydrate_learner_state(stale, result={"passed": True})
+        assert error.value.status_code == 409
+        latest = api_server._load_atlas_state()
+        with pytest.raises(HTTPException) as error:
+            api_server._validate_learner_approval(latest, approval_guard)
+        assert error.value.status_code == 409
+        api_server._validate_learner_approval(latest, api_server._learner_approval_guard(latest))
+        assert path.read_bytes() == before
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+
+
+@pytest.mark.parametrize("reset_name", ["_apply_atlas_learner_reset", "_apply_atlas_session_reset"])
+def test_reset_cannot_recreate_draft_after_learning_erasure(client, learning_export, monkeypatch, reset_name):
+    from fastapi import HTTPException
+
+    states, _ = learning_export
+    headers = {"Authorization": "Bearer tenant-a"}
+    original_reset = api_server._reset_learner_model_state
+
+    def reset_then_erase(*args, **kwargs):
+        result = original_reset(*args, **kwargs)
+        preview = client.get("/api/atlas/history/preview", headers=headers)
+        assert preview.status_code == 200
+        response = client.request("DELETE", "/api/atlas/history", headers=headers,
+                                  json={"confirmation": "DELETE SAVED LEARNING",
+                                        "preview_token": preview.json()["preview_token"]})
+        assert response.status_code == 200
+        return result
+
+    monkeypatch.setattr(api_server, "_reset_learner_model_state", reset_then_erase)
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        with pytest.raises(HTTPException) as error:
+            getattr(api_server, reset_name)()
+        assert error.value.status_code == 409
+        assert "Private adaptation may already have changed" in error.value.detail
+        state = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+        assert state["status"] == "no_session"
+        assert not api_server._learning_workspace_path(state).exists()
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+
+
+@pytest.mark.parametrize("reset_name", ["_apply_atlas_learner_reset", "_apply_atlas_session_reset"])
+def test_reset_reports_partial_state_if_draft_reset_fails(client, learning_export, monkeypatch, reset_name):
+    from fastapi import HTTPException
+    from mammoth_os import learning_workspace
+
+    states, _ = learning_export
+    original = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+
+    def fail(*args, **kwargs):
+        raise OSError("private storage failure")
+
+    monkeypatch.setattr(learning_workspace, "clear_workspace", fail)
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        with pytest.raises(HTTPException) as error:
+            getattr(api_server, reset_name)()
+        assert error.value.status_code == 503
+        assert "partial" in error.value.detail
+        assert "private storage failure" not in error.value.detail
+        saved = json.loads(states["tenant-a"].read_text(encoding="utf-8"))
+        assert saved["workspace_epoch"] != original.get("workspace_epoch")
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
+
+
+def test_reset_reports_possible_model_change_when_state_store_is_unavailable(client, learning_export, monkeypatch):
+    from fastapi import HTTPException
+    from mammoth_os.shared_state import JsonStateStore, StateUnavailable
+
+    def fail(*args, **kwargs):
+        raise StateUnavailable("private storage failure")
+
+    monkeypatch.setattr(JsonStateStore, "write", fail)
+    token = api_server._REQUEST_USER_ID.set("tenant-a")
+    try:
+        with pytest.raises(HTTPException) as error:
+            api_server._apply_atlas_learner_reset()
+        assert error.value.status_code == 503
+        assert "Private adaptation may already have changed" in error.value.detail
+        assert "private storage failure" not in error.value.detail
+    finally:
+        api_server._REQUEST_USER_ID.reset(token)
 
 
 def test_erasure_cancels_delayed_assessment_before_it_can_recreate_model(client, learning_export, monkeypatch):
@@ -1186,6 +1305,88 @@ def test_learning_export_does_not_adopt_unowned_legacy_notes(client, learning_ex
     assert response.status_code == 200
     assert "Unowned legacy" not in response.text
     assert response.json()["linked_notes"] == [data[0]]
+
+
+def test_learning_export_reads_shared_notes_and_never_uses_stale_local_copy(
+    client, learning_export, monkeypatch,
+):
+    _, local_notes = learning_export
+    local_before = local_notes.read_bytes()
+    shared_notes = [
+        {"id": uid + account, "body": body, "user_id": uid, "account_id": account,
+         "metadata": {"learning_context": {"contract": "mammoth.learning-selection.v1"}}}
+        for uid, account, body in [
+            ("tenant-a", "default", "shared tenant-a"),
+            ("tenant-a", "other", "different account"),
+            ("tenant-b", "default", "shared tenant-b"),
+        ]
+    ]
+    shared_notes.append({"body": "unowned", "metadata": {
+        "learning_context": {"contract": "mammoth.learning-selection.v1"},
+    }})
+    calls = []
+
+    def rpc(name, params):
+        calls.append((name, params["p_key"]))
+        assert name == "mammoth_state_read"
+        assert params["p_key"] == "fixture/notes.json"
+        return {"revision": 1, "payload": shared_notes}
+
+    monkeypatch.setattr(api_server, "MAMMOTH_DIR", local_notes.parent)
+    monkeypatch.setenv("MAMMOTH_STATE_BACKEND", "supabase")
+    monkeypatch.setenv("MAMMOTH_STATE_NAMESPACE", "fixture")
+    monkeypatch.setattr("mammoth_os.shared_state.service_rpc", rpc)
+    for uid in ("tenant-a", "tenant-b"):
+        response = client.post("/api/atlas/export", headers={"Authorization": f"Bearer {uid}"})
+        assert response.status_code == 200
+        assert [note["body"] for note in response.json()["linked_notes"]] == [f"shared {uid}"]
+        assert "different account" not in response.text
+        assert "unowned" not in response.text
+    load_json_file = api_server._load_json_file
+    monkeypatch.setattr(api_server, "_load_json_file",
+                        lambda path: load_json_file(path) if path == local_notes else [])
+    monkeypatch.setattr(api_server, "_load_notifications", lambda: [])
+    monkeypatch.setattr(api_server, "_load_message_feedback", lambda: [])
+    monkeypatch.setattr(api_server, "_load_deletion_requests", lambda: [])
+    monkeypatch.setattr(api_server, "_append_audit_event", lambda **kwargs: None)
+    account_export = client.post("/api/account/export-data", headers={"Authorization": "Bearer tenant-a"})
+    assert account_export.status_code == 200
+    payload = account_export.json()
+    assert {note["body"] for note in payload["notes"]} == {"shared tenant-a", "different account"}
+    assert [note["body"] for note in payload["learning_workspace"]["linked_notes"]] == ["shared tenant-a"]
+    assert "shared tenant-b" not in account_export.text
+    assert len(calls) == 4
+    assert local_notes.read_bytes() == local_before
+
+
+@pytest.mark.parametrize("failure", ["unavailable", "wrong-shape", "missing"])
+def test_learning_export_shared_notes_fail_closed_or_report_absence(
+    client, learning_export, monkeypatch, failure,
+):
+    from mammoth_os.shared_state import StateUnavailable
+
+    _, local_notes = learning_export
+    local_before = local_notes.read_bytes()
+    monkeypatch.setattr(api_server, "MAMMOTH_DIR", local_notes.parent)
+    monkeypatch.setenv("MAMMOTH_STATE_BACKEND", "supabase")
+    monkeypatch.setenv("MAMMOTH_STATE_NAMESPACE", "fixture")
+
+    def rpc(name, params):
+        if failure == "unavailable":
+            raise StateUnavailable("private backend details")
+        return {"revision": 1 if failure == "wrong-shape" else 0,
+                "payload": {} if failure == "wrong-shape" else None}
+
+    monkeypatch.setattr("mammoth_os.shared_state.service_rpc", rpc)
+    response = client.post("/api/atlas/export", headers={"Authorization": "Bearer tenant-a"})
+    if failure == "missing":
+        assert response.status_code == 200
+        assert response.json()["linked_notes"] == []
+    else:
+        assert response.status_code == 503
+        assert "No complete learning export was confirmed" in response.json()["detail"]
+        assert "private backend details" not in response.text
+    assert local_notes.read_bytes() == local_before
 
 
 def test_learning_export_preserves_stored_history_instead_of_applying_new_trimming(client, learning_export):

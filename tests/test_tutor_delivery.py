@@ -370,7 +370,10 @@ def test_api_next_allows_advance_after_pass(api_state):
 
 def test_api_status_decoration_includes_manifest_and_stall(api_state, monkeypatch):
     monkeypatch.setattr(api_server, "_load_eval_history", lambda: [])
-    monkeypatch.setattr(api_server, "_build_atlas_observability", lambda state, eval_history=None: {})
+    monkeypatch.setattr(
+        api_server, "_build_atlas_observability",
+        lambda state, eval_history=None, include_host_data=True: {},
+    )
     decorated = api_server._decorate_atlas_state(api_state)
     assert decorated["lesson_manifest"]["sample_data"] == ["solution(2, 3)", "solution(-1, 1)"]
     assert decorated["lesson_stall"]["stalled"] is False

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import math
@@ -13,6 +14,12 @@ from mammoth_os.learning_controls import check_cancelled
 
 class LearnerStorageError(RuntimeError):
     """Saved adaptation cannot be safely read or confirmed written."""
+
+
+def learner_storage_scope(owner: str, user_id: str) -> Dict[str, Any]:
+    key = hashlib.sha256(json.dumps([owner, user_id], ensure_ascii=True).encode("utf-8")).hexdigest()
+    return {"contract": "mammoth.learner-storage.v1", "scope_key": key,
+            "legacy_imported": False, "legacy_ownership": "unverified_not_imported"}
 
 
 def _model_transaction(handler):
@@ -81,6 +88,14 @@ def _default_onboarding_profile() -> Dict[str, Any]:
 
 def _default_memory_graph() -> Dict[str, Any]:
     return {"nodes": [], "edges": [], "last_updated": None}
+
+
+def _reset_model_progress(state: Dict[str, Any]) -> Dict[str, Any]:
+    state.update({
+        "mastery": {}, "confidence": {}, "streak": 0, "attempts": 0,
+        "error_patterns": {}, "recent_outcomes": [], "memory_graph": _default_memory_graph(),
+    })
+    return state
 
 
 def _normalize_text_list(value: Any) -> List[str]:
@@ -330,6 +345,21 @@ def set_onboarding_profile(
     storage_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     learner_state = load_learner_model(user_id, storage_path=storage_path)
+    _apply_onboarding_profile(learner_state, onboarding)
+    learner_state = save_learner_model(learner_state, storage_path=storage_path)
+    if state is not None:
+        state["learner_model"] = learner_state
+        state["learner_context"] = build_learner_context(learner_state, topic=state.get("topic"))
+        state["learner_profile"] = {
+            "streak": state["learner_context"].get("streak", 0),
+            "attempts": state["learner_context"].get("attempts", 0),
+            "recommended_difficulty": state["learner_context"].get("recommended_difficulty", "beginner"),
+            "preferred_pacing": state["learner_context"].get("preferred_pacing", "gentle"),
+        }
+    return learner_state
+
+
+def _apply_onboarding_profile(learner_state: Dict[str, Any], onboarding: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     onboarding = onboarding if isinstance(onboarding, dict) else {}
     merged = {**_default_onboarding_profile(), **learner_state.get("onboarding", {}), **onboarding}
     merged["experience_level"] = str(merged.get("experience_level") or "unknown").strip().lower() or "unknown"
@@ -346,16 +376,6 @@ def set_onboarding_profile(
     if any(merged.get(key) for key in ("experience_level", "preferred_pacing", "learning_style")):
         merged["completed_at"] = _now_iso()
     learner_state["onboarding"] = merged
-    learner_state = save_learner_model(learner_state, storage_path=storage_path)
-    if state is not None:
-        state["learner_model"] = learner_state
-        state["learner_context"] = build_learner_context(learner_state, topic=state.get("topic"))
-        state["learner_profile"] = {
-            "streak": state["learner_context"].get("streak", 0),
-            "attempts": state["learner_context"].get("attempts", 0),
-            "recommended_difficulty": state["learner_context"].get("recommended_difficulty", "beginner"),
-            "preferred_pacing": state["learner_context"].get("preferred_pacing", "gentle"),
-        }
     return learner_state
 
 
@@ -383,6 +403,10 @@ def _read_model_record(user_id: str, storage_path: Optional[str]) -> Optional[Di
     except (OSError, ValueError) as exc:
         logging.getLogger(__name__).exception("Learner model could not be read")
         raise LearnerStorageError("Saved learner adaptation could not be read; it has not been reset.") from exc
+    return validate_saved_learner_model(raw, user_id)
+
+
+def validate_saved_learner_model(raw: Any, user_id: str) -> Dict[str, Any]:
     try:
         _validate_model_record(raw, user_id)
         state = _ensure_model_shape(raw, user_id)
@@ -430,6 +454,19 @@ def update_learner_model(
     storage_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     state = load_learner_model(user_id, storage_path=storage_path)
+    _apply_learning_result(state, lesson=lesson, exercise=exercise, result=result, topic=topic, metadata=metadata)
+    return save_learner_model(state, storage_path=storage_path)
+
+
+def _apply_learning_result(
+    state: Dict[str, Any],
+    *,
+    lesson: Optional[Dict[str, Any]] = None,
+    exercise: Optional[Dict[str, Any]] = None,
+    result: Optional[Dict[str, Any]] = None,
+    topic: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     concept = _resolve_concept(lesson=lesson, exercise=exercise, topic=topic)
     passed = bool((result or {}).get("passed"))
     raw_result = (result or {}).get("result") if isinstance(result, dict) else None
@@ -484,7 +521,7 @@ def update_learner_model(
         "timestamp": _now_iso(),
     })
     state["recent_outcomes"] = state["recent_outcomes"][-12:]
-    return save_learner_model(state, storage_path=storage_path)
+    return state
 
 
 def _derive_adaptive_coaching(

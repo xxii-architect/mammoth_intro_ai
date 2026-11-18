@@ -208,8 +208,12 @@ async def append_audit_log(body: Dict[str, Any]):
 @app.get("/api/entitlements")
 async def get_entitlements():
     """Return the current user's tier and feature entitlements."""
-    state = _load_atlas_state()
-    workspace = _build_workspace_accounts_snapshot(state)
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        state, _ = _atlas_status_adapter()
+        workspace = _account_workspace_adapter().snapshot()
+    else:
+        state = _load_atlas_state()
+        workspace = _build_workspace_accounts_snapshot(state)
     tier = str(state.get("tier") or "explorer").strip().lower()
     if tier not in {"explorer", "pro", "enterprise"}:
         tier = "explorer"
@@ -279,6 +283,14 @@ async def set_tier(body: Dict[str, Any]):
     tier = str(body.get("tier") or "explorer").strip().lower()
     if tier not in {"explorer", "pro", "enterprise"}:
         return {"status": "error", "error": "Invalid tier. Use: explorer, pro, enterprise"}
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        view = _account_workspace_adapter().update_metadata({"tier": tier}, "tier_change")
+        active = view["accounts"][view["active_account_id"]]
+        return {
+            "status": "ok", "tier": tier, "active_account_id": view["active_account_id"],
+            "user_id": f"workspace:{view['active_account_id']}",
+            "updated_at": active.get("tier_updated_at"),
+        }
     state = _load_atlas_state()
     state["tier"] = tier
     state["tier_updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -295,8 +307,12 @@ async def set_tier(body: Dict[str, Any]):
 
 @app.get("/api/account/profile")
 async def get_account_profile():
-    state = _load_atlas_state()
-    workspace = _build_workspace_accounts_snapshot(state)
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        state, _ = _atlas_status_adapter()
+        workspace = _account_workspace_adapter().snapshot()
+    else:
+        state = _load_atlas_state()
+        workspace = _build_workspace_accounts_snapshot(state)
     profile = _normalized_account_profile(state)
     completion = _profile_completion(profile)
     return {
@@ -316,6 +332,18 @@ async def get_account_profile():
 
 @app.post("/api/account/profile")
 async def set_account_profile(body: Dict[str, Any]):
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        adapter = _account_workspace_adapter()
+        updated = adapter.update_profile(body)
+        account_id = updated["active_account_id"]
+        profile = updated["accounts"][account_id]["profile"]
+        completion = _profile_completion(profile)
+        return {
+            "status": "ok", "profile": profile, "profile_complete": all(completion.values()),
+            "profile_completion": completion,
+            "updated_at": updated["accounts"][account_id].get("profile_updated_at"),
+            "active_account_id": account_id, "user_id": f"workspace:{account_id}",
+        }
     state = _load_atlas_state()
     profile = state.get("account_profile") if isinstance(state.get("account_profile"), dict) else {}
     for key in ("display_name", "email", "organization"):
@@ -349,6 +377,19 @@ async def set_developer_access(body: Dict[str, Any]):
     if _AUTH_REQUIRED and not _request_is_admin():
         return {"status": "error", "error": "Admin privileges required for developer-access changes."}
     enabled = bool(body.get("enabled"))
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        view = _account_workspace_adapter().update_metadata(
+            {"developer_access": enabled}, "developer_access",
+        )
+        active = view["accounts"][view["active_account_id"]]
+        return {
+            "status": "ok", "developer_access": enabled,
+            "auth_mode": "developer" if enabled else "standard",
+            "effective_tier": "developer" if enabled else active["tier"],
+            "updated_at": active.get("developer_access_updated_at"),
+            "active_account_id": view["active_account_id"],
+            "user_id": f"workspace:{view['active_account_id']}",
+        }
     state = _load_atlas_state()
     state["developer_access"] = enabled
     state["developer_access_updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -373,12 +414,22 @@ async def set_developer_access(body: Dict[str, Any]):
 
 @app.get("/api/account/workspace")
 async def get_account_workspace():
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        blocked = _require_signed_in_api()
+        if blocked is not None:
+            return blocked
+        return _account_workspace_adapter().snapshot()
     state = _load_atlas_state()
     return _build_workspace_accounts_snapshot(state)
 
 @app.post("/api/account/workspace")
 async def mutate_account_workspace(body: Dict[str, Any]):
-    state = _load_atlas_state()
+    if _account_workspace_adapter is not None and _atlas_status_adapter is not None:
+        blocked = _require_signed_in_api()
+        if blocked is not None:
+            return blocked
+        return _account_workspace_adapter().mutate(body)
+    state, expected_account_state = _load_account_transition_state()
     action = str(body.get("action") or "").strip().lower()
     accounts = state.get("accounts") if isinstance(state.get("accounts"), dict) else {}
     sessions = state.get("account_sessions") if isinstance(state.get("account_sessions"), dict) else {}
@@ -389,6 +440,8 @@ async def mutate_account_workspace(body: Dict[str, Any]):
         account_id = _normalize_account_id(body.get("account_id") or raw_label, fallback="account")
         if account_id in accounts:
             return {"status": "error", "error": f"Account already exists: {account_id}"}
+        if account_id in sessions:
+            raise HTTPException(status_code=409, detail="A saved session exists without an assigned account. Review it before creating this account; no data was changed.")
         profile = {
             "display_name": raw_label or "Operator",
             "email": str(body.get("email") or "").strip(),
@@ -414,7 +467,7 @@ async def mutate_account_workspace(body: Dict[str, Any]):
             state["accounts"] = accounts
             state["account_sessions"] = sessions
         state["updated_at"] = now
-        _save_atlas_state(state)
+        _save_atlas_state(state, expected_account_state=expected_account_state)
         _append_audit_event(
             kind="account_created",
             message="Workspace account created",
@@ -436,7 +489,7 @@ async def mutate_account_workspace(body: Dict[str, Any]):
         state["active_account_id"] = target_id
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
         _ensure_account_collections(state)
-        _save_atlas_state(state)
+        _save_atlas_state(state, expected_account_state=expected_account_state)
         _append_audit_event(
             kind="account_switch",
             message="Workspace account switched",
@@ -466,7 +519,7 @@ async def mutate_account_workspace(body: Dict[str, Any]):
             state["accounts"] = accounts
             state["account_sessions"] = sessions
         state["updated_at"] = datetime.now(timezone.utc).isoformat()
-        _save_atlas_state(state)
+        _save_atlas_state(state, expected_account_state=expected_account_state)
         _append_audit_event(
             kind="account_deleted",
             message="Workspace account deleted",

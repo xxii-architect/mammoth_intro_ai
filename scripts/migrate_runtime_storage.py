@@ -10,6 +10,7 @@ from contextlib import closing
 
 from mammoth_os.agent_loop.runner import AgentRun, RUN_ID_RE
 from mammoth_os.postgres import database
+from mammoth_os.postgres_learner_bundle import migration_lock
 
 CONTRACT = "mammoth.runtime-storage-backup.v1"
 ATTEMPT_FIELDS = ("id", "day", "provider", "model", "started_at", "finished_at", "reserved", "reported", "status")
@@ -84,8 +85,10 @@ def validate(snapshot, user_id):
         if attempt["finished_at"] is not None:
             datetime.fromisoformat(attempt["finished_at"])
         seen.add(attempt["id"])
-    controls = snapshot.get("learning_controls")
-    if controls is not None:
+    if "learning_controls" in snapshot:
+        controls = snapshot["learning_controls"]
+        if not isinstance(controls, dict) or set(controls) != {"daily_limit", "usage", "operations"}:
+            raise ValueError("Unsupported learning-controls backup fields require review; none were restored.")
         limit = controls["daily_limit"]
         if limit is not None and (type(limit) is not int or not 0 <= limit <= 100_000):
             raise ValueError("Invalid learning request limit.")
@@ -111,82 +114,104 @@ def validate(snapshot, user_id):
 def import_snapshot(dsn, namespace, user_id, snapshot):
     validate(snapshot, user_id)
     with database(dsn) as connection, connection.transaction():
-        from psycopg.types.json import Jsonb
+        if "learning_controls" in snapshot:
+            connection.execute("SELECT pg_advisory_xact_lock(%s)", (migration_lock(namespace),))
+        _import_snapshot_in_transaction(connection, namespace, user_id, snapshot)
 
-        tables = ["mammoth_agent_runs", "mammoth_private_runtime_policy", "mammoth_private_runtime_attempts"]
-        if "learning_controls" in snapshot:
-            tables.extend(("mammoth_learning_policy", "mammoth_learning_usage", "mammoth_learning_operations"))
-        for table in tables:
-            if connection.execute(
-                f"SELECT 1 FROM public.{table} WHERE namespace=%s AND user_id=%s LIMIT 1", (namespace, user_id),
-            ).fetchone():
-                raise ValueError("Import refused: destination owner already has state. Nothing was overwritten.")
+
+def _import_snapshot_in_transaction(connection, namespace, user_id, snapshot):
+    from psycopg.types.json import Jsonb
+
+    tables = ["mammoth_agent_runs", "mammoth_private_runtime_policy", "mammoth_private_runtime_attempts"]
+    if "learning_controls" in snapshot:
+        tables.extend(("mammoth_learning_policy", "mammoth_learning_usage", "mammoth_learning_operations"))
+    for table in tables:
+        if connection.execute(
+            f"SELECT 1 FROM public.{table} WHERE namespace=%s AND user_id=%s LIMIT 1", (namespace, user_id),
+        ).fetchone():
+            raise ValueError("Import refused: destination owner already has state. Nothing was overwritten.")
+    connection.execute(
+        "INSERT INTO public.mammoth_private_runtime_policy VALUES(%s,%s,%s)",
+        (namespace, user_id, snapshot["daily_tokens"]),
+    )
+    for record in snapshot["runs"]:
+        payload = record["payload"]
         connection.execute(
-            "INSERT INTO public.mammoth_private_runtime_policy VALUES(%s,%s,%s)",
-            (namespace, user_id, snapshot["daily_tokens"]),
+            "INSERT INTO public.mammoth_agent_runs(namespace,user_id,id,revision,payload,cancellation_requested,updated_at) "
+            "VALUES(%s,%s,%s,%s,%s,%s,%s)",
+            (namespace, user_id, payload["id"], payload["storage_revision"], Jsonb(payload),
+             record["cancellation_requested"], payload["updated_at"]),
         )
-        for record in snapshot["runs"]:
-            payload = record["payload"]
+    for attempt in snapshot["attempts"]:
+        connection.execute(
+            "INSERT INTO public.mammoth_private_runtime_attempts VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (namespace, user_id, *(attempt[field] for field in ATTEMPT_FIELDS)),
+        )
+    if "learning_controls" in snapshot:
+        controls = snapshot["learning_controls"]
+        connection.execute(
+            "INSERT INTO public.mammoth_learning_policy VALUES(%s,%s,%s)",
+            (namespace, user_id, controls["daily_limit"]),
+        )
+        for row in controls["usage"]:
             connection.execute(
-                "INSERT INTO public.mammoth_agent_runs(namespace,user_id,id,revision,payload,cancellation_requested,updated_at) "
-                "VALUES(%s,%s,%s,%s,%s,%s,%s)",
-                (namespace, user_id, payload["id"], payload["storage_revision"], Jsonb(payload),
-                 record["cancellation_requested"], payload["updated_at"]),
+                "INSERT INTO public.mammoth_learning_usage VALUES(%s,%s,%s,%s)",
+                (namespace, user_id, row["day"], row["admitted"]),
             )
-        for attempt in snapshot["attempts"]:
+        for row in controls["operations"]:
             connection.execute(
-                "INSERT INTO public.mammoth_private_runtime_attempts VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (namespace, user_id, *(attempt[field] for field in ATTEMPT_FIELDS)),
+                "INSERT INTO public.mammoth_learning_operations VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
+                (namespace, user_id, *(row[field] for field in OPERATION_FIELDS)),
             )
-        if "learning_controls" in snapshot:
-            controls = snapshot["learning_controls"]
-            connection.execute(
-                "INSERT INTO public.mammoth_learning_policy VALUES(%s,%s,%s)",
-                (namespace, user_id, controls["daily_limit"]),
-            )
-            for row in controls["usage"]:
-                connection.execute(
-                    "INSERT INTO public.mammoth_learning_usage VALUES(%s,%s,%s,%s)",
-                    (namespace, user_id, row["day"], row["admitted"]),
-                )
-            for row in controls["operations"]:
-                connection.execute(
-                    "INSERT INTO public.mammoth_learning_operations VALUES(%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (namespace, user_id, *(row[field] for field in OPERATION_FIELDS)),
-                )
 
 
 def export_snapshot(dsn, namespace, user_id):
-    with database(dsn) as connection, connection.transaction():
-        connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        policy = connection.execute(
-            "SELECT daily_tokens FROM public.mammoth_private_runtime_policy WHERE namespace=%s AND user_id=%s",
-            (namespace, user_id),
-        ).fetchone()
-        if policy is None:
-            raise ValueError("Export refused: owner usage policy is missing.")
-        runs = connection.execute(
-            "SELECT payload,cancellation_requested FROM public.mammoth_agent_runs "
-            "WHERE namespace=%s AND user_id=%s ORDER BY id", (namespace, user_id),
-        ).fetchall()
-        attempts = connection.execute(
-            "SELECT id,day,provider,model,started_at,finished_at,reserved,reported,status "
-            "FROM public.mammoth_private_runtime_attempts WHERE namespace=%s AND user_id=%s ORDER BY started_at,id",
-            (namespace, user_id),
-        ).fetchall()
+    with database(dsn) as connection:
+        connection.execute("SELECT pg_advisory_lock(%s)", (migration_lock(namespace),))
+        with connection.transaction():
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            return _export_snapshot_in_transaction(connection, namespace, user_id)
+
+
+def _export_snapshot_in_transaction(connection, namespace, user_id, *, include_learning_controls=True):
+    policy = connection.execute(
+        "SELECT daily_tokens FROM public.mammoth_private_runtime_policy WHERE namespace=%s AND user_id=%s",
+        (namespace, user_id),
+    ).fetchone()
+    if policy is None:
+        raise ValueError("Export refused: owner usage policy is missing.")
+    runs = connection.execute(
+        "SELECT payload,cancellation_requested FROM public.mammoth_agent_runs "
+        "WHERE namespace=%s AND user_id=%s ORDER BY id", (namespace, user_id),
+    ).fetchall()
+    attempts = connection.execute(
+        "SELECT id,day,provider,model,started_at,finished_at,reserved,reported,status "
+        "FROM public.mammoth_private_runtime_attempts WHERE namespace=%s AND user_id=%s ORDER BY started_at,id",
+        (namespace, user_id),
+    ).fetchall()
+    learning_policy = None
+    if include_learning_controls:
         learning_policy = connection.execute(
             "SELECT daily_limit FROM public.mammoth_learning_policy WHERE namespace=%s AND user_id=%s",
             (namespace, user_id),
         ).fetchone()
-        if learning_policy is not None:
-            usage = connection.execute(
-                "SELECT day::text,admitted FROM public.mammoth_learning_usage WHERE namespace=%s AND user_id=%s ORDER BY day",
-                (namespace, user_id),
-            ).fetchall()
-            operations = connection.execute(
-                "SELECT id,route,account_id,status,started_at,finished_at FROM public.mammoth_learning_operations "
-                "WHERE namespace=%s AND user_id=%s ORDER BY started_at,id", (namespace, user_id),
-            ).fetchall()
+        fence_table = connection.execute(
+            "SELECT to_regclass('public.mammoth_learner_operation_fences')"
+        ).fetchone()[0]
+        if fence_table is not None and connection.execute(
+            "SELECT 1 FROM public.mammoth_learner_operation_fences "
+            "WHERE namespace=%s AND user_id=%s LIMIT 1", (namespace, user_id),
+        ).fetchone():
+            raise ValueError("Runtime backup v1 cannot preserve learner operation fences; no runtime export was produced.")
+    if learning_policy is not None:
+        usage = connection.execute(
+            "SELECT day::text,admitted FROM public.mammoth_learning_usage WHERE namespace=%s AND user_id=%s ORDER BY day",
+            (namespace, user_id),
+        ).fetchall()
+        operations = connection.execute(
+            "SELECT id,route,account_id,status,started_at,finished_at FROM public.mammoth_learning_operations "
+            "WHERE namespace=%s AND user_id=%s ORDER BY started_at,id", (namespace, user_id),
+        ).fetchall()
     snapshot = {"contract": CONTRACT, "user_id": user_id, "daily_tokens": policy[0],
                 "runs": [{"payload": row[0], "cancellation_requested": row[1]} for row in runs],
                 "attempts": [dict(zip(ATTEMPT_FIELDS, row)) for row in attempts]}

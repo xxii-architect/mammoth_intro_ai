@@ -286,6 +286,32 @@ def test_save_list_start_exact_curriculum_with_tenant_isolation(client, course):
     assert "bob" not in states
 
 
+def test_shared_curriculum_library_uses_owner_scoped_storage_seam(client, course, monkeypatch):
+    browser, _ = client
+    libraries = {}
+
+    def load_library():
+        owner = api_server._current_request_user_id()
+        return libraries.setdefault(owner, {"curriculum_library": []}), owner
+
+    def save_library(state, owner, field):
+        assert field == "curriculum_library"
+        libraries[owner] = deepcopy(state)
+
+    monkeypatch.setattr(api_server, "_atlas_status_adapter", lambda: ({}, {}))
+    monkeypatch.setattr(api_server, "_load_shared_workspace_collections", load_library)
+    monkeypatch.setattr(api_server, "_save_shared_workspace_collection", save_library)
+    alice = {"Authorization": "Bearer alice"}
+    bob = {"Authorization": "Bearer bob"}
+
+    saved = browser.post("/api/atlas/curricula", headers=alice, json={"curriculum": course})
+    assert saved.status_code == 200, saved.text
+    assert browser.get("/api/atlas/curricula", headers=bob).json()["curricula"] == []
+    listed = browser.get("/api/atlas/curricula", headers=alice)
+    assert listed.status_code == 200
+    assert listed.json()["curricula"][0]["curriculum"]["curriculum_id"] == "course-one"
+
+
 def test_draft_can_be_saved_but_cannot_replace_active_lesson(client, course):
     browser, states = client
     states["alice"] = {"lesson_id": "existing-lesson"}

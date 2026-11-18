@@ -363,9 +363,21 @@ async def get_health():
 
 @app.delete("/api/approvals/{record_id}")
 async def delete_approval(record_id: str):
-    blocked = _require_admin_api()
+    blocked = (
+        _require_signed_in_api() if _atlas_status_adapter is not None
+        else _require_admin_api()
+    )
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return _delete_shared_learner_record(record_id)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _delete_approval_record(record_id)
 
 @app.get("/api/models")
@@ -2060,16 +2072,38 @@ async def store_memory_entry(request: Request, body: Dict[str, Any]):
 
 @app.get("/api/approvals")
 async def get_approvals():
-    blocked = _require_admin_api()
+    blocked = (
+        _require_signed_in_api() if _atlas_status_adapter is not None
+        else _require_admin_api()
+    )
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateUnavailable
+
+        try:
+            return _shared_learner_store().read_learner_approvals()
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _load_approvals()
 
 @app.post("/api/approvals/{record_id}/approve")
 async def approve_record_route(record_id: str):
-    blocked = _require_admin_api()
+    blocked = (
+        _require_signed_in_api() if _atlas_status_adapter is not None
+        else _require_admin_api()
+    )
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return _approve_shared_learner_record(record_id)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _approve_record(record_id)
 
 @app.get("/api/snapshots")

@@ -272,6 +272,109 @@ and full multi-replica readiness are not certified):
   reviewed/checksummed owner migration and fence-preserving rollback. Global
   learner-backed history, learner recovery and host-state gates remain; local
   remains default and independent replicas stay disabled.
+- Learner persistence prerequisite: learning exports read linked notes from
+  the configured notes backend without a disk fallback. Local model operations
+  and approvals reject stale work after an account switch or saved-learning
+  deletion, including an account switch away and back. This does not migrate
+  learner state, drafts or models and does not change the replica gate.
+  State saves and workspace draft requests also reject stale account-switch
+  epochs, without discarding existing drafts on return to an account.
+  Local account transitions compare their original state snapshot before
+  saving, and a separate collections epoch fences stale state and adaptation
+  writes after inactive-account changes. Conflicting requests must reload.
+  Account creation refuses to overwrite an unassigned saved session.
+  PostgreSQL learning-control calls now share the experimental learner
+  migration lock. A test-only transaction can commit a learning result, its
+  model and session caches together; neither change enables shared learner
+  runtime integration or removes the need to quiesce writers.
+  Experimental onboarding and reset transactions bind approval fences and
+  atomically update model, caches and (for resets) recovery and cancellation.
+  Runtime backup v1 now refuses learner operation fences it cannot retain;
+  the separate learner/control rehearsal is not a full runtime backup.
+  An offline inventory check compares an operator-reviewed owner/account map
+  with one source directory and rejects unidentified records; it does not
+  independently prove ownership or inventory external sources.
+  Local reset and draft clearing share the state lock; a failed second step is
+  reported as potentially partial, never a successful reset.
+- Experimental shared learner primitive only: exact-owner, revision-checked
+  whole-bundle PostgreSQL storage with a namespace migration lock and
+  service-only access is tested but not wired or enabled. Experimental
+  transaction methods cover draft reads/saves/clears, scoped learning-session
+  updates, model writes, epoch-bound coordinated admission and scoped erasure/cancellation,
+  guarded model reads and revision-bound deletion previews/confirmation.
+  Account create/delete/switch transactions now fence or cancel old work and
+  preserve separately stored data. An unselected workspace collection adapter
+  is exercised through API tests without changing the local default; it is
+  not an enabled shared backend. A recovery-draft save adapter is similarly
+  test-injected only; shared export is separately gated on shared notes storage.
+  Workspace account listing and transitions also have a test-injected-only
+  adapter with revision-checked transactions. Profile, tier and developer-
+  access routes now update the active account transactionally and append a
+  bounded account metadata audit record in the same bundle commit. This is not
+  the platform-wide audit stream; billing usage and legacy account
+  normalization remain outside the adapter. Saved curriculum library reads and
+  writes now use the same owner/account/revision-scoped collection transaction;
+  activating a saved curriculum also commits its first lesson, exercise,
+  history, telemetry and recovery packet through the admitted, revision-fenced
+  learner-session transaction. Both paths remain test-injected; platform-wide
+  audit and provider/sandbox acceptance still block activation.
+  Coordinated operation admission is likewise tested only via injection;
+  remaining learner handler writes have not yet been migrated to shared
+  transaction APIs.
+  Tutor status and the learner/lecture/module/library read routes now exercise
+  a consistent PostgreSQL snapshot only through test injection. Learning and
+  adaptation deletion preview/confirmation routes also use revision-bound
+  transactions in tests. Unapproved onboarding and progress-only
+  reset routes now use revision-checked shared transactions in the same
+  test-injected mode. Onboarding and learner/session reset approvals are
+  transaction-backed; other approval types remain blocked. Shared
+  learner export is available only with the shared notes backend selected.
+  Lesson generation and submission/result persistence now commit through the
+  shared learner transaction and controls admission in test-injected mode,
+  including bounded telemetry and adaptation. Direct session reset is also
+  transaction-backed and clears telemetry.
+  Next/back lesson navigation now commits under shared revision and operation
+  fences. Mastery overrides remain blocked because their audit lifecycle is not
+  shared. Explicit exercise regeneration now persists through the same shared
+  transaction path; requested failed-submission remediation now saves through
+  an operation-fenced follow-up transaction and tells clients not to replay a
+  submission if regeneration fails after the result commit. Provider/sandbox
+  acceptance, platform-wide audit integration and other state mutations still
+  block activation.
+  Shared onboarding and learner/session reset approvals now use bounded,
+  owner-scoped records and audit entries committed transactionally with the
+  approved state change. Other approval types and local-file approval execution
+  remain blocked in shared mode; platform-wide audit integration remains open.
+  Learning-control reads, limit updates and owner-scoped cancellation use the
+  explicit PostgreSQL controls backend in test-injected reader mode; they do
+  not enable provider-backed tutor execution.
+  Shared-reader HTTP requests fail closed outside the covered route allowlist.
+  Lesson tests use deterministic session fakes; provider/sandbox behavior and
+  production acceptance remain unverified.
+  Legacy normalization, the live API, full migration, receipts
+  and activated rollback still require end-to-end work. Do not apply
+  its schema or activate it for production yet.
+- An isolated database rehearsal can atomically import a reviewed learner
+  backup and learning-controls snapshot after all writers stop and unfinished
+  operations are reconciled. It does not import the other runtime data, prove
+  source ownership or source snapshot consistency, or support production activation.
+  A multi-owner test rehearsal validates the batch and commits all owners or
+  none; a variant also imports runs and token usage atomically. A single-owner
+  snapshot/restore rehearsal includes these records and operation fences with
+  checksummed payloads and manifest. A namespace rehearsal additionally checks
+  reviewed owners across covered tables and restores all owners in one
+  transaction to an empty covered namespace. These are not production migration or
+  rollback paths: all writers must stop, ownership and external sources still
+  need verification, and the snapshot is not a backup of all platform data.
+  A combined database export/restore rehearsal uses repeatable-read and a
+  completion marker with checksums, but is not an activated rollback.
+- Experimental offline learner source backup validates records and preserves
+  fences and unknown fields. It requires explicit quiescence and owner review;
+  unidentified drafts block backup and orphan model attribution remains an
+  operator responsibility. A fresh-directory restore verifies the records
+  present in that backup before emitting a marker. An isolated-test-only
+  database import/export rehearsal rejects existing destinations and preserves
+  record fences, but does not migrate controls or enable production activation.
 
 Runtime reliability/admission refinement (bounded delivery, not closure of every
 DATA/HEALTH/BILL item):

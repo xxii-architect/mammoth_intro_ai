@@ -8,6 +8,12 @@ async def run_atlas_agent_endpoint(payload: Any):
 
 @app.get("/api/atlas/status")
 async def atlas_status():
+    if _atlas_status_adapter is not None:
+        state, recovery = _atlas_status_adapter()
+        _sync_resume_packet(state)
+        result = _decorate_atlas_state(state, eval_history=[], include_host_data=False)
+        result["workspace_recovery"] = recovery
+        return result
     state = _load_atlas_state()
     _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     _sync_resume_packet(state)
@@ -18,21 +24,19 @@ async def atlas_status():
 
 @app.post("/api/atlas/workspace")
 async def atlas_save_workspace(body: Dict[str, Any]):
-    from mammoth_os.learning_workspace import WorkspaceStorageError, save_workspace, _workspace_lock
+    from mammoth_os.learning_workspace import WorkspaceStorageError
+    from mammoth_os.shared_state import StateConflict
 
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
     try:
-        with _workspace_lock(_atlas_state_file_for_request()):
-            state = _load_atlas_state()
-            saved = save_workspace(
-                _learning_workspace_path(state), state, body,
-                datetime.now(timezone.utc).isoformat(),
-            )
+        saved = _save_learning_workspace(body)
     except (WorkspaceStorageError, OSError) as exc:
         logger.exception("Learning workspace save failed")
         raise HTTPException(status_code=503, detail="Workspace storage is unavailable or invalid. No save was confirmed; retry or contact support.") from exc
+    except StateConflict:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if saved is None:
@@ -44,7 +48,7 @@ async def atlas_lesson_lecture():
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
-    state = _load_atlas_state()
+    state = _load_atlas_read_state()
     return tutor_delivery.build_lesson_lecture(
         state.get("current_lesson"), lesson_id=str(state.get("lesson_id") or ""),
     )
@@ -54,8 +58,18 @@ async def atlas_export_learning():
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        if os.environ.get("MAMMOTH_STATE_BACKEND") != "supabase":
+            raise HTTPException(
+                status_code=503,
+                detail="Shared learning export requires the shared notes backend; no local notes were read.",
+            )
+        state, recovery = _atlas_status_adapter()
+        state["workspace_recovery"] = recovery
+    else:
+        state = _load_learning_export_state()
     return JSONResponse(
-        _export_learning_workspace(_load_learning_export_state()),
+        _export_learning_workspace(state),
         headers={"Cache-Control": "no-store",
                  "Content-Disposition": "attachment; filename=mammoth-learning-export.json"},
     )
@@ -95,6 +109,10 @@ async def atlas_learning_history_preview():
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        account, _ = _shared_active_account()
+        return JSONResponse(_shared_learner_store().preview_learning_erasure(account=account),
+                            headers={"Cache-Control": "no-store"})
     return JSONResponse(_learning_erasure_preview(_load_learning_export_state()),
                         headers={"Cache-Control": "no-store"})
 
@@ -104,6 +122,10 @@ async def atlas_learner_privacy_review():
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        account, _ = _shared_active_account()
+        model, _ = _shared_learner_store().read_adaptation(account=account)
+        return _shared_learner_privacy_review(account, model)
     return JSONResponse(_learner_privacy_review(_load_learning_export_state()),
                         headers={"Cache-Control": "no-store"})
 
@@ -113,11 +135,35 @@ async def atlas_delete_learning_history(body: Dict[str, Any]):
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        if (set(body) != {"confirmation", "preview_token"}
+                or body.get("confirmation") != "DELETE SAVED LEARNING"):
+            raise HTTPException(status_code=400, detail="Preview deletion and type DELETE SAVED LEARNING to confirm the stated scope.")
+        account, revision = _shared_active_account()
+        token, revision = _shared_learner_store().confirm_learning_erasure(
+            revision=revision, account=account, confirmation=body["confirmation"],
+            preview_token=body.get("preview_token"),
+        )
+        return JSONResponse({
+            "contract": "mammoth.learning-erasure.v1", "account_id": account,
+            "status": "deleted_from_active_storage", "receipt_id": token,
+            "deleted_at": datetime.now(timezone.utc).isoformat(),
+            "scope": "active_account_saved_lesson_session_and_recovery",
+            "excludes": list(_LEARNING_ERASURE_EXCLUDES),
+            "provider_erasure_confirmed": False, "backup_erasure_confirmed": False,
+        }, headers={"Cache-Control": "no-store"})
     return JSONResponse(_erase_saved_learning(body), headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/atlas/learner/deletion-preview")
 async def atlas_learner_deletion_preview():
+    if _atlas_status_adapter is not None:
+        blocked = _require_signed_in_api()
+        if blocked is not None:
+            return blocked
+        account, _ = _shared_active_account()
+        return JSONResponse(_shared_learner_store().preview_adaptation_erasure(account=account),
+                            headers={"Cache-Control": "no-store"})
     from mammoth_os.learning_workspace import _workspace_lock
 
     blocked = _require_signed_in_api()
@@ -140,11 +186,35 @@ async def atlas_delete_private_adaptation(body: Dict[str, Any]):
     blocked = _require_signed_in_api()
     if blocked is not None:
         return blocked
+    if _atlas_status_adapter is not None:
+        if (set(body) != {"confirmation", "preview_token"}
+                or body.get("confirmation") != "DELETE PRIVATE ADAPTATION"
+                or not isinstance(body.get("preview_token"), str)):
+            raise HTTPException(status_code=400, detail="Review the scope and type DELETE PRIVATE ADAPTATION to confirm.")
+        account, revision = _shared_active_account()
+        epoch, _ = _shared_learner_store().confirm_adaptation_erasure(
+            revision=revision, account=account, confirmation=body["confirmation"],
+            preview_token=body["preview_token"],
+        )
+        return JSONResponse({
+            "contract": "mammoth.learner-erasure.v1",
+            "scope": "active_account_private_model_and_adaptation_caches",
+            "account_id": account, "status": "deleted_from_active_storage",
+            "receipt_id": epoch, "deleted_at": datetime.now(timezone.utc).isoformat(),
+            "excludes": list(_LEARNER_ERASURE_EXCLUDES),
+            "tracked_account_cancellation_requested": True,
+            "provider_erasure_confirmed": False, "backup_erasure_confirmed": False,
+            "fresh_activity_can_create_new_adaptation": True,
+        }, headers={"Cache-Control": "no-store"})
     return JSONResponse(_erase_private_adaptation(body), headers={"Cache-Control": "no-store"})
 
 @app.get("/api/atlas/modules")
 async def atlas_modules():
-    state = _load_atlas_state()
+    if _atlas_status_adapter is not None:
+        blocked = _require_signed_in_api()
+        if blocked is not None:
+            return blocked
+    state = _load_atlas_read_state()
     active_track = _resolve_module_track(state.get("module_id"), state.get("topic"))
     return {
         "status": "ok",
@@ -154,20 +224,57 @@ async def atlas_modules():
 
 @app.get("/api/atlas/library")
 async def atlas_library():
-    state = _load_atlas_state()
-    _hydrate_learner_state(state, user_id=_atlas_user_id(state))
+    if _atlas_status_adapter is not None:
+        blocked = _require_signed_in_api()
+        if blocked is not None:
+            return blocked
+        state = _load_atlas_read_state()
+    else:
+        state = _load_atlas_state()
+        _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     return await _build_atlas_library_snapshot(state)
 
 @app.get("/api/atlas/learner")
 async def atlas_learner():
-    state = _load_atlas_state()
-    learner_state = _hydrate_learner_state(state, user_id=_atlas_user_id(state))
+    if _atlas_status_adapter is not None:
+        blocked = _require_signed_in_api()
+        if blocked is not None:
+            return blocked
+        state = _load_atlas_read_state()
+        learner_state = state["learner_model"]
+    else:
+        state = _load_atlas_state()
+        learner_state = _hydrate_learner_state(state, user_id=_atlas_user_id(state))
     return {"status": "ok", "learner_model": learner_state, "learner_context": state.get("learner_context"),
             "learner_storage": state.get("learner_storage")}
 
 @app.post("/api/atlas/onboard")
 async def atlas_onboard(body: Dict[str, Any]):
     approval_mode = bool(body.get("approval_mode") or body.get("preview_only"))
+    if _atlas_status_adapter is not None:
+        if approval_mode:
+            from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+            try:
+                return _create_shared_learner_approval(
+                    "atlas_onboard_update",
+                    onboarding={key: value for key, value in body.items()
+                                if key not in {"approval_mode", "preview_only"}},
+                )
+            except StateConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except (ValueError, StateUnavailable) as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return _shared_update_onboarding(body)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     if approval_mode:
         task_id = f"atlas-onboard-{uuid.uuid4().hex[:8]}"
         preview = _build_operation_preview("atlas_onboard_update", {"onboarding": body})
@@ -205,6 +312,26 @@ async def atlas_onboard(body: Dict[str, Any]):
 async def atlas_learner_reset(body: Optional[Dict[str, Any]] = None):
     body = body or {}
     approval_mode = bool(body.get("approval_mode") or body.get("preview_only"))
+    if _atlas_status_adapter is not None:
+        if approval_mode:
+            from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+            try:
+                return _create_shared_learner_approval("atlas_learner_reset")
+            except StateConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except (ValueError, StateUnavailable) as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return _shared_reset_learner()
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     if approval_mode:
         task_id = f"atlas-learner-reset-{uuid.uuid4().hex[:8]}"
         preview = _build_operation_preview("atlas_learner_reset", {})
@@ -238,6 +365,23 @@ async def atlas_learner_reset(body: Optional[Dict[str, Any]] = None):
 @app.post("/api/atlas/lesson")
 @_controlled_learning("/api/atlas/lesson")
 async def atlas_lesson(body: Dict[str, Any]):
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return await _start_shared_atlas_lesson(body)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logging.getLogger("mammoth.atlas").exception("Could not prepare a shared teaching-ready lesson")
+            raise HTTPException(
+                status_code=503,
+                detail="Could not complete shared lesson preparation. Check your lesson state before retrying.",
+            ) from exc
     requested_topic = str(body.get("topic") or "").strip()
     module_track = _resolve_module_track(body.get("module_id"), requested_topic)
     topic = requested_topic or str((module_track or {}).get("topic") or "Python basics")
@@ -311,6 +455,23 @@ async def atlas_lesson(body: Dict[str, Any]):
 @app.post("/api/atlas/submit")
 @_controlled_learning("/api/atlas/submit")
 async def atlas_submit(body: Dict[str, Any]):
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return await _submit_shared_atlas_work(body)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logging.getLogger("mammoth.atlas").exception("Could not save shared learner submission")
+            raise HTTPException(
+                status_code=503,
+                detail="Submission outcome could not be confirmed in shared learner storage. Check saved results before retrying.",
+            ) from exc
     code = body.get("code", "")
     try:
         state = _load_atlas_state()
@@ -425,6 +586,15 @@ async def atlas_submit(body: Dict[str, Any]):
 @_controlled_learning("/api/atlas/next")
 async def atlas_next(body: Optional[Dict[str, Any]] = None):
     body = body if isinstance(body, dict) else {}
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return await _advance_shared_atlas_lesson(body)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     state = _load_atlas_state()
     curriculum = state.get("curriculum", {})
     modules = curriculum.get("modules", []) if isinstance(curriculum, dict) else []
@@ -534,7 +704,17 @@ async def atlas_next(body: Optional[Dict[str, Any]] = None):
     }
 
 @app.post("/api/atlas/back")
+@_controlled_learning("/api/atlas/back")
 async def atlas_back():
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return _return_shared_atlas_lesson()
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     state = _load_atlas_state()
     history = state.get("lesson_history") or []
     if not isinstance(history, list) or len(history) < 2:
@@ -600,6 +780,9 @@ async def atlas_curricula():
         return blocked
     from mammoth_os.curriculum_library import list_curricula
     try:
+        if _atlas_status_adapter is not None:
+            state, _ = _load_shared_workspace_collections()
+            return {"status": "ok", "curricula": state.get("curriculum_library", [])}
         return {"status": "ok", "curricula": list_curricula(_curriculum_library_path())}
     except (OSError, ValueError):
         logging.getLogger("mammoth.atlas").exception("Could not read curriculum library")
@@ -616,6 +799,34 @@ async def atlas_save_curriculum(body: Dict[str, Any]):
         course = prepare_curriculum(body.get("curriculum"))
     except (ValueError, TypeError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            state, context = _load_shared_workspace_collections()
+            records = state.get("curriculum_library", [])
+            record = {
+                "curriculum": course,
+                "saved_at": datetime.now(timezone.utc).isoformat(),
+            }
+            records = [
+                item for item in records
+                if item["curriculum"].get("curriculum_id") != course["curriculum_id"]
+            ]
+            if len(records) >= 20:
+                raise HTTPException(status_code=409, detail="Curriculum library is full (20 courses).")
+            records.append(record)
+            state["curriculum_library"] = records
+            _save_shared_workspace_collection(state, context, "curriculum_library")
+        except StateConflict:
+            raise HTTPException(status_code=409, detail="Your curriculum library changed. Reload before saving again.")
+        except StateUnavailable as exc:
+            logging.getLogger("mammoth.atlas").exception("Shared curriculum library is unavailable")
+            raise HTTPException(status_code=503, detail="Could not save your curriculum.") from exc
+        except (OSError, ValueError) as exc:
+            logging.getLogger("mammoth.atlas").exception("Could not save shared curriculum")
+            raise HTTPException(status_code=503, detail="Could not save your curriculum.") from exc
+        return {"status": "ok", **record}
     try:
         list_curricula(_curriculum_library_path())
     except (OSError, ValueError):
@@ -642,6 +853,16 @@ async def atlas_start_curriculum(body: Dict[str, Any]):
     curriculum_id = str(body.get("curriculum_id") or "").strip()
     if not curriculum_id:
         raise HTTPException(status_code=400, detail="Choose a saved curriculum.")
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return await _start_shared_saved_curriculum(curriculum_id)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail="Learner data changed. Reload before retrying.") from exc
+        except StateUnavailable as exc:
+            logging.getLogger("mammoth.atlas").exception("Shared saved curriculum activation failed")
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     try:
         records = list_curricula(_curriculum_library_path())
     except (OSError, ValueError):
@@ -851,6 +1072,15 @@ async def atlas_evals(body: Optional[Dict[str, Any]] = None):
 @app.post("/api/atlas/regenerate")
 @_controlled_learning("/api/atlas/regenerate")
 async def atlas_regenerate(body: Optional[Dict[str, Any]] = None):
+    if _atlas_status_adapter is not None:
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return await _regenerate_shared_atlas_exercise(body)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     state = _load_atlas_state()
     reason = "manual_regeneration"
     if isinstance(body, dict):
@@ -924,6 +1154,26 @@ async def atlas_apply(body: Dict[str, Any]):
 async def atlas_reset(body: Optional[Dict[str, Any]] = None):
     body = body or {}
     approval_mode = bool(body.get("approval_mode") or body.get("preview_only"))
+    if _atlas_status_adapter is not None:
+        if approval_mode:
+            from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+            try:
+                return _create_shared_learner_approval("atlas_session_reset")
+            except StateConflict as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            except (ValueError, StateUnavailable) as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+        from mammoth_os.shared_state import StateConflict, StateUnavailable
+
+        try:
+            return _shared_reset_learner(session_reset=True)
+        except StateConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except StateUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
     if approval_mode:
         task_id = f"atlas-reset-{uuid.uuid4().hex[:8]}"
         preview = _build_operation_preview("atlas_session_reset", {})
